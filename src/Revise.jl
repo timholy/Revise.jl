@@ -286,10 +286,14 @@ Set `path` to be the directory name of `file` if you want to recurse
 into any `include`d files and add them to `Revise.module_files`. (This
 is appropriate for when you parse a package/module definition upon
 initial load.) Otherwise set `path=nothing`.
+
+If parsing `file` fails, `nothing` is returned.
 """
 function parse_source(file::AbstractString, mod::Module, path)
     md = ModDict(mod=>Set{RelocatableExpr}())
-    parse_source!(md, file, mod, path)
+    if !parse_source!(md, file, mod, path)
+        return nothing
+    end
     tm = FileModules(mod, md)
     if path != nothing
         module_files[file] = tm
@@ -307,8 +311,12 @@ function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Inte
     while pos < endof(src)
         try
             ex, pos = parse(src, pos; greedy=true)
-        catch
-            return md
+        catch err
+            ex, posfail = parse(src, pos; greedy=true, raise=false)
+            warn("omitting ", file, " due to parsing error near line ", countlines(src, posfail))
+            showerror(STDERR, err)
+            println(STDERR)
+            return false
         end
         if isa(ex, Expr)
             add_filename!(ex, file)  # fixes the backtraces
@@ -317,7 +325,7 @@ function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Inte
             println(ex) # debugging
         end
     end
-    md
+    true
 end
 
 function parse_source!(md::ModDict, ex::Expr, mod::Module, path)
@@ -365,9 +373,11 @@ function revise_file(file)
     if event.changed
         oldmd = module_files[file]
         newmd = parse_source(file, oldmd.topmod, nothing)
-        revmd = revised_statements(newmd.md, oldmd.md)
-        eval_revised(revmd)
-        module_files[file] = newmd
+        if newmd != nothing
+            revmd = revised_statements(newmd.md, oldmd.md)
+            eval_revised(revmd)
+            module_files[file] = newmd
+        end
     else
         warn(file, " changed in ways that Revise cannot track. You will likely have to restart your Julia session.")
     end
@@ -387,6 +397,15 @@ function add_filename!(ex::Expr, file::Symbol)
         end
     end
     ex
+end
+
+function countlines(str::AbstractString, pos::Integer, eol='\n')
+    n = 0
+    for (i, c) in enumerate(str)
+        i > pos && break
+        n += c == eol
+    end
+    n
 end
 
 function __init__()
