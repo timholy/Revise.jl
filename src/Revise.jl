@@ -403,11 +403,19 @@ function watch_package(modsym::Symbol)
 end
 
 function revise_file_queued(file)
+    if !isfile(file)
+        sleep(0.1)   # in case git has done a delete/replace cycle
+        if !isfile(file)
+            warn(file, " is not an existing file, Revise is not watching")
+            return nothing
+        end
+    end
     event = watch_file(file)
     if event.changed
         push!(revision_queue, file)
     else
         warn(file, " changed in ways that Revise cannot track. You will likely have to restart your Julia session.")
+        return nothing
     end
     @schedule revise_file_queued(file)
 end
