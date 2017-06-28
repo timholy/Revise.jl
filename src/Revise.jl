@@ -368,6 +368,9 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
             parse_source(joinpath(path, filename), mod, joinpath(path, dir))
         elseif isa(filename, Expr)
             filename = eval(mod, macroreplace(filename, file))
+            if startswith(filename, ".")
+                filename = joinpath(path, filename)
+            end
             parse_source(filename, mod, dirname(filename))
         else
             error(filename, " not recognized")
