@@ -310,6 +310,10 @@ function parse_source(file::AbstractString, mod::Module, path)
 end
 
 function parse_source!(md::ModDict, file::AbstractString, mod::Module, path)
+    if !isfile(file)
+        warn("omitting ", file, " from revision tracking")
+        return false
+    end
     parse_source!(md, readstring(file), Symbol(file), 1, mod, path)
 end
 
@@ -369,7 +373,12 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
             dir, fn = splitdir(filename)
             parse_source(joinpath(path, filename), mod, joinpath(path, dir))
         elseif isa(filename, Expr)
-            filename = eval(mod, macroreplace(filename, file))
+            try
+                filename = eval(mod, macroreplace(filename, file))
+            catch
+                warn("could not parse `include` expression ", filename)
+                return md
+            end
             if startswith(filename, ".")
                 filename = joinpath(path, filename)
             end
@@ -406,8 +415,13 @@ function revise_file_now(file)
     newmd = parse_source(file, oldmd.topmod, nothing)
     if newmd != nothing
         revmd = revised_statements(newmd.md, oldmd.md)
-        eval_revised(revmd)
-        file2modules[file] = newmd
+        try
+            eval_revised(revmd)
+            file2modules[file] = newmd
+        catch err
+            warn("evaluation error during revision: ", err)
+            Base.show_backtrace(STDERR, catch_backtrace())
+        end
     end
     nothing
 end
