@@ -381,25 +381,32 @@ end
 function watch_package(modsym::Symbol)
     files = parse_pkg_files(modsym)
     for file in files
-        @schedule revise_file(file)
+        @schedule revise_file_queued(file)
     end
     return nothing
 end
 
-function revise_file(file)
+const revision_queue = Set{String}()
+
+function revise_file_queued(file)
     event = watch_file(file)
     if event.changed
-        oldmd = module_files[file]
-        newmd = parse_source(file, oldmd.topmod, nothing)
-        if newmd != nothing
-            revmd = revised_statements(newmd.md, oldmd.md)
-            eval_revised(revmd)
-            module_files[file] = newmd
-        end
+        push!(revision_queue, file)
     else
         warn(file, " changed in ways that Revise cannot track. You will likely have to restart your Julia session.")
     end
-    @schedule revise_file(file)
+    @schedule revise_file_queued(file)
+end
+
+function revise_file_now(file)
+    oldmd = module_files[file]
+    newmd = parse_source(file, oldmd.topmod, nothing)
+    if newmd != nothing
+        revmd = revised_statements(newmd.md, oldmd.md)
+        eval_revised(revmd)
+        module_files[file] = newmd
+    end
+    nothing
 end
 
 _module_name(ex::Expr) = ex.args[2]
@@ -442,8 +449,37 @@ function macroreplace(ex::Expr, filename)
 end
 macroreplace(s, filename) = s
 
+function steal_repl_backend(backend = Base.active_repl_backend)
+    # terminate the current backend
+    put!(backend.repl_channel, (nothing, -1))
+    yield()
+    # restart a new backend that differs only by processing the
+    # revision queue before evaluating each user input
+    backend.backend_task = @schedule begin
+        while true
+            tls = task_local_storage()
+            tls[:SOURCE_PATH] = nothing
+            ast, show_value = take!(backend.repl_channel)
+            if show_value == -1
+                # exit flag
+                break
+            end
+            # Process revisions
+            for file in revision_queue
+                revise_file_now(file)
+            end
+            empty!(revision_queue)
+            Base.REPL.eval_user_input(ast, backend)
+        end
+    end
+    backend
+end
+
 function __init__()
     push!(Base.package_callbacks, watch_package)
+    if isdefined(Base, :active_repl_backend)
+        steal_repl_backend()
+    end
 end
 
 end # module
