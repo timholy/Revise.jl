@@ -444,6 +444,20 @@ function revise()
     nothing
 end
 
+function track(mod::Module)
+    if mod == Base
+        empty!(new_files)
+        mainfile = joinpath(dirname(dirname(JULIA_HOME)), "base", "sysimg.jl")
+        parse_source(mainfile, Main, dirname(mainfile))
+        for file in new_files
+            @schedule revise_file_queued(file)
+        end
+    else
+        error("no Revise.track recipe for module ", mod)
+    end
+    nothing
+end
+
 ## Utilities
 
 _module_name(ex::Expr) = ex.args[2]
