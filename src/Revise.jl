@@ -325,30 +325,34 @@ function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Inte
         end
         if isa(ex, Expr)
             add_filename!(ex, file)  # fixes the backtraces
-            parse_expr!(md, ex::Expr, mod, path)
+            parse_expr!(md, ex::Expr, file, mod, path)
         else
-            println(ex) # debugging
+            if ex != nothing
+                println(ex) # debugging
+            end
         end
     end
     true
 end
 
-function parse_source!(md::ModDict, ex::Expr, mod::Module, path)
+function parse_source!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     @assert ex.head == :block
     for a in ex.args
         if isa(a, Expr)
-            parse_expr!(md, a::Expr, mod, path)
+            parse_expr!(md, a::Expr, file, mod, path)
         else
-            println(a)  # debugging
+            if a != nothing
+                println(a)  # debugging
+            end
         end
     end
     md
 end
 
-function parse_expr!(md::ModDict, ex::Expr, mod::Module, path)
+function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     if ex.head == :block
         for a in ex.args
-            parse_expr!(md, a, mod, path)
+            parse_expr!(md, a, file, mod, path)
         end
         return md
     elseif ex.head == :line
@@ -356,9 +360,18 @@ function parse_expr!(md::ModDict, ex::Expr, mod::Module, path)
     elseif ex.head == :module
         newmod = getfield(mod, _module_name(ex))
         md[newmod] = Set{RelocatableExpr}()
-        parse_source!(md, ex.args[3], newmod, path)
+        parse_source!(md, ex.args[3], file, newmod, path)
     elseif ex.head == :call && ex.args[1] == :include && path != nothing
-        parse_source(joinpath(path, ex.args[2]), mod, path)
+        filename = ex.args[2]
+        if isa(filename, String)
+            dir, fn = splitdir(filename)
+            parse_source(joinpath(path, filename), mod, joinpath(path, dir))
+        elseif isa(filename, Expr)
+            filename = eval(mod, macroreplace(filename, file))
+            parse_source(filename, mod, dirname(filename))
+        else
+            error(filename, " not recognized")
+        end
     else
         push!(md[mod], convert(RelocatableExpr, ex))
     end
@@ -412,6 +425,22 @@ function countlines(str::AbstractString, pos::Integer, eol='\n')
     end
     n
 end
+
+function macroreplace(ex::Expr, filename)
+    for i = 1:length(ex.args)
+        ex.args[i] = macroreplace(ex.args[i], filename)
+    end
+    if ex.head == :macrocall
+        m = ex.args[1]
+        if m == Symbol("@__FILE__")
+            return String(filename)
+        elseif m == Symbol("@__DIR__")
+            return dirname(String(filename))
+        end
+    end
+    return ex
+end
+macroreplace(s, filename) = s
 
 function __init__()
     push!(Base.package_callbacks, watch_package)
