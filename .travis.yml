@@ -29,7 +29,5 @@ git:
 #script:
 #  - julia -e 'Pkg.clone(pwd()); Pkg.build("Revise"); Pkg.test("Revise"; coverage=true)'
 after_success:
-  # push coverage results to Coveralls
-  - julia -e 'cd(Pkg.dir("Revise")); Pkg.add("Coverage"); using Coverage; Coveralls.submit(Coveralls.process_folder())'
   # push coverage results to Codecov
   - julia -e 'cd(Pkg.dir("Revise")); Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'
