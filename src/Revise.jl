@@ -303,8 +303,13 @@ function parse_source!(md::ModDict, file::AbstractString, mod::Module, path)
 end
 
 function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Integer, mod::Module, path)
+    local ex
     while pos < endof(src)
-        ex, pos = parse(src, pos; greedy=true)
+        try
+            ex, pos = parse(src, pos; greedy=true)
+        catch
+            return md
+        end
         if isa(ex, Expr)
             add_filename!(ex, file)  # fixes the backtraces
             parse_expr!(md, ex::Expr, mod, path)
