@@ -2,6 +2,8 @@ __precompile__()
 
 module Revise
 
+const revision_queue = Set{String}()  # file names that have changed since last revision
+
 ## Structures to manipulate parsed files
 
 # We will need to detect new function bodies, compare function bodies
@@ -168,11 +170,11 @@ end
 ```
 
 Then if this module is loaded from `Main`, schematically the
-corresponding `tm::FileModules` looks something like
+corresponding `fm::FileModules` looks something like
 
 ```julia
-tm.topmod = Main
-tm.md = Dict(Main=>Set([:(__precompile__(true))]), Main.MyPkg=>Set[:(foo(x) = x^2)])
+fm.topmod = Main
+fm.md = Dict(Main=>Set([:(__precompile__(true))]), Main.MyPkg=>Set[:(foo(x) = x^2)])
 ```
 because the precompile statement occurs in `Main`, and the definition of
 `foo` occurs in `Main.MyPkg`.
@@ -193,9 +195,9 @@ Return a `Dict(Module=>changeset)`, `revmod`, listing the changes that
 should be `eval`ed for each module to update definitions from `old_defs` to
 `new_defs`.  See [`parse_source`](@ref) to obtain the `defs` structures.
 """
-function revised_statements(newtm::FileModules, oldtm::FileModules)
-    @assert newtm.topmod == oldtm.topmod
-    revised_statements(newtm.md, oldtm.md)
+function revised_statements(newfm::FileModules, oldfm::FileModules)
+    @assert newfm.topmod == oldfm.topmod
+    revised_statements(newfm.md, oldfm.md)
 end
 
 function revised_statements(newmd::ModDict, oldmd::ModDict)
@@ -256,7 +258,7 @@ function eval_revised(revmd::ModDict)
     end
 end
 
-const module_files = Dict{String,FileModules}()
+const file2modules = Dict{String,FileModules}()
 const new_files = String[]
 
 function parse_pkg_files(modsym::Symbol)
@@ -288,7 +290,7 @@ the "parent" module for the file; if `file` defines more module(s)
 then these will all have separate entries in `md`.
 
 Set `path` to be the directory name of `file` if you want to recurse
-into any `include`d files and add them to `Revise.module_files`. (This
+into any `include`d files and add them to `Revise.file2modules`. (This
 is appropriate for when you parse a package/module definition upon
 initial load.) Otherwise set `path=nothing`.
 
@@ -299,12 +301,12 @@ function parse_source(file::AbstractString, mod::Module, path)
     if !parse_source!(md, file, mod, path)
         return nothing
     end
-    tm = FileModules(mod, md)
+    fm = FileModules(mod, md)
     if path != nothing
-        module_files[file] = tm
+        file2modules[file] = fm
         push!(new_files, file)
     end
-    tm
+    fm
 end
 
 function parse_source!(md::ModDict, file::AbstractString, mod::Module, path)
@@ -389,8 +391,6 @@ function watch_package(modsym::Symbol)
     return nothing
 end
 
-const revision_queue = Set{String}()
-
 function revise_file_queued(file)
     event = watch_file(file)
     if event.changed
@@ -402,15 +402,24 @@ function revise_file_queued(file)
 end
 
 function revise_file_now(file)
-    oldmd = module_files[file]
+    oldmd = file2modules[file]
     newmd = parse_source(file, oldmd.topmod, nothing)
     if newmd != nothing
         revmd = revised_statements(newmd.md, oldmd.md)
         eval_revised(revmd)
-        module_files[file] = newmd
+        file2modules[file] = newmd
     end
     nothing
 end
+
+function revise()
+    for file in revision_queue
+        revise_file_now(file)
+    end
+    empty!(revision_queue)
+end
+
+## Utilities
 
 _module_name(ex::Expr) = ex.args[2]
 
@@ -468,10 +477,7 @@ function steal_repl_backend(backend = Base.active_repl_backend)
                 break
             end
             # Process revisions
-            for file in revision_queue
-                revise_file_now(file)
-            end
-            empty!(revision_queue)
+            revise()
             Base.REPL.eval_user_input(ast, backend)
         end
     end
