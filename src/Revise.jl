@@ -2,6 +2,8 @@ __precompile__()
 
 module Revise
 
+export revise
+
 const revision_queue = Set{String}()  # file names that have changed since last revision
 
 ## Structures to manipulate parsed files
@@ -431,6 +433,7 @@ function revise()
         revise_file_now(file)
     end
     empty!(revision_queue)
+    nothing
 end
 
 ## Utilities
@@ -500,7 +503,8 @@ end
 
 function __init__()
     push!(Base.package_callbacks, watch_package)
-    if isdefined(Base, :active_repl_backend)
+    mode = get(ENV, "JULIA_REVISE", "auto")
+    if mode == "auto" && isdefined(Base, :active_repl_backend)
         steal_repl_backend()
     end
 end
