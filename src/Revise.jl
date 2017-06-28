@@ -246,7 +246,12 @@ end
 function eval_revised(revmd::ModDict)
     for (mod, exprs) in revmd
         for ex in exprs
-            eval(mod, unrelocatable(ex))
+            try
+                eval(mod, unrelocatable(ex))
+            catch err
+                warn("failure to evaluate changes in ", mod)
+                println(STDERR, unrelocatable(ex))
+            end
         end
     end
 end
