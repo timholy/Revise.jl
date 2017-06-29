@@ -369,25 +369,30 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
         newmod = getfield(mod, _module_name(ex))
         md[newmod] = Set{RelocatableExpr}()
         parse_source!(md, ex.args[3], file, newmod, path)
-    elseif ex.head == :call && ex.args[1] == :include && path != nothing
-        filename = ex.args[2]
-        if isa(filename, String)
-            dir, fn = splitdir(filename)
-            parse_source(joinpath(path, filename), mod, joinpath(path, dir))
-        elseif isa(filename, Expr)
-            try
-                filename = eval(mod, macroreplace(filename, file))
-            catch
-                warn("could not parse `include` expression ", filename)
-                return md
+    elseif ex.head == :call && ex.args[1] == :include
+        if path != nothing
+            filename = ex.args[2]
+            if isa(filename, String)
+                dir, fn = splitdir(filename)
+                parse_source(joinpath(path, filename), mod, joinpath(path, dir))
+            elseif isa(filename, Expr)
+                try
+                    filename = eval(mod, macroreplace(filename, file))
+                catch
+                    warn("could not parse `include` expression ", filename)
+                    return md
+                end
+                if startswith(filename, ".")
+                    filename = joinpath(path, filename)
+                end
+                parse_source(filename, mod, dirname(filename))
+            else
+                error(filename, " not recognized")
             end
-            if startswith(filename, ".")
-                filename = joinpath(path, filename)
-            end
-            parse_source(filename, mod, dirname(filename))
-        else
-            error(filename, " not recognized")
         end
+        # Note that if path == nothing (we're parsing the file to
+        # detect changes compared to the cached version), then we skip
+        # the include statement.
     else
         push!(md[mod], convert(RelocatableExpr, ex))
     end
