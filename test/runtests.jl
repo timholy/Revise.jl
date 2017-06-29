@@ -26,9 +26,9 @@ using Base.Test
     end
 
     @testset "Comparison" begin
-        fl1 = joinpath(@__DIR__, "testmodule.jl")
-        fl2 = joinpath(@__DIR__, "testmodule_revised.jl")
-        fl3 = joinpath(@__DIR__, "testmodule_errors.jl")
+        fl1 = joinpath(@__DIR__, "revisetest.jl")
+        fl2 = joinpath(@__DIR__, "revisetest_revised.jl")
+        fl3 = joinpath(@__DIR__, "revisetest_errors.jl")
         include(fl1)  # So the modules are defined
         # test the "mistakes"
         @test ReviseTest.cube(2) == 16
