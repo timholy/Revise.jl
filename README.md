@@ -41,20 +41,23 @@ below).
 
 ## Manual revision
 
-There might be times where you'd prefer to exert manual control over
+By default, Revise processes any modified source files every time you enter
+a command at the REPL.
+However, there might be times where you'd prefer to exert manual control over
 the timing of revisions. `Revise` looks for an environment variable
 `JULIA_REVISE`, and if it is set to anything other than `"auto"` it
-will avoid making automatic updates each time you enter a command at
-the REPL. You can call `revise()` whenever you want to process
-revisions.
+will require that you manually call `revise()` to update code.
 
-On Linux, you can start your Julia session as
+For example, on Linux you can start your Julia session as
 
 ```sh
 $ JULIA_REVISE=manual julia
 ```
 
 and then revisions will be processed only when you call `revise()`.
+If you prefer this mode of operation, you can add that variable to your `bash`
+environment or add `ENV["JULIA_REVISE"] = "manual"` to your
+`.juliarc.jl` before you say `using Revise` (see below).
 
 ## Using Revise by default
 
@@ -71,7 +74,7 @@ end
 ## How it works
 
 Revise is based on the fact that you can change functions even when
-they are defined in other modules:
+they are defined in other modules. Here's an example showing how you do that manually (without using Revise):
 
 ```julia
 julia> convert(Float64, π)
@@ -90,19 +93,23 @@ julia> convert(Float64, π)
 ```
 
 Revise removes some of the tedium of manually copying and pasting code
-into `eval` statements.  To decrease the amount of re-JITting
-required, rather than reloading the entire package Revise takes care
-to `eval` only the *changes* in your package(s).  To accomplish this,
-it uses the following overall strategy:
+into `eval` statements.
+To decrease the amount of re-JITting
+required, Revise avoids reloading the entire package; instead, it takes care
+to `eval` only the *changes* in your package(s), much as you would if you were
+doing it manually.
+
+To accomplish this, Revise uses the following overall strategy:
 
 - add a callback to Base so that Revise gets notified when new
   packages are loaded
-- parse the source code for newly-loaded packages to determine the
-  module associated with each line of code, as well as the list of
-  `include`d files; cache the parsed code so that it is possible to
-  detect future changes
+- parse the source code for packages when they are first loaded. This
+  allows Revise to determine the
+  module associated with each line of code, and assemble a list of
+  `include`d files for the package. Revise then caches the parsed code
+  so that it is possible to detect changes in the future.
 - monitor the file system for changes to any of the `include`d files;
-  append any updated files to a list of file names that need future
+  it immediately appends any updates to a list of file names that need future
   processing
 - intercept the REPL's backend to ensure that the list of
   files-to-be-revised gets processed each time you execute a new
