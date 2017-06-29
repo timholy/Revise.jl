@@ -77,7 +77,7 @@ to_remove = String[]
     end
 
     @testset "File paths" begin
-        testdir = tempname()
+        testdir = joinpath(tempdir(), randstring(10))
         mkdir(testdir)
         push!(to_remove, testdir)
         push!(LOAD_PATH, testdir)
@@ -176,5 +176,7 @@ end
 
 # These may cause warning messages about "not an existing file", but that's fine
 for name in to_remove
-    rm(name; force=true, recursive=true)
+    try
+        rm(name; force=true, recursive=true)
+    end
 end

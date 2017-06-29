@@ -305,8 +305,9 @@ function parse_source(file::AbstractString, mod::Module, path)
     end
     fm = FileModules(mod, md)
     if path != nothing
-        file2modules[file] = fm
-        push!(new_files, file)
+        nfile = normpath(file)
+        file2modules[nfile] = fm
+        push!(new_files, nfile)
     end
     fm
 end
@@ -418,7 +419,12 @@ function revise_file_queued(file)
     @schedule revise_file_queued(file)
 end
 
-function revise_file_now(file)
+function revise_file_now(file0)
+    file = normpath(file0)
+    if !haskey(file2modules, file)
+        println("Revise is currently tracking the following files: ", keys(file2modules))
+        error(file, " is not currently being tracked.")
+    end
     oldmd = file2modules[file]
     newmd = parse_source(file, oldmd.topmod, nothing)
     if newmd != nothing
