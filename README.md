@@ -4,15 +4,12 @@
 [![Build status](https://ci.appveyor.com/api/projects/status/e1xnsj4e5q9308y6/branch/master?svg=true)](https://ci.appveyor.com/project/timholy/revise-jl/branch/master)
 [![codecov.io](http://codecov.io/github/timholy/Revise.jl/coverage.svg?branch=master)](http://codecov.io/github/timholy/Revise.jl?branch=master)
 
-`Revise.jl` makes it easier to continuously update code in a running
-Julia session.  If you've said `using Revise` in a Julia session, you
-can edit the source files of packages and expect that many changes
-will be activated when you next issue a command from the REPL.
-
-The practical consequence is that `Revise` may reduce the number of
-times that you'll need to restart your Julia session. This can
-increase productivity because the cost of loading packages and JITting
-code can be noticeable.
+`Revise.jl` may help you keep your sessions running longer, reducing the
+need to restart Julia whenever you make changes to code.
+With Revise, you can be in the middle of a session and then issue a `Pkg.update()`
+and/or edit the source code; typically, the changes will be incorporated
+into the very next command you issue from the REPL.
+This can save you the overhead of restarting, loading packages, and waiting for code to JIT-compile.
 
 ### Example:
 
