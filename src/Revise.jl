@@ -60,17 +60,15 @@ end
 function relocatable!(args::Vector{Any})
     for (i, a) in enumerate(args)
         if isa(a, Expr)
-            args[i] = relocatable!(a)
-        # elseif isa(a, QuoteNode)
-        #     dump(a)  # debugging: do we need to worry about QuoteNodes?
-        end
+            args[i] = relocatable!(a::Expr)
+        end   # do we need to worry about QuoteNodes?
     end
     args
 end
 function unrelocatable!(args::Vector{Any})
     for (i, a) in enumerate(args)
         if isa(a, RelocatableExpr)
-            args[i] = unrelocatable!(a)
+            args[i] = unrelocatable!(a::RelocatableExpr)
         end
     end
     args
@@ -118,6 +116,8 @@ function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
         vala, ia = next(itera, ia)
         valb, ib = next(iterb, ib)
         if isa(vala, RelocatableExpr) && isa(valb, RelocatableExpr)
+            vala = vala::RelocatableExpr
+            valb = valb::RelocatableExpr
             vala.head == valb.head || return false
             isequal(LineSkippingIterator(vala.args), LineSkippingIterator(valb.args)) || return false
         else
@@ -305,8 +305,9 @@ function parse_source(file::AbstractString, mod::Module, path)
     end
     fm = FileModules(mod, md)
     if path != nothing
-        file2modules[file] = fm
-        push!(new_files, file)
+        nfile = normpath(file)
+        file2modules[nfile] = fm
+        push!(new_files, nfile)
     end
     fm
 end
@@ -332,12 +333,9 @@ function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Inte
             return false
         end
         if isa(ex, Expr)
+            ex = ex::Expr
             add_filename!(ex, file)  # fixes the backtraces
-            parse_expr!(md, ex::Expr, file, mod, path)
-        else
-            if ex != nothing
-                println(ex) # debugging
-            end
+            parse_expr!(md, ex, file, mod, path)
         end
     end
     true
@@ -348,10 +346,6 @@ function parse_source!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     for a in ex.args
         if isa(a, Expr)
             parse_expr!(md, a::Expr, file, mod, path)
-        else
-            if a != nothing
-                println(a)  # debugging
-            end
         end
     end
     md
@@ -369,25 +363,30 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
         newmod = getfield(mod, _module_name(ex))
         md[newmod] = Set{RelocatableExpr}()
         parse_source!(md, ex.args[3], file, newmod, path)
-    elseif ex.head == :call && ex.args[1] == :include && path != nothing
-        filename = ex.args[2]
-        if isa(filename, String)
-            dir, fn = splitdir(filename)
-            parse_source(joinpath(path, filename), mod, joinpath(path, dir))
-        elseif isa(filename, Expr)
-            try
-                filename = eval(mod, macroreplace(filename, file))
-            catch
-                warn("could not parse `include` expression ", filename)
-                return md
+    elseif ex.head == :call && ex.args[1] == :include
+        if path != nothing
+            filename = ex.args[2]
+            if isa(filename, String)
+                dir, fn = splitdir(filename)
+                parse_source(joinpath(path, filename), mod, joinpath(path, dir))
+            elseif isa(filename, Expr)
+                try
+                    filename = eval(mod, macroreplace(filename, file))
+                catch
+                    warn("could not parse `include` expression ", filename)
+                    return md
+                end
+                if startswith(filename, ".")
+                    filename = joinpath(path, filename)
+                end
+                parse_source(filename, mod, dirname(filename))
+            else
+                error(filename, " not recognized")
             end
-            if startswith(filename, ".")
-                filename = joinpath(path, filename)
-            end
-            parse_source(filename, mod, dirname(filename))
-        else
-            error(filename, " not recognized")
         end
+        # Note that if path == nothing (we're parsing the file to
+        # detect changes compared to the cached version), then we skip
+        # the include statement.
     else
         push!(md[mod], convert(RelocatableExpr, ex))
     end
@@ -420,7 +419,12 @@ function revise_file_queued(file)
     @schedule revise_file_queued(file)
 end
 
-function revise_file_now(file)
+function revise_file_now(file0)
+    file = normpath(file0)
+    if !haskey(file2modules, file)
+        println("Revise is currently tracking the following files: ", keys(file2modules))
+        error(file, " is not currently being tracked.")
+    end
     oldmd = file2modules[file]
     newmd = parse_source(file, oldmd.topmod, nothing)
     if newmd != nothing
@@ -466,13 +470,20 @@ function add_filename!(ex::Expr, file::Symbol)
     if ex.head == :line
         ex.args[2] = file
     else
-        for a in ex.args
+        for (i, a) in enumerate(ex.args)
             if isa(a, Expr)
                 add_filename!(a::Expr, file)
+            elseif isa(a, LineNumberNode)
+                ex.args[i] = add_filename(a::LineNumberNode, file)
             end
         end
     end
     ex
+end
+if VERSION < v"0.7.0-DEV.328"
+    add_filename(lnn::LineNumberNode, file::Symbol) = lnn
+else
+    add_filename(lnn::LineNumberNode, file::Symbol) = LineNumberNode(lnn.line, file)
 end
 
 function countlines(str::AbstractString, pos::Integer, eol='\n')

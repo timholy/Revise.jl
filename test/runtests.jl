@@ -1,6 +1,8 @@
 using Revise
 using Base.Test
 
+to_remove = String[]
+
 @testset "Revise" begin
 
     function collectexprs(ex::Revise.RelocatableExpr)
@@ -26,9 +28,9 @@ using Base.Test
     end
 
     @testset "Comparison" begin
-        fl1 = joinpath(@__DIR__, "testmodule.jl")
-        fl2 = joinpath(@__DIR__, "testmodule_revised.jl")
-        fl3 = joinpath(@__DIR__, "testmodule_errors.jl")
+        fl1 = joinpath(@__DIR__, "revisetest.jl")
+        fl2 = joinpath(@__DIR__, "revisetest_revised.jl")
+        fl3 = joinpath(@__DIR__, "revisetest_errors.jl")
         include(fl1)  # So the modules are defined
         # test the "mistakes"
         @test ReviseTest.cube(2) == 16
@@ -74,4 +76,107 @@ using Base.Test
         end
     end
 
+    @testset "File paths" begin
+        testdir = joinpath(tempdir(), randstring(10))
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        yry() = (sleep(0.1); revise(); sleep(0.1))
+        for (pcflag, fbase) in ((true, "pc"), (false, "npc"))  # precompiled & not
+            modname = uppercase(fbase)
+            # Create a package with the following structure:
+            #   src/PkgName.jl   # PC.jl = precompiled, NPC.jl = nonprecompiled
+            #   src/file2.jl
+            #   src/subdir/file3.jl
+            #   src/subdir/file4.jl
+            # exploring different ways of expressing the `include` statement
+            dn = joinpath(testdir, modname, "src")
+            mkpath(dn)
+            open(joinpath(dn, modname*".jl"), "w") do io
+                println(io, """
+__precompile__($pcflag)
+
+module $modname
+
+export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4
+
+$(fbase)1() = 1
+
+include("file2.jl")
+include("subdir/file3.jl")
+include(joinpath(@__DIR__, "subdir", "file4.jl"))
+
+end
+""")
+            end
+            open(joinpath(dn, "file2.jl"), "w") do io
+                println(io, "$(fbase)2() = 2")
+            end
+            mkdir(joinpath(dn, "subdir"))
+            open(joinpath(dn, "subdir", "file3.jl"), "w") do io
+                println(io, "$(fbase)3() = 3")
+            end
+            open(joinpath(dn, "subdir", "file4.jl"), "w") do io
+                println(io, "$(fbase)4() = 4")
+            end
+            @eval using $(Symbol(modname))
+            fn1, fn2 = Symbol("$(fbase)1"), Symbol("$(fbase)2")
+            fn3, fn4 = Symbol("$(fbase)3"), Symbol("$(fbase)4")
+            @eval @test $(fn1)() == 1
+            @eval @test $(fn2)() == 2
+            @eval @test $(fn3)() == 3
+            @eval @test $(fn4)() == 4
+            sleep(0.1)  # to ensure that the file watching has kicked in
+            # Change the definition of function 1 (easiest to just rewrite the whole file)
+            open(joinpath(dn, modname*".jl"), "w") do io
+                println(io, """
+__precompile__($pcflag)
+module $modname
+export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4
+$(fbase)1() = -1
+include("file2.jl")
+include("subdir/file3.jl")
+include(joinpath(@__DIR__, "subdir", "file4.jl"))
+end
+""")  # just for fun we skipped the whitespace
+            end
+            yry()
+            @eval @test $(fn1)() == -1
+            @eval @test $(fn2)() == 2
+            @eval @test $(fn3)() == 3
+            @eval @test $(fn4)() == 4
+            # Redefine function 2
+            open(joinpath(dn, "file2.jl"), "w") do io
+                println(io, "$(fbase)2() = -2")
+            end
+            yry()
+            @eval @test $(fn1)() == -1
+            @eval @test $(fn2)() == -2
+            @eval @test $(fn3)() == 3
+            @eval @test $(fn4)() == 4
+            open(joinpath(dn, "subdir", "file3.jl"), "w") do io
+                println(io, "$(fbase)3() = -3")
+            end
+            yry()
+            @eval @test $(fn1)() == -1
+            @eval @test $(fn2)() == -2
+            @eval @test $(fn3)() == -3
+            @eval @test $(fn4)() == 4
+            open(joinpath(dn, "subdir", "file4.jl"), "w") do io
+                println(io, "$(fbase)4() = -4")
+            end
+            yry()
+            @eval @test $(fn1)() == -1
+            @eval @test $(fn2)() == -2
+            @eval @test $(fn3)() == -3
+            @eval @test $(fn4)() == -4
+        end
+    end
+end
+
+# These may cause warning messages about "not an existing file", but that's fine
+for name in to_remove
+    try
+        rm(name; force=true, recursive=true)
+    end
 end
