@@ -60,17 +60,15 @@ end
 function relocatable!(args::Vector{Any})
     for (i, a) in enumerate(args)
         if isa(a, Expr)
-            args[i] = relocatable!(a)
-        # elseif isa(a, QuoteNode)
-        #     dump(a)  # debugging: do we need to worry about QuoteNodes?
-        end
+            args[i] = relocatable!(a::Expr)
+        end   # do we need to worry about QuoteNodes?
     end
     args
 end
 function unrelocatable!(args::Vector{Any})
     for (i, a) in enumerate(args)
         if isa(a, RelocatableExpr)
-            args[i] = unrelocatable!(a)
+            args[i] = unrelocatable!(a::RelocatableExpr)
         end
     end
     args
@@ -118,6 +116,8 @@ function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
         vala, ia = next(itera, ia)
         valb, ib = next(iterb, ib)
         if isa(vala, RelocatableExpr) && isa(valb, RelocatableExpr)
+            vala = vala::RelocatableExpr
+            valb = valb::RelocatableExpr
             vala.head == valb.head || return false
             isequal(LineSkippingIterator(vala.args), LineSkippingIterator(valb.args)) || return false
         else
@@ -332,12 +332,9 @@ function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Inte
             return false
         end
         if isa(ex, Expr)
+            ex = ex::Expr
             add_filename!(ex, file)  # fixes the backtraces
-            parse_expr!(md, ex::Expr, file, mod, path)
-        else
-            if ex != nothing
-                println(ex) # debugging
-            end
+            parse_expr!(md, ex, file, mod, path)
         end
     end
     true
@@ -348,10 +345,6 @@ function parse_source!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     for a in ex.args
         if isa(a, Expr)
             parse_expr!(md, a::Expr, file, mod, path)
-        else
-            if a != nothing
-                println(a)  # debugging
-            end
         end
     end
     md
