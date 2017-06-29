@@ -471,13 +471,20 @@ function add_filename!(ex::Expr, file::Symbol)
     if ex.head == :line
         ex.args[2] = file
     else
-        for a in ex.args
+        for (i, a) in enumerate(ex.args)
             if isa(a, Expr)
                 add_filename!(a::Expr, file)
+            elseif isa(a, LineNumberNode)
+                ex.args[i] = add_filename(a::LineNumberNode, file)
             end
         end
     end
     ex
+end
+if VERSION < v"0.7.0-DEV.328"
+    add_filename(lnn::LineNumberNode, file::Symbol) = lnn
+else
+    add_filename(lnn::LineNumberNode, file::Symbol) = LineNumberNode(lnn.line, file)
 end
 
 function countlines(str::AbstractString, pos::Integer, eol='\n')
