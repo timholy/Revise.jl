@@ -462,6 +462,15 @@ function track(mod::Module)
     nothing
 end
 
+function track(file::AbstractString)
+    isfile(file) || error(file, " is not a file")
+    parse_source(file, Main, dirname(file))
+    for fl in new_files
+        @schedule revise_file_queued(fl)
+    end
+    nothing
+end
+
 ## Utilities
 
 _module_name(ex::Expr) = ex.args[2]

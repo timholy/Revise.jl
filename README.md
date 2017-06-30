@@ -123,7 +123,7 @@ To accomplish this, Revise uses the following overall strategy:
 
 `Revise` only tracks files that have been required as a consequence of
 a `using` or `import` statement; files loaded by `include` are not
-tracked.
+tracked, unless you explicitly use `Revise.track(filename)`.
 
 There are some kinds of changes that Revise cannot incorporate into a running Julia session:
 
