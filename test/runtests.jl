@@ -171,6 +171,7 @@ end
             @eval @test $(fn3)() == -3
             @eval @test $(fn4)() == -4
         end
+        pop!(LOAD_PATH)
     end
 end
 
