@@ -62,6 +62,7 @@ to_remove = String[]
         Revise.eval_revised(revmd)
         try
             ReviseTest.cube(2)
+            @test false
         catch err
             @test isa(err, ErrorException) && err.msg == "cube"
             bt = first(stacktrace(catch_backtrace()))
@@ -69,6 +70,7 @@ to_remove = String[]
         end
         try
             ReviseTest.Internal.mult2(2)
+            @test false
         catch err
             @test isa(err, ErrorException) && err.msg == "mult2"
             bt = first(stacktrace(catch_backtrace()))
