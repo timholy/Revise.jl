@@ -369,6 +369,8 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
             if isa(filename, String)
                 dir, fn = splitdir(filename)
                 parse_source(joinpath(path, filename), mod, joinpath(path, dir))
+            elseif isa(filename, Symbol)
+                filename = eval(mod, filename)
             elseif isa(filename, Expr)
                 try
                     filename = eval(mod, macroreplace(filename, file))
