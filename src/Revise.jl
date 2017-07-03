@@ -543,8 +543,12 @@ end
 function __init__()
     push!(Base.package_callbacks, watch_package)
     mode = get(ENV, "JULIA_REVISE", "auto")
-    if mode == "auto" && isdefined(Base, :active_repl_backend)
-        steal_repl_backend()
+    if mode == "auto"
+        if isdefined(Base, :active_repl_backend)
+            steal_repl_backend()
+        elseif isdefined(Main, :IJulia)
+            Main.IJulia.push_preexecute_hook(revise)
+        end
     end
 end
 
