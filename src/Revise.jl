@@ -409,13 +409,8 @@ function revise_file_queued(file)
             return nothing
         end
     end
-    event = watch_file(file)
-    if event.changed
-        push!(revision_queue, file)
-    else
-        warn(file, " changed in ways that Revise cannot track. You will likely have to restart your Julia session.")
-        return nothing
-    end
+    watch_file(file)  # will block here until the file changes
+    push!(revision_queue, file)
     @schedule revise_file_queued(file)
 end
 
