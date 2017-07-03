@@ -366,11 +366,14 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     elseif ex.head == :call && ex.args[1] == :include
         if path != nothing
             filename = ex.args[2]
-            if isa(filename, String)
-                dir, fn = splitdir(filename)
-                parse_source(joinpath(path, filename), mod, joinpath(path, dir))
+            if isa(filename, AbstractString)
             elseif isa(filename, Symbol)
-                filename = eval(mod, filename)
+                if isdefined(mod, filename)
+                    filename = getfield(mod, filename)
+                    isa(filename, AbstractString) || warn(filename, " is not a string")
+                else
+                    warn("unable to resolve filename ", filename)
+                end
             elseif isa(filename, Expr)
                 try
                     filename = eval(mod, macroreplace(filename, file))
@@ -378,13 +381,14 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
                     warn("could not parse `include` expression ", filename)
                     return md
                 end
-                if startswith(filename, ".")
-                    filename = joinpath(path, filename)
-                end
-                parse_source(filename, mod, dirname(filename))
             else
                 error(filename, " not recognized")
             end
+            if !isabspath(filename)
+                filename = joinpath(path, filename)
+            end
+            dir, fn = splitdir(filename)
+            parse_source(filename, mod, joinpath(path, dir))
         end
         # Note that if path == nothing (we're parsing the file to
         # detect changes compared to the cached version), then we skip

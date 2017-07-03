@@ -100,13 +100,15 @@ __precompile__($pcflag)
 
 module $modname
 
-export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4
+export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5
 
 $(fbase)1() = 1
 
 include("file2.jl")
 include("subdir/file3.jl")
 include(joinpath(@__DIR__, "subdir", "file4.jl"))
+otherfile = "file5.jl"
+include(otherfile)
 
 end
 """)
@@ -121,13 +123,18 @@ end
             open(joinpath(dn, "subdir", "file4.jl"), "w") do io
                 println(io, "$(fbase)4() = 4")
             end
+            open(joinpath(dn, "file5.jl"), "w") do io
+                println(io, "$(fbase)5() = 5")
+            end
             @eval using $(Symbol(modname))
             fn1, fn2 = Symbol("$(fbase)1"), Symbol("$(fbase)2")
             fn3, fn4 = Symbol("$(fbase)3"), Symbol("$(fbase)4")
+            fn5 = Symbol("$(fbase)5")
             @eval @test $(fn1)() == 1
             @eval @test $(fn2)() == 2
             @eval @test $(fn3)() == 3
             @eval @test $(fn4)() == 4
+            @eval @test $(fn5)() == 5
             sleep(0.1)  # to ensure that the file watching has kicked in
             # Change the definition of function 1 (easiest to just rewrite the whole file)
             open(joinpath(dn, modname*".jl"), "w") do io
@@ -139,6 +146,8 @@ $(fbase)1() = -1
 include("file2.jl")
 include("subdir/file3.jl")
 include(joinpath(@__DIR__, "subdir", "file4.jl"))
+otherfile = "file5.jl"
+include(otherfile)
 end
 """)  # just for fun we skipped the whitespace
             end
@@ -147,6 +156,7 @@ end
             @eval @test $(fn2)() == 2
             @eval @test $(fn3)() == 3
             @eval @test $(fn4)() == 4
+            @eval @test $(fn5)() == 5
             # Redefine function 2
             open(joinpath(dn, "file2.jl"), "w") do io
                 println(io, "$(fbase)2() = -2")
@@ -156,6 +166,7 @@ end
             @eval @test $(fn2)() == -2
             @eval @test $(fn3)() == 3
             @eval @test $(fn4)() == 4
+            @eval @test $(fn5)() == 5
             open(joinpath(dn, "subdir", "file3.jl"), "w") do io
                 println(io, "$(fbase)3() = -3")
             end
@@ -164,6 +175,7 @@ end
             @eval @test $(fn2)() == -2
             @eval @test $(fn3)() == -3
             @eval @test $(fn4)() == 4
+            @eval @test $(fn5)() == 5
             open(joinpath(dn, "subdir", "file4.jl"), "w") do io
                 println(io, "$(fbase)4() = -4")
             end
@@ -172,7 +184,48 @@ end
             @eval @test $(fn2)() == -2
             @eval @test $(fn3)() == -3
             @eval @test $(fn4)() == -4
+            @eval @test $(fn5)() == 5
+            open(joinpath(dn, "file5.jl"), "w") do io
+                println(io, "$(fbase)5() = -5")
+            end
+            yry()
+            @eval @test $(fn1)() == -1
+            @eval @test $(fn2)() == -2
+            @eval @test $(fn3)() == -3
+            @eval @test $(fn4)() == -4
+            @eval @test $(fn5)() == -5
         end
+
+        # Test files paths that can't be statically parsed
+        dn = joinpath(testdir, "LoopInclude", "src")
+        mkpath(dn)
+        open(joinpath(dn, "LoopInclude.jl"), "w") do io
+            println(io, """
+module LoopInclude
+
+export li_f, li_g
+
+for fn in ("file1.jl", "file2.jl")
+    include(fn)
+end
+
+end
+""")
+        end
+        open(joinpath(dn, "file1.jl"), "w") do io
+            println(io, "li_f() = 1")
+        end
+        open(joinpath(dn, "file2.jl"), "w") do io
+            println(io, "li_g() = 2")
+        end
+        @eval using LoopInclude
+        @test li_f() == 1
+        @test li_g() == 2
+        open(joinpath(dn, "file1.jl"), "w") do io
+            println(io, "li_f() = -1")
+        end
+        @test li_f() == 1  # unless the include is at toplevel it is not found
+
         pop!(LOAD_PATH)
     end
 end
