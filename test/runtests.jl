@@ -300,24 +300,26 @@ end
     end
 
     @testset "Pkg exclusion" begin
-        @eval import GSL
-        for k in keys(Revise.file2modules)
-            if contains(k, "GSL")
-                error("Should not track files in GSL")
+        if !(is_windows() && Int == Int32) # GSL install fails on 32-bit Windows
+            @eval import GSL
+            for k in keys(Revise.file2modules)
+                if contains(k, "GSL")
+                    error("Should not track files in GSL")
+                end
             end
-        end
-        # Ensure that silencing works
-        sfile = Revise.silencefile[]  # remember the original
-        try
-            sfiletemp = tempname()
-            Revise.silencefile[] = sfiletemp
-            Revise.silence("GSL")
-            @test isfile(sfiletemp)
-            pkgs = readlines(sfiletemp)
-            @test contains(==, pkgs, "GSL")
-            rm(sfiletemp)
-        finally
-            Revise.silencefile[] = sfile
+            # Ensure that silencing works
+            sfile = Revise.silencefile[]  # remember the original
+            try
+                sfiletemp = tempname()
+                Revise.silencefile[] = sfiletemp
+                Revise.silence("GSL")
+                @test isfile(sfiletemp)
+                pkgs = readlines(sfiletemp)
+                @test contains(==, pkgs, "GSL")
+                rm(sfiletemp)
+            finally
+                Revise.silencefile[] = sfile
+            end
         end
     end
 end
