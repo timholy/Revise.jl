@@ -6,6 +6,12 @@ export revise
 
 const revision_queue = Set{String}()  # file names that have changed since last revision
 
+## For excluding packages from tracking by Revise
+const dont_watch_pkgs = Set([:GSL])
+const silence_pkgs = Set{Symbol}()
+const depsdir = joinpath(dirname(@__DIR__), "deps")
+const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
+
 ## Structures to manipulate parsed files
 
 # We will need to detect new function bodies, compare function bodies
@@ -400,6 +406,12 @@ function parse_module!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
 end
 
 function watch_package(modsym::Symbol)
+    if modsym ∈ dont_watch_pkgs
+        if modsym ∉ silence_pkgs
+            warn("$modsym is excluded from watching by Revise. Use Revise.silence(\"$modsym\") to quiet this warning.")
+        end
+        return nothing
+    end
     files = parse_pkg_files(modsym)
     for file in files
         @schedule revise_file_queued(file)
@@ -495,6 +507,27 @@ function track(mod::Module)
     nothing
 end
 
+"""
+    Revise.silence(pkg)
+
+Silence warnings about not tracking changes to package `pkg`. Some
+packages (e.g., GSL) are excluded because they load so many files that
+it burdens the file-watcher.
+"""
+function silence(pkg::Symbol)
+    push!(silence_pkgs, pkg)
+    if !isdir(depsdir)
+        mkpath(depsdir)
+    end
+    open(silencefile[], "w") do io
+        for p in silence_pkgs
+            println(io, p)
+        end
+    end
+    nothing
+end
+silence(pkg::AbstractString) = silence(Symbol(pkg))
+
 ## Utilities
 
 _module_name(ex::Expr) = ex.args[2]
@@ -572,6 +605,12 @@ function steal_repl_backend(backend = Base.active_repl_backend)
 end
 
 function __init__()
+    if isfile(silencefile[])
+        pkgs = readlines(silencefile[])
+        for pkg in pkgs
+            push!(silence_pkgs, Symbol(pkg))
+        end
+    end
     push!(Base.package_callbacks, watch_package)
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
