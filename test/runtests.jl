@@ -196,6 +196,8 @@ end
             @eval @test $(fn4)() == -4
             @eval @test $(fn5)() == -5
         end
+        # Remove the precompiled file
+        rm(joinpath(Base.LOAD_CACHE_PATH[1], "PC.ji"))
 
         # Test files paths that can't be statically parsed
         dn = joinpath(testdir, "LoopInclude", "src")
@@ -222,6 +224,7 @@ end
         @eval using LoopInclude
         @test li_f() == 1
         @test li_g() == 2
+        sleep(0.1)  # ensure watching is set up
         open(joinpath(dn, "file1.jl"), "w") do io
             println(io, "li_f() = -1")
         end

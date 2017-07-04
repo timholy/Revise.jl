@@ -441,6 +441,11 @@ function revise_file_now(file0)
     nothing
 end
 
+"""
+    revise()
+
+`eval` any changes in tracked files in the appropriate modules.
+"""
 function revise()
     for file in revision_queue
         revise_file_now(file)
@@ -449,6 +454,33 @@ function revise()
     nothing
 end
 
+"""
+    Revise.track(mod::Module, file::AbstractString)
+    Revise.track(file::AbstractString)
+
+Watch `file` for updates and [`revise`](@ref) loaded code with any
+changes. If `mod` is omitted it defaults to `Main`.
+"""
+function track(mod::Module, file::AbstractString)
+    isfile(file) || error(file, " is not a file")
+    empty!(new_files)
+    parse_source(file, mod, dirname(file))
+    for fl in new_files
+        @schedule revise_file_queued(fl)
+    end
+    nothing
+end
+track(file::AbstractString) = track(Main, file)
+
+"""
+    Revise.track(Base)
+
+Track the code in Julia's `base` directory for updates. This
+facilitates making changes to Julia itself and testing them
+immediately (without rebuilding).
+
+At present some files in Base are not trackable, see the README.
+"""
 function track(mod::Module)
     if mod == Base
         empty!(new_files)
@@ -459,15 +491,6 @@ function track(mod::Module)
         end
     else
         error("no Revise.track recipe for module ", mod)
-    end
-    nothing
-end
-
-function track(file::AbstractString)
-    isfile(file) || error(file, " is not a file")
-    parse_source(file, Main, dirname(file))
-    for fl in new_files
-        @schedule revise_file_queued(fl)
     end
     nothing
 end
