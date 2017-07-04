@@ -13,6 +13,8 @@ to_remove = String[]
         exs
     end
 
+    yry() = (sleep(0.1); revise(); sleep(0.1))
+
     @testset "LineSkipping" begin
         ex = Revise.relocatable!(quote
                                  f(x) = x^2
@@ -83,7 +85,6 @@ to_remove = String[]
         mkdir(testdir)
         push!(to_remove, testdir)
         push!(LOAD_PATH, testdir)
-        yry() = (sleep(0.1); revise(); sleep(0.1))
         for (pcflag, fbase) in ((true, "pc"), (false, "npc"))  # precompiled & not
             modname = uppercase(fbase)
             # Create a package with the following structure:
@@ -195,6 +196,8 @@ end
             @eval @test $(fn4)() == -4
             @eval @test $(fn5)() == -5
         end
+        # Remove the precompiled file
+        rm(joinpath(Base.LOAD_CACHE_PATH[1], "PC.ji"))
 
         # Test files paths that can't be statically parsed
         dn = joinpath(testdir, "LoopInclude", "src")
@@ -221,10 +224,77 @@ end
         @eval using LoopInclude
         @test li_f() == 1
         @test li_g() == 2
+        sleep(0.1)  # ensure watching is set up
         open(joinpath(dn, "file1.jl"), "w") do io
             println(io, "li_f() = -1")
         end
         @test li_f() == 1  # unless the include is at toplevel it is not found
+
+        pop!(LOAD_PATH)
+    end
+
+    # issue #8
+    @testset "Module docstring" begin
+        testdir = joinpath(tempdir(), randstring(10))
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "ModDocstring", "src")
+        mkpath(dn)
+        open(joinpath(dn, "ModDocstring.jl"), "w") do io
+            println(io, """
+" Ahoy! "
+module ModDocstring
+
+include("dependency.jl")
+
+f() = 1
+
+end
+""")
+        end
+        open(joinpath(dn, "dependency.jl"), "w") do io
+            println(io, "")
+        end
+        @eval using ModDocstring
+        @test ModDocstring.f() == 1
+        ds = @doc ModDocstring
+        @test ds.content[1].content[1].content[1] == "Ahoy! "
+
+        sleep(0.1)  # ensure watching is set up
+        open(joinpath(dn, "ModDocstring.jl"), "w") do io
+            println(io, """
+" Ahoy! "
+module ModDocstring
+
+include("dependency.jl")
+
+f() = 2
+
+end
+""")
+        end
+        yry()
+        @test ModDocstring.f() == 2
+        ds = @doc ModDocstring
+        @test ds.content[1].content[1].content[1] == "Ahoy! "
+
+        open(joinpath(dn, "ModDocstring.jl"), "w") do io
+            println(io, """
+" Hello! "
+module ModDocstring
+
+include("dependency.jl")
+
+f() = 3
+
+end
+""")
+        end
+        yry()
+        @test ModDocstring.f() == 3
+        ds = @doc ModDocstring
+        @test ds.content[2].content[1].content[1] == "Hello! "
 
         pop!(LOAD_PATH)
     end
