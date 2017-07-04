@@ -349,12 +349,12 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
         return md
     elseif ex.head == :module
         parse_module!(md, ex, file, mod, path)
-    elseif isdocexpr(ex) && isa(ex.args[3], Expr) && ex.args[3].head == :module
+    elseif isdocexpr(ex) && isa(ex.args[nargs_docexpr], Expr) && ex.args[nargs_docexpr].head == :module
         # Module with a docstring (issue #8)
         # Split into two expressions, a module definition followed by
         # `"docstring" newmodule`
-        newmod = parse_module!(md, ex.args[3], file, mod, path)
-        ex.args[3] = Symbol(newmod)
+        newmod = parse_module!(md, ex.args[nargs_docexpr], file, mod, path)
+        ex.args[nargs_docexpr] = Symbol(newmod)
         push!(md[mod], convert(RelocatableExpr, ex))
     elseif ex.head == :call && ex.args[1] == :include
         if path != nothing
@@ -544,8 +544,9 @@ function macroreplace(ex::Expr, filename)
 end
 macroreplace(s, filename) = s
 
+const nargs_docexpr = VERSION < v"0.7.0-DEV.328" ? 3 : 4
 isdocexpr(ex) = ex.head == :macrocall && ex.args[1] == GlobalRef(Core, Symbol("@doc")) &&
-           length(ex.args) >= 3
+           length(ex.args) >= nargs_docexpr
 
 function steal_repl_backend(backend = Base.active_repl_backend)
     # terminate the current backend
