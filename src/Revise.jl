@@ -33,28 +33,13 @@ mutable struct RelocatableExpr
     RelocatableExpr(head::Symbol, args...) = new(head, [args...])
 end
 
+# Works in-place and hence is unsafe. Only for internal use.
 Base.convert(::Type{RelocatableExpr}, ex::Expr) = relocatable!(ex)
 
-# RelocatableExpr <---> Expr. Mutating in-place, so only for internal use.
 function relocatable!(ex::Expr)
     rex = RelocatableExpr(ex.head, relocatable!(ex.args))
     rex.typ = ex.typ
     rex
-end
-function unrelocatable!(rex::RelocatableExpr)
-    ex = Expr(rex.head, unrelocatable!(rex.args)...)
-    ex.typ = rex.typ
-    ex
-end
-
-# A copying transformation. Because the above mutate in-place, to
-# eval RelocatableExprs without changing their underlying
-# representation, we have to make a copy.
-# We only call this when we've detected a new or changed expression.
-function unrelocatable(rex::RelocatableExpr)
-    ex = Expr(rex.head, unrelocatable!(deepcopy(rex.args))...)
-    ex.typ = rex.typ
-    ex
 end
 
 function relocatable!(args::Vector{Any})
@@ -65,14 +50,16 @@ function relocatable!(args::Vector{Any})
     end
     args
 end
-function unrelocatable!(args::Vector{Any})
-    for (i, a) in enumerate(args)
-        if isa(a, RelocatableExpr)
-            args[i] = unrelocatable!(a::RelocatableExpr)
-        end
-    end
-    args
+
+function Base.convert(::Type{Expr}, rex::RelocatableExpr)
+    # This makes a copy. Used for `eval`, where we don't want to
+    # mutate the cached represetation.
+    ex = Expr(rex.head)
+    ex.args = Base.copy_exprargs(rex.args)
+    ex.typ = rex.typ
+    ex
 end
+Base.copy_exprs(rex::RelocatableExpr) = convert(Expr, rex)
 
 # Implement the required comparison functions. `hash` is needed for Dicts.
 function Base.:(==)(a::RelocatableExpr, b::RelocatableExpr)
@@ -249,12 +236,13 @@ end
 
 function eval_revised(revmd::ModDict)
     for (mod, exprs) in revmd
-        for ex in exprs
+        for rex in exprs
+            ex = convert(Expr, rex)
             try
-                eval(mod, unrelocatable(ex))
+                eval(mod, ex)
             catch err
                 warn("failure to evaluate changes in ", mod)
-                println(STDERR, unrelocatable(ex))
+                println(STDERR, ex)
             end
         end
     end
@@ -360,9 +348,14 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     elseif ex.head == :line
         return md
     elseif ex.head == :module
-        newmod = getfield(mod, _module_name(ex))
-        md[newmod] = Set{RelocatableExpr}()
-        parse_source!(md, ex.args[3], file, newmod, path)
+        parse_module!(md, ex, file, mod, path)
+    elseif isdocexpr(ex) && isa(ex.args[3], Expr) && ex.args[3].head == :module
+        # Module with a docstring (issue #8)
+        # Split into two expressions, a module definition followed by
+        # `"docstring" newmodule`
+        newmod = parse_module!(md, ex.args[3], file, mod, path)
+        ex.args[3] = Symbol(newmod)
+        push!(md[mod], convert(RelocatableExpr, ex))
     elseif ex.head == :call && ex.args[1] == :include
         if path != nothing
             filename = ex.args[2]
@@ -397,6 +390,13 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
         push!(md[mod], convert(RelocatableExpr, ex))
     end
     md
+end
+
+function parse_module!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
+    newmod = getfield(mod, _module_name(ex))
+    md[newmod] = Set{RelocatableExpr}()
+    parse_source!(md, ex.args[3], file, newmod, path)
+    newmod
 end
 
 function watch_package(modsym::Symbol)
@@ -520,6 +520,9 @@ function macroreplace(ex::Expr, filename)
     return ex
 end
 macroreplace(s, filename) = s
+
+isdocexpr(ex) = ex.head == :macrocall && ex.args[1] == GlobalRef(Core, Symbol("@doc")) &&
+           length(ex.args) >= 3
 
 function steal_repl_backend(backend = Base.active_repl_backend)
     # terminate the current backend
