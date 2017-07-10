@@ -133,6 +133,7 @@ There are some kinds of changes that Revise cannot incorporate into a running Ju
 
 - changes to type definitions
 - function or method deletions
+- changes to macros that affect method definitions
 - file or module renames
 - changes in files that are omitted by Revise (you should see a warning about these). Revise has to be able to statically parse the paths in your package; statements like `include("file2.jl")` are easy but `include(string((length(Core.ARGS)>=2 ? Core.ARGS[2] : ""), "build_h.jl"))` cannot be handled.
 
