@@ -484,6 +484,9 @@ function track(mod::Module, file::AbstractString)
 end
 track(file::AbstractString) = track(Main, file)
 
+const sysimg_path =  # where `baremodule Base` is defined
+    realpath(joinpath(JULIA_HOME, Base.DATAROOTDIR, "julia", "base", "sysimg.jl"))
+
 """
     Revise.track(Base)
 
@@ -496,8 +499,7 @@ At present some files in Base are not trackable, see the README.
 function track(mod::Module)
     if mod == Base
         empty!(new_files)
-        mainfile = joinpath(dirname(dirname(JULIA_HOME)), "base", "sysimg.jl")
-        parse_source(mainfile, Main, dirname(mainfile))
+        parse_source(sysimg_path, Main, dirname(sysimg_path))
         for file in new_files
             @schedule revise_file_queued(file)
         end
