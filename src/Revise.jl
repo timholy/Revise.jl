@@ -15,7 +15,7 @@ end
 const watched_files = Dict{String,WatchList}()
 
 ## For excluding packages from tracking by Revise
-const dont_watch_pkgs = Set([:GSL])
+const dont_watch_pkgs = Set{Symbol}()
 const silence_pkgs = Set{Symbol}()
 const depsdir = joinpath(dirname(@__DIR__), "deps")
 const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
@@ -542,9 +542,7 @@ end
 """
     Revise.silence(pkg)
 
-Silence warnings about not tracking changes to package `pkg`. Some
-packages (e.g., GSL) are excluded because they load so many files that
-it burdens the file-watcher.
+Silence warnings about not tracking changes to package `pkg`.
 """
 function silence(pkg::Symbol)
     push!(silence_pkgs, pkg)
