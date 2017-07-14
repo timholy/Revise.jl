@@ -230,6 +230,8 @@ end
         end
         @test li_f() == 1  # unless the include is at toplevel it is not found
 
+        @test isfile(Revise.sysimg_path)
+        
         pop!(LOAD_PATH)
     end
 
