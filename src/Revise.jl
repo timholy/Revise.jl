@@ -240,22 +240,96 @@ end
 #     error("definition for module $modsym not found in $s")
 # end
 
+const oldbinding_counter = Ref(0)
+
 function eval_revised(revmd::ModDict)
+    to_delete = RelocatableExpr[]
     for (mod, exprs) in revmd
+        empty!(to_delete)
+        # Any type (re)definitions must come first
         for rex in exprs
-            ex = convert(Expr, rex)
-            try
-                eval(mod, ex)
-            catch err
-                warn("failure to evaluate changes in ", mod)
-                println(STDERR, ex)
+            if istypedef(rex)
+                typsym = rex.args[2]
+                typ = getfield(mod, typsym)
+                # Get the list of methods that we're going to have to
+                # re-bind to the new name
+                meths = invalid_methods(typ)
+                # Get the list of defining expressions now, while the old name is valid
+                modrexs = []
+                for m in meths
+                    if haskey(method2rex, m)
+                        push!(modrexs, method2rex[m])
+                    else
+                        warn("unable to re-bind:\n  ", m, "\nmay need to restart")
+                    end
+                end
+                # Move the old binding aside
+                oldbinding_counter[] = counter = oldbinding_counter[] + 1
+                newname = Symbol(typsym, "#RV#", counter)
+                Base.rename_binding(mod, typsym, newname)
+                # Create the new binding
+                tryeval(mod, rex)
+                push!(to_delete, rex)
+                # Re-evaluate those methods so they use the new binding
+                for (mod, rex) in modrexs
+                    tryeval(mod, rex)
+                end
             end
+        end
+        for rex in to_delete
+            delete!(exprs, rex)
+        end
+        # Now the rest
+        for rex in exprs
+            tryeval(mod, rex)
         end
     end
 end
 
+function tryeval(mod, ex::Expr)
+    try
+        ret = eval(mod, ex)
+        return true
+    catch err
+        warn("failure to evaluate changes in ", mod)
+        showerror(STDERR, err)
+        println(STDERR)
+        println(STDERR, ex)
+    end
+    false
+end
+tryeval(mod, rex::RelocatableExpr) = tryeval(mod, convert(Expr, rex))
+
+istypedef(rex::RelocatableExpr) = rex.head == :type
+istypedef(arg) = false
+
+# methods that need to be re-evaluated from source following a type redefinition
+function invalid_methods(typ)
+    mthswith = methodswith(typ)
+    constructors = methods(typ)  # would like to know which are inner constructors and exclude them
+    callers = Set{Method}()
+    for c in constructors
+        isdefined(c, :specializations) || continue
+        tme = c.specializations
+        isa(tme, TypeMapEntry) || continue
+        mi = tme.func
+        for b in mi.backedges
+            push!(callers, b.def)
+        end
+    end
+    mths = [mthswith; constructors]
+    for c in callers
+        push!(mths, c)
+    end
+    mths
+end
+
+function reeval(mths::Vector{Method})
+end
+
 const file2modules = Dict{String,FileModules}()
 const new_files = String[]
+const method2rex = Dict{Method,Tuple{Module,RelocatableExpr}}()
 
 function parse_pkg_files(modsym::Symbol)
     paths = String[]
