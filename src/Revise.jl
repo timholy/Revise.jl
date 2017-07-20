@@ -5,9 +5,17 @@ module Revise
 export revise
 
 const revision_queue = Set{String}()  # file names that have changed since last revision
+# Some platforms (OSX) have trouble watching too many files. So we
+# watch parent directories, and keep track of which files in them
+# should be tracked.
+mutable struct WatchList
+    timestamp::Float64         # unix time of last revision
+    trackedfiles::Set{String}
+end
+const watched_files = Dict{String,WatchList}()
 
 ## For excluding packages from tracking by Revise
-const dont_watch_pkgs = Set([:GSL])
+const dont_watch_pkgs = Set{Symbol}()
 const silence_pkgs = Set{Symbol}()
 const depsdir = joinpath(dirname(@__DIR__), "deps")
 const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
@@ -405,6 +413,20 @@ function parse_module!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     newmod
 end
 
+function watch_files_via_dir(dirname)
+    watch_file(dirname)  # this will block until there is a modification
+    latestfiles = String[]
+    wf = watched_files[dirname]
+    for file in wf.trackedfiles
+        path = joinpath(dirname, file)
+        if mtime(path) + 1 >= floor(wf.timestamp) # OSX rounds mtime up, see #22
+            push!(latestfiles, path)
+        end
+    end
+    updatetime!(wf)
+    latestfiles
+end
+
 function watch_package(modsym::Symbol)
     if modsym ∈ dont_watch_pkgs
         if modsym ∉ silence_pkgs
@@ -413,23 +435,33 @@ function watch_package(modsym::Symbol)
         return nothing
     end
     files = parse_pkg_files(modsym)
+    udirs = Set{String}()
     for file in files
-        @schedule revise_file_queued(file)
+        dir, basename = splitdir(file)
+        haskey(watched_files, dir) || (watched_files[dir] = WatchList())
+        push!(watched_files[dir], basename)
+        push!(udirs, dir)
+    end
+    for dir in udirs
+        updatetime!(watched_files[dir])
+        @schedule revise_dir_queued(dir)
     end
     return nothing
 end
 
-function revise_file_queued(file)
-    if !isfile(file)
+function revise_dir_queued(dirname)
+    if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
-        if !isfile(file)
-            warn(file, " is not an existing file, Revise is not watching")
+        if !isfile(dirname)
+            warn(dirname, " is not an existing directory, Revise is not watching")
             return nothing
         end
     end
-    watch_file(file)  # will block here until the file changes
-    push!(revision_queue, file)
-    @schedule revise_file_queued(file)
+    latestfiles = watch_files_via_dir(dirname)  # will block here until file(s) change
+    for file in latestfiles
+        push!(revision_queue, file)
+    end
+    @schedule revise_dir_queued(dirname)
 end
 
 function revise_file_now(file0)
@@ -512,9 +544,7 @@ end
 """
     Revise.silence(pkg)
 
-Silence warnings about not tracking changes to package `pkg`. Some
-packages (e.g., GSL) are excluded because they load so many files that
-it burdens the file-watcher.
+Silence warnings about not tracking changes to package `pkg`.
 """
 function silence(pkg::Symbol)
     push!(silence_pkgs, pkg)
@@ -623,5 +653,14 @@ function __init__()
         end
     end
 end
+
+## WatchList utilities
+function updatetime!(wl::WatchList)
+    tv = Libc.TimeVal()
+    wl.timestamp = tv.sec + tv.usec/10^6
+end
+Base.push!(wl::WatchList, filename) = push!(wl.trackedfiles, filename)
+WatchList() = WatchList(Dates.datetime2unix(now()), Set{String}())
+Base.in(file, wl::WatchList) = in(file, wl.trackedfiles)
 
 end # module
