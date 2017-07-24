@@ -29,6 +29,24 @@ to_remove = String[]
         @test !isequal(exs[1], Revise.relocatable!(:(g(x) = sin(x))))
     end
 
+    @testset "Parse errors" begin
+        warnfile = joinpath(tempdir(), randstring(10))
+        open(warnfile, "w") do io
+            redirect_stderr(io) do
+                md = Revise.ModDict(Main=>Set{Revise.RelocatableExpr}())
+                @test !Revise.parse_source!(md, """
+f(x) = 1
+g(x) = 2
+h{x) = 3  # error
+k(x) = 4
+""",
+                                            :test, 1, Main, tempdir())
+                @test convert(Revise.RelocatableExpr, :(g(x) = 2)) ∈ md[Main]
+            end
+        end
+        @test contains(readstring(warnfile), "parsing error near line 3")
+    end
+
     @testset "Comparison" begin
         fl1 = joinpath(@__DIR__, "revisetest.jl")
         fl2 = joinpath(@__DIR__, "revisetest_revised.jl")
@@ -398,11 +416,19 @@ foo(y::Int) = y-51
             Revise.silencefile[] = sfile
         end
     end
-end
 
-# These may cause warning messages about "not an existing file", but that's fine
-for name in to_remove
-    try
-        rm(name; force=true, recursive=true)
+    @testset "Cleanup" begin
+        warnfile = joinpath(tempdir(), randstring(10))
+        open(warnfile, "w") do io
+            redirect_stderr(io) do
+                for name in to_remove
+                    try
+                        rm(name; force=true, recursive=true)
+                    end
+                end
+                yry()
+            end
+        end
+        @test contains(readstring(warnfile), "is not an existing directory")
     end
 end
