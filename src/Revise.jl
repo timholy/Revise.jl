@@ -382,9 +382,13 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
             elseif isa(filename, Symbol)
                 if isdefined(mod, filename)
                     filename = getfield(mod, filename)
-                    isa(filename, AbstractString) || warn(filename, " is not a string")
+                    if !isa(filename, AbstractString)
+                        warn(filename, " is not a string")
+                        return md
+                    end
                 else
                     warn("unable to resolve filename ", filename)
+                    return md
                 end
             elseif isa(filename, Expr)
                 try
@@ -440,6 +444,10 @@ function watch_package(modsym::Symbol)
         return nothing
     end
     files = parse_pkg_files(modsym)
+    process_parsed_files(files)
+end
+
+function process_parsed_files(files)
     udirs = Set{String}()
     for file in files
         dir, basename = splitdir(file)
@@ -514,10 +522,7 @@ function track(mod::Module, file::AbstractString)
     isfile(file) || error(file, " is not a file")
     empty!(new_files)
     parse_source(file, mod, dirname(file))
-    for fl in new_files
-        @schedule revise_file_queued(fl)
-    end
-    nothing
+    process_parsed_files(new_files)
 end
 track(file::AbstractString) = track(Main, file)
 
@@ -537,9 +542,7 @@ function track(mod::Module)
     if mod == Base
         empty!(new_files)
         parse_source(sysimg_path, Main, dirname(sysimg_path))
-        for file in new_files
-            @schedule revise_file_queued(file)
-        end
+        process_parsed_files(new_files)
     else
         error("no Revise.track recipe for module ", mod)
     end

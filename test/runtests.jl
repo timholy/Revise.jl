@@ -45,6 +45,7 @@ k(x) = 4
             end
         end
         @test contains(readstring(warnfile), "parsing error near line 3")
+        rm(warnfile)
     end
 
     @testset "Comparison" begin
@@ -417,6 +418,30 @@ foo(y::Int) = y-51
         end
     end
 
+    @testset "Manual track" begin
+        srcfile = joinpath(tempdir(), randstring(10)*".jl")
+        open(srcfile, "w") do io
+            print(io, """
+revise_f(x) = 1
+""")
+        end
+        include(srcfile)
+        @test revise_f(10) == 1
+        Revise.track(srcfile)
+        sleep(0.1)
+        open(srcfile, "w") do io
+            print(io, """
+revise_f(x) = 2
+""")
+        end
+        yry()
+        @test revise_f(10) == 2
+        push!(to_remove, srcfile)
+
+        Revise.track(Base)
+        @test any(k->endswith(k, "number.jl"), keys(Revise.file2modules))
+    end
+
     @testset "Cleanup" begin
         warnfile = joinpath(tempdir(), randstring(10))
         open(warnfile, "w") do io
@@ -430,5 +455,6 @@ foo(y::Int) = y-51
             end
         end
         @test contains(readstring(warnfile), "is not an existing directory")
+        rm(warnfile)
     end
 end
