@@ -323,22 +323,27 @@ function parse_source!(md::ModDict, file::AbstractString, mod::Module, path)
 end
 
 function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Integer, mod::Module, path)
-    local ex
+    local ex, oldpos
+    line_offset = 0
     while pos < endof(src)
         try
+            oldpos = pos
             ex, pos = parse(src, pos; greedy=true)
         catch err
             ex, posfail = parse(src, pos; greedy=true, raise=false)
-            warn("omitting ", file, " due to parsing error near line ", countlines(src, posfail))
+            warn(STDERR, "omitting ", file, " due to parsing error near line ",
+                 line_offset + count(c->c=='\n', SubString(src, oldpos, posfail)) + 1)
             showerror(STDERR, err)
             println(STDERR)
             return false
         end
         if isa(ex, Expr)
             ex = ex::Expr
-            add_filename!(ex, file)  # fixes the backtraces
+            fix_line_statements!(ex, file, line_offset)  # fixes the backtraces
             parse_expr!(md, ex, file, mod, path)
         end
+        # Update the number of lines
+        line_offset += count(c->c=='\n', SubString(src, oldpos, pos-1))
     end
     true
 end
@@ -377,9 +382,13 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
             elseif isa(filename, Symbol)
                 if isdefined(mod, filename)
                     filename = getfield(mod, filename)
-                    isa(filename, AbstractString) || warn(filename, " is not a string")
+                    if !isa(filename, AbstractString)
+                        warn(filename, " is not a string")
+                        return md
+                    end
                 else
                     warn("unable to resolve filename ", filename)
+                    return md
                 end
             elseif isa(filename, Expr)
                 try
@@ -435,6 +444,10 @@ function watch_package(modsym::Symbol)
         return nothing
     end
     files = parse_pkg_files(modsym)
+    process_parsed_files(files)
+end
+
+function process_parsed_files(files)
     udirs = Set{String}()
     for file in files
         dir, basename = splitdir(file)
@@ -509,10 +522,7 @@ function track(mod::Module, file::AbstractString)
     isfile(file) || error(file, " is not a file")
     empty!(new_files)
     parse_source(file, mod, dirname(file))
-    for fl in new_files
-        @schedule revise_file_queued(fl)
-    end
-    nothing
+    process_parsed_files(new_files)
 end
 track(file::AbstractString) = track(Main, file)
 
@@ -532,9 +542,7 @@ function track(mod::Module)
     if mod == Base
         empty!(new_files)
         parse_source(sysimg_path, Main, dirname(sysimg_path))
-        for file in new_files
-            @schedule revise_file_queued(file)
-        end
+        process_parsed_files(new_files)
     else
         error("no Revise.track recipe for module ", mod)
     end
@@ -564,33 +572,27 @@ silence(pkg::AbstractString) = silence(Symbol(pkg))
 
 _module_name(ex::Expr) = ex.args[2]
 
-function add_filename!(ex::Expr, file::Symbol)
+function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)
     if ex.head == :line
+        ex.args[1] += line_offset
         ex.args[2] = file
     else
         for (i, a) in enumerate(ex.args)
             if isa(a, Expr)
-                add_filename!(a::Expr, file)
+                fix_line_statements!(a::Expr, file, line_offset)
             elseif isa(a, LineNumberNode)
-                ex.args[i] = add_filename(a::LineNumberNode, file)
+                ex.args[i] = file_line_statement(a::LineNumberNode, file, line_offset)
             end
         end
     end
     ex
 end
 if VERSION < v"0.7.0-DEV.328"
-    add_filename(lnn::LineNumberNode, file::Symbol) = lnn
+    file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
+        LineNumberNode(lnn.line + line_offset)
 else
-    add_filename(lnn::LineNumberNode, file::Symbol) = LineNumberNode(lnn.line, file)
-end
-
-function countlines(str::AbstractString, pos::Integer, eol='\n')
-    n = 0
-    for (i, c) in enumerate(str)
-        i > pos && break
-        n += c == eol
-    end
-    n
+    file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
+        LineNumberNode(lnn.line + line_offset, file)
 end
 
 function macroreplace(ex::Expr, filename)

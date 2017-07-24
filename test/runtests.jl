@@ -29,6 +29,25 @@ to_remove = String[]
         @test !isequal(exs[1], Revise.relocatable!(:(g(x) = sin(x))))
     end
 
+    @testset "Parse errors" begin
+        warnfile = joinpath(tempdir(), randstring(10))
+        open(warnfile, "w") do io
+            redirect_stderr(io) do
+                md = Revise.ModDict(Main=>Set{Revise.RelocatableExpr}())
+                @test !Revise.parse_source!(md, """
+f(x) = 1
+g(x) = 2
+h{x) = 3  # error
+k(x) = 4
+""",
+                                            :test, 1, Main, tempdir())
+                @test convert(Revise.RelocatableExpr, :(g(x) = 2)) ∈ md[Main]
+            end
+        end
+        @test contains(readstring(warnfile), "parsing error near line 3")
+        rm(warnfile)
+    end
+
     @testset "Comparison" begin
         fl1 = joinpath(@__DIR__, "revisetest.jl")
         fl2 = joinpath(@__DIR__, "revisetest_revised.jl")
@@ -68,7 +87,7 @@ to_remove = String[]
         catch err
             @test isa(err, ErrorException) && err.msg == "cube"
             bt = first(stacktrace(catch_backtrace()))
-            @test bt.func == :cube && bt.file == Symbol(fl3) && bt.line == 6
+            @test bt.func == :cube && bt.file == Symbol(fl3) && bt.line == 7
         end
         try
             ReviseTest.Internal.mult2(2)
@@ -76,7 +95,7 @@ to_remove = String[]
         catch err
             @test isa(err, ErrorException) && err.msg == "mult2"
             bt = first(stacktrace(catch_backtrace()))
-            @test bt.func == :mult2 && bt.file == Symbol(fl3) && bt.line == 12
+            @test bt.func == :mult2 && bt.file == Symbol(fl3) && bt.line == 13
         end
     end
 
@@ -231,7 +250,7 @@ end
         @test li_f() == 1  # unless the include is at toplevel it is not found
 
         @test isfile(Revise.sysimg_path)
-        
+
         pop!(LOAD_PATH)
     end
 
@@ -301,6 +320,80 @@ end
         pop!(LOAD_PATH)
     end
 
+    @testset "Line numbers" begin
+        # issue #27
+        testdir = joinpath(tempdir(), randstring(10))
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        modname = "LineNumberMod"
+        dn = joinpath(testdir, modname, "src")
+        mkpath(dn)
+        open(joinpath(dn, modname*".jl"), "w") do io
+            println(io, """
+module $modname
+include("incl.jl")
+end
+""")
+        end
+        open(joinpath(dn, "incl.jl"), "w") do io
+            println(io, """
+0
+0
+1
+2
+3
+4
+5
+6
+7
+8
+
+
+function foo(x)
+    return x+5
+end
+
+foo(y::Int) = y-51
+""")
+        end
+        @eval using LineNumberMod
+        lines = Int[]
+        files = String[]
+        for m in methods(LineNumberMod.foo)
+            push!(files, m.file)
+            push!(lines, m.line)
+        end
+        @test all(f->endswith(string(f), "incl.jl"), files)
+        sleep(0.1)  # ensure watching is set up
+        open(joinpath(dn, "incl.jl"), "w") do io
+            println(io, """
+0
+0
+1
+2
+3
+4
+5
+6
+7
+8
+
+
+function foo(x)
+    return x+6
+end
+
+foo(y::Int) = y-51
+""")
+        end
+        yry()
+        for m in methods(LineNumberMod.foo)
+            @test endswith(string(m.file), "incl.jl")
+            @test m.line ∈ lines
+        end
+    end
+
     @testset "Pkg exclusion" begin
         push!(Revise.dont_watch_pkgs, :Example)
         push!(Revise.silence_pkgs, :Example)
@@ -324,11 +417,44 @@ end
             Revise.silencefile[] = sfile
         end
     end
-end
 
-# These may cause warning messages about "not an existing file", but that's fine
-for name in to_remove
-    try
-        rm(name; force=true, recursive=true)
+    @testset "Manual track" begin
+        srcfile = joinpath(tempdir(), randstring(10)*".jl")
+        open(srcfile, "w") do io
+            print(io, """
+revise_f(x) = 1
+""")
+        end
+        include(srcfile)
+        @test revise_f(10) == 1
+        Revise.track(srcfile)
+        sleep(0.1)
+        open(srcfile, "w") do io
+            print(io, """
+revise_f(x) = 2
+""")
+        end
+        yry()
+        @test revise_f(10) == 2
+        push!(to_remove, srcfile)
+
+        Revise.track(Base)
+        @test any(k->endswith(k, "number.jl"), keys(Revise.file2modules))
+    end
+
+    @testset "Cleanup" begin
+        warnfile = joinpath(tempdir(), randstring(10))
+        open(warnfile, "w") do io
+            redirect_stderr(io) do
+                for name in to_remove
+                    try
+                        rm(name; force=true, recursive=true)
+                    end
+                end
+                yry()
+            end
+        end
+        @test contains(readstring(warnfile), "is not an existing directory")
+        rm(warnfile)
     end
 end
