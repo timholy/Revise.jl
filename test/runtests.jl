@@ -1,5 +1,6 @@
 using Revise
 using Base.Test
+using DataStructures: OrderedSet
 
 to_remove = String[]
 
@@ -33,7 +34,7 @@ to_remove = String[]
         warnfile = joinpath(tempdir(), randstring(10))
         open(warnfile, "w") do io
             redirect_stderr(io) do
-                md = Revise.ModDict(Main=>Set{Revise.RelocatableExpr}())
+                md = Revise.ModDict(Main=>OrderedSet{Revise.RelocatableExpr}())
                 @test !Revise.parse_source!(md, """
 f(x) = 1
 g(x) = 2
@@ -71,7 +72,7 @@ k(x) = 4
             cube(x) = x^3
             fourth(x) = x^4  # this is an addition to the file
         end)
-        @test isequal(revmd[ReviseTest], Set(collectexprs(cmp)))
+        @test isequal(revmd[ReviseTest], OrderedSet(collectexprs(cmp)))
 
         Revise.eval_revised(revmd)
         @test ReviseTest.cube(2) == 8
