@@ -121,7 +121,7 @@ __precompile__($pcflag)
 
 module $modname
 
-export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5
+export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5, using_mac$(fbase)
 
 $(fbase)1() = 1
 
@@ -130,6 +130,10 @@ include("subdir/file3.jl")
 include(joinpath(@__DIR__, "subdir", "file4.jl"))
 otherfile = "file5.jl"
 include(otherfile)
+macro mac$(fbase)()
+    return $(fbase)1()
+end
+using_mac$(fbase)() = @mac$(fbase)()
 
 end
 """)
@@ -151,24 +155,30 @@ end
             fn1, fn2 = Symbol("$(fbase)1"), Symbol("$(fbase)2")
             fn3, fn4 = Symbol("$(fbase)3"), Symbol("$(fbase)4")
             fn5 = Symbol("$(fbase)5")
+            fn6 = Symbol("using_mac$(fbase)")
             @eval @test $(fn1)() == 1
             @eval @test $(fn2)() == 2
             @eval @test $(fn3)() == 3
             @eval @test $(fn4)() == 4
             @eval @test $(fn5)() == 5
+            @eval @test $(fn6)() == $(fn1)()
             sleep(0.1)  # to ensure that the file watching has kicked in
             # Change the definition of function 1 (easiest to just rewrite the whole file)
             open(joinpath(dn, modname*".jl"), "w") do io
                 println(io, """
 __precompile__($pcflag)
 module $modname
-export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4
+export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5, using_mac$(fbase)
 $(fbase)1() = -1
 include("file2.jl")
 include("subdir/file3.jl")
 include(joinpath(@__DIR__, "subdir", "file4.jl"))
 otherfile = "file5.jl"
 include(otherfile)
+macro mac$(fbase)()
+    return $(fbase)1()
+end
+using_mac$(fbase)() = @mac$(fbase)()+0
 end
 """)  # just for fun we skipped the whitespace
             end
@@ -178,6 +188,7 @@ end
             @eval @test $(fn3)() == 3
             @eval @test $(fn4)() == 4
             @eval @test $(fn5)() == 5
+            @eval @test $(fn6)() == $(fn1)()
             # Redefine function 2
             open(joinpath(dn, "file2.jl"), "w") do io
                 println(io, "$(fbase)2() = -2")
@@ -188,6 +199,7 @@ end
             @eval @test $(fn3)() == 3
             @eval @test $(fn4)() == 4
             @eval @test $(fn5)() == 5
+            @eval @test $(fn6)() == $(fn1)()
             open(joinpath(dn, "subdir", "file3.jl"), "w") do io
                 println(io, "$(fbase)3() = -3")
             end
@@ -197,6 +209,7 @@ end
             @eval @test $(fn3)() == -3
             @eval @test $(fn4)() == 4
             @eval @test $(fn5)() == 5
+            @eval @test $(fn6)() == $(fn1)()
             open(joinpath(dn, "subdir", "file4.jl"), "w") do io
                 println(io, "$(fbase)4() = -4")
             end
@@ -206,6 +219,7 @@ end
             @eval @test $(fn3)() == -3
             @eval @test $(fn4)() == -4
             @eval @test $(fn5)() == 5
+            @eval @test $(fn6)() == $(fn1)()
             open(joinpath(dn, "file5.jl"), "w") do io
                 println(io, "$(fbase)5() = -5")
             end
@@ -215,6 +229,7 @@ end
             @eval @test $(fn3)() == -3
             @eval @test $(fn4)() == -4
             @eval @test $(fn5)() == -5
+            @eval @test $(fn6)() == $(fn1)()
         end
         # Remove the precompiled file
         rm(joinpath(Base.LOAD_CACHE_PATH[1], "PC.ji"))
