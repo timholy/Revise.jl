@@ -130,6 +130,10 @@ include("subdir/file3.jl")
 include(joinpath(@__DIR__, "subdir", "file4.jl"))
 otherfile = "file5.jl"
 include(otherfile)
+
+# Evaluation ordering check: the code update below will change the `$(fbase)1()` and
+# `using_mac()` definitions.  If the latter is updated before the former, then the
+# macroexpansion will return 1, and the test will fail.
 macro mac$(fbase)()
     return $(fbase)1()
 end
