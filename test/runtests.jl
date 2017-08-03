@@ -1,5 +1,6 @@
 using Revise
 using Base.Test
+using DataStructures: OrderedSet
 
 to_remove = String[]
 
@@ -33,7 +34,7 @@ to_remove = String[]
         warnfile = joinpath(tempdir(), randstring(10))
         open(warnfile, "w") do io
             redirect_stderr(io) do
-                md = Revise.ModDict(Main=>Set{Revise.RelocatableExpr}())
+                md = Revise.ModDict(Main=>OrderedSet{Revise.RelocatableExpr}())
                 @test !Revise.parse_source!(md, """
 f(x) = 1
 g(x) = 2
@@ -71,7 +72,7 @@ k(x) = 4
             cube(x) = x^3
             fourth(x) = x^4  # this is an addition to the file
         end)
-        @test isequal(revmd[ReviseTest], Set(collectexprs(cmp)))
+        @test isequal(revmd[ReviseTest], OrderedSet(collectexprs(cmp)))
 
         Revise.eval_revised(revmd)
         @test ReviseTest.cube(2) == 8
@@ -120,7 +121,7 @@ __precompile__($pcflag)
 
 module $modname
 
-export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5
+export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5, using_macro_$(fbase)
 
 $(fbase)1() = 1
 
@@ -129,6 +130,16 @@ include("subdir/file3.jl")
 include(joinpath(@__DIR__, "subdir", "file4.jl"))
 otherfile = "file5.jl"
 include(otherfile)
+
+# Update order check: modifying `some_macro_` to return -6 doesn't change the
+# return value of `using_macro_` (issue #20) unless `using_macro_` is also updated,
+# *in this order*:
+#   1. update the `@some_macro_` definition
+#   2. update the `using_macro_` definition
+macro some_macro_$(fbase)()
+    return 6
+end
+using_macro_$(fbase)() = @some_macro_$(fbase)()
 
 end
 """)
@@ -150,24 +161,32 @@ end
             fn1, fn2 = Symbol("$(fbase)1"), Symbol("$(fbase)2")
             fn3, fn4 = Symbol("$(fbase)3"), Symbol("$(fbase)4")
             fn5 = Symbol("$(fbase)5")
+            fn6 = Symbol("using_macro_$(fbase)")
             @eval @test $(fn1)() == 1
             @eval @test $(fn2)() == 2
             @eval @test $(fn3)() == 3
             @eval @test $(fn4)() == 4
             @eval @test $(fn5)() == 5
+            @eval @test $(fn6)() == 6
             sleep(0.1)  # to ensure that the file watching has kicked in
             # Change the definition of function 1 (easiest to just rewrite the whole file)
             open(joinpath(dn, modname*".jl"), "w") do io
                 println(io, """
 __precompile__($pcflag)
 module $modname
-export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4
+export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5, using_mac$(fbase)
 $(fbase)1() = -1
 include("file2.jl")
 include("subdir/file3.jl")
 include(joinpath(@__DIR__, "subdir", "file4.jl"))
 otherfile = "file5.jl"
 include(otherfile)
+
+macro some_macro_$(fbase)()
+    return -6
+end
+using_macro_$(fbase)() = @some_macro_$(fbase)() + 0  # + 0 to force a revision
+
 end
 """)  # just for fun we skipped the whitespace
             end
@@ -177,6 +196,7 @@ end
             @eval @test $(fn3)() == 3
             @eval @test $(fn4)() == 4
             @eval @test $(fn5)() == 5
+            @eval @test $(fn6)() == -6
             # Redefine function 2
             open(joinpath(dn, "file2.jl"), "w") do io
                 println(io, "$(fbase)2() = -2")
@@ -187,6 +207,7 @@ end
             @eval @test $(fn3)() == 3
             @eval @test $(fn4)() == 4
             @eval @test $(fn5)() == 5
+            @eval @test $(fn6)() == -6
             open(joinpath(dn, "subdir", "file3.jl"), "w") do io
                 println(io, "$(fbase)3() = -3")
             end
@@ -196,6 +217,7 @@ end
             @eval @test $(fn3)() == -3
             @eval @test $(fn4)() == 4
             @eval @test $(fn5)() == 5
+            @eval @test $(fn6)() == -6
             open(joinpath(dn, "subdir", "file4.jl"), "w") do io
                 println(io, "$(fbase)4() = -4")
             end
@@ -205,6 +227,7 @@ end
             @eval @test $(fn3)() == -3
             @eval @test $(fn4)() == -4
             @eval @test $(fn5)() == 5
+            @eval @test $(fn6)() == -6
             open(joinpath(dn, "file5.jl"), "w") do io
                 println(io, "$(fbase)5() = -5")
             end
@@ -214,6 +237,7 @@ end
             @eval @test $(fn3)() == -3
             @eval @test $(fn4)() == -4
             @eval @test $(fn5)() == -5
+            @eval @test $(fn6)() == -6
         end
         # Remove the precompiled file
         rm(joinpath(Base.LOAD_CACHE_PATH[1], "PC.ji"))

@@ -2,6 +2,8 @@ __precompile__()
 
 module Revise
 
+using DataStructures: OrderedSet
+
 export revise
 
 const revision_queue = Set{String}()  # file names that have changed since last revision
@@ -145,7 +147,7 @@ Set so that it is easy to find the differences between two `ModDict`s.
 
 See also [`FileModules`](@ref).
 """
-const ModDict = Dict{Module,Set{RelocatableExpr}}
+const ModDict = Dict{Module,OrderedSet{RelocatableExpr}}
 
 """
     FileModules(topmod::Module, md::ModDict)
@@ -177,7 +179,8 @@ corresponding `fm::FileModules` looks something like
 
 ```julia
 fm.topmod = Main
-fm.md = Dict(Main=>Set([:(__precompile__(true))]), Main.MyPkg=>Set[:(foo(x) = x^2)])
+fm.md = Dict(Main=>OrderedSet([:(__precompile__(true))]),
+             Main.MyPkg=>OrderedSet[:(foo(x) = x^2)])
 ```
 because the precompile statement occurs in `Main`, and the definition of
 `foo` occurs in `Main.MyPkg`.
@@ -211,11 +214,11 @@ function revised_statements(newmd::ModDict, oldmd::ModDict)
     revmd
 end
 
-revised_statements(mod::Module, newdefs::Set, olddefs::Set) =
+revised_statements(mod::Module, newdefs::OrderedSet, olddefs::OrderedSet) =
     revised_statements!(ModDict(), mod, newdefs, olddefs)
 
 function revised_statements!(revmd::ModDict, mod::Module,
-                             newdefs::Set, olddefs::Set)
+                             newdefs::OrderedSet, olddefs::OrderedSet)
     for stmt in newdefs
         if isa(stmt, RelocatableExpr)
             stmt = stmt::RelocatableExpr
@@ -229,7 +232,7 @@ function revised_statements!(revmd::ModDict, mod::Module,
             # else
                 if stmt ∉ olddefs
                     if !haskey(revmd, mod)
-                        revmd[mod] = Set{RelocatableExpr}()
+                        revmd[mod] = OrderedSet{RelocatableExpr}()
                     end
                     push!(revmd[mod], stmt)
                 end
@@ -301,7 +304,7 @@ initial load.) Otherwise set `path=nothing`.
 If parsing `file` fails, `nothing` is returned.
 """
 function parse_source(file::AbstractString, mod::Module, path)
-    md = ModDict(mod=>Set{RelocatableExpr}())
+    md = ModDict(mod=>OrderedSet{RelocatableExpr}())
     if !parse_source!(md, file, mod, path)
         return nothing
     end
@@ -417,7 +420,7 @@ end
 
 function parse_module!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     newmod = getfield(mod, _module_name(ex))
-    md[newmod] = Set{RelocatableExpr}()
+    md[newmod] = OrderedSet{RelocatableExpr}()
     parse_source!(md, ex.args[3], file, newmod, path)
     newmod
 end
