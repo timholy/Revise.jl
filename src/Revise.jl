@@ -319,7 +319,7 @@ function parse_source!(md::ModDict, file::AbstractString, mod::Module, path)
         warn("omitting ", file, " from revision tracking")
         return false
     end
-    parse_source!(md, readstring(file), Symbol(file), 1, mod, path)
+    parse_source!(md, read(file, String), Symbol(file), 1, mod, path)
 end
 
 function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Integer, mod::Module, path)
