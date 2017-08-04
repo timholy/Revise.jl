@@ -319,7 +319,7 @@ function parse_source!(md::ModDict, file::AbstractString, mod::Module, path)
         warn("omitting ", file, " from revision tracking")
         return false
     end
-    if VERSION >= v"0.7.0-DEV"
+    if VERSION >= v"0.7.0-DEV.1053"
         parse_source!(md, read(file, String), Symbol(file), 1, mod, path)
     else
         parse_source!(md, readstring(file), Symbol(file), 1, mod, path)
