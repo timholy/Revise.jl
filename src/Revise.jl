@@ -659,6 +659,14 @@ function __init__()
             steal_repl_backend()
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
+        elseif isdefined(Main, :Atom)
+            for x in ["eval", "evalall", "evalrepl"]
+                old = Main.Atom.handlers[x]
+                Main.Atom.handle(x) do data
+                    revise()
+                    old(data)
+                end
+            end
         end
     end
 end
