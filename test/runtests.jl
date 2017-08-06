@@ -14,7 +14,11 @@ to_remove = String[]
         exs
     end
 
-    yry() = (sleep(0.1); revise(); sleep(0.1))
+    @static if is_apple()
+        yry() = (sleep(1.1); revise(); sleep(1.1))
+    else
+        yry() = (sleep(0.1); revise(); sleep(0.1))
+    end
 
     @testset "LineSkipping" begin
         ex = Revise.relocatable!(quote
