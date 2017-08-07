@@ -282,6 +282,43 @@ end
         pop!(LOAD_PATH)
     end
 
+    # issue #36
+    @testset "@__FILE__" begin
+        testdir = joinpath(tempdir(), randstring(10))
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "ModFILE", "src")
+        mkpath(dn)
+        open(joinpath(dn, "ModFILE.jl"), "w") do io
+            println(io, """
+__precompile__()
+
+module ModFILE
+
+mf() = @__FILE__, 1
+
+end
+""")
+        end
+        @eval using ModFILE
+        @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 1)
+        sleep(0.1)
+        open(joinpath(dn, "ModFILE.jl"), "w") do io
+            println(io, """
+__precompile__()
+
+module ModFILE
+
+mf() = @__FILE__, 2
+
+end
+""")
+        end
+        yry()
+        @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 2)
+    end
+
     # issue #8
     @testset "Module docstring" begin
         testdir = joinpath(tempdir(), randstring(10))
@@ -477,6 +514,7 @@ revise_f(x) = 2
                 for name in to_remove
                     try
                         rm(name; force=true, recursive=true)
+                        deleteat!(LOAD_PATH, find(LOAD_PATH .== name))
                     end
                 end
                 yry()
