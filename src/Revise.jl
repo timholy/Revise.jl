@@ -371,7 +371,9 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
             parse_expr!(md, a, file, mod, path)
         end
         return md
-    elseif ex.head == :line
+    end
+    macroreplace!(ex, String(file))
+    if ex.head == :line
         return md
     elseif ex.head == :module
         parse_module!(md, ex, file, mod, path)
@@ -399,7 +401,7 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
                 end
             elseif isa(filename, Expr)
                 try
-                    filename = eval(mod, macroreplace(filename, file))
+                    filename = eval(mod, filename)
                 catch
                     warn("could not parse `include` expression ", filename)
                     return md
@@ -602,9 +604,9 @@ else
         LineNumberNode(lnn.line + line_offset, file)
 end
 
-function macroreplace(ex::Expr, filename)
+function macroreplace!(ex::Expr, filename)
     for i = 1:length(ex.args)
-        ex.args[i] = macroreplace(ex.args[i], filename)
+        ex.args[i] = macroreplace!(ex.args[i], filename)
     end
     if ex.head == :macrocall
         m = ex.args[1]
@@ -616,7 +618,7 @@ function macroreplace(ex::Expr, filename)
     end
     return ex
 end
-macroreplace(s, filename) = s
+macroreplace!(s, filename) = s
 
 const nargs_docexpr = VERSION < v"0.7.0-DEV.328" ? 3 : 4
 isdocexpr(ex) = ex.head == :macrocall && ex.args[1] == GlobalRef(Core, Symbol("@doc")) &&
