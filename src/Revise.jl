@@ -386,7 +386,7 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
         push!(md[mod], convert(RelocatableExpr, ex))
     elseif ex.head == :call && ex.args[1] == :include
         if path != nothing
-            filename = ex.args[2]
+            filename = ex.args[end]
             if isa(filename, AbstractString)
             elseif isa(filename, Symbol)
                 if isdefined(mod, filename)
