@@ -39,10 +39,6 @@ Julia's `Base` module: just say `Revise.track(Base)`. You'll see
 warnings about some files that are not tracked (see more information
 below).
 
-## Related packages
-
-See also [ClobberingReload](https://github.com/cstjean/ClobberingReload.jl).
-
 ## Manual revision
 
 By default, Revise processes any modified source files every time you enter
