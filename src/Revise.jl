@@ -266,6 +266,7 @@ function eval_revised(revmd::ModDict)
 end
 
 const file2modules = Dict{String,FileModules}()
+const module2files = Dict{Symbol,Vector{String}}()
 const new_files = String[]
 
 function parse_pkg_files(modsym::Symbol)
@@ -285,6 +286,7 @@ function parse_pkg_files(modsym::Symbol)
         parse_source(mainfile, Main, dirname(mainfile))
         files = new_files
     end
+    module2files[modsym] = copy(files)
     files
 end
 
