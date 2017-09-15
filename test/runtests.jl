@@ -247,8 +247,7 @@ end
                      joinpath(dn, "subdir", "file3.jl"),
                      joinpath(dn, "subdir", "file4.jl"),
                      joinpath(dn, "file5.jl")]
-            # FIXME: ideally `module2files[...]` and `files` should be in the same order.
-            @test Set(Revise.module2files[Symbol(modname)]) == Set(files)
+            @test Revise.module2files[Symbol(modname)] == files
         end
         # Remove the precompiled file
         rm(joinpath(Base.LOAD_CACHE_PATH[1], "PC.ji"))

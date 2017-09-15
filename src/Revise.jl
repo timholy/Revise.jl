@@ -306,15 +306,21 @@ initial load.) Otherwise set `path=nothing`.
 If parsing `file` fails, `nothing` is returned.
 """
 function parse_source(file::AbstractString, mod::Module, path)
+    # Create a blank ModDict to store the expressions. Parsing will "fill" this.
     md = ModDict(mod=>OrderedSet{RelocatableExpr}())
+    nfile = normpath(file)
+    if path != nothing
+        # Parsing is recursive (depth-first), so to preserve the order
+        # we add `file` to the list now
+        push!(new_files, nfile)
+    end
     if !parse_source!(md, file, mod, path)
+        pop!(new_files)  # since it failed, remove it from the list
         return nothing
     end
     fm = FileModules(mod, md)
     if path != nothing
-        nfile = normpath(file)
         file2modules[nfile] = fm
-        push!(new_files, nfile)
     end
     fm
 end
