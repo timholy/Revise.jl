@@ -242,6 +242,12 @@ end
             @eval @test $(fn4)() == -4
             @eval @test $(fn5)() == -5
             @eval @test $(fn6)() == -6
+            # Check module2files
+            files = [joinpath(dn, modname*".jl"), joinpath(dn, "file2.jl"),
+                     joinpath(dn, "subdir", "file3.jl"),
+                     joinpath(dn, "subdir", "file4.jl"),
+                     joinpath(dn, "file5.jl")]
+            @test Revise.module2files[Symbol(modname)] == files
         end
         # Remove the precompiled file
         rm(joinpath(Base.LOAD_CACHE_PATH[1], "PC.ji"))

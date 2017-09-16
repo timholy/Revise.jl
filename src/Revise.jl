@@ -266,25 +266,40 @@ function eval_revised(revmd::ModDict)
 end
 
 const file2modules = Dict{String,FileModules}()
+const module2files = Dict{Symbol,Vector{String}}()
 const new_files = String[]
 
 function parse_pkg_files(modsym::Symbol)
     paths = String[]
     if Base.JLOptions().use_compilecache != 0
+        # If we can, let's use the precompile cache. That is
+        # guaranteed to have a complete list of the included files,
+        # something that can't be guaranteed if we rely on parsing:
+        #     for file in files
+        #         include(file)
+        #     end
+        # isn't something that Revise can handle. Unfortunately we
+        # can't fully exploit this just yet, see below.
         paths = Base.find_all_in_cache_path(modsym)
     end
     if !isempty(paths)
+        # We got it from the precompile cache
         length(paths) > 1 && error("Multiple paths detected: ", paths)
         _, files_mtimes = Base.cache_dependencies(paths[1])
         files = map(first, files_mtimes)   # idx 1 is the filename, idx 2 is the mtime
         mainfile = first(files)
+        # We still have to parse the source code, and if there are
+        # multiple modules then we don't know which module to `eval`
+        # them into.
         parse_source(mainfile, Main, dirname(mainfile))
     else
+        # Non-precompiled package, so we learn the list of files through parsing
         mainfile = Base.find_source_file(string(modsym))
         empty!(new_files)
         parse_source(mainfile, Main, dirname(mainfile))
         files = new_files
     end
+    module2files[modsym] = copy(files)
     files
 end
 
@@ -304,19 +319,34 @@ initial load.) Otherwise set `path=nothing`.
 If parsing `file` fails, `nothing` is returned.
 """
 function parse_source(file::AbstractString, mod::Module, path)
+    # Create a blank ModDict to store the expressions. Parsing will "fill" this.
     md = ModDict(mod=>OrderedSet{RelocatableExpr}())
+    nfile = normpath(file)
+    if path != nothing
+        # Parsing is recursive (depth-first), so to preserve the order
+        # we add `file` to the list now
+        push!(new_files, nfile)
+    end
     if !parse_source!(md, file, mod, path)
+        pop!(new_files)  # since it failed, remove it from the list
         return nothing
     end
     fm = FileModules(mod, md)
     if path != nothing
-        nfile = normpath(file)
         file2modules[nfile] = fm
-        push!(new_files, nfile)
     end
     fm
 end
 
+"""
+    success = parse_source!(md::ModDict, file, mod::Module, path)
+
+Top-level parsing of `file` as included into module
+`mod`. Successfully-parsed expressions will be added to `md`. Returns
+`true` if parsing finished successfully.
+
+See also [`parse_source`](@ref).
+"""
 function parse_source!(md::ModDict, file::AbstractString, mod::Module, path)
     if !isfile(file)
         warn("omitting ", file, " from revision tracking")
@@ -329,8 +359,22 @@ function parse_source!(md::ModDict, file::AbstractString, mod::Module, path)
     end
 end
 
+"""
+    success = parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Integer, mod::Module, path)
+
+Parse a string `src` obtained by reading `file` as a single
+string. `pos` is the 1-based byte offset from which to begin parsing `src`.
+
+See also [`parse_source`](@ref).
+"""
 function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Integer, mod::Module, path)
     local ex, oldpos
+    # Since `parse` doesn't keep track of line numbers (it works
+    # expression-by-expression), to ensure good backtraces we have to
+    # keep track of them here. For each expression we parse, we count
+    # the number of linefeed characters that occurred between the
+    # beginning and end of the portion of the string consumed to parse
+    # the expression.
     line_offset = 0
     while pos < endof(src)
         try
@@ -355,6 +399,16 @@ function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Inte
     true
 end
 
+"""
+    success = parse_source!(md::ModDict, ex::Expr, file, mod::Module, path)
+
+For a `file` that defines a sub-module, parse the body `ex` of the
+sub-module.  `mod` will be the module into which this sub-module is
+evaluated (i.e., included). Successfully-parsed expressions will be
+added to `md`. Returns `true` if parsing finished successfully.
+
+See also [`parse_source`](@ref).
+"""
 function parse_source!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     @assert ex.head == :block
     for a in ex.args
@@ -365,6 +419,21 @@ function parse_source!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     md
 end
 
+"""
+    parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
+
+Recursively parse the expressions in `ex`, iterating over blocks,
+sub-module definitions, `include` statements, etc. Successfully parsed
+expressions are added to `md` with key `mod`, and any sub-modules will
+be stored in `md` using appropriate new keys. This accomplishes three main
+tasks:
+
+* add parsed expressions to the source-code cache (so that later we can detect changes)
+* determine the module into which each parsed expression is `eval`uated into
+* detect `include` statements so that we know to recurse into
+  additional files, attempting to extract accurate path information
+  even when using constructs such as `@__FILE__`.
+"""
 function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     if ex.head == :block
         for a in ex.args
@@ -385,6 +454,11 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
         ex.args[nargs_docexpr] = Symbol(newmod)
         push!(md[mod], convert(RelocatableExpr, ex))
     elseif ex.head == :call && ex.args[1] == :include
+        # Extract the filename. This is easy if it's a simple string,
+        # but if it involves `joinpath` expressions or other such
+        # shenanigans, it's a little trickier.
+        # Unfortunately expressions like `include(filename)` where
+        # `filename` is a variable cannot be handled. Such files are not tracked.
         if path != nothing
             filename = ex.args[end]
             if isa(filename, AbstractString)
@@ -419,15 +493,25 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
         # detect changes compared to the cached version), then we skip
         # the include statement.
     else
+        # Any expression that *doesn't* define line numbers, new
+        # modules, or include new files must be "real code." Add it to
+        # the cache.
         push!(md[mod], convert(RelocatableExpr, ex))
     end
     md
 end
 
+"""
+    newmod = parse_module!(md::ModDict, ex::Expr, file, mod::Module, path)
+
+Parse an expression `ex` that defines a new module `newmod`. This
+module is "parented" by `mod`. Source-code expressions are added to
+`md` under the appropriate module name.
+"""
 function parse_module!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     newmod = getfield(mod, _module_name(ex))
     md[newmod] = OrderedSet{RelocatableExpr}()
-    parse_source!(md, ex.args[3], file, newmod, path)
+    parse_source!(md, ex.args[3], file, newmod, path)  # recurse into the body of the module
     newmod
 end
 
