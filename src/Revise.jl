@@ -272,15 +272,28 @@ const new_files = String[]
 function parse_pkg_files(modsym::Symbol)
     paths = String[]
     if Base.JLOptions().use_compilecache != 0
+        # If we can, let's use the precompile cache. That is
+        # guaranteed to have a complete list of the included files,
+        # something that can't be guaranteed if we rely on parsing:
+        #     for file in files
+        #         include(file)
+        #     end
+        # isn't something that Revise can handle. Unfortunately we
+        # can't fully exploit this just yet, see below.
         paths = Base.find_all_in_cache_path(modsym)
     end
     if !isempty(paths)
+        # We got it from the precompile cache
         length(paths) > 1 && error("Multiple paths detected: ", paths)
         _, files_mtimes = Base.cache_dependencies(paths[1])
         files = map(first, files_mtimes)   # idx 1 is the filename, idx 2 is the mtime
         mainfile = first(files)
+        # We still have to parse the source code, and if there are
+        # multiple modules then we don't know which module to `eval`
+        # them into.
         parse_source(mainfile, Main, dirname(mainfile))
     else
+        # Non-precompiled package, so we learn the list of files through parsing
         mainfile = Base.find_source_file(string(modsym))
         empty!(new_files)
         parse_source(mainfile, Main, dirname(mainfile))
