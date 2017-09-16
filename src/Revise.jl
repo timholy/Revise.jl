@@ -269,9 +269,17 @@ const file2modules = Dict{String,FileModules}()
 const module2files = Dict{Symbol,Vector{String}}()
 const new_files = String[]
 
+function use_compiled_modules()
+    @static if VERSION >= v"0.7.0-DEV.1698"
+        return Base.JLOptions().use_compiled_modules != 0
+    else
+        return Base.JLOptions().use_compilecache != 0
+    end
+end
+
 function parse_pkg_files(modsym::Symbol)
     paths = String[]
-    if Base.JLOptions().use_compilecache != 0
+    if use_compiled_modules()
         # If we can, let's use the precompile cache. That is
         # guaranteed to have a complete list of the included files,
         # something that can't be guaranteed if we rely on parsing:
