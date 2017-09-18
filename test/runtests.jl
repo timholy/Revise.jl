@@ -189,7 +189,7 @@ include(otherfile)
 macro some_macro_$(fbase)()
     return -6
 end
-using_macro_$(fbase)() = @some_macro_$(fbase)() + 0  # + 0 to force a revision
+using_macro_$(fbase)() = @some_macro_$(fbase)()
 
 end
 """)  # just for fun we skipped the whitespace
@@ -200,6 +200,8 @@ end
             @eval @test $(fn3)() == 3
             @eval @test $(fn4)() == 4
             @eval @test $(fn5)() == 5
+            @eval @test $(fn6)() == 6      # because it hasn't been re-macroexpanded
+            revise(eval(Symbol(modname)))
             @eval @test $(fn6)() == -6
             # Redefine function 2
             open(joinpath(dn, "file2.jl"), "w") do io

@@ -613,6 +613,18 @@ function revise()
 end
 
 """
+    revise(mod::Module)
+
+Reevaluate every definition in `mod`, whether it was changed or not. This is useful
+to propagate an updated macro definition, or to force recompiling generated functions.
+"""
+function revise(mod::Module)
+    for file in module2files[Symbol(mod)]
+        eval_revised(file2modules[file].md)
+    end
+end
+
+"""
     Revise.track(mod::Module, file::AbstractString)
     Revise.track(file::AbstractString)
 
