@@ -388,7 +388,7 @@ end
         yry()
         @test ModDocstring.f() == 3
         ds = @doc ModDocstring
-        @test ds.content[2].content[1].content[1] == "Hello! "
+        @test ds.content[end].content[1].content[1] == "Hello! "
 
         pop!(LOAD_PATH)
     end
