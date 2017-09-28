@@ -294,7 +294,7 @@ function parse_pkg_files(modsym::Symbol)
         # We got it from the precompile cache
         length(paths) > 1 && error("Multiple paths detected: ", paths)
         _, files_mtimes = Base.cache_dependencies(paths[1])
-        files = map(first, files_mtimes)   # idx 1 is the filename, idx 2 is the mtime
+        files = map(ft->normpath(first(ft)), files_mtimes)   # idx 1 is the filename, idx 2 is the mtime
         mainfile = first(files)
         # We still have to parse the source code, and if there are
         # multiple modules then we don't know which module to `eval`
@@ -305,9 +305,9 @@ function parse_pkg_files(modsym::Symbol)
         mainfile = Base.find_source_file(string(modsym))
         empty!(new_files)
         parse_source(mainfile, Main, dirname(mainfile))
-        files = new_files
+        files = map(normpath, new_files)
     end
-    module2files[modsym] = copy(files)
+    module2files[modsym] = files
     files
 end
 
