@@ -529,7 +529,9 @@ revise_f(x) = 2
                 yry()
             end
         end
-        @test contains(read(warnfile, String), "is not an existing directory")
+        if !is_apple()
+            @test contains(read(warnfile, String), "is not an existing directory")
+        end
         rm(warnfile)
     end
 end
