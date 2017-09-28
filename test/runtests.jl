@@ -1,6 +1,7 @@
 using Revise
 using Base.Test
 using DataStructures: OrderedSet
+using Compat
 
 to_remove = String[]
 
@@ -49,7 +50,7 @@ k(x) = 4
                 @test convert(Revise.RelocatableExpr, :(g(x) = 2)) ∈ md[Main]
             end
         end
-        @test contains(readstring(warnfile), "parsing error near line 3")
+        @test contains(read(warnfile, String), "parsing error near line 3")
         rm(warnfile)
     end
 
@@ -388,7 +389,7 @@ end
         yry()
         @test ModDocstring.f() == 3
         ds = @doc ModDocstring
-        @test ds.content[2].content[1].content[1] == "Hello! "
+        @test ds.content[end].content[1].content[1] == "Hello! "
 
         pop!(LOAD_PATH)
     end
@@ -434,7 +435,7 @@ foo(y::Int) = y-51
         lines = Int[]
         files = String[]
         for m in methods(LineNumberMod.foo)
-            push!(files, m.file)
+            push!(files, String(m.file))
             push!(lines, m.line)
         end
         @test all(f->endswith(string(f), "incl.jl"), files)
@@ -484,7 +485,7 @@ foo(y::Int) = y-51
             Revise.silence("GSL")
             @test isfile(sfiletemp)
             pkgs = readlines(sfiletemp)
-            @test contains(==, pkgs, "GSL")
+            @test any(p->p=="GSL", pkgs)
             rm(sfiletemp)
         finally
             Revise.silencefile[] = sfile
@@ -528,7 +529,9 @@ revise_f(x) = 2
                 yry()
             end
         end
-        @test contains(readstring(warnfile), "is not an existing directory")
+        if !is_apple()
+            @test contains(read(warnfile, String), "is not an existing directory")
+        end
         rm(warnfile)
     end
 end

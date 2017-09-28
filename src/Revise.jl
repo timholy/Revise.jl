@@ -294,7 +294,7 @@ function parse_pkg_files(modsym::Symbol)
         # We got it from the precompile cache
         length(paths) > 1 && error("Multiple paths detected: ", paths)
         _, files_mtimes = Base.cache_dependencies(paths[1])
-        files = map(first, files_mtimes)   # idx 1 is the filename, idx 2 is the mtime
+        files = map(ft->normpath(first(ft)), files_mtimes)   # idx 1 is the filename, idx 2 is the mtime
         mainfile = first(files)
         # We still have to parse the source code, and if there are
         # multiple modules then we don't know which module to `eval`
@@ -305,9 +305,9 @@ function parse_pkg_files(modsym::Symbol)
         mainfile = Base.find_source_file(string(modsym))
         empty!(new_files)
         parse_source(mainfile, Main, dirname(mainfile))
-        files = new_files
+        files = map(normpath, new_files)
     end
-    module2files[modsym] = copy(files)
+    module2files[modsym] = files
     files
 end
 
@@ -517,10 +517,16 @@ module is "parented" by `mod`. Source-code expressions are added to
 `md` under the appropriate module name.
 """
 function parse_module!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
+    mod = moduleswap(mod)
     newmod = getfield(mod, _module_name(ex))
     md[newmod] = OrderedSet{RelocatableExpr}()
     parse_source!(md, ex.args[3], file, newmod, path)  # recurse into the body of the module
     newmod
+end
+if VERSION >= v"0.7.0-DEV.1877"
+    moduleswap(mod) = mod == Base.__toplevel__ ? Main : mod
+else
+    moduleswap(mod) = mod
 end
 
 function watch_files_via_dir(dirname)
@@ -544,6 +550,11 @@ function watch_package(modsym::Symbol)
         end
         return nothing
     end
+    @schedule watch_package_impl(modsym)
+    nothing
+end
+
+function watch_package_impl(modsym)
     files = parse_pkg_files(modsym)
     process_parsed_files(files)
 end
