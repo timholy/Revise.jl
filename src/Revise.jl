@@ -544,6 +544,13 @@ function watch_files_via_dir(dirname)
 end
 
 function watch_package(modsym::Symbol)
+    # Because the callbacks are made with `invokelatest`, for reasons of performance
+    # we need to make sure this function is fast to compile. By hiding the real
+    # work behind a @schedule, we truncate the chain of dependency.
+    @schedule _watch_package(modsym)
+end
+
+function _watch_package(modsym::Symbol)
     if modsym ∈ dont_watch_pkgs
         if modsym ∉ silence_pkgs
             warn("$modsym is excluded from watching by Revise. Use Revise.silence(\"$modsym\") to quiet this warning.")
