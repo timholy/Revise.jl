@@ -56,4 +56,6 @@ To create a `FileModules` from a source file, see [`parse_source`](@ref).
 struct FileModules
     topmod::Module
     md::ModDict
+    cachefile::String
 end
+FileModules(topmod::Module, md::ModDict) = FileModules(topmod, md, "")

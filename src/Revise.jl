@@ -122,10 +122,10 @@ function parse_pkg_files(modsym::Symbol)
         for (modname, fname, _) in mods_files_mtimes
             modname == "#__external__" && continue
             mod = Base.root_module(Symbol(modname))
-            pr = parse_source(fname, mod)
-            if isa(pr, Pair)
-                push!(file2modules, pr)
-            end
+            # For precompiled packages, we can read the source later (whenever we need it)
+            # from the *.ji cachefile.
+            fname = normpath(fname)
+            push!(file2modules, fname=>FileModules(mod, ModDict(), paths[1]))
             push!(files, fname)
         end
     else
@@ -255,6 +255,14 @@ function revise_file_now(file0)
         error(file, " is not currently being tracked.")
     end
     oldmd = file2modules[file]
+    if isempty(oldmd.md)
+        # Source was never parsed, get it from the precompile cache
+        src = Base.read_dependency_src(oldmd.cachefile, file)
+        push!(oldmd.md, oldmd.topmod=>OrderedSet{RelocatableExpr}())
+        if !parse_source!(oldmd.md, src, Symbol(file), 1, oldmd.topmod)
+            warn("failed to parse cache file source text for ", file)
+        end
+    end
     pr = parse_source(file, oldmd.topmod)
     if pr != nothing
         newmd = pr.second
