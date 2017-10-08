@@ -209,7 +209,9 @@ end
 function revised_statements(newmd::ModDict, oldmd::ModDict)
     revmd = ModDict()
     for (mod, newdefs) in newmd
-        revised_statements!(revmd, mod, newdefs, oldmd[mod])
+        if haskey(oldmd, mod) # in case of new submodules, see #43
+            revised_statements!(revmd, mod, newdefs, oldmd[mod])
+        end
     end
     revmd
 end
@@ -518,7 +520,11 @@ module is "parented" by `mod`. Source-code expressions are added to
 """
 function parse_module!(md::ModDict, ex::Expr, file::Symbol, mod::Module, path)
     mod = moduleswap(mod)
-    newmod = getfield(mod, _module_name(ex))
+    mname = _module_name(ex)
+    if !isdefined(mod, mname)
+        eval(mod, ex)
+    end
+    newmod = getfield(mod, mname)
     md[newmod] = OrderedSet{RelocatableExpr}()
     parse_source!(md, ex.args[3], file, newmod, path)  # recurse into the body of the module
     newmod
