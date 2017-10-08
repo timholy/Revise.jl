@@ -468,6 +468,39 @@ foo(y::Int) = y-51
         end
     end
 
+    # Issue #43
+    @testset "New submodules" begin
+        testdir = joinpath(tempdir(), randstring(10))
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "Submodules", "src")
+        mkpath(dn)
+        open(joinpath(dn, "Submodules.jl"), "w") do io
+            println(io, """
+module Submodules
+f() = 1
+end
+""")
+        end
+        @eval using Submodules
+        @test Submodules.f() == 1
+        sleep(0.1)  # ensure watching is set up
+        open(joinpath(dn, "Submodules.jl"), "w") do io
+            println(io, """
+module Submodules
+f() = 1
+module Sub
+g() = 2
+end
+end
+""")
+        end
+        yry()
+        @test Submodules.f() == 1
+        @test Submodules.Sub.g() == 2
+    end
+
     @testset "Pkg exclusion" begin
         push!(Revise.dont_watch_pkgs, :Example)
         push!(Revise.silence_pkgs, :Example)
