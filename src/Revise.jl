@@ -750,7 +750,13 @@ isdocexpr(ex) = ex.head == :macrocall && ex.args[1] == GlobalRef(Core, Symbol("@
 function steal_repl_backend(backend = Base.active_repl_backend)
     # terminate the current backend
     put!(backend.repl_channel, (nothing, -1))
-    yield()
+    tstart = time()
+    while(!istaskdone(backend.backend_task)) && time() - tstart < 1
+        yield()
+    end
+    if !istaskdone(backend.backend_task)
+        warn("Failed to steal REPL backend, code will not be revised automatically: call `revise()` manually.")
+    end
     # restart a new backend that differs only by processing the
     # revision queue before evaluating each user input
     backend.backend_task = @schedule begin
