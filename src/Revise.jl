@@ -652,6 +652,7 @@ changes. If `mod` is omitted it defaults to `Main`.
 function track(mod::Module, file::AbstractString)
     isfile(file) || error(file, " is not a file")
     empty!(new_files)
+    file = normpath(abspath(file))
     parse_source(file, mod, dirname(file))
     process_parsed_files(new_files)
 end

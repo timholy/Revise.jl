@@ -512,6 +512,30 @@ revise_f(x) = 2
         @test revise_f(10) == 2
         push!(to_remove, srcfile)
 
+        # Do it again with a relative path
+        curdir = pwd()
+        cd(tempdir())
+        srcfile = randstring(10)*".jl"
+        open(srcfile, "w") do io
+            print(io, """
+        revise_floc(x) = 1
+        """)
+        end
+        include(joinpath(pwd(), srcfile))
+        @test revise_floc(10) == 1
+        Revise.track(srcfile)
+        sleep(0.1)
+        open(srcfile, "w") do io
+            print(io, """
+        revise_floc(x) = 2
+        """)
+        end
+        yry()
+        @test revise_floc(10) == 2
+        push!(to_remove, joinpath(tempdir(), srcfile))
+        cd(curdir)
+
+        # Tracking Base
         Revise.track(Base)
         @test any(k->endswith(k, "number.jl"), keys(Revise.file2modules))
     end
