@@ -1,4 +1,4 @@
-__precompile__()
+__precompile__(true)
 
 module Revise
 
@@ -30,6 +30,9 @@ const module2files = Dict{Symbol,Vector{String}}()
 # included_files gets populated by callbacks we register with `include`. It's used
 # to track non-precompiled packages.
 const included_files = Tuple{Module,String}[]  # (module, filename)
+
+# Full path to the running Julia's cache of source code defining Base
+const basesrccache = joinpath(JULIA_HOME, Base.DATAROOTDIR, "julia", "base.cache")
 
 ## For excluding packages from tracking by Revise
 const dont_watch_pkgs = Set{Symbol}()
@@ -124,7 +127,6 @@ function parse_pkg_files(modsym::Symbol)
             mod = Base.root_module(Symbol(modname))
             # For precompiled packages, we can read the source later (whenever we need it)
             # from the *.ji cachefile.
-            fname = normpath(fname)
             push!(file2modules, fname=>FileModules(mod, ModDict(), paths[1]))
             push!(files, fname)
         end
@@ -151,7 +153,7 @@ function parse_pkg_files(modsym::Symbol)
                 if isa(pr, Pair)
                     push!(file2modules, pr)
                 end
-                push!(files, normpath(fname))
+                push!(files, fname)
                 deleteat!(included_files, i)
             else
                 i += 1
@@ -248,8 +250,7 @@ function revise_dir_queued(dirname)
     @schedule revise_dir_queued(dirname)
 end
 
-function revise_file_now(file0)
-    file = normpath(file0)
+function revise_file_now(file)
     if !haskey(file2modules, file)
         println("Revise is currently tracking the following files: ", keys(file2modules))
         error(file, " is not currently being tracked.")
@@ -257,7 +258,7 @@ function revise_file_now(file0)
     oldmd = file2modules[file]
     if isempty(oldmd.md)
         # Source was never parsed, get it from the precompile cache
-        src = Base.read_dependency_src(oldmd.cachefile, file)
+        src = read_from_cache(oldmd, file)
         push!(oldmd.md, oldmd.topmod=>OrderedSet{RelocatableExpr}())
         if !parse_source!(oldmd.md, src, Symbol(file), 1, oldmd.topmod)
             warn("failed to parse cache file source text for ", file)
@@ -276,6 +277,15 @@ function revise_file_now(file0)
         end
     end
     nothing
+end
+
+function read_from_cache(fm::FileModules, file::AbstractString)
+    if fm.cachefile == basesrccache
+        return open(basesrccache) do io
+            Base._read_dependency_src(io, file)
+        end
+    end
+    Base.read_dependency_src(fm.cachefile, file)
 end
 
 """
@@ -322,9 +332,6 @@ function track(mod::Module, file::AbstractString)
 end
 track(file::AbstractString) = track(Main, file)
 
-const sysimg_path =  # where `baremodule Base` is defined
-    realpath(joinpath(JULIA_HOME, Base.DATAROOTDIR, "julia", "base", "sysimg.jl"))
-
 """
     Revise.track(Base)
 
@@ -336,10 +343,20 @@ At present some files in Base are not trackable, see the README.
 """
 function track(mod::Module)
     if mod == Base
-        error("Base tracking is currently broken")
-        # empty!(new_files)
-        # parse_source(sysimg_path, Main, dirname(sysimg_path))
-        # process_parsed_files(new_files)
+        # Determine when the basesrccache was built
+        mtcache = mtime(basesrccache)
+        # Initialize expression-tracking for files, and
+        # note any modified since Base was built
+        files = String[]
+        for (submod, filename) in Base._included_files
+            push!(file2modules, filename=>FileModules(submod, ModDict(), basesrccache))
+            push!(files, filename)
+            if mtime(filename) > mtcache
+                push!(revision_queue, filename)
+            end
+        end
+        # Add the files to the watch list
+        process_parsed_files(files)
     else
         error("no Revise.track recipe for module ", mod)
     end
@@ -439,7 +456,7 @@ function __init__()
     end
     push!(Base.package_callbacks, watch_package)
     push!(Base.include_callbacks,
-        (mod::Module, fn::AbstractString) -> push!(included_files, (mod, String(fn))))
+        (mod::Module, fn::AbstractString) -> push!(included_files, (mod, normpath(abspath(fn)))))
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
         if isdefined(Base, :active_repl_backend)

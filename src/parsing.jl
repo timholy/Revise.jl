@@ -11,10 +11,9 @@ If parsing `file` fails, `nothing` is returned.
 function parse_source(file::AbstractString, mod::Module)
     # Create a blank ModDict to store the expressions. Parsing will "fill" this.
     md = ModDict(mod=>OrderedSet{RelocatableExpr}())
-    nfile = normpath(file)
     parse_source!(md, file, mod) || return nothing
     fm = FileModules(mod, md)
-    nfile => fm
+    String(file) => fm
 end
 
 """

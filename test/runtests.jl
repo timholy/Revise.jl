@@ -286,8 +286,6 @@ end
         end
         @test li_f() == 1  # unless the include is at toplevel it is not found
 
-        @test isfile(Revise.sysimg_path)
-
         pop!(LOAD_PATH)
     end
 
@@ -569,9 +567,8 @@ revise_f(x) = 2
         cd(curdir)
 
         # Tracking Base
-        # FIXME
-        # Revise.track(Base)
-        # @test any(k->endswith(k, "number.jl"), keys(Revise.file2modules))
+        Revise.track(Base)
+        @test any(k->endswith(k, "number.jl"), keys(Revise.file2modules))
     end
 
     @testset "Cleanup" begin
