@@ -1,5 +1,7 @@
 # Revise
 
+**NOTE: this page is for Julia 0.7-DEV and higher. For Julia 0.6 [see this branch](https://github.com/timholy/Revise.jl/tree/v0.6)**
+
 [![Build Status](https://travis-ci.org/timholy/Revise.jl.svg?branch=master)](https://travis-ci.org/timholy/Revise.jl)
 [![Build status](https://ci.appveyor.com/api/projects/status/e1xnsj4e5q9308y6/branch/master?svg=true)](https://ci.appveyor.com/project/timholy/revise-jl/branch/master)
 [![codecov.io](http://codecov.io/github/timholy/Revise.jl/coverage.svg?branch=master)](http://codecov.io/github/timholy/Revise.jl?branch=master)
@@ -34,10 +36,8 @@ julia> Example.f()
 π = 3.1415926535897...
 ```
 
-To a limited extent, it's even possible to use Revise on code in
-Julia's `Base` module: just say `Revise.track(Base)`. You'll see
-warnings about some files that are not tracked (see more information
-below).
+It's even possible to use Revise on code in Julia's `Base` module: just say `Revise.track(Base)`.
+Any changes that you've made since you last built Julia will be automatically incorporated.
 
 ## Manual revision
 
@@ -83,33 +83,31 @@ julia> convert(Float64, π)
 
 julia> # That's too hard, let's make life easier for students
 
-julia> eval(Base, quote
-       convert(::Type{Float64}, x::Irrational{:π}) = 3.0
-       end)
-WARNING: Method definition convert(Type{Float64}, Base.Irrational{:π}) in module Base at irrationals.jl:130 overwritten at REPL[2]:2.
-convert (generic function with 700 methods)
+julia> @eval Base convert(::Type{Float64}, x::Irrational{:π}) = 3.0
+convert (generic function with 714 methods)
 
 julia> convert(Float64, π)
 3.0
 ```
 
 Revise removes some of the tedium of manually copying and pasting code
-into `eval` statements.
+into `@eval` statements.
 To decrease the amount of re-JITting
-required, Revise avoids reloading the entire package; instead, it takes care
+required, Revise avoids reloading entire modules; instead, it takes care
 to `eval` only the *changes* in your package(s), much as you would if you were
 doing it manually.
 
 To accomplish this, Revise uses the following overall strategy:
 
 - add a callback to Base so that Revise gets notified when new
-  packages are loaded
-- parse the source code for packages when they are first loaded. This
-  allows Revise to determine the
-  module associated with each line of code, and assemble a list of
-  `include`d files for the package. Revise then caches the parsed code
-  so that it is possible to detect changes in the future.
-- monitor the file system for changes to any of the `include`d files;
+  packages are loaded or new files `include`d
+- prepare source-code caches for every new file. These caches
+  will allow Revise to detect changes when files are updated. For precompiled
+  packages this happens on an as-needed basis, using the cached
+  source in the `*.ji` file. For non-precompiled packages, Revise parses
+  the source for each `include`d file immediately so that the "starting point" is
+  known before you start saving changes.
+- monitor the file system for changes to any of the dependent files;
   it immediately appends any updates to a list of file names that need future
   processing
 - intercept the REPL's backend to ensure that the list of
@@ -118,7 +116,8 @@ To accomplish this, Revise uses the following overall strategy:
 - when a revision is triggered, the source file(s) are re-parsed, and
   a diff between the cached version and the new version is
   created. `eval` the diff in the appropriate module(s).
-- replace the cached version of each source file with the new version.
+- replace the cached version of each source file with the new version, so that
+  further changes are `diff`ed against the most recent update.
 
 ## Caveats
 
@@ -134,7 +133,6 @@ There are some kinds of changes that Revise cannot incorporate into a running Ju
 - changes to macros that affect method definitions, or to functions that affect generated
 function expansion. To work around this issue, you may explicitly call `revise(module)`
 to force reevaluating every definition in `module`.
-- changes in files that are omitted by Revise (you should see a warning about these). Revise has to be able to statically parse the paths in your package; statements like `include("file2.jl")` are easy but `include(string((length(Core.ARGS)>=2 ? Core.ARGS[2] : ""), "build_h.jl"))` cannot be handled.
 
 These kinds of changes require that you restart your Julia session.
 
