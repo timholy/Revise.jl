@@ -124,7 +124,10 @@ function parse_pkg_files(modsym::Symbol)
         _, mods_files_mtimes = Base.parse_cache_header(paths[1])
         for (modname, fname, _) in mods_files_mtimes
             modname == "#__external__" && continue
-            mod = Base.root_module(Symbol(modname))
+            modnames = split(modname, '.')
+            rootmodname = modnames[1]
+            rootmod = Base.root_module(Symbol(rootmodname))
+            mod = rootmodname == modname ? rootmod : getfield(rootmod, Symbol(join(modnames[2:end], '.')))
             # For precompiled packages, we can read the source later (whenever we need it)
             # from the *.ji cachefile.
             push!(file2modules, fname=>FileModules(mod, ModDict(), paths[1]))
