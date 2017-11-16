@@ -70,7 +70,7 @@ adding the following to your `.juliarc.jl` file:
     @eval using Revise
 end
 ```
-This should work the REPL, Juno, and IJulia. For VSCode see [these instructions](https://github.com/JuliaEditorSupport/julia-vscode/wiki/Know-issues-and-workarounds).
+This should work the REPL, Juno, and IJulia. For VSCode see [these instructions](https://github.com/JuliaEditorSupport/julia-vscode/wiki/Known-issues-and-workarounds).
 
 ## How it works
 
