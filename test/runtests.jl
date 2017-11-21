@@ -1,7 +1,6 @@
 using Revise
 using Test
 using DataStructures: OrderedSet
-using Compat
 
 to_remove = String[]
 

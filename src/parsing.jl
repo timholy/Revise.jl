@@ -53,9 +53,9 @@ function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Inte
     while pos < endof(src)
         try
             oldpos = pos
-            ex, pos = parse(src, pos; greedy=true)
+            ex, pos = Meta.parse(src, pos; greedy=true)
         catch err
-            ex, posfail = parse(src, pos; greedy=true, raise=false)
+            ex, posfail = Meta.parse(src, pos; greedy=true, raise=false)
             warn(STDERR, "omitting ", file, " due to parsing error near line ",
                  line_offset + count(c->c=='\n', SubString(src, oldpos, posfail)) + 1)
             showerror(STDERR, err)
