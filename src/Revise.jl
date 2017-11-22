@@ -5,7 +5,7 @@ module Revise
 VERSION >= v"0.7.0-DEV.2359" && using FileWatching
 
 using DataStructures: OrderedSet
-using FileWatching
+using FileWatching, Dates
 
 export revise
 
