@@ -3,9 +3,9 @@ __precompile__(true)
 module Revise
 
 VERSION >= v"0.7.0-DEV.2359" && using FileWatching
+VERSION >= v"0.7.0-DEV.2575" && using Dates
 
 using DataStructures: OrderedSet
-using FileWatching
 
 export revise
 
