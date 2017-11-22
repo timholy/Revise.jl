@@ -3,6 +3,9 @@ __precompile__(true)
 module Revise
 
 VERSION >= v"0.7.0-DEV.2359" && using FileWatching
+if VERSION >= v"0.7.0-DEV.2437"
+    const parse = Meta.parse
+end
 
 using DataStructures: OrderedSet
 using FileWatching
