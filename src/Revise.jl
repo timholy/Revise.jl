@@ -33,7 +33,11 @@ const module2files = Dict{Symbol,Vector{String}}()
 const included_files = Tuple{Module,String}[]  # (module, filename)
 
 # Full path to the running Julia's cache of source code defining Base
-const basesrccache = joinpath(JULIA_HOME, Base.DATAROOTDIR, "julia", "base.cache")
+if VERSION < v"0.7.0-DEV.3073" # https://github.com/JuliaLang/julia/pull/25102
+    const basesrccache = joinpath(JULIA_HOME, Base.DATAROOTDIR, "julia", "base.cache")
+else
+    const basesrccache = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache")
+end
 
 ## For excluding packages from tracking by Revise
 const dont_watch_pkgs = Set{Symbol}()
