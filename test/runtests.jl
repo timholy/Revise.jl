@@ -1,5 +1,5 @@
 using Revise
-using Test
+using Test, Unicode
 using DataStructures: OrderedSet
 using Compat
 using Compat.Random
@@ -10,6 +10,14 @@ if VERSION >= v"0.7.0-DEV.2444"
     throwing_function(bt) = bt[2]
 else
     throwing_function(bt) = bt[1]
+end
+
+const rseed = Ref(Base.GLOBAL_RNG)  # to get new random directories (see #24445)
+function randtmp()
+    srand(rseed[])
+    dirname = joinpath(tempdir(), randstring(10))
+    rseed[] = Base.GLOBAL_RNG
+    dirname
 end
 
 @testset "Revise" begin
@@ -43,7 +51,7 @@ end
     end
 
     @testset "Parse errors" begin
-        warnfile = joinpath(tempdir(), randstring(10))
+        warnfile = randtmp()
         open(warnfile, "w") do io
             redirect_stderr(io) do
                 md = Revise.ModDict(Main=>OrderedSet{Revise.RelocatableExpr}())
@@ -113,7 +121,7 @@ k(x) = 4
     end
 
     @testset "File paths" begin
-        testdir = joinpath(tempdir(), randstring(10))
+        testdir = randtmp()
         mkdir(testdir)
         push!(to_remove, testdir)
         push!(LOAD_PATH, testdir)
@@ -298,7 +306,7 @@ end
 
     # issue #36
     @testset "@__FILE__" begin
-        testdir = joinpath(tempdir(), randstring(10))
+        testdir = randtmp()
         mkdir(testdir)
         push!(to_remove, testdir)
         push!(LOAD_PATH, testdir)
@@ -335,7 +343,7 @@ end
 
     # issue #8
     @testset "Module docstring" begin
-        testdir = joinpath(tempdir(), randstring(10))
+        testdir = randtmp()
         mkdir(testdir)
         push!(to_remove, testdir)
         push!(LOAD_PATH, testdir)
@@ -401,7 +409,7 @@ end
 
     @testset "Line numbers" begin
         # issue #27
-        testdir = joinpath(tempdir(), randstring(10))
+        testdir = randtmp()
         mkdir(testdir)
         push!(to_remove, testdir)
         push!(LOAD_PATH, testdir)
@@ -475,7 +483,7 @@ foo(y::Int) = y-51
 
     # Issue #43
     @testset "New submodules" begin
-        testdir = joinpath(tempdir(), randstring(10))
+        testdir = randtmp()
         mkdir(testdir)
         push!(to_remove, testdir)
         push!(LOAD_PATH, testdir)
@@ -579,7 +587,7 @@ revise_f(x) = 2
     end
 
     @testset "Cleanup" begin
-        warnfile = joinpath(tempdir(), randstring(10))
+        warnfile = randtmp()
         open(warnfile, "w") do io
             redirect_stderr(io) do
                 for name in to_remove
