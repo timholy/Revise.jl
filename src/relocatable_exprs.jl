@@ -46,7 +46,9 @@ function Base.convert(::Type{Expr}, rex::RelocatableExpr)
     # mutate the cached represetation.
     ex = Expr(rex.head)
     ex.args = Base.copy_exprargs(rex.args)
-    ex.typ = rex.typ
+    if isdefined(rex, :typ)
+        ex.typ = rex.typ
+    end
     ex
 end
 Base.copy_exprs(rex::RelocatableExpr) = convert(Expr, rex)

@@ -99,14 +99,14 @@ doing it manually.
 
 To accomplish this, Revise uses the following overall strategy:
 
-- add a callback to Base so that Revise gets notified when new
+- add callbacks to Base so that Revise gets notified when new
   packages are loaded or new files `include`d
 - prepare source-code caches for every new file. These caches
   will allow Revise to detect changes when files are updated. For precompiled
   packages this happens on an as-needed basis, using the cached
   source in the `*.ji` file. For non-precompiled packages, Revise parses
-  the source for each `include`d file immediately so that the "starting point" is
-  known before you start saving changes.
+  the source for each `include`d file immediately so that the initial state is
+  known and changes can be detected.
 - monitor the file system for changes to any of the dependent files;
   it immediately appends any updates to a list of file names that need future
   processing
@@ -125,14 +125,33 @@ To accomplish this, Revise uses the following overall strategy:
 a `using` or `import` statement; files loaded by `include` are not
 tracked, unless you explicitly use `Revise.track(filename)`.
 
-There are some kinds of changes that Revise cannot incorporate into a running Julia session:
+Sometimes you might wish to change a method's type signature or number of arguments,
+or remove a method specialized for specific types.
+To prevent "stale" methods
+from being called by dispatch, Revise accommodates method deletion, for example:
+```julia
+f(x) = 1
+f(x::Int) = 2 # delete this method
+```
+If you save the file, the next time you call `f(5)` from the REPL you will get 1.
+
+However, Revise needs to be able to parse the signature of the deleted method.
+As a consequence, methods generated with code:
+```julia
+for T in (Int, Float64)
+    @eval mytypeof(x::$T) = $T  # delete this line
+end
+```
+will not disappear from the method lists until you restart, or manually call
+`Base.delete_method(m::Method)`. You can use `m = @which ...` to obtain a method.
+
+For changes to macros or to functions that affect the expansion of a `@generated` function,
+you may explicitly call `revise(module)` to force reevaluating every definition in `module`.
+
+Finally, there are some kinds of changes that Revise cannot incorporate into a running Julia session:
 
 - changes to type definitions
-- function or method deletions
 - file or module renames
-- changes to macros that affect method definitions, or to functions that affect generated
-function expansion. To work around this issue, you may explicitly call `revise(module)`
-to force reevaluating every definition in `module`.
 
 These kinds of changes require that you restart your Julia session.
 

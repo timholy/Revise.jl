@@ -62,7 +62,7 @@ end
         warnfile = randtmp()
         open(warnfile, "w") do io
             redirect_stderr(io) do
-                md = Revise.ModDict(Main=>OrderedSet{Revise.RelocatableExpr}())
+                md = Revise.ModDict(Main=>Revise.ExprsSigs())
                 @test !Revise.parse_source!(md, """
 f(x) = 1
 g(x) = 2
@@ -70,7 +70,7 @@ h{x) = 3  # error
 k(x) = 4
 """,
                                             :test, 1, Main)
-                @test convert(Revise.RelocatableExpr, :(g(x) = 2)) ∈ md[Main]
+                @test convert(Revise.RelocatableExpr, :(g(x) = 2)) ∈ md[Main].exprs
             end
         end
         @test contains(read(warnfile, String), "parsing error near line 3")
@@ -90,17 +90,17 @@ k(x) = 4
         revmd = Revise.revised_statements(newmd, oldmd)
         @test length(revmd) == 2
         @test haskey(revmd, ReviseTest) && haskey(revmd, ReviseTest.Internal)
-        @test length(revmd[ReviseTest.Internal]) == 1
+        @test length(revmd[ReviseTest.Internal].exprs) == 1
         cmp = Revise.relocatable!(quote
             mult3(x) = 3*x
         end)
-        @test isequal(first(revmd[ReviseTest.Internal]), collectexprs(cmp)[1])
-        @test length(revmd[ReviseTest]) == 2
+        @test isequal(first(revmd[ReviseTest.Internal].exprs), collectexprs(cmp)[1])
+        @test length(revmd[ReviseTest].exprs) == 2
         cmp = Revise.relocatable!(quote
             cube(x) = x^3
             fourth(x) = x^4  # this is an addition to the file
         end)
-        @test isequal(revmd[ReviseTest], OrderedSet(collectexprs(cmp)))
+        @test isequal(revmd[ReviseTest].exprs, OrderedSet(collectexprs(cmp)))
 
         Revise.eval_revised(revmd)
         @test ReviseTest.cube(2) == 8
@@ -530,6 +530,70 @@ end
         yry()
         @test Submodules.f() == 1
         @test Submodules.Sub.g() == 2
+    end
+
+    @testset "Method deletion" begin
+        eval(Base, :(revisefoo(x::Float64) = 1)) # to test cross-module method scoping
+        testdir = randtmp()
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "MethDel", "src")
+        mkpath(dn)
+        open(joinpath(dn, "MethDel.jl"), "w") do io
+            println(io, """
+module MethDel
+f(x) = 1
+f(x::Int) = 2
+g(x::Vector{T}, y::T) where T = 1
+g(x::Array{T,N}, y::T) where N where T = 2
+g(::Array, ::Any) = 3
+h(x::Array{T}, y::T) where T = g(x, y)
+k(::Int; badchoice=1) = badchoice
+Base.revisefoo(x::Int) = 2
+struct Private end
+Base.revisefoo(::Private) = 3
+end
+""")
+        end
+        @eval using MethDel
+        @test MethDel.f(1.0) == 1
+        @test MethDel.f(1) == 2
+        @test MethDel.g(rand(3), 1.0) == 1
+        @test MethDel.g(rand(3, 3), 1.0) == 2
+        @test MethDel.g(Int[], 1.0) == 3
+        @test MethDel.h(rand(3), 1.0) == 1
+        @test MethDel.k(1) == 1
+        @test MethDel.k(1; badchoice=2) == 2
+        @test Base.revisefoo(1.0) == 1
+        @test Base.revisefoo(1) == 2
+        @test Base.revisefoo(MethDel.Private()) == 3
+        sleep(0.1)  # ensure watching is set up
+        open(joinpath(dn, "MethDel.jl"), "w") do io
+            println(io, """
+module MethDel
+f(x) = 1
+g(x::Array{T,N}, y::T) where N where T = 2
+h(x::Array{T}, y::T) where T = g(x, y)
+k(::Int; goodchoice=-1) = goodchoice
+end
+""")
+        end
+        yry()
+        @test MethDel.f(1.0) == 1
+        @test MethDel.f(1) == 1
+        @test MethDel.g(rand(3), 1.0) == 2
+        @test MethDel.g(rand(3, 3), 1.0) == 2
+        @test_throws MethodError MethDel.g(Int[], 1.0)
+        @test MethDel.h(rand(3), 1.0) == 2
+        @test_throws MethodError MethDel.k(1; badchoice=2)
+        @test MethDel.k(1) == -1
+        @test MethDel.k(1; goodchoice=10) == 10
+        @test Base.revisefoo(1.0) == 1
+        @test_throws MethodError Base.revisefoo(1)
+        @test_throws MethodError Base.revisefoo(MethDel.Private())
+
+        Base.delete_method(first(methods(Base.revisefoo)))
     end
 
     @testset "Pkg exclusion" begin

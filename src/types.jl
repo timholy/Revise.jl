@@ -7,13 +7,23 @@ mutable struct WatchList
 end
 
 """
-A `ModDict` is a `Dict{Module,Set{RelocatableExpr}}`. It is used to
+ExprsSigs is a type containing all RelocatableExprs
+in a module (.exprs) and all detected function signatures (.sigs).
+"""
+struct ExprsSigs
+    exprs::OrderedSet{RelocatableExpr}
+    sigs::OrderedSet{RelocatableExpr}
+end
+ExprsSigs() = ExprsSigs(OrderedSet{RelocatableExpr}(), OrderedSet{RelocatableExpr}())
+
+"""
+A `ModDict` is a `Dict{Module,ExprsSigs}`. It is used to
 organize expressions according to their module of definition. We use a
 Set so that it is easy to find the differences between two `ModDict`s.
 
 See also [`FileModules`](@ref).
 """
-const ModDict = Dict{Module,OrderedSet{RelocatableExpr}}
+const ModDict = Dict{Module,ExprsSigs}
 
 """
     FileModules(topmod::Module, md::ModDict)
@@ -45,8 +55,8 @@ corresponding `fm::FileModules` looks something like
 
 ```julia
 fm.topmod = Main
-fm.md = Dict(Main=>OrderedSet([:(__precompile__(true))]),
-             Main.MyPkg=>OrderedSet[:(foo(x) = x^2)])
+fm.md = Dict(Main=>ExprsSigs(OrderedSet([:(__precompile__(true))]), OrderedSet()),
+             Main.MyPkg=>ExprsSigs(OrderedSet([:(foo(x) = x^2)]), OrderedSet([:(foo(x))]))
 ```
 because the precompile statement occurs in `Main`, and the definition of
 `foo` occurs in `Main.MyPkg`.
