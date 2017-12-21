@@ -118,54 +118,60 @@ Its job is to organize the files and expressions defining the module so that lat
 detect and process revisions.
 """
 function parse_pkg_files(modsym::Symbol)
-    paths = String[]
-    if use_compiled_modules()
-        paths = Base.find_all_in_cache_path(modsym)
-    end
     files = String[]
-    if !isempty(paths)
-        # We got the top-level file from the precompile cache
-        length(paths) > 1 && error("Multiple paths detected: ", paths)
-        _, mods_files_mtimes = Base.parse_cache_header(paths[1])
-        for (modname, fname, _) in mods_files_mtimes
-            modname == "#__external__" && continue
-            modnames = split(modname, '.')
-            rootmodname = modnames[1]
-            rootmod = Base.root_module(Symbol(rootmodname))
-            mod = rootmodname == modname ? rootmod : getfield(rootmod, Symbol(join(modnames[2:end], '.')))
-            # For precompiled packages, we can read the source later (whenever we need it)
-            # from the *.ji cachefile.
-            push!(file2modules, fname=>FileModules(mod, ModDict(), paths[1]))
-            push!(files, fname)
-        end
-    else
-        # Non-precompiled package(s). Here we rely on the `include` callbacks to have
-        # already populated `included_files`; all we have to do is collect the relevant
-        # files. The main trick here is that since `using` is recursive, `included_files`
-        # might contain files associated with many different packages. We have to figure
-        # out which correspond to `modsym`, which we do by:
-        #   - checking the module in which each file is evaluated. This suffices to
-        #     detect "supporting" files, i.e., those `included` within the module
-        #     definition.
-        #   - checking the filename. Since the "top level" file is evaluated into Main,
-        #     we can't use the module-of-evaluation to find it. Here we hope that the
-        #     top-level filename follows convention and matches the module. TODO?: it's
-        #     possible that this needs to be supplemented with parsing.
-        i = 1
-        modstring = string(modsym)
-        while i <= length(included_files)
-            mod, fname = included_files[i]
-            modname = String(Symbol(mod))
-            if startswith(modname, modstring) || endswith(fname, modstring*".jl")
-                pr = parse_source(fname, mod)
-                if isa(pr, Pair)
-                    push!(file2modules, pr)
+    if use_compiled_modules()
+        # We probably got the top-level file from the precompile cache
+        # Try to find the matching cache file
+        uuid = Base.module_uuid(Base.root_module(modsym))
+        paths = Base.find_all_in_cache_path(modsym)
+        for path in paths
+            provides, mods_files_mtimes, _ = Base.parse_cache_header(path)
+            for (m, u) in provides
+                if u === uuid && m === modsym
+                    # found the right cache file
+                    for (modname, fname, _) in mods_files_mtimes
+                        modname == "#__external__" && continue
+                        modnames = split(modname, '.', limit = 2)
+                        rootmodname = modnames[1]
+                        rootmod = Base.root_module(Symbol(rootmodname))
+                        mod = length(modnames) == 1 ? rootmod : getfield(rootmod, Symbol(modnames[2]))
+                        # For precompiled packages, we can read the source later (whenever we need it)
+                        # from the *.ji cachefile.
+                        push!(file2modules, fname=>FileModules(mod, ModDict(), path))
+                        push!(files, fname)
+                        module2files[modsym] = files
+                    end
+                    return files
                 end
-                push!(files, fname)
-                deleteat!(included_files, i)
-            else
-                i += 1
             end
+        end
+    end
+    # Non-precompiled package(s). Here we rely on the `include` callbacks to have
+    # already populated `included_files`; all we have to do is collect the relevant
+    # files. The main trick here is that since `using` is recursive, `included_files`
+    # might contain files associated with many different packages. We have to figure
+    # out which correspond to `modsym`, which we do by:
+    #   - checking the module in which each file is evaluated. This suffices to
+    #     detect "supporting" files, i.e., those `included` within the module
+    #     definition.
+    #   - checking the filename. Since the "top level" file is evaluated into Main,
+    #     we can't use the module-of-evaluation to find it. Here we hope that the
+    #     top-level filename follows convention and matches the module. TODO?: it's
+    #     possible that this needs to be supplemented with parsing.
+    i = 1
+    modstring = string(modsym)
+    while i <= length(included_files)
+        mod, fname = included_files[i]
+        modname = String(Symbol(mod))
+        if startswith(modname, modstring) || endswith(fname, modstring*".jl")
+            pr = parse_source(fname, mod)
+            if isa(pr, Pair)
+                push!(file2modules, pr)
+            end
+            push!(files, fname)
+            deleteat!(included_files, i)
+        else
+            i += 1
         end
     end
     module2files[modsym] = files
