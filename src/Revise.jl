@@ -123,7 +123,8 @@ function parse_pkg_files(modsym::Symbol)
         # We probably got the top-level file from the precompile cache
         # Try to find the matching cache file
         uuid = Base.module_uuid(Base.root_module(modsym))
-        paths = Base.find_all_in_cache_path(modsym)
+        paths = Base.find_all_in_cache_path(
+            VERSION > v"0.7.0-DEV.3235" ? string(modsym) : modsym)
         for path in paths
             provides, mods_files_mtimes, _ = Base.parse_cache_header(path)
             for (m, u) in provides
