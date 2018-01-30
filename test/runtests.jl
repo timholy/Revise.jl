@@ -1,8 +1,16 @@
 using Revise
 using Test
 using DataStructures: OrderedSet
+using Compat
+using Compat.Random
 
 to_remove = String[]
+
+if VERSION >= v"0.7.0-DEV.2444"
+    throwing_function(bt) = bt[2]
+else
+    throwing_function(bt) = bt[1]
+end
 
 @testset "Revise" begin
 
@@ -91,7 +99,7 @@ k(x) = 4
             @test false
         catch err
             @test isa(err, ErrorException) && err.msg == "cube"
-            bt = first(stacktrace(catch_backtrace()))
+            bt = throwing_function(stacktrace(catch_backtrace()))
             @test bt.func == :cube && bt.file == Symbol(fl3) && bt.line == 7
         end
         try
@@ -99,7 +107,7 @@ k(x) = 4
             @test false
         catch err
             @test isa(err, ErrorException) && err.msg == "mult2"
-            bt = first(stacktrace(catch_backtrace()))
+            bt = throwing_function(stacktrace(catch_backtrace()))
             @test bt.func == :mult2 && bt.file == Symbol(fl3) && bt.line == 13
         end
     end

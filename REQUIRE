@@ -1,2 +1,3 @@
 julia 0.7.0-DEV.2359
 DataStructures
+Compat 0.50
