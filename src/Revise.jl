@@ -103,11 +103,15 @@ end
 
 function eval_revised(revmd::ModDict)
     for (mod, exprs) in revmd
-        mod = mod == Base.__toplevel__ ? Main : mod
+        # mod = mod == Base.__toplevel__ ? Main : mod
         for rex in exprs
             ex = convert(Expr, rex)
             try
-                eval(mod, ex)
+                if isdocexpr(ex) && mod == Base.__toplevel__
+                    eval(Main, ex)
+                else
+                    eval(mod, ex)
+                end
             catch err
                 warn("failure to evaluate changes in ", mod)
                 println(STDERR, ex)
@@ -351,7 +355,7 @@ function steal_repl_backend(backend = Base.active_repl_backend)
 end
 
 function __init__()
-    register_root_module(Base.__toplevel__)
+    # register_root_module(Base.__toplevel__)
     if isfile(silencefile[])
         pkgs = readlines(silencefile[])
         for pkg in pkgs
@@ -380,12 +384,15 @@ function __init__()
 end
 
 ## WatchList utilities
-function updatetime!(wl::WatchList)
+function systime()
     tv = Libc.TimeVal()
-    wl.timestamp = tv.sec + tv.usec/10^6
+    tv.sec + tv.usec/10^6
+end
+function updatetime!(wl::WatchList)
+    wl.timestamp = systime()
 end
 Base.push!(wl::WatchList, filename) = push!(wl.trackedfiles, filename)
-WatchList() = WatchList(Dates.datetime2unix(now()), Set{String}())
+WatchList() = WatchList(systime(), Set{String}())
 Base.in(file, wl::WatchList) = in(file, wl.trackedfiles)
 
 end # module
