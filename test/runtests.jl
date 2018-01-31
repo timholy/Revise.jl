@@ -1,8 +1,24 @@
 using Revise
-using Test
+using Test, Unicode
 using DataStructures: OrderedSet
+using Compat
+using Compat.Random
 
 to_remove = String[]
+
+if VERSION >= v"0.7.0-DEV.2444"
+    throwing_function(bt) = bt[2]
+else
+    throwing_function(bt) = bt[1]
+end
+
+const rseed = Ref(Random.GLOBAL_RNG)  # to get new random directories (see #24445)
+function randtmp()
+    srand(rseed[])
+    dirname = joinpath(tempdir(), randstring(10))
+    rseed[] = Random.GLOBAL_RNG
+    dirname
+end
 
 @testset "Revise" begin
 
@@ -20,6 +36,14 @@ to_remove = String[]
         yry() = (sleep(0.1); revise(); sleep(0.1))
     end
 
+    function get_docstring(ds)
+        docstr = ds.content[1]
+        while !isa(docstr, AbstractString)
+            docstr = docstr.content[1]
+        end
+        return docstr
+    end
+
     @testset "LineSkipping" begin
         ex = Revise.relocatable!(quote
                                  f(x) = x^2
@@ -35,7 +59,7 @@ to_remove = String[]
     end
 
     @testset "Parse errors" begin
-        warnfile = joinpath(tempdir(), randstring(10))
+        warnfile = randtmp()
         open(warnfile, "w") do io
             redirect_stderr(io) do
                 md = Revise.ModDict(Main=>OrderedSet{Revise.RelocatableExpr}())
@@ -91,7 +115,7 @@ k(x) = 4
             @test false
         catch err
             @test isa(err, ErrorException) && err.msg == "cube"
-            bt = first(stacktrace(catch_backtrace()))
+            bt = throwing_function(stacktrace(catch_backtrace()))
             @test bt.func == :cube && bt.file == Symbol(fl3) && bt.line == 7
         end
         try
@@ -99,13 +123,13 @@ k(x) = 4
             @test false
         catch err
             @test isa(err, ErrorException) && err.msg == "mult2"
-            bt = first(stacktrace(catch_backtrace()))
+            bt = throwing_function(stacktrace(catch_backtrace()))
             @test bt.func == :mult2 && bt.file == Symbol(fl3) && bt.line == 13
         end
     end
 
     @testset "File paths" begin
-        testdir = joinpath(tempdir(), randstring(10))
+        testdir = randtmp()
         mkdir(testdir)
         push!(to_remove, testdir)
         push!(LOAD_PATH, testdir)
@@ -161,6 +185,7 @@ end
             open(joinpath(dn, "file5.jl"), "w") do io
                 println(io, "$(fbase)5() = 5")
             end
+            sleep(2.1)   # so the defining files are old enough not to trigger mtime criterion
             @eval using $(Symbol(modname))
             fn1, fn2 = Symbol("$(fbase)1"), Symbol("$(fbase)2")
             fn3, fn4 = Symbol("$(fbase)3"), Symbol("$(fbase)4")
@@ -276,21 +301,25 @@ end
         open(joinpath(dn, "file2.jl"), "w") do io
             println(io, "li_g() = 2")
         end
+        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
         @eval using LoopInclude
+        sleep(0.1) # to ensure file-watching is set up
         @test li_f() == 1
         @test li_g() == 2
-        sleep(0.1)  # ensure watching is set up
+        sleep(1.1)  # ensure watching is set up
+        yry()
         open(joinpath(dn, "file1.jl"), "w") do io
             println(io, "li_f() = -1")
         end
-        @test li_f() == 1  # unless the include is at toplevel it is not found
+        yry()
+        @test li_f() == -1
 
         pop!(LOAD_PATH)
     end
 
     # issue #36
     @testset "@__FILE__" begin
-        testdir = joinpath(tempdir(), randstring(10))
+        testdir = randtmp()
         mkdir(testdir)
         push!(to_remove, testdir)
         push!(LOAD_PATH, testdir)
@@ -307,6 +336,7 @@ mf() = @__FILE__, 1
 end
 """)
         end
+        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
         @eval using ModFILE
         @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 1)
         sleep(0.1)
@@ -327,7 +357,7 @@ end
 
     # issue #8
     @testset "Module docstring" begin
-        testdir = joinpath(tempdir(), randstring(10))
+        testdir = randtmp()
         mkdir(testdir)
         push!(to_remove, testdir)
         push!(LOAD_PATH, testdir)
@@ -348,10 +378,12 @@ end
         open(joinpath(dn, "dependency.jl"), "w") do io
             println(io, "")
         end
+        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
         @eval using ModDocstring
+        sleep(2)
         @test ModDocstring.f() == 1
         ds = @doc ModDocstring
-        @test ds.content[1].content[1].content[1] == "Ahoy! "
+        @test get_docstring(ds) == "Ahoy! "
 
         sleep(0.1)  # ensure watching is set up
         open(joinpath(dn, "ModDocstring.jl"), "w") do io
@@ -369,7 +401,7 @@ end
         yry()
         @test ModDocstring.f() == 2
         ds = @doc ModDocstring
-        @test ds.content[1].content[1].content[1] == "Ahoy! "
+        @test get_docstring(ds) == "Ahoy! "
 
         open(joinpath(dn, "ModDocstring.jl"), "w") do io
             println(io, """
@@ -386,14 +418,14 @@ end
         yry()
         @test ModDocstring.f() == 3
         ds = @doc ModDocstring
-        @test ds.content[end].content[1].content[1] == "Hello! "
+        @test get_docstring(ds) == "Hello! "
 
         pop!(LOAD_PATH)
     end
 
     @testset "Line numbers" begin
         # issue #27
-        testdir = joinpath(tempdir(), randstring(10))
+        testdir = randtmp()
         mkdir(testdir)
         push!(to_remove, testdir)
         push!(LOAD_PATH, testdir)
@@ -428,6 +460,7 @@ end
 foo(y::Int) = y-51
 """)
         end
+        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
         @eval using LineNumberMod
         lines = Int[]
         files = String[]
@@ -467,7 +500,7 @@ foo(y::Int) = y-51
 
     # Issue #43
     @testset "New submodules" begin
-        testdir = joinpath(tempdir(), randstring(10))
+        testdir = randtmp()
         mkdir(testdir)
         push!(to_remove, testdir)
         push!(LOAD_PATH, testdir)
@@ -480,6 +513,7 @@ f() = 1
 end
 """)
         end
+        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
         @eval using Submodules
         @test Submodules.f() == 1
         sleep(0.1)  # ensure watching is set up
@@ -523,7 +557,7 @@ end
     end
 
     @testset "Manual track" begin
-        srcfile = joinpath(tempdir(), randstring(10)*".jl")
+        srcfile = joinpath(tempdir(), randtmp()*".jl")
         open(srcfile, "w") do io
             print(io, """
 revise_f(x) = 1
@@ -545,7 +579,7 @@ revise_f(x) = 2
         # Do it again with a relative path
         curdir = pwd()
         cd(tempdir())
-        srcfile = randstring(10)*".jl"
+        srcfile = randtmp()*".jl"
         open(srcfile, "w") do io
             print(io, """
         revise_floc(x) = 1
@@ -571,7 +605,7 @@ revise_f(x) = 2
     end
 
     @testset "Cleanup" begin
-        warnfile = joinpath(tempdir(), randstring(10))
+        warnfile = randtmp()
         open(warnfile, "w") do io
             redirect_stderr(io) do
                 for name in to_remove

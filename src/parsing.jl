@@ -152,7 +152,7 @@ function parse_module!(md::ModDict, ex::Expr, file::Symbol, mod::Module)
     if mod != Base.__toplevel__ && !isdefined(mod, newname)
         eval(mod, ex) # support creating new submodules
     end
-    newmod = mod == Base.__toplevel__ ? Base.root_module(newname) : getfield(mod, Symbol(newname))
+    newmod = mod == Base.__toplevel__ ? Base.root_module(mod, newname) : getfield(mod, newname)
     md[newmod] = OrderedSet{RelocatableExpr}()
     parse_source!(md, ex.args[3], file, newmod)  # recurse into the body of the module
     newmod
