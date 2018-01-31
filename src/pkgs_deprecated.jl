@@ -1,3 +1,5 @@
+Base.root_module(mod::Module, name::Symbol) = Base.root_module(name)
+
 """
     parse_pkg_files(modsym)
 
