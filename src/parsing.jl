@@ -27,7 +27,7 @@ See also [`parse_source`](@ref).
 """
 function parse_source!(md::ModDict, file::AbstractString, mod::Module)
     if !isfile(file)
-        warn("omitting ", file, " from revision tracking")
+        @warn "omitting $file from revision tracking"
         return false
     end
     parse_source!(md, read(file, String), Symbol(file), 1, mod)
@@ -56,8 +56,8 @@ function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Inte
             ex, pos = Meta.parse(src, pos; greedy=true)
         catch err
             ex, posfail = Meta.parse(src, pos; greedy=true, raise=false)
-            warn(STDERR, "omitting ", file, " due to parsing error near line ",
-                 line_offset + count(c->c=='\n', SubString(src, oldpos, posfail)) + 1)
+            lineno = line_offset + count(c->c=='\n', SubString(src, oldpos, posfail)) + 1
+            @warn "omitting $file due to parsing error near line $lineno"
             showerror(STDERR, err)
             println(STDERR)
             return false

@@ -6,6 +6,7 @@ VERSION >= v"0.7.0-DEV.2359" && using FileWatching
 VERSION >= v"0.7.0-DEV.2575" && using Dates
 using Compat
 using Compat.REPL
+using Compat: @warn
 
 if VERSION < v"0.7.0-DEV.3483"
     register_root_module(m::Module) = Base.register_root_module(Base.module_name(m), m)
@@ -113,7 +114,7 @@ function eval_revised(revmd::ModDict)
                     eval(mod, ex)
                 end
             catch err
-                warn("failure to evaluate changes in ", mod)
+                @warn "failure to evaluate changes in $mod"
                 println(STDERR, ex)
             end
         end
@@ -147,7 +148,7 @@ function revise_dir_queued(dirname)
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
         if !isfile(dirname)
-            warn(dirname, " is not an existing directory, Revise is not watching")
+            @warn "$dirname is not an existing directory, Revise is not watching"
             return nothing
         end
     end
@@ -169,7 +170,7 @@ function revise_file_now(file)
         src = read_from_cache(oldmd, file)
         push!(oldmd.md, oldmd.topmod=>OrderedSet{RelocatableExpr}())
         if !parse_source!(oldmd.md, src, Symbol(file), 1, oldmd.topmod)
-            warn("failed to parse cache file source text for ", file)
+            @warn "failed to parse cache file source text for $file"
         end
     end
     pr = parse_source(file, oldmd.topmod)
@@ -180,7 +181,7 @@ function revise_file_now(file)
             eval_revised(revmd)
             file2modules[file] = newmd
         catch err
-            warn("evaluation error during revision: ", err)
+            @warn "evaluation error during revision: $err"
             Base.show_backtrace(STDERR, catch_backtrace())
         end
     end
