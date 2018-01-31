@@ -135,6 +135,10 @@ function process_parsed_files(files)
         haskey(watched_files, dir) || (watched_files[dir] = WatchList())
         push!(watched_files[dir], basename)
         push!(udirs, dir)
+
+        @static if Sys.KERNEL == :FreeBSD
+            @schedule revise_file_queued(file)
+        end
     end
     for dir in udirs
         updatetime!(watched_files[dir])
@@ -156,6 +160,23 @@ function revise_dir_queued(dirname)
         push!(revision_queue, file)
     end
     @schedule revise_dir_queued(dirname)
+end
+
+# Require by FreeBSD.
+# Because the behaviour of `watch_file` is different on FreeBSD.
+# See #66.
+function revise_file_queued(file)
+    if !isfile(file)
+        sleep(0.1)  # in case git has done a delete/replace cycle
+        if !isfile(file)
+            @warn "$file is not an existing file, Revise is not watching"
+            return nothing
+        end
+    end
+
+    watch_file(file)  # will block here until the file changes
+    push!(revision_queue, file)
+    @schedule revise_file_queued(file)
 end
 
 function revise_file_now(file)
