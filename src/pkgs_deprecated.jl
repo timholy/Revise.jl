@@ -115,7 +115,7 @@ end
 function _watch_package(modsym::Symbol)
     if modsym ∈ dont_watch_pkgs
         if modsym ∉ silence_pkgs
-            warn("$modsym is excluded from watching by Revise. Use Revise.silence(\"$modsym\") to quiet this warning.")
+            @warn "$modsym is excluded from watching by Revise. Use Revise.silence(\"$modsym\") to quiet this warning."
         end
         remove_from_included_files(modsym)
         return nothing

@@ -12,6 +12,12 @@ else
     throwing_function(bt) = bt[1]
 end
 
+if isdefined(Base, :SimpleLogger) && isdefined(Base, :with_logger)
+    capture_log(f::Function, io) = Base.with_logger(f, Base.SimpleLogger(io))
+else
+    capture_log(f::Function, io) = f()
+end
+
 const rseed = Ref(Random.GLOBAL_RNG)  # to get new random directories (see #24445)
 function randtmp()
     srand(rseed[])
@@ -61,16 +67,18 @@ end
     @testset "Parse errors" begin
         warnfile = randtmp()
         open(warnfile, "w") do io
-            redirect_stderr(io) do
-                md = Revise.ModDict(Main=>OrderedSet{Revise.RelocatableExpr}())
-                @test !Revise.parse_source!(md, """
-f(x) = 1
-g(x) = 2
-h{x) = 3  # error
-k(x) = 4
-""",
-                                            :test, 1, Main)
-                @test convert(Revise.RelocatableExpr, :(g(x) = 2)) ∈ md[Main]
+            capture_log(io) do
+                redirect_stderr(io) do
+                    md = Revise.ModDict(Main=>OrderedSet{Revise.RelocatableExpr}())
+                    @test !Revise.parse_source!(md, """
+    f(x) = 1
+    g(x) = 2
+    h{x) = 3  # error
+    k(x) = 4
+    """,
+                                                :test, 1, Main)
+                    @test convert(Revise.RelocatableExpr, :(g(x) = 2)) ∈ md[Main]
+                end
             end
         end
         @test contains(read(warnfile, String), "parsing error near line 3")
@@ -353,6 +361,7 @@ end
         end
         yry()
         @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 2)
+        rm(joinpath(Base.LOAD_CACHE_PATH[1], "ModFILE.ji"))
     end
 
     # issue #8
@@ -607,14 +616,17 @@ revise_f(x) = 2
     @testset "Cleanup" begin
         warnfile = randtmp()
         open(warnfile, "w") do io
-            redirect_stderr(io) do
-                for name in to_remove
-                    try
-                        rm(name; force=true, recursive=true)
-                        deleteat!(LOAD_PATH, find(LOAD_PATH .== name))
+            capture_log(io) do
+                redirect_stderr(io) do
+                    for name in to_remove
+                        try
+                            rm(name; force=true, recursive=true)
+                            deleteat!(LOAD_PATH, find(LOAD_PATH .== name))
+                        end
                     end
+                    yry()
                 end
-                yry()
+                yield()
             end
         end
         if !Sys.isapple()
