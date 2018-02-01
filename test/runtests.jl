@@ -353,6 +353,7 @@ end
         end
         yry()
         @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 2)
+        rm(joinpath(Base.LOAD_CACHE_PATH[1], "ModFILE.ji"))
     end
 
     # issue #8
