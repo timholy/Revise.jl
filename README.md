@@ -72,6 +72,58 @@ end
 ```
 This should work the REPL, Juno, and IJulia. For VSCode see [these instructions](https://github.com/JuliaEditorSupport/julia-vscode/wiki/Known-issues-and-workarounds).
 
+## Requirements and caveats
+
+`Revise` only tracks files that have been required as a consequence of
+a `using` or `import` statement; files loaded by `include` are not
+tracked, unless you explicitly use `Revise.track(filename)`. For custom code,
+as necessary use `push!(LOAD_PATH, "/path/to/my/code")` so that `using` and
+`import` statements can find your code.
+
+`Revise` works (see below) by scanning your filesystem for changes to the files that define your code.
+Different operating systems and file systems [offer differing levels of support](https://nodejs.org/api/fs.html#fs_caveats)
+for this feature. Revise will not work if your source code is stored on
+an NFS-mounted drive because [NFS doesn't support `inotify`](https://stackoverflow.com/questions/4231243/inotify-with-nfs).
+
+Revise can handle many kinds of changes to Julia code, but a few may require special treatment: 
+
+### Method deletion
+
+Sometimes you might wish to change a method's type signature or number of arguments,
+or remove a method specialized for specific types.
+To prevent "stale" methods
+from being called by dispatch, starting with release 0.3 Revise automatically accommodates
+method deletion, for example:
+```julia
+f(x) = 1
+f(x::Int) = 2 # delete this method
+```
+If you save the file, the next time you call `f(5)` from the REPL you will get 1.
+
+However, Revise needs to be able to parse the signature of the deleted method.
+As a consequence, methods generated with code:
+```julia
+for T in (Int, Float64)
+    @eval mytypeof(x::$T) = $T  # delete this line
+end
+```
+will not disappear from the method lists until you restart, or manually call
+`Base.delete_method(m::Method)`. You can use `m = @which ...` to obtain a method.
+
+### Macros and generated functions
+
+For changes to macros or to functions that affect the expansion of a `@generated` function,
+you may explicitly call `revise(module)` to force reevaluating every definition in `module`.
+
+### Changes that Revise cannot handle
+
+Finally, there are some kinds of changes that Revise cannot incorporate into a running Julia session:
+
+- changes to type definitions
+- file or module renames
+
+These kinds of changes require that you restart your Julia session.
+
 ## How it works
 
 Revise is based on the fact that you can change functions even when
@@ -118,42 +170,6 @@ To accomplish this, Revise uses the following overall strategy:
   created. `eval` the diff in the appropriate module(s).
 - replace the cached version of each source file with the new version, so that
   further changes are `diff`ed against the most recent update.
-
-## Caveats
-
-`Revise` only tracks files that have been required as a consequence of
-a `using` or `import` statement; files loaded by `include` are not
-tracked, unless you explicitly use `Revise.track(filename)`.
-
-Sometimes you might wish to change a method's type signature or number of arguments,
-or remove a method specialized for specific types.
-To prevent "stale" methods
-from being called by dispatch, Revise accommodates method deletion, for example:
-```julia
-f(x) = 1
-f(x::Int) = 2 # delete this method
-```
-If you save the file, the next time you call `f(5)` from the REPL you will get 1.
-
-However, Revise needs to be able to parse the signature of the deleted method.
-As a consequence, methods generated with code:
-```julia
-for T in (Int, Float64)
-    @eval mytypeof(x::$T) = $T  # delete this line
-end
-```
-will not disappear from the method lists until you restart, or manually call
-`Base.delete_method(m::Method)`. You can use `m = @which ...` to obtain a method.
-
-For changes to macros or to functions that affect the expansion of a `@generated` function,
-you may explicitly call `revise(module)` to force reevaluating every definition in `module`.
-
-Finally, there are some kinds of changes that Revise cannot incorporate into a running Julia session:
-
-- changes to type definitions
-- file or module renames
-
-These kinds of changes require that you restart your Julia session.
 
 ## Credits
 
