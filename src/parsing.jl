@@ -10,7 +10,7 @@ If parsing `file` fails, `nothing` is returned.
 """
 function parse_source(file::AbstractString, mod::Module)
     # Create a blank ModDict to store the expressions. Parsing will "fill" this.
-    md = ModDict(mod=>OrderedSet{RelocatableExpr}())
+    md = ModDict(mod=>ExprsSigs())
     parse_source!(md, file, mod) || return nothing
     fm = FileModules(mod, md)
     String(file) => fm
@@ -123,14 +123,19 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module)
         # `"docstring" newmodule`
         newmod = parse_module!(md, ex.args[nargs_docexpr], file, mod)
         ex.args[nargs_docexpr] = Symbol(newmod)
-        push!(md[mod], convert(RelocatableExpr, ex))
+        push!(md[mod].exprs, convert(RelocatableExpr, ex))
     elseif ex.head == :call && ex.args[1] == :include
         # skip include statements
     else
         # Any expression that *doesn't* define line numbers, new
         # modules, or include new files must be "real code." Add it to
         # the cache.
-        push!(md[mod], convert(RelocatableExpr, ex))
+        rex = convert(RelocatableExpr, ex)
+        push!(md[mod].exprs, rex)
+        sig = get_signature(rex)
+        if isa(sig, ExLike)
+            push!(md[mod].sigs, sig)
+        end
     end
     md
 end
@@ -153,7 +158,7 @@ function parse_module!(md::ModDict, ex::Expr, file::Symbol, mod::Module)
         eval(mod, ex) # support creating new submodules
     end
     newmod = mod == Base.__toplevel__ ? Base.root_module(mod, newname) : getfield(mod, newname)
-    md[newmod] = OrderedSet{RelocatableExpr}()
+    md[newmod] = ExprsSigs()
     parse_source!(md, ex.args[3], file, newmod)  # recurse into the body of the module
     newmod
 end

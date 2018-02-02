@@ -20,6 +20,7 @@ export revise
 include("relocatable_exprs.jl")
 include("types.jl")
 include("parsing.jl")
+include("delete_method.jl")
 
 if VERSION < v"0.7.0-DEV.3483"
     include("pkgs_deprecated.jl")
@@ -63,7 +64,7 @@ const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests d
     revmod = revised_statements(new_defs, old_defs)
 
 Return a `Dict(Module=>changeset)`, `revmod`, listing the changes that
-should be `eval`ed for each module to update definitions from `old_defs` to
+should be [`eval_revised`](@ref) for each module to update definitions from `old_defs` to
 `new_defs`.  See [`parse_source`](@ref) to obtain the `defs` structures.
 """
 function revised_statements(newfm::FileModules, oldfm::FileModules)
@@ -81,30 +82,62 @@ function revised_statements(newmd::ModDict, oldmd::ModDict)
     revmd
 end
 
-revised_statements(mod::Module, newdefs::OrderedSet, olddefs::OrderedSet) =
+revised_statements(mod::Module, newdefs::ExprsSigs, olddefs::ExprsSigs) =
     revised_statements!(ModDict(), mod, newdefs, olddefs)
 
 function revised_statements!(revmd::ModDict, mod::Module,
-                             newdefs::OrderedSet, olddefs::OrderedSet)
-    for stmt in newdefs
+                             newdefs::ExprsSigs, olddefs::ExprsSigs)
+    # Detect new or revised expressions
+    for stmt in newdefs.exprs
         if isa(stmt, RelocatableExpr)
             stmt = stmt::RelocatableExpr
             @assert stmt.head != :module
-            if stmt ∉ olddefs
+            if stmt ∉ olddefs.exprs
                 if !haskey(revmd, mod)
-                    revmd[mod] = OrderedSet{RelocatableExpr}()
+                    revmd[mod] = ExprsSigs()
                 end
-                push!(revmd[mod], stmt)
+                push!(revmd[mod].exprs, stmt)
             end
+        end
+    end
+    # Detect method deletions
+    for sig in olddefs.sigs
+        if sig ∉ newdefs.sigs
+            if !haskey(revmd, mod)
+                revmd[mod] = ExprsSigs()
+            end
+            push!(revmd[mod].sigs, sig)
         end
     end
     revmd
 end
 
-function eval_revised(revmd::ModDict)
-    for (mod, exprs) in revmd
+"""
+    succeeded = eval_revised(revmd::ModDict, delete_methods=true)
+
+Evaluate the changes listed in `revmd`, which consists of deleting all
+the listed signatures in each `.sigs` field(s) (unless `delete_methods=false`)
+and evaluating expressions in the `.exprs` field(s).
+
+Returns `true` if all revisions in `revmd` were successfully implemented.
+"""
+function eval_revised(revmd::ModDict, delete_methods::Bool=true)
+    succeeded = true
+    for (mod, exprssigs) in revmd
         # mod = mod == Base.__toplevel__ ? Main : mod
-        for rex in exprs
+        if delete_methods
+            for sig in exprssigs.sigs
+                try
+                    m = get_method(mod, sig)
+                    Base.delete_method(m)
+                catch err
+                    succeeded = false
+                    warn("failure to delete signature ", sig, " in module ", mod)
+                    showerror(STDERR, err)
+                end
+            end
+        end
+        for rex in exprssigs.exprs
             ex = convert(Expr, rex)
             try
                 if isdocexpr(ex) && mod == Base.__toplevel__
@@ -113,11 +146,13 @@ function eval_revised(revmd::ModDict)
                     eval(mod, ex)
                 end
             catch err
+                succeeded = false
                 warn("failure to evaluate changes in ", mod)
                 println(STDERR, ex)
             end
         end
     end
+    succeeded
 end
 
 function use_compiled_modules()
@@ -188,7 +223,7 @@ function revise_file_now(file)
     if isempty(oldmd.md)
         # Source was never parsed, get it from the precompile cache
         src = read_from_cache(oldmd, file)
-        push!(oldmd.md, oldmd.topmod=>OrderedSet{RelocatableExpr}())
+        push!(oldmd.md, oldmd.topmod=>ExprsSigs())
         if !parse_source!(oldmd.md, src, Symbol(file), 1, oldmd.topmod)
             warn("failed to parse cache file source text for ", file)
         end
@@ -197,12 +232,8 @@ function revise_file_now(file)
     if pr != nothing
         newmd = pr.second
         revmd = revised_statements(newmd.md, oldmd.md)
-        try
-            eval_revised(revmd)
+        if eval_revised(revmd)
             file2modules[file] = newmd
-        catch err
-            warn("evaluation error during revision: ", err)
-            Base.show_backtrace(STDERR, catch_backtrace())
         end
     end
     nothing
@@ -238,7 +269,7 @@ to propagate an updated macro definition, or to force recompiling generated func
 """
 function revise(mod::Module)
     for file in module2files[Symbol(mod)]
-        eval_revised(file2modules[file].md)
+        eval_revised(file2modules[file].md, false)
     end
 end
 
