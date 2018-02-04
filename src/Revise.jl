@@ -254,6 +254,7 @@ end
 `eval` any changes in tracked files in the appropriate modules.
 """
 function revise()
+    sleep(0.01)  # in case the file system isn't quite done writing out the new files
     for file in revision_queue
         revise_file_now(file)
     end
