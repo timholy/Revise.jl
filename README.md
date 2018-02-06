@@ -94,7 +94,7 @@ If you're using polling, you may have to wait several seconds before changes tak
 
 Revise can handle many kinds of changes to Julia code, but a few may require special treatment:
 
-### Method deletion
+#### Method deletion
 
 Sometimes you might wish to change a method's type signature or number of arguments,
 or remove a method specialized for specific types.
@@ -117,12 +117,17 @@ end
 will not disappear from the method lists until you restart, or manually call
 `Base.delete_method(m::Method)`. You can use `m = @which ...` to obtain a method.
 
-### Macros and generated functions
+#### Macros and generated functions
 
 For changes to macros or to functions that affect the expansion of a `@generated` function,
 you may explicitly call `revise(module)` to force reevaluating every definition in `module`.
 
-### Changes that Revise cannot handle
+#### Distributed computing (multiple workers)
+
+Revise supports changes to code in worker processes. The code must
+be loaded in the main process in which Revise is running, and you must use `@everywhere using Revise`.
+
+#### Changes that Revise cannot handle
 
 Finally, there are some kinds of changes that Revise cannot incorporate into a running Julia session:
 
