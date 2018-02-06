@@ -1,8 +1,8 @@
 using Revise
 using Test, Unicode
 using DataStructures: OrderedSet
-using Compat
-using Compat.Random
+
+include("common.jl")
 
 to_remove = String[]
 
@@ -10,14 +10,6 @@ if VERSION >= v"0.7.0-DEV.2444"
     throwing_function(bt) = bt[2]
 else
     throwing_function(bt) = bt[1]
-end
-
-const rseed = Ref(Random.GLOBAL_RNG)  # to get new random directories (see #24445)
-function randtmp()
-    srand(rseed[])
-    dirname = joinpath(tempdir(), randstring(10))
-    rseed[] = Random.GLOBAL_RNG
-    dirname
 end
 
 @testset "Revise" begin
@@ -28,12 +20,6 @@ end
             push!(exs, item)
         end
         exs
-    end
-
-    @static if Sys.isapple()
-        yry() = (sleep(1.1); revise(); sleep(1.1))
-    else
-        yry() = (sleep(0.1); revise(); sleep(0.1))
     end
 
     function get_docstring(ds)

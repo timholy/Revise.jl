@@ -2,8 +2,8 @@ __precompile__(true)
 
 module Revise
 
-VERSION >= v"0.7.0-DEV.2359" && using FileWatching
-VERSION >= v"0.7.0-DEV.2575" && using Dates
+using FileWatching
+using Dates
 using Compat
 using Compat.REPL
 
@@ -16,6 +16,19 @@ end
 using DataStructures: OrderedSet
 
 export revise
+
+# Should we watch directories or files? FreeBSD and NFS-mounted systems should watch files,
+# otherwise we watch directories.
+const watching_files = Ref(Sys.KERNEL == :FreeBSD)
+
+# The following two definitions are motivated by wishing to support code stored on
+# NFS-mounted shares, where it needs to use `poll_file` instead of `watch_file`. See #60
+# and the `JULIA_REVISE_POLL` environment variable.
+const polling_files = Ref(false)
+function wait_changed(file)
+    polling_files[] ? poll_file(file) : watch_file(file)
+    return nothing
+end
 
 include("relocatable_exprs.jl")
 include("types.jl")
@@ -169,10 +182,10 @@ function process_parsed_files(files)
         dir, basename = splitdir(file)
         haskey(watched_files, dir) || (watched_files[dir] = WatchList())
         push!(watched_files[dir], basename)
-        push!(udirs, dir)
-
-        @static if Sys.KERNEL == :FreeBSD
+        if watching_files[]
             @schedule revise_file_queued(file)
+        else
+            push!(udirs, dir)
         end
     end
     for dir in udirs
@@ -209,7 +222,7 @@ function revise_file_queued(file)
         end
     end
 
-    watch_file(file)  # will block here until the file changes
+    wait_changed(file)  # will block here until the file changes
     push!(revision_queue, file)
     @schedule revise_file_queued(file)
 end
@@ -433,6 +446,10 @@ function __init__()
                 end
             end
         end
+    end
+    polling = get(ENV, "JULIA_REVISE_POLL", "0")
+    if polling == "1"
+        polling_files[] = watching_files[] = true
     end
 end
 
