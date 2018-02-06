@@ -3,7 +3,7 @@ __precompile__(true)
 module Revise
 
 using FileWatching
-using Dates
+using Distributed
 using Compat
 using Compat.REPL
 
@@ -142,7 +142,7 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
             for sig in exprssigs.sigs
                 try
                     m = get_method(mod, sig)
-                    Base.delete_method(m)
+                    isa(m, Method) && Base.delete_method(m)
                 catch err
                     succeeded = false
                     warn("failure to delete signature ", sig, " in module ", mod)
@@ -247,6 +247,12 @@ function revise_file_now(file)
         revmd = revised_statements(newmd.md, oldmd.md)
         if eval_revised(revmd)
             file2modules[file] = newmd
+            for p in workers()
+                p == myid() && continue
+                try
+                    remotecall(Revise.eval_revised, p, revmd)
+                end
+            end
         end
     end
     nothing
