@@ -84,7 +84,7 @@ function remove_from_included_files(modsym::Symbol)
 end
 
 function watch_files_via_dir(dirname)
-    watch_file(dirname)  # this will block until there is a modification
+    wait_changed(dirname)  # this will block until there is a modification
     latestfiles = String[]
     wf = watched_files[dirname]
     for file in wf.trackedfiles

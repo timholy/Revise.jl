@@ -82,10 +82,17 @@ as necessary use `push!(LOAD_PATH, "/path/to/my/code")` so that `using` and
 
 `Revise` works (see below) by scanning your filesystem for changes to the files that define your code.
 Different operating systems and file systems [offer differing levels of support](https://nodejs.org/api/fs.html#fs_caveats)
-for this feature. Revise will not work if your source code is stored on
-an NFS-mounted drive because [NFS doesn't support `inotify`](https://stackoverflow.com/questions/4231243/inotify-with-nfs).
+for this feature. Because [NFS doesn't support `inotify`](https://stackoverflow.com/questions/4231243/inotify-with-nfs), if your code is stored
+on an NFS-mounted volume you should set the environment variable `JULIA_REVISE_POLL=1`
+before starting julia. For example, on Unix systems you can launch Julia with
 
-Revise can handle many kinds of changes to Julia code, but a few may require special treatment: 
+```sh
+JULIA_REVISE_POLL=1 julia
+```
+
+If you're using polling, you may have to wait several seconds before changes take effect.
+
+Revise can handle many kinds of changes to Julia code, but a few may require special treatment:
 
 ### Method deletion
 
