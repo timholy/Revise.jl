@@ -3,7 +3,7 @@ __precompile__(true)
 module Revise
 
 using FileWatching
-using Dates
+using Distributed
 using Compat
 using Compat.REPL
 
@@ -135,14 +135,24 @@ and evaluating expressions in the `.exprs` field(s).
 Returns `true` if all revisions in `revmd` were successfully implemented.
 """
 function eval_revised(revmd::ModDict, delete_methods::Bool=true)
+    function delete_method_from_sig(mod::Module, sig::Expr)
+        m = get_method(mod, sig)
+        Base.delete_method(m)
+    end
     succeeded = true
     for (mod, exprssigs) in revmd
         # mod = mod == Base.__toplevel__ ? Main : mod
         if delete_methods
-            for sig in exprssigs.sigs
+            for rsig in exprssigs.sigs
+                sig = convert(Expr, rsig)
+                # for w in workers()
+                #     w == myid() && continue
+                #     # try
+                #         remotecall_fetch(delete_method_from_sig, w, mod, sig)
+                #     # end
+                # end
                 try
-                    m = get_method(mod, sig)
-                    Base.delete_method(m)
+                    delete_method_from_sig(mod, sig)
                 catch err
                     succeeded = false
                     warn("failure to delete signature ", sig, " in module ", mod)
@@ -162,6 +172,14 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
                 succeeded = false
                 warn("failure to evaluate changes in ", mod)
                 println(STDERR, ex)
+            end
+            if !(isdocexpr(ex) && mod == Base.__toplevel__) # don't need doc changes in workers
+                for w in workers()
+                    w == myid() && continue
+                    try
+                        Distributed.remotecall_eval(mod, w, ex)
+                    end
+                end
             end
         end
     end
