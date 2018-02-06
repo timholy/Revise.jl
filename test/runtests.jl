@@ -1,5 +1,5 @@
 using Revise
-using Test, Unicode
+using Test, Unicode, Distributed
 using DataStructures: OrderedSet
 
 include("common.jl")
@@ -653,6 +653,56 @@ revise_f(x) = 2
         # Tracking Base
         Revise.track(Base)
         @test any(k->endswith(k, "number.jl"), keys(Revise.file2modules))
+    end
+
+    @testset "Distributed" begin
+        allworkers = [myid(); addprocs(2)]
+        dirname = randtmp()
+        mkdir(dirname)
+        @everywhere push_LOAD_PATH!(dirname) = push!(LOAD_PATH, dirname)
+        for p in allworkers
+            remotecall_wait(push_LOAD_PATH!, p, dirname)
+        end
+        push!(to_remove, dirname)
+        modname = "ReviseDistributed"
+        dn = joinpath(dirname, modname, "src")
+        mkpath(dn)
+        open(joinpath(dn, modname*".jl"), "w") do io
+            println(io, """
+module ReviseDistributed
+
+f() = π
+g(::Int) = 0
+
+end
+""")
+        end
+        sleep(2.1)   # so the defining files are old enough not to trigger mtime criterion
+        using ReviseDistributed
+        @everywhere using ReviseDistributed
+        for p in allworkers
+            @test remotecall_fetch(ReviseDistributed.f, p)    == π
+            @test remotecall_fetch(ReviseDistributed.g, p, 1) == 0
+        end
+        sleep(0.1)
+        open(joinpath(dn, modname*".jl"), "w") do io
+            println(io, """
+module ReviseDistributed
+
+f() = 3.0
+
+end
+""")
+        end
+        yry()
+        sleep(1.0)
+        @test_throws MethodError ReviseDistributed.g(1)
+        for p in allworkers
+            @test remotecall_fetch(ReviseDistributed.f, p)    == 3.0
+            p == myid() && continue
+            # FIXME @test_broken
+            # @test_throws RemoteException remotecall_fetch(ReviseDistributed.g, p, 1)
+        end
     end
 
     @testset "Cleanup" begin
