@@ -666,6 +666,10 @@ revise_f(x) = 2
         # Tracking Base
         Revise.track(Base)
         @test any(k->endswith(k, "number.jl"), keys(Revise.file2modules))
+
+        # Tracking Core.Compiler
+        Revise.track(Core.Compiler)
+        @test any(k->endswith(k, "compiler.jl"), keys(Revise.file2modules))
     end
 
     @testset "Distributed" begin
