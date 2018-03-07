@@ -146,7 +146,7 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
                 catch err
                     succeeded = false
                     warn("failure to delete signature ", sig, " in module ", mod)
-                    showerror(STDERR, err)
+                    showerror(stderr, err)
                 end
             end
         end
@@ -161,7 +161,7 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
             catch err
                 succeeded = false
                 warn("failure to evaluate changes in ", mod)
-                println(STDERR, ex)
+                println(stderr, ex)
             end
         end
     end

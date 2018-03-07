@@ -56,10 +56,10 @@ function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Inte
             ex, pos = Meta.parse(src, pos; greedy=true)
         catch err
             ex, posfail = Meta.parse(src, pos; greedy=true, raise=false)
-            warn(STDERR, "omitting ", file, " due to parsing error near line ",
+            warn(stderr, "omitting ", file, " due to parsing error near line ",
                  line_offset + count(c->c=='\n', SubString(src, oldpos, posfail)) + 1)
-            showerror(STDERR, err)
-            println(STDERR)
+            showerror(stderr, err)
+            println(stderr)
             return false
         end
         if isa(ex, Expr)
