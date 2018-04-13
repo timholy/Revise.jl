@@ -257,7 +257,9 @@ function read_from_git(path::AbstractString)
         # check if we are at the repo root
         git_dir = joinpath(repo_dir, ".git")
         if ispath(git_dir)
-            return readstring(`git -C $repo_dir show $(Base.GIT_VERSION_INFO.commit):$repo_file`)
+            repo = LibGit2.GitRepo(repo_dir)
+            tree = LibGit2.GitTree(repo, "$(Base.GIT_VERSION_INFO.commit)^{tree}")
+            return LibGit2.content(tree[repo_file])
         end
 
         # traverse to parent folder
