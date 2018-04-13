@@ -256,7 +256,7 @@ function read_from_git(path::AbstractString)
     while true
         # check if we are at the repo root
         git_dir = joinpath(repo_dir, ".git")
-        if isdir(git_dir)
+        if ispath(git_dir)
             return readstring(`git -C $repo_dir show $(Base.GIT_VERSION_INFO.commit):$repo_file`)
         end
 
