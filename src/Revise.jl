@@ -356,6 +356,27 @@ function track(mod::Module)
         end
         # Add the files to the watch list
         process_parsed_files(files)
+    elseif mod == Core.Compiler
+        # find the Julia source dir by looking at the location of sysimg.jl
+        const files = map(x->x[2], Base._included_files)
+        const sysimg = filter(x->endswith(x, "sysimg.jl"), files)[1]
+        const srcdir = dirname(sysimg)
+
+        # track all source files in the compiler source dir
+        function scan_sources!(path::String, sources=String[])
+            if isfile(path)
+                push!(sources, path)
+            elseif isdir(path)
+                for entry in readdir(path)
+                    scan_sources!(joinpath(path, entry), sources)
+                end
+            end
+            sources
+        end
+        compiler = scan_sources!(joinpath(srcdir, "compiler"))
+        for file in compiler
+            Revise.track(Core.Compiler, file; reference=:git)
+        end
     else
         error("no Revise.track recipe for module ", mod)
     end
