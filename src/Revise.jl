@@ -315,9 +315,12 @@ function track(mod::Module, file::AbstractString; reference::Symbol=:current)
         parse_source(file, mod)
     elseif reference == :git
         src = read_from_git(file)
+        if src != readstring(file)
+            push!(revision_queue, file)
+        end
         md = ModDict(mod=>ExprsSigs())
         if !parse_source!(md, src, Symbol(file), 1, mod)
-            warn("failed to parse cache file source text for ", file)
+            warn("failed to parse Git source text for ", file)
         end
         fm = FileModules(mod, md)
         String(file) => fm
