@@ -250,7 +250,7 @@ function read_from_cache(fm::FileModules, file::AbstractString)
     Base.read_dependency_src(fm.cachefile, file)
 end
 
-function read_from_git(path::AbstractString)
+function read_from_git(path::AbstractString, commit=Base.GIT_VERSION_INFO.commit)
     repo_file = basename(path)
     repo_dir = dirname(path)
     while true
@@ -258,8 +258,13 @@ function read_from_git(path::AbstractString)
         git_dir = joinpath(repo_dir, ".git")
         if ispath(git_dir)
             repo = LibGit2.GitRepo(repo_dir)
-            tree = LibGit2.GitTree(repo, "$(Base.GIT_VERSION_INFO.commit)^{tree}")
-            return LibGit2.content(tree[repo_file])
+            tree = LibGit2.GitTree(repo, "$commit^{tree}")
+            return try
+                LibGit2.content(tree[repo_file])
+            catch e
+                isa(e, KeyError) || rethrow()
+                nothing
+            end
         end
 
         # traverse to parent folder
@@ -315,6 +320,10 @@ function track(mod::Module, file::AbstractString; reference::Symbol=:current)
         parse_source(file, mod)
     elseif reference == :git
         src = read_from_git(file)
+        if src == nothing
+            # assume empty reference when tracking new files
+            src = ""
+        end
         if src != readstring(file)
             push!(revision_queue, file)
         end
@@ -378,7 +387,12 @@ function track(mod::Module)
         end
         compiler = scan_sources!(joinpath(srcdir, "compiler"))
         for file in compiler
-            Revise.track(Core.Compiler, file; reference=:git)
+            # only track files that are added to git (and avoid, eg., editor back-ups)
+            if read_from_git(file,"HEAD") != nothing
+                Revise.track(Core.Compiler, file; reference=:git)
+            else
+                @warn "Ignoring file not added to git" path=file
+            end
         end
     else
         error("no Revise.track recipe for module ", mod)
