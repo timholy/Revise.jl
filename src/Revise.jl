@@ -792,7 +792,8 @@ function __init__()
             @schedule steal_repl_backend()
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
-        elseif isdefined(Main, :Atom)
+        end
+        if isdefined(Main, :Atom)
             for x in ["eval", "evalall", "evalrepl"]
                 old = Main.Atom.handlers[x]
                 Main.Atom.handle(x) do data
