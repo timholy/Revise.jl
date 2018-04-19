@@ -12,6 +12,20 @@ else
     throwing_function(bt) = bt[1]
 end
 
+if VERSION >= v"0.7.0-DEV.4063"
+    function rm_precompile(pkgname::AbstractString)
+        filepath = Base.cache_file_entry(Base.PkgId(pkgname))
+        for depot in DEPOT_PATH
+            fullpath = joinpath(depot, filepath)
+            isfile(fullpath) && rm(fullpath)
+        end
+    end
+else
+    function rm_precompile(pkgname::AbstractString)
+        rm(joinpath(Base.LOAD_CACHE_PATH[1], pkgname*".ji"))
+    end
+end
+
 @testset "Revise" begin
 
     function collectexprs(ex::Revise.RelocatableExpr)
@@ -263,7 +277,7 @@ end
             @test Revise.module2files[Symbol(modname)] == files
         end
         # Remove the precompiled file
-        rm(joinpath(Base.LOAD_CACHE_PATH[1], "PC.ji"))
+        rm_precompile("PC")
 
         # Test files paths that can't be statically parsed
         dn = joinpath(testdir, "LoopInclude", "src")
@@ -339,7 +353,7 @@ end
         end
         yry()
         @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 2)
-        rm(joinpath(Base.LOAD_CACHE_PATH[1], "ModFILE.ji"))
+        rm_precompile("ModFILE")
     end
 
     # issue #8
@@ -369,7 +383,7 @@ end
         @eval using ModDocstring
         sleep(2)
         @test ModDocstring.f() == 1
-        ds = @doc ModDocstring
+        ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Ahoy! "
 
         sleep(0.1)  # ensure watching is set up
@@ -387,7 +401,7 @@ end
         end
         yry()
         @test ModDocstring.f() == 2
-        ds = @doc ModDocstring
+        ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Ahoy! "
 
         open(joinpath(dn, "ModDocstring.jl"), "w") do io
@@ -404,7 +418,7 @@ end
         end
         yry()
         @test ModDocstring.f() == 3
-        ds = @doc ModDocstring
+        ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Hello! "
 
         pop!(LOAD_PATH)
