@@ -73,7 +73,7 @@ k(x) = 4
                 @test convert(Revise.RelocatableExpr, :(g(x) = 2)) ∈ md[Main].exprs
             end
         end
-        @test contains(read(warnfile, String), "parsing error near line 3")
+        @test occursin("parsing error near line 3", read(warnfile, String))
         rm(warnfile)
     end
 
@@ -602,7 +602,7 @@ end
         push!(Revise.silence_pkgs, :Example)
         @eval import Example
         for k in keys(Revise.file2modules)
-            if contains(k, "Example")
+            if occursin("Example", k)
                 error("Should not track files in Example")
             end
         end
@@ -726,14 +726,14 @@ end
                 for name in to_remove
                     try
                         rm(name; force=true, recursive=true)
-                        deleteat!(LOAD_PATH, find(LOAD_PATH .== name))
+                        deleteat!(LOAD_PATH, findall(LOAD_PATH .== name))
                     end
                 end
                 yry()
             end
         end
         if !Sys.isapple()
-            @test contains(read(warnfile, String), "is not an existing directory")
+            @test occursin("is not an existing directory", read(warnfile, String))
         end
         rm(warnfile)
     end

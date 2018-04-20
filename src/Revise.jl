@@ -2,7 +2,7 @@ __precompile__(true)
 
 module Revise
 
-using FileWatching
+using FileWatching, Base.CoreLogging
 using Distributed
 using Compat
 using Compat.REPL
@@ -11,6 +11,12 @@ if VERSION < v"0.7.0-DEV.3483"
     register_root_module(m::Module) = Base.register_root_module(Base.module_name(m), m)
 else
     register_root_module(m::Module) = Base.register_root_module(m)
+end
+
+if VERSION < v"0.7.0-DEV.3936"
+    taskfetch(t::Task) = wait(t)
+else
+    taskfetch(t::Task) = fetch(t)
 end
 
 using DataStructures: OrderedSet
@@ -145,8 +151,8 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
                     isa(m, Method) && Base.delete_method(m)
                 catch err
                     succeeded = false
-                    warn("failure to delete signature ", sig, " in module ", mod)
-                    showerror(STDERR, err)
+                    @error "failure to delete signature $sig in module $mod"
+                    showerror(stderr, err)
                 end
             end
         end
@@ -160,8 +166,8 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
                 end
             catch err
                 succeeded = false
-                warn("failure to evaluate changes in ", mod)
-                println(STDERR, ex)
+                @error "failure to evaluate changes in $mod"
+                println(stderr, ex)
             end
         end
     end
@@ -199,7 +205,9 @@ function revise_dir_queued(dirname)
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
         if !isfile(dirname)
-            warn(dirname, " is not an existing directory, Revise is not watching")
+            with_logger(SimpleLogger(stderr)) do
+                @warn "$dirname is not an existing directory, Revise is not watching"
+            end
             return nothing
         end
     end
@@ -217,7 +225,9 @@ function revise_file_queued(file)
     if !isfile(file)
         sleep(0.1)  # in case git has done a delete/replace cycle
         if !isfile(file)
-            @warn "$file is not an existing file, Revise is not watching"
+            with_logger(SimpleLogger(stderr)) do
+                @error "$file is not an existing file, Revise is not watching"
+            end
             return nothing
         end
     end
@@ -238,7 +248,7 @@ function revise_file_now(file)
         src = read_from_cache(oldmd, file)
         push!(oldmd.md, oldmd.topmod=>ExprsSigs())
         if !parse_source!(oldmd.md, src, Symbol(file), 1, oldmd.topmod)
-            warn("failed to parse cache file source text for ", file)
+            @error "failed to parse cache file source text for $file"
         end
     end
     pr = parse_source(file, oldmd.topmod)
@@ -406,7 +416,7 @@ macroreplace!(s, filename) = s
 function steal_repl_backend(backend = Base.active_repl_backend)
     # terminate the current backend
     put!(backend.repl_channel, (nothing, -1))
-    wait(backend.backend_task)
+    taskfetch(backend.backend_task)
     # restart a new backend that differs only by processing the
     # revision queue before evaluating each user input
     backend.backend_task = @schedule begin
