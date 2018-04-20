@@ -34,7 +34,7 @@ function get_method(mod::Module, sig::ExLike)
             i -= 1
         end
     end
-    warn("Revise failed to find any methods for signature ", t, "\n  Most likely it was already deleted.")
+    @warn "Revise failed to find any methods for signature $t\n  Most likely it was already deleted."
     nothing
 end
 
