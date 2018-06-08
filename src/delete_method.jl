@@ -40,7 +40,7 @@ end
 
 function split_sig(mod::Module, ex::Expr)
     t = split_sig_expr(mod, ex)
-    return eval(mod, t) # fex), eval(mod, argex)
+    return Core.eval(mod, t) # fex), Core.eval(mod, argex)
 end
 
 function split_sig_expr(mod::Module, ex::Expr, wheres...)
