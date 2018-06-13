@@ -1,6 +1,6 @@
 # Revise
 
-**NOTE: this page is for Julia 0.7-DEV and higher. For Julia 0.6 [see this branch](https://github.com/timholy/Revise.jl/tree/v0.6)**
+**NOTE: this page is for Julia 0.7.0-alpha and higher. For Julia 0.6 [see this branch](https://github.com/timholy/Revise.jl/tree/v0.6)**
 
 [![Build Status](https://travis-ci.org/timholy/Revise.jl.svg?branch=master)](https://travis-ci.org/timholy/Revise.jl)
 [![Build status](https://ci.appveyor.com/api/projects/status/e1xnsj4e5q9308y6/branch/master?svg=true)](https://ci.appveyor.com/project/timholy/revise-jl/branch/master)
@@ -8,7 +8,8 @@
 
 `Revise.jl` may help you keep your sessions running longer, reducing the
 need to restart Julia whenever you make changes to code.
-With Revise, you can be in the middle of a session and then issue a `Pkg.update()`
+With Revise, you can be in the middle of a session and then update packages, switch git branches
+or stash/unstash code,
 and/or edit the source code; typically, the changes will be incorporated
 into the very next command you issue from the REPL.
 This can save you the overhead of restarting, loading packages, and waiting for code to JIT-compile.
@@ -16,11 +17,18 @@ This can save you the overhead of restarting, loading packages, and waiting for 
 ### Example:
 
 ```julia
-julia> Pkg.add("Example")
-INFO: Installing Example v0.4.1
-INFO: Package database updated
+(v0.7) pkg> add Example
+  Updating registry at `/tmp/pkgs/registries/Uncurated`
+  Updating git-repo `https://github.com/JuliaRegistries/Uncurated.git`
+ Resolving package versions...
+Downloaded Example ─ v0.5.1
+  Updating `/tmp/pkgs/environments/v0.7/Project.toml`
+  [7876af07] + Example v0.5.1
+  Updating `/tmp/pkgs/environments/v0.7/Manifest.toml`
+  [7876af07] + Example v0.5.1
 
 julia> using Revise        # importantly, this must come before `using Example`
+[ Info: Precompiling module Revise
 
 julia> using Example
 
@@ -30,7 +38,9 @@ julia> hello("world")
 julia> Example.f()
 ERROR: UndefVarError: f not defined
 
-julia> edit("Example.jl")  # add a function `f() = π` and save the file
+julia> edit(hello)   # opens Example.jl
+
+# Now, add a function `f() = π` and save the file
 
 julia> Example.f()
 π = 3.1415926535897...
@@ -65,7 +75,7 @@ If you like Revise, you can ensure that every Julia session uses it by
 adding the following to your `.juliarc.jl` file:
 
 ```julia
-@schedule begin
+@async begin
     sleep(0.1)
     @eval using Revise
 end

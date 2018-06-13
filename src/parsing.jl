@@ -142,7 +142,7 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module)
     md
 end
 
-const nargs_docexpr = VERSION < v"0.7.0-DEV.328" ? 3 : 4
+const nargs_docexpr = 4
 isdocexpr(ex) = ex.head == :macrocall && ex.args[1] == GlobalRef(Core, Symbol("@doc")) &&
            length(ex.args) >= nargs_docexpr
 

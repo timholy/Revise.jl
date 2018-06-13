@@ -2,22 +2,8 @@ __precompile__(true)
 
 module Revise
 
-using FileWatching, Base.CoreLogging
+using FileWatching, REPL, Base.CoreLogging
 using Distributed
-using Compat
-using Compat.REPL
-
-if VERSION < v"0.7.0-DEV.3483"
-    register_root_module(m::Module) = Base.register_root_module(Base.module_name(m), m)
-else
-    register_root_module(m::Module) = Base.register_root_module(m)
-end
-
-if VERSION < v"0.7.0-DEV.3936"
-    taskfetch(t::Task) = wait(t)
-else
-    taskfetch(t::Task) = fetch(t)
-end
 
 using DataStructures: OrderedSet
 
@@ -40,12 +26,7 @@ include("relocatable_exprs.jl")
 include("types.jl")
 include("parsing.jl")
 include("delete_method.jl")
-
-if VERSION < v"0.7.0-DEV.3483"
-    include("pkgs_deprecated.jl")
-else
-    include("pkgs.jl")
-end
+include("pkgs.jl")
 
 ### Globals to keep track of state
 # revision_queue holds the names of files that we need to revise, meaning that these
@@ -67,11 +48,7 @@ const module2files = Dict{Symbol,Vector{String}}()
 const included_files = Tuple{Module,String}[]  # (module, filename)
 
 # Full path to the running Julia's cache of source code defining Base
-if VERSION < v"0.7.0-DEV.3073" # https://github.com/JuliaLang/julia/pull/25102
-    const basesrccache = joinpath(JULIA_HOME, Base.DATAROOTDIR, "julia", "base.cache")
-else
-    const basesrccache = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache")
-end
+const basesrccache = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache")
 
 ## For excluding packages from tracking by Revise
 const dont_watch_pkgs = Set{Symbol}()
@@ -175,11 +152,7 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
 end
 
 function use_compiled_modules()
-    @static if VERSION >= v"0.7.0-DEV.1698"
-        return Base.JLOptions().use_compiled_modules != 0
-    else
-        return Base.JLOptions().use_compilecache != 0
-    end
+    return Base.JLOptions().use_compiled_modules != 0
 end
 
 function process_parsed_files(files)
@@ -189,14 +162,14 @@ function process_parsed_files(files)
         haskey(watched_files, dir) || (watched_files[dir] = WatchList())
         push!(watched_files[dir], basename)
         if watching_files[]
-            @schedule revise_file_queued(file)
+            @async revise_file_queued(file)
         else
             push!(udirs, dir)
         end
     end
     for dir in udirs
         updatetime!(watched_files[dir])
-        @schedule revise_dir_queued(dir)
+        @async revise_dir_queued(dir)
     end
     return nothing
 end
@@ -215,7 +188,7 @@ function revise_dir_queued(dirname)
     for file in latestfiles
         push!(revision_queue, file)
     end
-    @schedule revise_dir_queued(dirname)
+    @async revise_dir_queued(dirname)
 end
 
 # Require by FreeBSD.
@@ -234,7 +207,7 @@ function revise_file_queued(file)
 
     wait_changed(file)  # will block here until the file changes
     push!(revision_queue, file)
-    @schedule revise_file_queued(file)
+    @async revise_file_queued(file)
 end
 
 function revise_file_now(file)
@@ -389,13 +362,9 @@ function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)
     end
     ex
 end
-if VERSION < v"0.7.0-DEV.328"
-    file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
-        LineNumberNode(lnn.line + line_offset)
-else
-    file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
-        LineNumberNode(lnn.line + line_offset, file)
-end
+
+file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
+    LineNumberNode(lnn.line + line_offset, file)
 
 function macroreplace!(ex::Expr, filename)
     for i = 1:length(ex.args)
@@ -416,10 +385,10 @@ macroreplace!(s, filename) = s
 function steal_repl_backend(backend = Base.active_repl_backend)
     # terminate the current backend
     put!(backend.repl_channel, (nothing, -1))
-    taskfetch(backend.backend_task)
+    fetch(backend.backend_task)
     # restart a new backend that differs only by processing the
     # revision queue before evaluating each user input
-    backend.backend_task = @schedule begin
+    backend.backend_task = @async begin
         while true
             tls = task_local_storage()
             tls[:SOURCE_PATH] = nothing
@@ -430,14 +399,14 @@ function steal_repl_backend(backend = Base.active_repl_backend)
             end
             # Process revisions
             revise()
-            Compat.REPL.eval_user_input(ast, backend)
+            REPL.eval_user_input(ast, backend)
         end
     end
     backend
 end
 
 function __init__()
-    # register_root_module(Base.__toplevel__)
+    # Base.register_root_module(Base.__toplevel__)
     if isfile(silencefile[])
         pkgs = readlines(silencefile[])
         for pkg in pkgs
@@ -450,7 +419,7 @@ function __init__()
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
         if isdefined(Base, :active_repl_backend)
-            @schedule steal_repl_backend()
+            @async steal_repl_backend()
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
         end

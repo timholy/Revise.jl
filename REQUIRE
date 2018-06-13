@@ -1,3 +1,2 @@
-julia 0.7.0-DEV.3131
-DataStructures
-Compat 0.62
+julia 0.7.0-alpha
+DataStructures 0.8.3

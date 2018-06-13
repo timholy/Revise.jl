@@ -6,23 +6,13 @@ include("common.jl")
 
 to_remove = String[]
 
-if VERSION >= v"0.7.0-DEV.2444"
-    throwing_function(bt) = bt[2]
-else
-    throwing_function(bt) = bt[1]
-end
+throwing_function(bt) = bt[2]
 
-if VERSION >= v"0.7.0-DEV.4063"
-    function rm_precompile(pkgname::AbstractString)
-        filepath = Base.cache_file_entry(Base.PkgId(pkgname))
-        for depot in DEPOT_PATH
-            fullpath = joinpath(depot, filepath)
-            isfile(fullpath) && rm(fullpath)
-        end
-    end
-else
-    function rm_precompile(pkgname::AbstractString)
-        rm(joinpath(Base.LOAD_CACHE_PATH[1], pkgname*".ji"))
+function rm_precompile(pkgname::AbstractString)
+    filepath = Base.cache_file_entry(Base.PkgId(pkgname))
+    for depot in DEPOT_PATH
+        fullpath = joinpath(depot, filepath)
+        isfile(fullpath) && rm(fullpath)
     end
 end
 
