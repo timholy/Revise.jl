@@ -17,7 +17,6 @@ between `RelocatableExpr`s ignore line numbering information.
 mutable struct RelocatableExpr
     head::Symbol
     args::Vector{Any}
-    typ::Any
 
     RelocatableExpr(head::Symbol, args::Vector{Any}) = new(head, args)
     RelocatableExpr(head::Symbol, args...) = new(head, [args...])
@@ -27,9 +26,7 @@ end
 Base.convert(::Type{RelocatableExpr}, ex::Expr) = relocatable!(ex)
 
 function relocatable!(ex::Expr)
-    rex = RelocatableExpr(ex.head, relocatable!(ex.args))
-    rex.typ = ex.typ
-    rex
+    return RelocatableExpr(ex.head, relocatable!(ex.args))
 end
 
 function relocatable!(args::Vector{Any})
@@ -46,9 +43,6 @@ function Base.convert(::Type{Expr}, rex::RelocatableExpr)
     # mutate the cached represetation.
     ex = Expr(rex.head)
     ex.args = Base.copy_exprargs(rex.args)
-    if isdefined(rex, :typ)
-        ex.typ = rex.typ
-    end
     ex
 end
 Base.copy_exprs(rex::RelocatableExpr) = convert(Expr, rex)

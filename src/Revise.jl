@@ -2,7 +2,7 @@ __precompile__(true)
 
 module Revise
 
-using FileWatching, Base.CoreLogging
+using FileWatching, REPL, Base.CoreLogging
 using Distributed
 using Compat
 using Compat.REPL
@@ -189,14 +189,14 @@ function process_parsed_files(files)
         haskey(watched_files, dir) || (watched_files[dir] = WatchList())
         push!(watched_files[dir], basename)
         if watching_files[]
-            @schedule revise_file_queued(file)
+            @async revise_file_queued(file)
         else
             push!(udirs, dir)
         end
     end
     for dir in udirs
         updatetime!(watched_files[dir])
-        @schedule revise_dir_queued(dir)
+        @async revise_dir_queued(dir)
     end
     return nothing
 end
@@ -215,7 +215,7 @@ function revise_dir_queued(dirname)
     for file in latestfiles
         push!(revision_queue, file)
     end
-    @schedule revise_dir_queued(dirname)
+    @async revise_dir_queued(dirname)
 end
 
 # Require by FreeBSD.
@@ -234,7 +234,7 @@ function revise_file_queued(file)
 
     wait_changed(file)  # will block here until the file changes
     push!(revision_queue, file)
-    @schedule revise_file_queued(file)
+    @async revise_file_queued(file)
 end
 
 function revise_file_now(file)
@@ -419,7 +419,7 @@ function steal_repl_backend(backend = Base.active_repl_backend)
     taskfetch(backend.backend_task)
     # restart a new backend that differs only by processing the
     # revision queue before evaluating each user input
-    backend.backend_task = @schedule begin
+    backend.backend_task = @async begin
         while true
             tls = task_local_storage()
             tls[:SOURCE_PATH] = nothing
@@ -430,14 +430,14 @@ function steal_repl_backend(backend = Base.active_repl_backend)
             end
             # Process revisions
             revise()
-            Compat.REPL.eval_user_input(ast, backend)
+            REPL.eval_user_input(ast, backend)
         end
     end
     backend
 end
 
 function __init__()
-    # register_root_module(Base.__toplevel__)
+    # Base.register_root_module(Base.__toplevel__)
     if isfile(silencefile[])
         pkgs = readlines(silencefile[])
         for pkg in pkgs
@@ -450,7 +450,7 @@ function __init__()
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
         if isdefined(Base, :active_repl_backend)
-            @schedule steal_repl_backend()
+            @async steal_repl_backend()
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
         end

@@ -108,8 +108,8 @@ of module-loading by `using` or `import`.
 function watch_package(modsym::Symbol)
     # Because the callbacks are made with `invokelatest`, for reasons of performance
     # we need to make sure this function is fast to compile. By hiding the real
-    # work behind a @schedule, we truncate the chain of dependency.
-    @schedule _watch_package(modsym)
+    # work behind a @async, we truncate the chain of dependency.
+    @async _watch_package(modsym)
 end
 
 function _watch_package(modsym::Symbol)
