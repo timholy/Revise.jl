@@ -70,6 +70,10 @@ end
 
 argtypeexpr(s::Symbol, rest...) = (:Any, argtypeexpr(rest...)...)
 function argtypeexpr(ex::ExLike, rest...)
+    # Handle @nospecialize(x)
+    if ex.head == :macrocall
+        return argtypeexpr(ex.args[3])
+    end
     if ex.head == :...
         # Handle varargs
         return (:(Vararg{$(argtypeexpr(ex.args[1]))}), argtypeexpr(rest...)...)
