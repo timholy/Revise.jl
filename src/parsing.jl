@@ -157,7 +157,7 @@ module is "parented" by `mod`. Source-code expressions are added to
 function parse_module!(md::ModDict, ex::Expr, file::Symbol, mod::Module)
     newname = _module_name(ex)
     if mod != Base.__toplevel__ && !isdefined(mod, newname)
-        eval(mod, ex) # support creating new submodules
+        Core.eval(mod, ex) # support creating new submodules
     end
     newmod = mod == Base.__toplevel__ ? Base.root_module(mod, newname) : getfield(mod, newname)
     md[newmod] = ExprsSigs()

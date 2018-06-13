@@ -160,9 +160,9 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
             ex = convert(Expr, rex)
             try
                 if isdocexpr(ex) && mod == Base.__toplevel__
-                    eval(Main, ex)
+                    Core.eval(Main, ex)
                 else
-                    eval(mod, ex)
+                    Core.eval(mod, ex)
                 end
             catch err
                 succeeded = false

@@ -534,7 +534,7 @@ end
     end
 
     @testset "Method deletion" begin
-        eval(Base, :(revisefoo(x::Float64) = 1)) # to test cross-module method scoping
+        Core.eval(Base, :(revisefoo(x::Float64) = 1)) # to test cross-module method scoping
         testdir = randtmp()
         mkdir(testdir)
         push!(to_remove, testdir)
