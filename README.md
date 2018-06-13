@@ -67,12 +67,12 @@ $ JULIA_REVISE=manual julia
 and then revisions will be processed only when you call `revise()`.
 If you prefer this mode of operation, you can add that variable to your `bash`
 environment or add `ENV["JULIA_REVISE"] = "manual"` to your
-`.juliarc.jl` before you say `using Revise` (see below).
+`.julia/config/startup.jl` before you say `using Revise` (see below).
 
 ## Using Revise by default
 
 If you like Revise, you can ensure that every Julia session uses it by
-adding the following to your `.juliarc.jl` file:
+adding the following to your `.julia/config/startup.jl` file:
 
 ```julia
 @async begin
