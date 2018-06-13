@@ -26,9 +26,9 @@ git:
 #  - if [ $TRAVIS_OS_NAME = osx ]; then brew install gcc; fi
 
 ## uncomment the following lines to override the default test script
-# script:
-#   - julia -e 'Pkg.clone(pwd()); Pkg.build("Revise"); Pkg.test("Revise"; coverage=true)'
-#   - JULIA_REVISE_POLL=1 julia --code-coverage -e 'include(Pkg.dir("Revise", "test", "polling.jl"))'
-# after_success:
-#   # push coverage results to Codecov
-#   - julia -e 'cd(Pkg.dir("Revise")); Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'
+script:
+  - julia -e 'using Pkg; Pkg.add(pwd()); Pkg.build("Revise"); Pkg.test("Revise"; coverage=true)'
+  - JULIA_REVISE_POLL=1 julia --code-coverage -e 'using Pkg; include(Pkg.dir("Revise", "test", "polling.jl"))'
+after_success:
+  # push coverage results to Codecov
+  - julia -e 'using Pkg; cd(Pkg.dir("Revise")); Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'
