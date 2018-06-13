@@ -4,20 +4,6 @@ module Revise
 
 using FileWatching, REPL, Base.CoreLogging
 using Distributed
-using Compat
-using Compat.REPL
-
-if VERSION < v"0.7.0-DEV.3483"
-    register_root_module(m::Module) = Base.register_root_module(Base.module_name(m), m)
-else
-    register_root_module(m::Module) = Base.register_root_module(m)
-end
-
-if VERSION < v"0.7.0-DEV.3936"
-    taskfetch(t::Task) = wait(t)
-else
-    taskfetch(t::Task) = fetch(t)
-end
 
 using DataStructures: OrderedSet
 
@@ -40,12 +26,7 @@ include("relocatable_exprs.jl")
 include("types.jl")
 include("parsing.jl")
 include("delete_method.jl")
-
-if VERSION < v"0.7.0-DEV.3483"
-    include("pkgs_deprecated.jl")
-else
-    include("pkgs.jl")
-end
+include("pkgs.jl")
 
 ### Globals to keep track of state
 # revision_queue holds the names of files that we need to revise, meaning that these
@@ -67,11 +48,7 @@ const module2files = Dict{Symbol,Vector{String}}()
 const included_files = Tuple{Module,String}[]  # (module, filename)
 
 # Full path to the running Julia's cache of source code defining Base
-if VERSION < v"0.7.0-DEV.3073" # https://github.com/JuliaLang/julia/pull/25102
-    const basesrccache = joinpath(JULIA_HOME, Base.DATAROOTDIR, "julia", "base.cache")
-else
-    const basesrccache = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache")
-end
+const basesrccache = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache")
 
 ## For excluding packages from tracking by Revise
 const dont_watch_pkgs = Set{Symbol}()
@@ -175,11 +152,7 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
 end
 
 function use_compiled_modules()
-    @static if VERSION >= v"0.7.0-DEV.1698"
-        return Base.JLOptions().use_compiled_modules != 0
-    else
-        return Base.JLOptions().use_compilecache != 0
-    end
+    return Base.JLOptions().use_compiled_modules != 0
 end
 
 function process_parsed_files(files)
@@ -389,13 +362,9 @@ function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)
     end
     ex
 end
-if VERSION < v"0.7.0-DEV.328"
-    file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
-        LineNumberNode(lnn.line + line_offset)
-else
-    file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
-        LineNumberNode(lnn.line + line_offset, file)
-end
+
+file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
+    LineNumberNode(lnn.line + line_offset, file)
 
 function macroreplace!(ex::Expr, filename)
     for i = 1:length(ex.args)
@@ -416,7 +385,7 @@ macroreplace!(s, filename) = s
 function steal_repl_backend(backend = Base.active_repl_backend)
     # terminate the current backend
     put!(backend.repl_channel, (nothing, -1))
-    taskfetch(backend.backend_task)
+    fetch(backend.backend_task)
     # restart a new backend that differs only by processing the
     # revision queue before evaluating each user input
     backend.backend_task = @async begin
