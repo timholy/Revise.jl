@@ -65,6 +65,7 @@ k(x) = 4
         end
         @test occursin("parsing error near line 3", read(warnfile, String))
         rm(warnfile)
+        @test Revise.is_linenumber(LineNumberNode(5, "foo.jl"))  # issue #100
     end
 
     @testset "Comparison" begin
