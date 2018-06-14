@@ -65,7 +65,7 @@ end
 is_trivial_block_wrapper(@nospecialize arg) = false
 
 function is_linenumber(@nospecialize stmt)
-    (isa(stmt, ExLike) & (stmt.head == :line)) | isa(stmt, LineNumberNode)
+    isa(stmt, LineNumberNode) || (isa(stmt, ExLike) & (stmt.head == :line))
 end
 
 argtypeexpr(s::Symbol, rest...) = (:Any, argtypeexpr(rest...)...)
