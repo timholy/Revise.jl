@@ -144,6 +144,7 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
             catch err
                 succeeded = false
                 @error "failure to evaluate changes in $mod"
+                showerror(stderr, err)
                 println(stderr, ex)
             end
         end
@@ -234,6 +235,9 @@ function revise_file_now(file)
                 p == myid() && continue
                 try
                     remotecall(Revise.eval_revised, p, revmd)
+                catch err
+                    @error "error revising worker $p"
+                    showerror(stderr, err)
                 end
             end
         end
