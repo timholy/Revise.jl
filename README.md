@@ -82,6 +82,33 @@ end
 ```
 This should work the REPL, Juno, and IJulia. For VSCode see [these instructions](https://github.com/JuliaEditorSupport/julia-vscode/wiki/Known-issues-and-workarounds).
 
+## User callbacks
+
+If your code produces some result (e.g., a webpage), then you might want to recalculate
+the result.
+Revise allows you to register a callback function to be triggered whenever a module changes:
+
+```julia
+# This is the callback function
+function livereload(revisions)
+    WebServer.rebuild_webpage()
+end
+
+Revise.register_callback(WebServer, livereload)
+```
+`livereload` will be called whenever anything in the `WebServer` module was updated.
+(As a reminder, this occurs when you execute the next command at the REPL, not when you
+save the file.)
+As illustrated, the `revisions` argument can be safely ignored unless you need to
+know the precise changes to the code, in which case it may be relevant to know that
+`revisions.exprs` is an ordered set of expressions that were `eval`ed, and
+`revisions.sigs` is a set of method signatures that were deleted.
+
+It is possible to register multiple callbacks for the same module, in which case all of
+them are called in the order in which they were registered.
+If you want to turn off a callback (temporarily or otherwise), use
+`Revise.unregister_callback(module, function)`.
+
 ## Requirements and caveats
 
 `Revise` only tracks files that have been required as a consequence of

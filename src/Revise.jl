@@ -22,6 +22,26 @@ function wait_changed(file)
     return nothing
 end
 
+# Users might want to be notified about revisions to specific modules
+const user_callbacks = Dict{Module,Vector{Function}}()
+
+function register_callback(mod::Module, f::Function)
+    if !haskey(user_callbacks, mod)
+        user_callbacks[mod] = Function[]
+    end
+    v = user_callbacks[mod]
+    push!(v, f)
+    return nothing
+end
+function unregister_callback(mod::Module, f::Function)
+    v = user_callbacks[mod]
+    i = findfirst(isequal(f), v)
+    i == nothing && error("$f not registered as a callback")
+    deleteat!(v, i)
+    return nothing
+end
+
+
 include("relocatable_exprs.jl")
 include("types.jl")
 include("parsing.jl")
@@ -146,6 +166,16 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
                 @error "failure to evaluate changes in $mod"
                 showerror(stderr, err)
                 println(stderr, ex)
+            end
+        end
+    end
+    if succeeded
+        for (mod, exprssigs) in revmd
+            if haskey(user_callbacks, mod)
+                fs = user_callbacks[mod]
+                for f in fs
+                    Base.invokelatest(f, exprssigs)
+                end
             end
         end
     end

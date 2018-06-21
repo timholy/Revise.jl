@@ -16,6 +16,13 @@ function rm_precompile(pkgname::AbstractString)
     end
 end
 
+# For testing user callbacks
+countA = 0
+function cbA(::Any)
+    global countA
+    countA += 1
+end
+
 @testset "Revise" begin
 
     function collectexprs(ex::Revise.RelocatableExpr)
@@ -668,6 +675,115 @@ revise_f(x) = 2
         @test any(k->endswith(k, "number.jl"), keys(Revise.file2modules))
     end
 
+    @testset "User callbacks" begin
+        testdir = randtmp()
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dnA = joinpath(testdir, "CallbackA", "src")
+        mkpath(dnA)
+        open(joinpath(dnA, "CallbackA.jl"), "w") do io
+            println(io, """
+module CallbackA
+f(x) = 1
+end
+""")
+        end
+        @eval using CallbackA
+        dnB = joinpath(testdir, "CallbackB", "src")
+        mkpath(dnB)
+        open(joinpath(dnB, "CallbackB.jl"), "w") do io
+            println(io, """
+module CallbackB
+
+countB = 0
+function cbB(::Any)
+    global countB
+    countB += 1
+end
+
+f(x) = 1
+
+end
+""")
+        end
+        @eval using CallbackB
+        @test CallbackA.f(nothing) == 1
+        @test CallbackB.f(nothing) == 1
+        Revise.register_callback(CallbackA, cbA)
+        sleep(0.1)  # ensure watching is set up
+        @test countA == 0
+        @test CallbackB.countB == 0
+        open(joinpath(dnA, "CallbackA.jl"), "w") do io
+            println(io, """
+module CallbackA
+f(x) = 2
+end
+""")
+        end
+        yry()
+        @test CallbackA.f(nothing) == 2
+        @test CallbackB.f(nothing) == 1
+        @test countA == 1
+        @test CallbackB.countB == 0
+        open(joinpath(dnB, "CallbackB.jl"), "w") do io
+            println(io, """
+module CallbackB
+
+countB = 0
+function cbB(::Any)
+    global countB
+    countB += 1
+end
+
+f(x) = 2
+
+end
+""")
+        end
+        yry()
+        @test CallbackA.f(nothing) == 2
+        @test CallbackB.f(nothing) == 2
+        @test countA == 1
+        @test CallbackB.countB == 0
+        sleep(1.5)
+        Revise.register_callback(CallbackB, CallbackB.cbB)
+        open(joinpath(dnB, "CallbackB.jl"), "w") do io
+            println(io, """
+module CallbackB
+
+countB = 0
+function cbB(::Any)
+    global countB
+    countB += 1
+end
+
+f(x) = 3
+
+end
+""")
+        end
+        yry()
+        @test CallbackA.f(nothing) == 2
+        @test CallbackB.f(nothing) == 3
+        @test countA == 1
+        @test CallbackB.countB == 1
+
+        Revise.unregister_callback(CallbackA, cbA)
+        open(joinpath(dnA, "CallbackA.jl"), "w") do io
+            println(io, """
+module CallbackA
+f(x) = 3
+end
+""")
+        end
+        yry()
+        @test CallbackA.f(nothing) == 3
+        @test CallbackB.f(nothing) == 3
+        @test countA == 1
+        @test CallbackB.countB == 1
+    end
+
     @testset "Distributed" begin
         allworkers = [myid(); addprocs(2)]
         @everywhere using Revise
@@ -726,6 +842,7 @@ end
                     try
                         rm(name; force=true, recursive=true)
                         deleteat!(LOAD_PATH, findall(LOAD_PATH .== name))
+                    catch
                     end
                 end
                 yry()
