@@ -2,8 +2,8 @@ __precompile__(true)
 
 module Revise
 
-using FileWatching, REPL, Base.CoreLogging
-using Distributed
+using FileWatching, REPL, Base.CoreLogging, Distributed
+import LibGit2
 
 using DataStructures: OrderedSet
 
@@ -27,6 +27,8 @@ include("types.jl")
 include("parsing.jl")
 include("delete_method.jl")
 include("pkgs.jl")
+include("git.jl")
+include("recipes.jl")
 
 ### Globals to keep track of state
 # revision_queue holds the names of files that we need to revise, meaning that these
@@ -49,6 +51,14 @@ const included_files = Tuple{Module,String}[]  # (module, filename)
 
 # Full path to the running Julia's cache of source code defining Base
 const basesrccache = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache")
+
+# Full path to julia top-level directory from which julia was built
+# (useful for cross-builds)
+const juliadir = begin
+    basefiles = map(x->x[2], Base._included_files)
+    sysimg = filter(x->endswith(x, "sysimg.jl"), basefiles)[1]
+    dirname(dirname(sysimg))
+end
 
 ## For excluding packages from tracking by Revise
 const dont_watch_pkgs = Set{Symbol}()
@@ -156,7 +166,7 @@ function use_compiled_modules()
     return Base.JLOptions().use_compiled_modules != 0
 end
 
-function process_parsed_files(files)
+function init_watching(files)
     udirs = Set{String}()
     for file in files
         dir, basename = splitdir(file)
@@ -254,35 +264,6 @@ function read_from_cache(fm::FileModules, file::AbstractString)
     Base.read_dependency_src(fm.cachefile, file)
 end
 
-function read_from_git(path::AbstractString, commit=Base.GIT_VERSION_INFO.commit)
-    repo_file = basename(path)
-    repo_dir = dirname(path)
-    while true
-        # check if we are at the repo root
-        git_dir = joinpath(repo_dir, ".git")
-        if ispath(git_dir)
-            repo = LibGit2.GitRepo(repo_dir)
-            tree = LibGit2.GitTree(repo, "$commit^{tree}")
-            return try
-                LibGit2.content(tree[repo_file])
-            catch e
-                isa(e, KeyError) || rethrow()
-                nothing
-            end
-        end
-
-        # traverse to parent folder
-        previous = repo_dir
-        subdir = basename(repo_dir)
-        repo_dir = dirname(repo_dir)
-        repo_file = joinpath(subdir, repo_file)
-
-        if previous == repo_dir
-            return nothing
-        end
-    end
-end
-
 """
     revise()
 
@@ -317,92 +298,17 @@ Watch `file` for updates and [`revise`](@ref) loaded code with any
 changes. `mod` is the module into which `file` is evaluated; if omitted,
 it defaults to `Main`.
 """
-function track(mod::Module, file::AbstractString; reference::Symbol=:current)
+function track(mod::Module, file::AbstractString)
     isfile(file) || error(file, " is not a file")
     file = normpath(abspath(file))
-    pr = if reference == :current
-        parse_source(file, mod)
-    elseif reference == :git
-        src = read_from_git(file)
-        if src == nothing
-            # assume empty reference when tracking new files
-            src = ""
-        end
-        if src != readstring(file)
-            push!(revision_queue, file)
-        end
-        md = ModDict(mod=>ExprsSigs())
-        if !parse_source!(md, src, Symbol(file), 1, mod)
-            warn("failed to parse Git source text for ", file)
-        end
-        fm = FileModules(mod, md)
-        String(file) => fm
-    else
-        error("Invalid tracking reference $reference")
-    end
+    pr = parse_source(file, mod)
     if isa(pr, Pair)
         push!(file2modules, pr)
     end
-    process_parsed_files((file,))
+    init_watching((file,))
 end
+
 track(file::AbstractString) = track(Main, file)
-
-"""
-    Revise.track(Base)
-
-Track the code in Julia's `base` directory for updates. This
-facilitates making changes to Julia itself and testing them
-immediately (without rebuilding).
-
-At present some files in Base are not trackable, see the README.
-"""
-function track(mod::Module)
-    if mod == Base
-        # Determine when the basesrccache was built
-        mtcache = mtime(basesrccache)
-        # Initialize expression-tracking for files, and
-        # note any modified since Base was built
-        files = String[]
-        for (submod, filename) in Base._included_files
-            push!(file2modules, filename=>FileModules(submod, ModDict(), basesrccache))
-            push!(files, filename)
-            if mtime(filename) > mtcache
-                push!(revision_queue, filename)
-            end
-        end
-        # Add the files to the watch list
-        process_parsed_files(files)
-    elseif mod == Core.Compiler
-        # find the Julia source dir by looking at the location of sysimg.jl
-        const files = map(x->x[2], Base._included_files)
-        const sysimg = filter(x->endswith(x, "sysimg.jl"), files)[1]
-        const srcdir = dirname(sysimg)
-
-        # track all source files in the compiler source dir
-        function scan_sources!(path::String, sources=String[])
-            if isfile(path)
-                push!(sources, path)
-            elseif isdir(path)
-                for entry in readdir(path)
-                    scan_sources!(joinpath(path, entry), sources)
-                end
-            end
-            sources
-        end
-        compiler = scan_sources!(joinpath(srcdir, "compiler"))
-        for file in compiler
-            # only track files that are added to git (and avoid, eg., editor back-ups)
-            if read_from_git(file,"HEAD") != nothing
-                Revise.track(Core.Compiler, file; reference=:git)
-            else
-                @warn "Ignoring file not added to git" path=file
-            end
-        end
-    else
-        error("no Revise.track recipe for module ", mod)
-    end
-    nothing
-end
 
 """
     Revise.silence(pkg)
