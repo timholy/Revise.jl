@@ -268,6 +268,20 @@ function revise()
     nothing
 end
 
+# This variant avoids unhandled task failures
+function revise(backend::REPL.REPLBackend)
+    sleep(0.01)  # in case the file system isn't quite done writing out the new files
+    for file in revision_queue
+        try
+            revise_file_now(file)
+        catch err
+            put!(backend.response_channel, (err, catch_backtrace()))
+        end
+    end
+    empty!(revision_queue)
+    nothing
+end
+
 """
     revise(mod::Module)
 
@@ -402,7 +416,7 @@ function steal_repl_backend(backend = Base.active_repl_backend)
                 break
             end
             # Process revisions
-            revise()
+            revise(backend)
             REPL.eval_user_input(ast, backend)
         end
     end
