@@ -254,6 +254,35 @@ function read_from_cache(fm::FileModules, file::AbstractString)
     Base.read_dependency_src(fm.cachefile, file)
 end
 
+function read_from_git(path::AbstractString, commit=Base.GIT_VERSION_INFO.commit)
+    repo_file = basename(path)
+    repo_dir = dirname(path)
+    while true
+        # check if we are at the repo root
+        git_dir = joinpath(repo_dir, ".git")
+        if ispath(git_dir)
+            repo = LibGit2.GitRepo(repo_dir)
+            tree = LibGit2.GitTree(repo, "$commit^{tree}")
+            return try
+                LibGit2.content(tree[repo_file])
+            catch e
+                isa(e, KeyError) || rethrow()
+                nothing
+            end
+        end
+
+        # traverse to parent folder
+        previous = repo_dir
+        subdir = basename(repo_dir)
+        repo_dir = dirname(repo_dir)
+        repo_file = joinpath(subdir, repo_file)
+
+        if previous == repo_dir
+            return nothing
+        end
+    end
+end
+
 """
     revise()
 
@@ -302,10 +331,29 @@ Watch `file` for updates and [`revise`](@ref) loaded code with any
 changes. `mod` is the module into which `file` is evaluated; if omitted,
 it defaults to `Main`.
 """
-function track(mod::Module, file::AbstractString)
+function track(mod::Module, file::AbstractString; reference::Symbol=:current)
     isfile(file) || error(file, " is not a file")
     file = normpath(abspath(file))
-    pr = parse_source(file, mod)
+    pr = if reference == :current
+        parse_source(file, mod)
+    elseif reference == :git
+        src = read_from_git(file)
+        if src == nothing
+            # assume empty reference when tracking new files
+            src = ""
+        end
+        if src != readstring(file)
+            push!(revision_queue, file)
+        end
+        md = ModDict(mod=>ExprsSigs())
+        if !parse_source!(md, src, Symbol(file), 1, mod)
+            warn("failed to parse Git source text for ", file)
+        end
+        fm = FileModules(mod, md)
+        String(file) => fm
+    else
+        error("Invalid tracking reference $reference")
+    end
     if isa(pr, Pair)
         push!(file2modules, pr)
     end
@@ -338,6 +386,32 @@ function track(mod::Module)
         end
         # Add the files to the watch list
         process_parsed_files(files)
+    elseif mod == Core.Compiler
+        # find the Julia source dir by looking at the location of sysimg.jl
+        const files = map(x->x[2], Base._included_files)
+        const sysimg = filter(x->endswith(x, "sysimg.jl"), files)[1]
+        const srcdir = dirname(sysimg)
+
+        # track all source files in the compiler source dir
+        function scan_sources!(path::String, sources=String[])
+            if isfile(path)
+                push!(sources, path)
+            elseif isdir(path)
+                for entry in readdir(path)
+                    scan_sources!(joinpath(path, entry), sources)
+                end
+            end
+            sources
+        end
+        compiler = scan_sources!(joinpath(srcdir, "compiler"))
+        for file in compiler
+            # only track files that are added to git (and avoid, eg., editor back-ups)
+            if read_from_git(file,"HEAD") != nothing
+                Revise.track(Core.Compiler, file; reference=:git)
+            else
+                @warn "Ignoring file not added to git" path=file
+            end
+        end
     else
         error("no Revise.track recipe for module ", mod)
     end
