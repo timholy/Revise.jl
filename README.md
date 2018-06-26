@@ -46,8 +46,9 @@ julia> Example.f()
 π = 3.1415926535897...
 ```
 
-It's even possible to use Revise on code in Julia's `Base` module: just say `Revise.track(Base)`.
-Any changes that you've made since you last built Julia will be automatically incorporated.
+It's even possible to use Revise on code in Julia's `Base` module or its standard libraries:
+just say `Revise.track(Base)` or `using Pkg; Revise.track(Pkg)`.
+For `Base`, any changes that you've made since you last built Julia will be automatically incorporated; for the stdlibs, any changes since the last git commit will be incorporated.
 
 ## Manual revision
 
