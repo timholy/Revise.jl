@@ -1,5 +1,5 @@
 using Revise
-using Test, Unicode, Distributed
+using Test, Unicode, Distributed, Pkg
 using DataStructures: OrderedSet
 
 include("common.jl")
@@ -662,10 +662,49 @@ revise_f(x) = 2
         @test revise_floc(10) == 2
         push!(to_remove, joinpath(tempdir(), srcfile))
         cd(curdir)
+    end
 
+    @testset "Git" begin
+        if haskey(ENV, "CI")   # if we're doing CI testing (Travis, Appveyor, etc.)
+            # First do a full git checkout of a package (we'll use Revise itself)
+            @warn "checking out a development copy of Revise for testing purposes"
+            pkg = Pkg.Types.PackageSpec("Revise")
+            pkg.repo = Pkg.Types.GitRepo("", "")
+            Pkg.API.add_or_develop(Pkg.Types.Context(), [pkg], mode=:develop)
+        end
+        loc = Base.find_package("Revise")
+        if occursin("dev", loc)
+            repo, path = Revise.git_repo(loc)
+            @test repo != nothing
+            files = Revise.git_files(repo)
+            @test "README.md" ∈ files
+            src = Revise.git_source(loc, "HEAD")
+            @test startswith(src, "__precompile__")
+            src = Revise.git_source(loc, "eae5e000097000472280e6183973a665c4243b94") # 2nd commit in Revise's history
+            @test src == "module Revise\n\n# package code goes here\n\nend # module\n"
+        else
+            @warn "skipping git tests because Revise is not under development"
+        end
+    end
+
+    @testset "Recipes" begin
         # Tracking Base
         Revise.track(Base)
         @test any(k->endswith(k, "number.jl"), keys(Revise.file2modules))
+
+        # Determine whether a git repo is available. Travis & Appveyor do not have this.
+        repo, path = Revise.git_repo(Revise.juliadir)
+        if repo != nothing
+            # Tracking Core.Compiler
+            Revise.track(Core.Compiler)
+            @test any(k->endswith(k, "compiler.jl"), keys(Revise.file2modules))
+
+            # Tracking stdlibs
+            Revise.track(Unicode)
+            @test any(k->endswith(k, "Unicode.jl"), keys(Revise.file2modules))
+        else
+            @warn "skipping Core.Compiler and stdlibs tests due to lack of git repo"
+        end
     end
 
     @testset "Distributed" begin
@@ -726,6 +765,7 @@ end
                     try
                         rm(name; force=true, recursive=true)
                         deleteat!(LOAD_PATH, findall(LOAD_PATH .== name))
+                    catch
                     end
                 end
                 yry()

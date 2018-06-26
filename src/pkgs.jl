@@ -120,5 +120,5 @@ function _watch_package(id::PkgId)
         return nothing
     end
     files = parse_pkg_files(id)
-    process_parsed_files(files)
+    init_watching(files)
 end

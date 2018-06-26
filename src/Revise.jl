@@ -2,8 +2,8 @@ __precompile__(true)
 
 module Revise
 
-using FileWatching, REPL, Base.CoreLogging
-using Distributed
+using FileWatching, REPL, Base.CoreLogging, Distributed
+import LibGit2
 
 using DataStructures: OrderedSet
 
@@ -27,6 +27,8 @@ include("types.jl")
 include("parsing.jl")
 include("delete_method.jl")
 include("pkgs.jl")
+include("git.jl")
+include("recipes.jl")
 
 ### Globals to keep track of state
 # revision_queue holds the names of files that we need to revise, meaning that these
@@ -49,6 +51,14 @@ const included_files = Tuple{Module,String}[]  # (module, filename)
 
 # Full path to the running Julia's cache of source code defining Base
 const basesrccache = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache")
+
+# Full path to julia top-level directory from which julia was built
+# (useful for cross-builds)
+const juliadir = begin
+    basefiles = map(x->x[2], Base._included_files)
+    sysimg = filter(x->endswith(x, "sysimg.jl"), basefiles)[1]
+    dirname(dirname(sysimg))
+end
 
 ## For excluding packages from tracking by Revise
 const dont_watch_pkgs = Set{Symbol}()
@@ -156,7 +166,7 @@ function use_compiled_modules()
     return Base.JLOptions().use_compiled_modules != 0
 end
 
-function process_parsed_files(files)
+function init_watching(files)
     udirs = Set{String}()
     for file in files
         dir, basename = splitdir(file)
@@ -309,40 +319,10 @@ function track(mod::Module, file::AbstractString)
     if isa(pr, Pair)
         push!(file2modules, pr)
     end
-    process_parsed_files((file,))
+    init_watching((file,))
 end
+
 track(file::AbstractString) = track(Main, file)
-
-"""
-    Revise.track(Base)
-
-Track the code in Julia's `base` directory for updates. This
-facilitates making changes to Julia itself and testing them
-immediately (without rebuilding).
-
-At present some files in Base are not trackable, see the README.
-"""
-function track(mod::Module)
-    if mod == Base
-        # Determine when the basesrccache was built
-        mtcache = mtime(basesrccache)
-        # Initialize expression-tracking for files, and
-        # note any modified since Base was built
-        files = String[]
-        for (submod, filename) in Base._included_files
-            push!(file2modules, filename=>FileModules(submod, ModDict(), basesrccache))
-            push!(files, filename)
-            if mtime(filename) > mtcache
-                push!(revision_queue, filename)
-            end
-        end
-        # Add the files to the watch list
-        process_parsed_files(files)
-    else
-        error("no Revise.track recipe for module ", mod)
-    end
-    nothing
-end
 
 """
     Revise.silence(pkg)
