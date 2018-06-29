@@ -297,11 +297,11 @@ end
 
 Reevaluate every definition in `mod`, whether it was changed or not. This is useful
 to propagate an updated macro definition, or to force recompiling generated functions.
+
+Returns `true` if all revisions in `mod` were successfully implemented.
 """
 function revise(mod::Module)
-    for file in module2files[Symbol(mod)]
-        eval_revised(file2modules[file].md, false)
-    end
+    all(map(file -> eval_revised(file2modules[file].md, false), module2files[Symbol(mod)]))
 end
 
 """
