@@ -63,9 +63,11 @@ struct LineSkippingIterator
     args::Vector{Any}
 end
 
-Base.start(iter::LineSkippingIterator) = skip_to_nonline(iter.args, 1)
-Base.done(iter::LineSkippingIterator, i) = i > length(iter.args)
-Base.next(iter::LineSkippingIterator, i) = (iter.args[i], skip_to_nonline(iter.args, i+1))
+function Base.iterate(iter::LineSkippingIterator, i=0)
+    i = skip_to_nonline(iter.args, i+1)
+    i > length(iter.args) && return nothing
+    return (iter.args[i], i)
+end
 
 function skip_to_nonline(args, i)
     while true
@@ -84,10 +86,12 @@ end
 function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
     # We could use `zip` here except that we want to insist that the
     # iterators also have the same length.
-    ia, ib = start(itera), start(iterb)
-    while !done(itera, ia) && !done(iterb, ib)
-        vala, ia = next(itera, ia)
-        valb, ib = next(iterb, ib)
+    reta, retb = iterate(itera), iterate(iterb)
+    while true
+        reta == nothing && retb == nothing && return true
+        (reta == nothing || retb == nothing) && return false
+        vala, ia = reta
+        valb, ib = retb
         if isa(vala, RelocatableExpr) && isa(valb, RelocatableExpr)
             vala = vala::RelocatableExpr
             valb = valb::RelocatableExpr
@@ -96,8 +100,8 @@ function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
         else
             isequal(vala, valb) || return false
         end
+        reta, retb = iterate(itera, ia), iterate(iterb, ib)
     end
-    done(itera, ia) && done(iterb, ib)
 end
 
 const hashlsi_seed = UInt == UInt64 ? 0x533cb920dedccdae : 0x2667c89b
