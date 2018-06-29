@@ -1,6 +1,10 @@
 using Revise
-using Test, Unicode, Distributed, Pkg
-using DataStructures: OrderedSet
+using Test
+
+@test isempty(detect_ambiguities(Revise, Base, Core))
+
+using Pkg, Unicode, Distributed
+using OrderedCollections: OrderedSet
 
 include("common.jl")
 

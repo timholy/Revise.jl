@@ -1,2 +1,2 @@
 julia 0.7.0-alpha
-DataStructures 0.8.3
+OrderedCollections
