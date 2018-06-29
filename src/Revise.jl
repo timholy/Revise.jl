@@ -155,7 +155,7 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
                 succeeded = false
                 @error "failure to evaluate changes in $mod"
                 showerror(stderr, err)
-                println(stderr, ex)
+                println(stderr, "\n", ex)
             end
         end
     end
