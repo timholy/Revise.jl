@@ -217,7 +217,7 @@ end
             @eval @test $(fn4)() == 4
             @eval @test $(fn5)() == 5
             @eval @test $(fn6)() == 6      # because it hasn't been re-macroexpanded
-            revise(eval(Symbol(modname)))
+            @test revise(eval(Symbol(modname)))
             @eval @test $(fn6)() == -6
             # Redefine function 2
             open(joinpath(dn, "file2.jl"), "w") do io
