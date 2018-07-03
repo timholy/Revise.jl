@@ -712,13 +712,20 @@ revise_f(x) = 2
     end
 
     @testset "Distributed" begin
+        tstart = time()
         allworkers = [myid(); addprocs(2)]
+        @show time()-tstart allworkers
         @everywhere using Revise
+        @show time()-tstart
         dirname = randtmp()
         mkdir(dirname)
         @everywhere push_LOAD_PATH!(dirname) = push!(LOAD_PATH, dirname)
+        @everywhere show_LOAD_PATH() = @show LOAD_PATH
         for p in allworkers
             remotecall_wait(push_LOAD_PATH!, p, dirname)
+        end
+        for p in allworkers
+            remotecall_wait(show_LOAD_PATH, p)
         end
         push!(to_remove, dirname)
         modname = "ReviseDistributed"
