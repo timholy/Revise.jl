@@ -54,6 +54,9 @@ end
             redirect_stderr(io) do
                 md = Revise.ModDict(Main=>Revise.ExprsSigs())
                 @test !Revise.parse_source!(md, """
+begin # this block should parse correctly, cf. issue #109
+
+end
 f(x) = 1
 g(x) = 2
 h{x) = 3  # error
@@ -63,7 +66,7 @@ k(x) = 4
                 @test convert(Revise.RelocatableExpr, :(g(x) = 2)) ∈ md[Main].exprs
             end
         end
-        @test occursin("parsing error near line 3", read(warnfile, String))
+        @test occursin("parsing error near line 6", read(warnfile, String))
         rm(warnfile)
         @test Revise.is_linenumber(LineNumberNode(5, "foo.jl"))  # issue #100
     end
