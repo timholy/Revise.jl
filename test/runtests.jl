@@ -1,6 +1,10 @@
 using Revise
-using Test, Unicode, Distributed, Pkg
-using DataStructures: OrderedSet
+using Test
+
+@test isempty(detect_ambiguities(Revise, Base, Core))
+
+using Pkg, Unicode, Distributed
+using OrderedCollections: OrderedSet
 
 include("common.jl")
 
@@ -667,6 +671,63 @@ revise_f(x) = 2
         cd(curdir)
     end
 
+    @testset "Distributed" begin
+        tstart = time()
+        allworkers = [myid(); addprocs(2)]
+        @show time()-tstart allworkers
+        @everywhere using Revise
+        @show time()-tstart
+        dirname = randtmp()
+        mkdir(dirname)
+        @everywhere push_LOAD_PATH!(dirname) = push!(LOAD_PATH, dirname)
+        @everywhere show_LOAD_PATH() = @show LOAD_PATH
+        for p in allworkers
+            remotecall_wait(push_LOAD_PATH!, p, dirname)
+        end
+        for p in allworkers
+            remotecall_wait(show_LOAD_PATH, p)
+        end
+        push!(to_remove, dirname)
+        modname = "ReviseDistributed"
+        dn = joinpath(dirname, modname, "src")
+        mkpath(dn)
+        open(joinpath(dn, modname*".jl"), "w") do io
+            println(io, """
+module ReviseDistributed
+
+f() = π
+g(::Int) = 0
+
+end
+""")
+        end
+        sleep(2.1)   # so the defining files are old enough not to trigger mtime criterion
+        using ReviseDistributed
+        @everywhere using ReviseDistributed
+        for p in allworkers
+            @test remotecall_fetch(ReviseDistributed.f, p)    == π
+            @test remotecall_fetch(ReviseDistributed.g, p, 1) == 0
+        end
+        sleep(0.1)
+        open(joinpath(dn, modname*".jl"), "w") do io
+            println(io, """
+module ReviseDistributed
+
+f() = 3.0
+
+end
+""")
+        end
+        yry()
+        sleep(1.0)
+        @test_throws MethodError ReviseDistributed.g(1)
+        for p in allworkers
+            @test remotecall_fetch(ReviseDistributed.f, p)    == 3.0
+            p == myid() && continue
+            @test_throws RemoteException remotecall_fetch(ReviseDistributed.g, p, 1)
+        end
+    end
+
     @testset "Git" begin
         if haskey(ENV, "CI")   # if we're doing CI testing (Travis, Appveyor, etc.)
             # First do a full git checkout of a package (we'll use Revise itself)
@@ -707,56 +768,6 @@ revise_f(x) = 2
             @test any(k->endswith(k, "Unicode.jl"), keys(Revise.file2modules))
         else
             @warn "skipping Core.Compiler and stdlibs tests due to lack of git repo"
-        end
-    end
-
-    @testset "Distributed" begin
-        allworkers = [myid(); addprocs(2)]
-        @everywhere using Revise
-        dirname = randtmp()
-        mkdir(dirname)
-        @everywhere push_LOAD_PATH!(dirname) = push!(LOAD_PATH, dirname)
-        for p in allworkers
-            remotecall_wait(push_LOAD_PATH!, p, dirname)
-        end
-        push!(to_remove, dirname)
-        modname = "ReviseDistributed"
-        dn = joinpath(dirname, modname, "src")
-        mkpath(dn)
-        open(joinpath(dn, modname*".jl"), "w") do io
-            println(io, """
-module ReviseDistributed
-
-f() = π
-g(::Int) = 0
-
-end
-""")
-        end
-        sleep(2.1)   # so the defining files are old enough not to trigger mtime criterion
-        using ReviseDistributed
-        @everywhere using ReviseDistributed
-        for p in allworkers
-            @test remotecall_fetch(ReviseDistributed.f, p)    == π
-            @test remotecall_fetch(ReviseDistributed.g, p, 1) == 0
-        end
-        sleep(0.1)
-        open(joinpath(dn, modname*".jl"), "w") do io
-            println(io, """
-module ReviseDistributed
-
-f() = 3.0
-
-end
-""")
-        end
-        yry()
-        sleep(1.0)
-        @test_throws MethodError ReviseDistributed.g(1)
-        for p in allworkers
-            @test remotecall_fetch(ReviseDistributed.f, p)    == 3.0
-            p == myid() && continue
-            @test_throws RemoteException remotecall_fetch(ReviseDistributed.g, p, 1)
         end
     end
 
