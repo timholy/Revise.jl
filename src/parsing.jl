@@ -110,6 +110,7 @@ tasks:
 function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module)
     if ex.head == :block
         for a in ex.args
+            a isa Expr || continue
             parse_expr!(md, a, file, mod)
         end
         return md
