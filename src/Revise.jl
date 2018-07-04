@@ -5,7 +5,7 @@ module Revise
 using FileWatching, REPL, Base.CoreLogging, Distributed
 import LibGit2
 
-using DataStructures: OrderedSet
+using OrderedCollections: OrderedSet
 
 export revise
 
