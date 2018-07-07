@@ -75,7 +75,7 @@ const stdlib_names = Set([
     :LibGit2, :LinearAlgebra, :Logging, :Markdown, :Mmap,
     :OldPkg, :Pkg, :Printf, :Profile, :Random, :REPL,
     :Serialization, :SHA, :SharedArrays, :Sockets, :SparseArrays,
-    :SuiteSparse, :Test, :Unicode, :UUIDs])
+    :Statistics, :SuiteSparse, :Test, :Unicode, :UUIDs])
 
 # This replacement is needed because the path written during compilation differs from
 # the git source path
