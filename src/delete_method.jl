@@ -80,6 +80,7 @@ function argtypeexpr(ex::ExLike, rest...)
     end
     # Skip over keyword arguments
     ex.head == :parameters && return argtypeexpr(rest...)
+    ex.head == :tuple && return (:Any, argtypeexpr(rest...)...)   # destructured argument like foo(x, (count, name))
     # Should be a type specification, check and then return the type
     ex.head == :(::) || throw(ArgumentError("expected :(::) expression, got ex.head = $(ex.head)"))
     1 <= length(ex.args) <= 2 || throw(ArgumentError("expected 1 or 2 args, got $(ex.args)"))

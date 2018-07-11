@@ -556,6 +556,9 @@ Base.revisefoo(::Private) = 3
 hasmacro1(@nospecialize(x)) = x
 hasmacro2(@nospecialize(x::Int)) = x
 
+hasdestructure1(x, (count, name)) = name^count
+hasdestructure2(x, (count, name)::Tuple{Int,Any}) = name^count
+
 end
 """)
         end
@@ -570,6 +573,8 @@ end
         @test MethDel.k(1; badchoice=2) == 2
         @test MethDel.hasmacro1(1) == 1
         @test MethDel.hasmacro2(1) == 1
+        @test MethDel.hasdestructure1(0, (3, "hi")) == "hihihi"
+        @test MethDel.hasdestructure2(0, (3, "hi")) == "hihihi"
         @test Base.revisefoo(1.0) == 1
         @test Base.revisefoo(1) == 2
         @test Base.revisefoo(MethDel.Private()) == 3
@@ -596,6 +601,8 @@ end
         @test MethDel.k(1; goodchoice=10) == 10
         @test_throws MethodError MethDel.hasmacro1(1)
         @test_throws MethodError MethDel.hasmacro2(1)
+        @test_throws MethodError MethDel.hasdestructure1(0, (3, "hi"))
+        @test_throws MethodError MethDel.hasdestructure2(0, (3, "hi"))
         @test Base.revisefoo(1.0) == 1
         @test_throws MethodError Base.revisefoo(1)
         @test_throws MethodError Base.revisefoo(MethDel.Private())
