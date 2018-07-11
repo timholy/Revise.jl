@@ -42,10 +42,9 @@ function Base.convert(::Type{Expr}, rex::RelocatableExpr)
     # This makes a copy. Used for `eval`, where we don't want to
     # mutate the cached represetation.
     ex = Expr(rex.head)
-    ex.args = Base.copy_exprargs(rex.args)
+    ex.args = Any[a isa RelocatableExpr ? convert(Expr, a) : a for a in rex.args]
     ex
 end
-Base.copy_exprs(rex::RelocatableExpr) = convert(Expr, rex)
 
 # Implement the required comparison functions. `hash` is needed for Dicts.
 function Base.:(==)(a::RelocatableExpr, b::RelocatableExpr)
@@ -56,12 +55,25 @@ const hashrex_seed = UInt == UInt64 ? 0x7c4568b6e99c82d9 : 0xb9c82fd8
 Base.hash(x::RelocatableExpr, h::UInt) = hash(LineSkippingIterator(x.args),
                                               hash(x.head, h + hashrex_seed))
 
+function Base.show(io::IO, rex::RelocatableExpr)
+    rexf = striplines!(deepcopy(rex))
+    show(io, convert(Expr, rexf))
+end
+
+function striplines!(rex::RelocatableExpr)
+    args = [a isa RelocatableExpr ? striplines!(a) : a for a in rex.args]
+    fargs = collect(LineSkippingIterator(args))
+    return RelocatableExpr(rex.head, fargs...)
+end
+
 # We could just collect all the non-line statements to a Vector, but
 # doing things in-place will be more efficient.
 
 struct LineSkippingIterator
     args::Vector{Any}
 end
+
+Base.IteratorSize(::Type{<:LineSkippingIterator}) = Base.SizeUnknown()
 
 function Base.iterate(iter::LineSkippingIterator, i=0)
     i = skip_to_nonline(iter.args, i+1)

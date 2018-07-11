@@ -50,6 +50,15 @@ end
         @test !isequal(exs[2], Revise.relocatable!(:(f(x) = x^2)))
         @test isequal(exs[2], Revise.relocatable!(:(g(x) = sin(x))))
         @test !isequal(exs[1], Revise.relocatable!(:(g(x) = sin(x))))
+        @test string(ex) == """
+quote
+    f(x) = begin
+            x ^ 2
+        end
+    g(x) = begin
+            sin(x)
+        end
+end"""
     end
 
     @testset "Parse errors" begin
@@ -124,6 +133,20 @@ k(x) = 4
             bt = throwing_function(stacktrace(catch_backtrace()))
             @test bt.func == :mult2 && bt.file == Symbol(fl3) && bt.line == 13
         end
+    end
+
+    @testset "Display" begin
+        ex = Revise.relocatable!(:(f(x::Int) = x^2))
+        sig = Revise.get_signature(ex)
+        exsig = Revise.ExprsSigs(OrderedSet([ex]), OrderedSet([sig]))
+        @test string(exsig) == """
+ExprsSigs with 1 exprs and 1 method signatures
+Exprs:
+:(f(x::Int) = begin
+          x ^ 2
+      end)
+Method signatures:
+:(f(x::Int))"""
     end
 
     @testset "File paths" begin

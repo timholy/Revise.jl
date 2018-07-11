@@ -16,6 +16,19 @@ struct ExprsSigs
 end
 ExprsSigs() = ExprsSigs(OrderedSet{RelocatableExpr}(), OrderedSet{RelocatableExpr}())
 
+function Base.show(io::IO, exprsig::ExprsSigs)
+    println(io, "ExprsSigs with $(length(exprsig.exprs)) exprs and $(length(exprsig.sigs)) method signatures")
+    println(io, "Exprs:")
+    for ex in exprsig.exprs
+        show(io, ex)
+        println(io)
+    end
+    println(io, "Method signatures:")
+    for sig in exprsig.sigs
+        show(io, sig)
+    end
+end
+
 """
 A `ModDict` is a `Dict{Module,ExprsSigs}`. It is used to
 organize expressions according to their module of definition. We use a
