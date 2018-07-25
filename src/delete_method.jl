@@ -34,7 +34,13 @@ function get_method(mod::Module, sig::ExLike)
             i -= 1
         end
     end
-    @warn "Revise failed to find any methods for signature $t\n  Most likely it was already deleted."
+    io = IOBuffer()
+    println(io, "signature:")
+    dump(io, convert(Expr, sig))
+    println(io, "Extracted method table:")
+    println(io, mths)
+    info = String(take!(io))
+    @warn "Revise failed to find any methods for signature $t\n  Most likely it was already deleted.\n$info"
     nothing
 end
 
