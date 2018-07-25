@@ -701,6 +701,45 @@ revise_f(x) = 2
         cd(curdir)
     end
 
+    @testset "Auto-track user scripts" begin
+        srcfile = joinpath(tempdir(), randtmp()*".jl")
+        push!(to_remove, srcfile)
+        open(srcfile, "w") do io
+            println(io, "revise_g() = 1")
+        end
+        # By default user scripts are not tracked
+        include(srcfile)
+        yry()
+        @test revise_g() == 1
+        sleep(0.1)
+        open(srcfile, "w") do io
+            println(io, "revise_g() = 2")
+        end
+        yry()
+        @test revise_g() == 1
+        # Turn on tracking of user scripts
+        empty!(Revise.included_files)  # don't track files already loaded (like this one)
+        Revise.tracking_Main_includes[] = true
+        try
+            srcfile = joinpath(tempdir(), randtmp()*".jl")
+            push!(to_remove, srcfile)
+            open(srcfile, "w") do io
+                println(io, "revise_g() = 1")
+            end
+            include(srcfile)
+            yry()
+            @test revise_g() == 1
+            sleep(0.1)
+            open(srcfile, "w") do io
+                println(io, "revise_g() = 2")
+            end
+            yry()
+            @test revise_g() == 2
+        finally
+            Revise.tracking_Main_includes[] = false  # restore old behavior
+        end
+    end
+
     @testset "Distributed" begin
         allworkers = [myid(); addprocs(2)]
         @everywhere using Revise

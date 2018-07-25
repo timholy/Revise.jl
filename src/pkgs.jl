@@ -24,7 +24,7 @@ function parse_pkg_files(id::PkgId)
                     for (modid, fname, _) in mods_files_mtimes
                         mod = modid.uuid === nothing && modid.name == "" ? Main : Base.root_module(modid)
                         # For precompiled packages, we can read the source later (whenever we need it)
-                        # from the *.ji cachefile.
+                        # from the *.ji cachefile. So push an empty ModDict.
                         push!(file2modules, fname=>FileModules(mod, ModDict(), path))
                         push!(files, fname)
                         module2files[modsym] = files
@@ -36,19 +36,25 @@ function parse_pkg_files(id::PkgId)
     end
     # Non-precompiled package(s). Here we rely on the `include` callbacks to have
     # already populated `included_files`; all we have to do is collect the relevant
-    # files. The main trick here is that since `using` is recursive, `included_files`
-    # might contain files associated with many different packages. We have to figure
-    # out which correspond to `modsym`, which we do by:
-    #   - checking the module in which each file is evaluated. This suffices to
-    #     detect "supporting" files, i.e., those `included` within the module
-    #     definition.
-    #   - checking the filename. Since the "top level" file is evaluated into Main,
-    #     we can't use the module-of-evaluation to find it. Here we hope that the
-    #     top-level filename follows convention and matches the module. TODO?: it's
-    #     possible that this needs to be supplemented with parsing.
-    i = 1
-    modstring = id.name
-    while i <= length(included_files)
+    # files.
+    queue_includes!(files, id.name)
+    module2files[modsym] = files
+    files
+end
+
+# The main trick here is that since `using` is recursive, `included_files`
+# might contain files associated with many different packages. We have to figure
+# out which correspond to a particular module `mod`, which we do by:
+#   - checking the module in which each file is evaluated. This suffices to
+#     detect "supporting" files, i.e., those `included` within the module
+#     definition.
+#   - checking the filename. Since the "top level" file is evaluated into Main,
+#     we can't use the module-of-evaluation to find it. Here we hope that the
+#     top-level filename follows convention and matches the module. TODO?: it's
+#     possible that this needs to be supplemented with parsing.
+function queue_includes!(files, modstring)
+    delids = Int[]
+    for i = 1:length(included_files)
         mod, fname = included_files[i]
         modname = String(Symbol(mod))
         if startswith(modname, modstring) || endswith(fname, modstring*".jl")
@@ -57,16 +63,19 @@ function parse_pkg_files(id::PkgId)
                 push!(file2modules, pr)
             end
             push!(files, fname)
-            deleteat!(included_files, i)
-        else
-            i += 1
+            push!(delids, i)
         end
     end
-    module2files[modsym] = files
-    files
+    deleteat!(included_files, delids)
+    return files
 end
 
-# A near-duplicate of some of the functionality of parse_pkg_files
+function queue_includes(mod::Module)
+    files = queue_includes!(String[], String(Symbol(mod)))
+    init_watching(files)
+end
+
+# A near-duplicate of some of the functionality of queue_includes!
 # This gets called for silenced packages, to make sure they don't "contaminate"
 # included_files
 function remove_from_included_files(modsym::Symbol)

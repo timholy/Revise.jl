@@ -22,6 +22,10 @@ function wait_changed(file)
     return nothing
 end
 
+# This variable specifies whether "user scripts" loaded by `include(filename)` should
+# be automatically tracked. Set from JULIA_REVISE_INCLUDE during __init__.
+const tracking_Main_includes = Ref(false)
+
 include("relocatable_exprs.jl")
 include("types.jl")
 include("parsing.jl")
@@ -275,6 +279,7 @@ function revise()
         revise_file_now(file)
     end
     empty!(revision_queue)
+    tracking_Main_includes[] && queue_includes(Main)
     nothing
 end
 
@@ -289,6 +294,7 @@ function revise(backend::REPL.REPLBackend)
         end
     end
     empty!(revision_queue)
+    tracking_Main_includes[] && queue_includes(Main)
     nothing
 end
 
@@ -467,6 +473,10 @@ function __init__()
     polling = get(ENV, "JULIA_REVISE_POLL", "0")
     if polling == "1"
         polling_files[] = watching_files[] = true
+    end
+    rev_include = get(ENV, "JULIA_REVISE_INCLUDE", "0")
+    if rev_include == "1"
+        tracking_Main_includes[] = true
     end
 end
 
