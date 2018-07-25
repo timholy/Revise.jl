@@ -107,8 +107,9 @@ function watch_files_via_dir(dirname)
 end
 
 """
-    watch_package(modsym)
+    watch_package(id::Base.PkgId)
 
+Start watching a package for changes to the files that define it.
 This function gets called via a callback registered with `Base.require`, at the completion
 of module-loading by `using` or `import`.
 """

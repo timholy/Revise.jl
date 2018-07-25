@@ -6,6 +6,13 @@ using Base: MethodList
 const ExLike = Union{Expr,RelocatableExpr}
 # Much is taken from ExpressionUtils.jl but generalized to work with ExLike
 
+"""
+    sig = get_signature(expr)
+
+Extract the signature from an expression `expr` that defines a function.
+
+If `expr` does not define a function, returns `nothing`.
+"""
 function get_signature(ex::E) where E <: ExLike
     while ex.head == :macrocall && isa(ex.args[end], E) || is_trivial_block_wrapper(ex)
         ex = ex.args[end]::E
@@ -21,6 +28,12 @@ function get_signature(ex::E) where E <: ExLike
     nothing
 end
 
+"""
+    m = get_method(mod::Module, sig)
+
+Get the method `m` with signature `sig` from module `mod`. This is used to provide
+the method to `Base.delete_method`. See also [`Revise.get_signature`](@ref).
+"""
 function get_method(mod::Module, sig::ExLike)
     t = split_sig(mod, convert(Expr, sig))
     mths = Base._methods_by_ftype(t, -1, typemax(UInt))

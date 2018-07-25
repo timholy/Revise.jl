@@ -13,6 +13,10 @@
 """
 A `RelocatableExpr` is exactly like an `Expr` except that comparisons
 between `RelocatableExpr`s ignore line numbering information.
+
+You can use `convert(Expr, rex::RelocatableExpr)` to convert to an `Expr`
+and `convert(RelocatableExpr, ex::Expr)` for the converse. Beware that
+the latter operates in-place and is intended only for internal use.
 """
 mutable struct RelocatableExpr
     head::Symbol
@@ -40,7 +44,7 @@ end
 
 function Base.convert(::Type{Expr}, rex::RelocatableExpr)
     # This makes a copy. Used for `eval`, where we don't want to
-    # mutate the cached represetation.
+    # mutate the cached representation.
     ex = Expr(rex.head)
     ex.args = Any[a isa RelocatableExpr ? convert(Expr, a) : a for a in rex.args]
     ex

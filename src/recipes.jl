@@ -1,11 +1,10 @@
 """
     Revise.track(Base)
+    Revise.track(Core.Compiler)
+    Revise.track(stdlib)
 
-Track the code in Julia's `base` directory for updates. This
-facilitates making changes to Julia itself and testing them
-immediately (without rebuilding).
-
-At present some files in Base are not trackable, see the README.
+Track updates to the code in Julia's `base` directory, `base/compiler`, or one of its
+standard libraries.
 """
 function track(mod::Module)
     if mod == Base

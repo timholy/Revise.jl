@@ -1,14 +1,31 @@
-# Some platforms (OSX) have trouble watching too many files. So we
-# watch parent directories, and keep track of which files in them
-# should be tracked.
+"""
+    Revise.WatchList
+
+A struct for holding files that live inside a directory.
+Some platforms (OSX) have trouble watching too many files. So we
+watch parent directories, and keep track of which files in them
+should be tracked.
+
+Fields:
+- `timestamp`: mtime of last update
+- `trackedfiles`: Set of filenames
+"""
 mutable struct WatchList
     timestamp::Float64         # unix time of last revision
     trackedfiles::Set{String}
 end
 
 """
-ExprsSigs is a type containing all RelocatableExprs
-in a module (.exprs) and all detected function signatures (.sigs).
+    Revise.ExprsSigs
+
+struct holding parsed source code.
+
+Fields:
+- `exprs`: all [`RelocatableExpr`](@ref) in the module or file
+- `sigs`: all detected function signatures (used in method deletion)
+
+These fields are stored as sets so that one can efficiently find the differences between two
+versions of the same module or file.
 """
 struct ExprsSigs
     exprs::OrderedSet{RelocatableExpr}
@@ -30,21 +47,20 @@ function Base.show(io::IO, exprsig::ExprsSigs)
 end
 
 """
-A `ModDict` is a `Dict{Module,ExprsSigs}`. It is used to
-organize expressions according to their module of definition. We use a
-Set so that it is easy to find the differences between two `ModDict`s.
+A `ModDict` is an alias for `Dict{Module,ExprsSigs}`. It is used to
+organize expressions according to their module of definition.
 
 See also [`FileModules`](@ref).
 """
 const ModDict = Dict{Module,ExprsSigs}
 
 """
-    FileModules(topmod::Module, md::ModDict)
+    FileModules(topmod::Module, md::ModDict, [cachefile::String])
 
 Structure to hold the per-module expressions found when parsing a
 single file.  `topmod` is the current module when the file is
 parsed. `md` holds the evaluatable statements, organized by the module
-of their occurance. In particular, if the file defines one or
+of their occurrence. In particular, if the file defines one or
 more new modules, then `md` contains key/value pairs for each
 module. If the file does not define any new modules, `topmod` is
 the only key in `md`.
@@ -73,6 +89,18 @@ fm.md = Dict(Main=>ExprsSigs(OrderedSet([:(__precompile__(true))]), OrderedSet()
 ```
 because the precompile statement occurs in `Main`, and the definition of
 `foo` occurs in `Main.MyPkg`.
+
+!!! note "Source cache files"
+
+    Optionally, a `FileModule` can also record the path to a cache file holding the original source code.
+    This is applicable only for precompiled modules and `Base`.
+    (This cache file is distinct from the original source file that might be edited by the
+    developer, and it will always hold the state
+    of the code when the package was precompiled or Julia's `Base` was built.)
+    For such modules, the `ExprsSigs` will be empty for any file that has not yet been edited:
+    the original source code gets parsed only when a revision needs to be made.
+
+    Source cache files greatly reduce the overhead of using Revise.
 
 To create a `FileModules` from a source file, see [`parse_source`](@ref).
 """
