@@ -14,17 +14,42 @@ method deletion, for example:
 f(x) = 1
 f(x::Int) = 2 # delete this method
 ```
-If you save the file, the next time you call `f(5)` from the REPL you will get 1.
 
-However, Revise needs to be able to parse the signature of the deleted method.
-As a consequence, methods generated with code:
+If you save the file, the next time you call `f(5)` from the REPL you will get 1,
+and `methods(f)` will show a single method.
+Revise even handles more complex situations, such as functions with default arguments: the
+definition
+
 ```julia
-for T in (Int, Float64)
-    @eval mytypeof(x::$T) = $T  # delete this line
+defaultargs(x, y=0, z=1.0f0) = x + y + z
+```
+
+generates 3 different methods (with one, two, and three arguments respectively),
+and editing this definition to
+
+```julia
+defaultargs(x, yz=(0,1.0f0)) = x + yz[1] + yz[2]
+```
+
+requires that we delete all 3 of the original methods and replace them with two new methods.
+
+However, to find the right method(s) to delete, Revise needs to be able to parse source code
+to extract the signature of the to-be-deleted method(s).
+Unfortunately, a few valid constructs are quite difficult to parse properly.
+For example, methods generated with code:
+
+```julia
+for T in (Int, Float64, String)   # edit this line to `for T in (Int, Float64)`
+    @eval mytypeof(x::$T) = $T
 end
 ```
-will not disappear from the method lists until you restart, or manually call
-`Base.delete_method(m::Method)`. You can use `m = @which ...` to obtain a method.
+
+will not disappear from the method lists until you restart.
+
+!!! note
+
+    To delete a method manually, you can use `m = @which foo(args...)` to obtain a method,
+    and then call `Base.delete_method(m)`.
 
 ### Macros and generated functions
 

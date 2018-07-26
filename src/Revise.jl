@@ -202,8 +202,11 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
         if delete_methods
             for sig in exprssigs.sigs
                 try
-                    m = get_method(mod, sig)
-                    isa(m, Method) && Base.delete_method(m)
+                    sigexs = sig_type_exprs(sig)
+                    for sig1 in sigexs  # default-arg functions generate multiple methods
+                        m = get_method(mod, sig1)
+                        isa(m, Method) && Base.delete_method(m)
+                    end
                 catch err
                     succeeded = false
                     @error "failure to delete signature $sig in module $mod"

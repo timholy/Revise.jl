@@ -20,6 +20,31 @@ function rm_precompile(pkgname::AbstractString)
     end
 end
 
+# An empty module that we can evaluate into
+module ReviseTestPrivate
+end
+
+function private_module()
+    modname = gensym()
+    Core.eval(ReviseTestPrivate, :(module $modname end))
+end
+
+function compare_sigs(ex, typex)
+    mod = private_module()
+    f = Core.eval(mod, ex)
+    mths = methods(f)
+    for (m, tex) in zip(mths, typex)
+        t = Core.eval(mod, tex)
+        @test m.sig == t
+    end
+end
+
+function compare_sigs(ex)
+    sig = Revise.get_signature(ex)
+    typex = Revise.sig_type_exprs(sig)
+    compare_sigs(ex, typex)
+end
+
 @testset "Revise" begin
 
     function collectexprs(ex::Revise.RelocatableExpr)
@@ -82,6 +107,59 @@ k(x) = 4
         @test occursin("parsing error near line 6", read(warnfile, String))
         rm(warnfile)
         @test Revise.is_linenumber(LineNumberNode(5, "foo.jl"))  # issue #100
+    end
+
+    @testset "Methods and signatures" begin
+        compare_sigs(:(foo(x) = 1))
+        compare_sigs(:(foo(x::Int) = 1))
+        # where signatures
+        compare_sigs(:(foo(x::T) where T<:Integer = T))
+        compare_sigs(:(foo(x::V) where V<:Array{T} where T = T))
+        # Varargs
+        compare_sigs(:(foo(x::Int, y...) = 1))
+        compare_sigs(:(foo(x::Int, y::Symbol...) = 1))
+        compare_sigs(:(foo(x::T, y::U...) where {T<:Integer,U} = U))
+        compare_sigs(:(foo(x::Array{Float64,K}, y::Vararg{Symbol,K}) where K = K))
+        # Default args
+        compare_sigs(:(foo(x, y=0) = 1))
+        compare_sigs(:(foo(x, y::Int=0) = 1))
+        compare_sigs(:(foo(x, y="hello", z::Int=0) = 1))
+        compare_sigs(:(foo(x::Array{Float64,K}, y::Int=0) where K = K))
+        # Keyword args
+        compare_sigs(:(foo(x; y=0) = 1))
+        compare_sigs(:(foo(x; y::Int=0) = 1))
+        compare_sigs(:(foo(x; y="hello", z::Int=0) = 1))
+        compare_sigs(:(foo(x::Array{Float64,K}; y::Int=0) where K = K))
+        # Default and keyword args
+        compare_sigs(:(foo(x, y="hello"; z::Int=0) = 1))
+        # Destructured args
+        compare_sigs(:(foo(x, (count, name)) = 1))
+
+        # Do it all again for long-form declarations
+        compare_sigs(:(function foo(x) return 1 end))
+        compare_sigs(:(function foo(x::Int) return 1 end))
+        # where signatures
+        compare_sigs(:(function foo(x::T) where T<:Integer return T end))
+        compare_sigs(:(function foo(x::V) where V<:Array{T} where T return T end))
+        # Varargs
+        compare_sigs(:(function foo(x::Int, y...) return 1 end))
+        compare_sigs(:(function foo(x::Int, y::Symbol...) return 1 end))
+        compare_sigs(:(function foo(x::T, y::U...) where {T<:Integer,U} return U end))
+        compare_sigs(:(function foo(x::Array{Float64,K}, y::Vararg{Symbol,K}) where K return K end))
+        # Default args
+        compare_sigs(:(function foo(x, y=0) return 1 end))
+        compare_sigs(:(function foo(x, y::Int=0) return 1 end))
+        compare_sigs(:(function foo(x, y="hello", z::Int=0) return 1 end))
+        compare_sigs(:(function foo(x::Array{Float64,K}, y::Int=0) where K return K end))
+        # Keyword args
+        compare_sigs(:(function foo(x; y=0) return 1 end))
+        compare_sigs(:(function foo(x; y::Int=0) return 1 end))
+        compare_sigs(:(function foo(x; y="hello", z::Int=0) return 1 end))
+        compare_sigs(:(function foo(x::Array{Float64,K}; y::Int=0) where K return K end))
+        # Default and keyword args
+        compare_sigs(:(function foo(x, y="hello"; z::Int=0) return 1 end))
+        # Destructured args
+        compare_sigs(:(function foo(x, (count, name)) return 1 end))
     end
 
     @testset "Comparison" begin
@@ -576,6 +654,8 @@ Base.revisefoo(x::Int) = 2
 struct Private end
 Base.revisefoo(::Private) = 3
 
+dfltargs(x::Int8, y::Int=0, z::Float32=1.0f0) = x+y+z
+
 hasmacro1(@nospecialize(x)) = x
 hasmacro2(@nospecialize(x::Int)) = x
 
@@ -601,6 +681,9 @@ end
         @test Base.revisefoo(1.0) == 1
         @test Base.revisefoo(1) == 2
         @test Base.revisefoo(MethDel.Private()) == 3
+        @test MethDel.dfltargs(Int8(2)) == 3.0f0
+        @test MethDel.dfltargs(Int8(2), 5) == 8.0f0
+        @test MethDel.dfltargs(Int8(2), 5, -17.0f0) == -10.0f0
         sleep(0.1)  # ensure watching is set up
         open(joinpath(dn, "MethDel.jl"), "w") do io
             println(io, """
@@ -609,6 +692,7 @@ f(x) = 1
 g(x::Array{T,N}, y::T) where N where T = 2
 h(x::Array{T}, y::T) where T = g(x, y)
 k(::Int; goodchoice=-1) = goodchoice
+dfltargs(x::Int8, yz::Tuple{Int,Float32}=(0,1.0f0)) = x+yz[1]+yz[2]
 end
 """)
         end
@@ -629,6 +713,10 @@ end
         @test Base.revisefoo(1.0) == 1
         @test_throws MethodError Base.revisefoo(1)
         @test_throws MethodError Base.revisefoo(MethDel.Private())
+        @test MethDel.dfltargs(Int8(2)) == 3.0f0
+        @test MethDel.dfltargs(Int8(2), (5,-17.0f0)) == -10.0f0
+        @test_throws MethodError MethDel.dfltargs(Int8(2), 5) == 8.0f0
+        @test_throws MethodError MethDel.dfltargs(Int8(2), 5, -17.0f0) == -10.0f0
 
         Base.delete_method(first(methods(Base.revisefoo)))
     end

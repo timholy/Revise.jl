@@ -87,6 +87,7 @@ Revise.parse_source!
 Revise.parse_expr!
 Revise.parse_module!
 Revise.get_signature
+Revise.sig_type_exprs
 ```
 
 ### Git integration
