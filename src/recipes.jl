@@ -15,7 +15,7 @@ function track(mod::Module)
         files = String[]
         for (submod, filename) in Base._included_files
             submod == Main || startswith(String(nameof(submod)), "Base") || continue
-            push!(file2modules, filename=>FileModules(submod, ModDict(), basesrccache))
+            push!(file2modules, filename=>FileModules(submod, basesrccache))
             push!(files, filename)
             if mtime(filename) > mtcache
                 push!(revision_queue, filename)
@@ -55,11 +55,10 @@ function track_subdir_from_git(mod::Module, subdir::AbstractString)
             push!(revision_queue, fullpath)
         end
         fmod = get(juliaf2m, fullpath, Core.Compiler)  # Core.Compiler is not cached
-        md = ModDict(fmod=>ExprsSigs())
-        if !parse_source!(md, src, Symbol(file), 1, fmod)
+        fm = FileModules(fmod)
+        if parse_source!(fm.md, src, Symbol(file), 1, fmod) === nothing
             warn("failed to parse Git source text for ", file)
         end
-        fm = FileModules(fmod, md)
         push!(file2modules, fullpath=>fm)
         push!(wfiles, fullpath)
     end

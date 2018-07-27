@@ -1,36 +1,32 @@
 """
-    parse_source(filename::AbstractString, mod::Module)
+    md = parse_source(filename::AbstractString, mod::Module)
 
-Parse the source `filename`, returning a pair `filename => fm::FileModules`
-(see [`FileModules`](@ref)) containing the information needed to evaluate code in `file`.
+Parse the source `filename`, returning a [`ModDict`](@ref) containing
+::Module=>::[`ExprsSigs`](@ref) pairs specifying the set of expressions evaluated in each
+module active in `filename`.
 `mod` is the "parent" module for the file (i.e., the one that `include`d the file);
-if `filename` defines more module(s) then these will all have separate entries in `fm.md`.
+if `filename` defines more module(s) then these will all have separate entries in `md`.
 
 If parsing `filename` fails, `nothing` is returned.
 """
-function parse_source(file::AbstractString, mod::Module)
-    # Create a blank ModDict to store the expressions. Parsing will "fill" this.
-    md = ModDict(mod=>ExprsSigs())
-    parse_source!(md, file, mod) || return nothing
-    fm = FileModules(mod, md)
-    String(file) => fm
-end
+parse_source(filename::AbstractString, mod::Module) =
+    parse_source!(ModDict(mod=>ExprsSigs()), filename, mod)
 
 """
-    success = parse_source!(md::ModDict, filename, mod::Module)
+    parse_source!(md::ModDict, filename, mod::Module)
 
 Top-level parsing of `filename` as included into module
 `mod`. Successfully-parsed expressions will be added to `md`. Returns
-`true` if parsing finished successfully.
+`md` if parsing finished successfully, otherwise `nothing` is returned.
 
 See also [`parse_source`](@ref).
 """
-function parse_source!(md::ModDict, file::AbstractString, mod::Module)
-    if !isfile(file)
-        @warn "omitting $file from revision tracking"
-        return false
+function parse_source!(md::ModDict, filename::AbstractString, mod::Module)
+    if !isfile(filename)
+        @warn "$filename is not a file, omitting from revision tracking"
+        return nothing
     end
-    parse_source!(md, read(file, String), Symbol(file), 1, mod)
+    parse_source!(md, read(filename, String), Symbol(filename), 1, mod)
 end
 
 """
@@ -62,7 +58,7 @@ function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Inte
             end
             showerror(stderr, err)
             println(stderr)
-            return false
+            return nothing
         end
         if isa(ex, Expr)
             ex = ex::Expr
@@ -72,7 +68,7 @@ function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Inte
         # Update the number of lines
         line_offset += count(c->c=='\n', SubString(src, oldpos, pos-1))
     end
-    true
+    md
 end
 
 """

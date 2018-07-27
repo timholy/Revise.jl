@@ -33,6 +33,8 @@ struct ExprsSigs
 end
 ExprsSigs() = ExprsSigs(OrderedSet{RelocatableExpr}(), OrderedSet{RelocatableExpr}())
 
+Base.isempty(es::ExprsSigs) = isempty(es.exprs) && isempty(es.sigs)
+
 function Base.show(io::IO, exprsig::ExprsSigs)
     println(io, "ExprsSigs with $(length(exprsig.exprs)) exprs and $(length(exprsig.sigs)) method signatures")
     println(io, "Exprs:")
@@ -58,8 +60,10 @@ const ModDict = Dict{Module,ExprsSigs}
     FileModules(topmod::Module, md::ModDict, [cachefile::String])
 
 Structure to hold the per-module expressions found when parsing a
-single file.  `topmod` is the current module when the file is
-parsed. `md` holds the evaluatable statements, organized by the module
+single file.
+`topmod` is the current module when the file is parsed (i.e., the module this file
+was `include`d into); this is used every time the file is modified to re-parse the file.
+ `md` holds the evaluatable statements, organized by the module
 of their occurrence. In particular, if the file defines one or
 more new modules, then `md` contains key/value pairs for each
 module. If the file does not define any new modules, `topmod` is
@@ -110,3 +114,19 @@ struct FileModules
     cachefile::String
 end
 FileModules(topmod::Module, md::ModDict) = FileModules(topmod, md, "")
+FileModules(topmod::Module, cachefile::AbstractString="") =
+    FileModules(topmod, Dict(topmod=>ExprsSigs()), cachefile)
+
+# "Replace" md
+FileModules(fm::FileModules, md::ModDict) = FileModules(fm.topmod, md, fm.cachefile)
+
+Base.isempty(fm::FileModules) = length(fm.md) == 1 && isempty(first(values(fm.md)))
+
+function Base.show(io::IO, fm::FileModules)
+    print(io, "FileModules(", fm.topmod, ", ")
+    showdict = Dict{Module,String}()
+    for (mod, exprsig) in fm.md
+        showdict[mod] = "ExprsSigs with $(length(exprsig.exprs)) exprs and $(length(exprsig.sigs)) method signatures"
+    end
+    print(io, showdict, ", ", isempty(fm.cachefile) ? "<no cachefile>" : fm.cachefile, ")")
+end

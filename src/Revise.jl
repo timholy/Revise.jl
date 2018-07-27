@@ -324,21 +324,19 @@ function revise_file_now(file)
         println("Revise is currently tracking the following files: ", keys(file2modules))
         error(file, " is not currently being tracked.")
     end
-    oldmd = file2modules[file]
-    if isempty(oldmd.md)
+    fm = file2modules[file]
+    if isempty(fm)
         # Source was never parsed, get it from the precompile cache
-        src = read_from_cache(oldmd, file)
-        push!(oldmd.md, oldmd.topmod=>ExprsSigs())
-        if !parse_source!(oldmd.md, src, Symbol(file), 1, oldmd.topmod)
+        src = read_from_cache(fm, file)
+        if parse_source!(fm.md, src, Symbol(file), 1, fm.topmod) === nothing
             @error "failed to parse cache file source text for $file"
         end
     end
-    pr = parse_source(file, oldmd.topmod)
-    if pr != nothing
-        newmd = pr.second
-        revmd = revised_statements(newmd.md, oldmd.md)
+    newmd = parse_source(file, fm.topmod)
+    if newmd != nothing
+        revmd = revised_statements(newmd, fm.md)   # FIXME update only those being re-evaled
         if eval_revised(revmd)
-            file2modules[file] = newmd
+            file2modules[file] = FileModules(fm, newmd)
             for p in workers()
                 p == myid() && continue
                 try
@@ -415,9 +413,9 @@ it defaults to `Main`.
 function track(mod::Module, file::AbstractString)
     isfile(file) || error(file, " is not a file")
     file = normpath(abspath(file))
-    pr = parse_source(file, mod)
-    if isa(pr, Pair)
-        push!(file2modules, pr)
+    md = parse_source(file, mod)
+    if md != nothing
+        file2modules[file] = FileModules(mod, md)
     end
     init_watching((file,))
 end

@@ -91,7 +91,7 @@ end"""
         open(warnfile, "w") do io
             redirect_stderr(io) do
                 md = Revise.ModDict(Main=>Revise.ExprsSigs())
-                @test !Revise.parse_source!(md, """
+                @test Revise.parse_source!(md, """
 begin # this block should parse correctly, cf. issue #109
 
 end
@@ -100,7 +100,7 @@ g(x) = 2
 h{x) = 3  # error
 k(x) = 4
 """,
-                                            :test, 1, Main)
+                                            :test, 1, Main) == nothing
                 @test convert(Revise.RelocatableExpr, :(g(x) = 2)) ∈ md[Main].exprs
             end
         end
@@ -170,8 +170,8 @@ k(x) = 4
         # test the "mistakes"
         @test ReviseTest.cube(2) == 16
         @test ReviseTest.Internal.mult3(2) == 8
-        oldmd = Revise.parse_source(fl1, Main).second
-        newmd = Revise.parse_source(fl2, Main).second
+        oldmd = Revise.parse_source(fl1, Main)
+        newmd = Revise.parse_source(fl2, Main)
         revmd = Revise.revised_statements(newmd, oldmd)
         @test length(revmd) == 2
         @test haskey(revmd, ReviseTest) && haskey(revmd, ReviseTest.Internal)
@@ -192,7 +192,7 @@ k(x) = 4
         @test ReviseTest.Internal.mult3(2) == 6
 
         # Backtraces
-        newmd = Revise.parse_source(fl3, Main).second
+        newmd = Revise.parse_source(fl3, Main)
         revmd = Revise.revised_statements(newmd, oldmd)
         Revise.eval_revised(revmd)
         try
