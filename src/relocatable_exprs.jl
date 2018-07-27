@@ -13,6 +13,10 @@
 """
 A `RelocatableExpr` is exactly like an `Expr` except that comparisons
 between `RelocatableExpr`s ignore line numbering information.
+
+You can use `convert(Expr, rex::RelocatableExpr)` to convert to an `Expr`
+and `convert(RelocatableExpr, ex::Expr)` for the converse. Beware that
+the latter operates in-place and is intended only for internal use.
 """
 mutable struct RelocatableExpr
     head::Symbol
@@ -40,7 +44,7 @@ end
 
 function Base.convert(::Type{Expr}, rex::RelocatableExpr)
     # This makes a copy. Used for `eval`, where we don't want to
-    # mutate the cached represetation.
+    # mutate the cached representation.
     ex = Expr(rex.head)
     ex.args = Any[a isa RelocatableExpr ? convert(Expr, a) : a for a in rex.args]
     ex
@@ -61,6 +65,12 @@ function Base.show(io::IO, rex::RelocatableExpr)
 end
 
 function striplines!(rex::RelocatableExpr)
+    if rex.head == :macrocall
+        # for macros, the show method in Base assumes the line number is there,
+        # so don't strip it
+        args3 = [a isa RelocatableExpr ? striplines!(a) : a for a in rex.args[3:end]]
+        return RelocatableExpr(rex.head, rex.args[1:2]..., args3...)
+    end
     args = [a isa RelocatableExpr ? striplines!(a) : a for a in rex.args]
     fargs = collect(LineSkippingIterator(args))
     return RelocatableExpr(rex.head, fargs...)

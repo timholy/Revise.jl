@@ -1,12 +1,12 @@
 """
-    md = parse_source(file::AbstractString, mod::Module)
+    parse_source(filename::AbstractString, mod::Module)
 
-Parse the source `file`, returning a `ModuleDict` `md` containing the
-set of RelocatableExprs for each module used to evaluate code in `file`.
-`mod` is the "parent" module for the file; if `file` defines more module(s)
-then these will all have separate entries in `md`.
+Parse the source `filename`, returning a pair `filename => fm::FileModules`
+(see [`FileModules`](@ref)) containing the information needed to evaluate code in `file`.
+`mod` is the "parent" module for the file (i.e., the one that `include`d the file);
+if `filename` defines more module(s) then these will all have separate entries in `fm.md`.
 
-If parsing `file` fails, `nothing` is returned.
+If parsing `filename` fails, `nothing` is returned.
 """
 function parse_source(file::AbstractString, mod::Module)
     # Create a blank ModDict to store the expressions. Parsing will "fill" this.
@@ -17,9 +17,9 @@ function parse_source(file::AbstractString, mod::Module)
 end
 
 """
-    success = parse_source!(md::ModDict, file, mod::Module)
+    success = parse_source!(md::ModDict, filename, mod::Module)
 
-Top-level parsing of `file` as included into module
+Top-level parsing of `filename` as included into module
 `mod`. Successfully-parsed expressions will be added to `md`. Returns
 `true` if parsing finished successfully.
 

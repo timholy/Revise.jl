@@ -9,18 +9,40 @@ using OrderedCollections: OrderedSet
 
 export revise
 
-# Should we watch directories or files? FreeBSD and NFS-mounted systems should watch files,
-# otherwise we watch directories.
+"""
+    Revise.watching_files[]
+
+Returns `true` if we watch files rather than their containing directory.
+FreeBSD and NFS-mounted systems should watch files, otherwise we prefer to watch
+directories.
+"""
 const watching_files = Ref(Sys.KERNEL == :FreeBSD)
 
-# The following two definitions are motivated by wishing to support code stored on
-# NFS-mounted shares, where it needs to use `poll_file` instead of `watch_file`. See #60
-# and the `JULIA_REVISE_POLL` environment variable.
+"""
+    Revise.polling_files[]
+
+Returns `true` if we should poll the filesystem for changes to the files that define
+loaded code. It is preferable to avoid polling, instead relying on operating system
+notifications via `FileWatching.watch_file`. However, NFS-mounted
+filesystems (and perhaps others) do not support file-watching, so for code stored
+on such filesystems you should turn polling on.
+
+See the documentation for the `JULIA_REVISE_POLL` environment variable.
+"""
 const polling_files = Ref(false)
 function wait_changed(file)
     polling_files[] ? poll_file(file) : watch_file(file)
     return nothing
 end
+
+"""
+    Revise.tracking_Main_includes[]
+
+Returns `true` if files directly included from the REPL should be tracked.
+The default is `false`. See the documentation regarding the `JULIA_REVISE_INCLUDE`
+environment variable to customize it.
+"""
+const tracking_Main_includes = Ref(false)
 
 include("relocatable_exprs.jl")
 include("types.jl")
@@ -31,36 +53,82 @@ include("git.jl")
 include("recipes.jl")
 
 ### Globals to keep track of state
-# revision_queue holds the names of files that we need to revise, meaning that these
-# files have changed since we last processed a revision. This list gets populated
-# by callbacks that watch directories for updates.
-const revision_queue = Set{String}()
-# watched_files[dirname] returns the list of files in dirname that we're monitoring for changes
+
+"""
+    Revise.watched_files
+
+Global variable, `watched_files[dirname]` returns the collection of files in `dirname`
+that we're monitoring for changes. The returned value has type [`WatchList`](@ref).
+
+This variable allows us to watch directories rather than files, reducing the burden on
+the OS.
+"""
 const watched_files = Dict{String,WatchList}()
 
-# file2modules is indexed by absolute paths of files, and provides access to the parsed
-# source code defined in the file. The expressions in the source code are organized by the
-# module in which they should be evaluated.
+"""
+    Revise.revision_queue
+
+Global variable, `revision_queue` holds the names of files that we need to revise, meaning
+that these files have changed since we last processed a revision.
+This list gets populated by callbacks that watch directories for updates.
+"""
+const revision_queue = Set{String}()
+
+"""
+    Revise.file2modules
+
+Global variable, `file2modules` is the core information that allows re-evaluation of code in
+the proper module scope.
+It is a dictionary indexed by absolute paths of files;
+`file2modules[filename]` returns a value of type [`Revise.FileModules`](@ref).
+"""
 const file2modules = Dict{String,FileModules}()
-# module2files holds the list of filenames used to define a particular module
+
+"""
+    Revise.module2files
+
+Global variable, `module2files` holds the list of filenames used to define a particular
+module. This is only used by `revise(MyModule)` to "refresh" all the definitions in a module.
+"""
 const module2files = Dict{Symbol,Vector{String}}()
 
-# included_files gets populated by callbacks we register with `include`. It's used
-# to track non-precompiled packages.
+"""
+    Revise.included_files
+
+Global variable, `included_files` gets populated by callbacks we register with `include`.
+It's used to track non-precompiled packages and, optionally, user scripts (see docs on
+`JULIA_REVISE_INCLUDE`).
+"""
 const included_files = Tuple{Module,String}[]  # (module, filename)
 
-# Full path to the running Julia's cache of source code defining Base
+"""
+    Revise.basesrccache
+
+Full path to the running Julia's cache of source code defining `Base`.
+"""
 const basesrccache = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache")
 
-# Full path to julia top-level directory from which julia was built
-# (useful for cross-builds)
+"""
+    Revise.juliadir
+
+Constant specifying full path to julia top-level directory from which julia was built.
+This is reliable even for cross-builds.
+"""
 const juliadir = begin
     basefiles = map(x->x[2], Base._included_files)
     sysimg = filter(x->endswith(x, "sysimg.jl"), basefiles)[1]
     dirname(dirname(sysimg))
 end
 
-## For excluding packages from tracking by Revise
+"""
+    Revise.dont_watch_pkgs
+
+Global variable, use `push!(Revise.dont_watch_pkgs, :MyPackage)` to prevent Revise
+from tracking changes to `MyPackage`. You can do this from the REPL or from your
+`.julia/config/startup.jl` file.
+
+See also [`Revise.silence`](@ref).
+"""
 const dont_watch_pkgs = Set{Symbol}()
 const silence_pkgs = Set{Symbol}()
 const depsdir = joinpath(dirname(@__DIR__), "deps")
@@ -134,8 +202,11 @@ function eval_revised(revmd::ModDict, delete_methods::Bool=true)
         if delete_methods
             for sig in exprssigs.sigs
                 try
-                    m = get_method(mod, sig)
-                    isa(m, Method) && Base.delete_method(m)
+                    sigexs = sig_type_exprs(sig)
+                    for sig1 in sigexs  # default-arg functions generate multiple methods
+                        m = get_method(mod, sig1)
+                        isa(m, Method) && Base.delete_method(m)
+                    end
                 catch err
                     succeeded = false
                     @error "failure to delete signature $sig in module $mod"
@@ -166,6 +237,13 @@ function use_compiled_modules()
     return Base.JLOptions().use_compiled_modules != 0
 end
 
+"""
+    Revise.init_watching(files)
+
+For every filename in `files`, monitor the filesystem for updates. When the file is
+updated, either [`revise_dir_queued`](@ref) or [`revise_file_queued`](@ref) will
+be called.
+"""
 function init_watching(files)
     udirs = Set{String}()
     for file in files
@@ -185,6 +263,13 @@ function init_watching(files)
     return nothing
 end
 
+"""
+    revise_dir_queued(dirname)
+
+Wait for one or more of the files registered in `Revise.watched_files[dirname]` to be
+modified, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
+This is generally called within an `@async`.
+"""
 function revise_dir_queued(dirname)
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
@@ -202,9 +287,15 @@ function revise_dir_queued(dirname)
     @async revise_dir_queued(dirname)
 end
 
-# Require by FreeBSD.
-# Because the behaviour of `watch_file` is different on FreeBSD.
 # See #66.
+"""
+    revise_file_queued(filename)
+
+Wait for modifications to `filename`, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
+This is generally called within an `@async`.
+
+This is used only on platforms (like BSD) which cannot use [`revise_dir_queued`](@ref).
+"""
 function revise_file_queued(file)
     if !isfile(file)
         sleep(0.1)  # in case git has done a delete/replace cycle
@@ -221,6 +312,15 @@ function revise_file_queued(file)
     @async revise_file_queued(file)
 end
 
+"""
+    Revise.revise_file_now(file)
+
+Process revisions to `file`. This parses `file` and computes an expression-level diff
+between the current state of the file and its most recently evaluated state.
+It then deletes any removed methods and re-evaluates any changed expressions.
+
+`file` must be a key in [`Revise.file2modules`](@ref)
+"""
 function revise_file_now(file)
     if !haskey(file2modules, file)
         println("Revise is currently tracking the following files: ", keys(file2modules))
@@ -267,7 +367,7 @@ end
 """
     revise()
 
-`eval` any changes in tracked files in the appropriate modules.
+`eval` any changes in the revision queue. See [`Revise.revision_queue`](@ref).
 """
 function revise()
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
@@ -275,6 +375,7 @@ function revise()
         revise_file_now(file)
     end
     empty!(revision_queue)
+    tracking_Main_includes[] && queue_includes(Main)
     nothing
 end
 
@@ -289,6 +390,7 @@ function revise(backend::REPL.REPLBackend)
         end
     end
     empty!(revision_queue)
+    tracking_Main_includes[] && queue_includes(Main)
     nothing
 end
 
@@ -380,6 +482,12 @@ function macroreplace!(ex::Expr, filename)
 end
 macroreplace!(s, filename) = s
 
+"""
+    steal_repl_backend(backend = Base.active_repl_backend)
+
+Replace the REPL's normal backend with one that calls [`revise`](@ref) before executing
+any REPL input.
+"""
 function steal_repl_backend(backend = Base.active_repl_backend)
     # terminate the current backend
     put!(backend.repl_channel, (nothing, -1))
@@ -397,10 +505,37 @@ function steal_repl_backend(backend = Base.active_repl_backend)
             end
             # Process revisions
             revise(backend)
+            # Now eval the input
             REPL.eval_user_input(ast, backend)
         end
     end
     backend
+end
+
+"""
+    Revise.async_steal_repl_backend()
+
+Wait for the REPL to complete its initialization, and then call [`steal_repl_backend`](@ref).
+This is necessary because code registered with `atreplinit` runs before the REPL is
+initialized, and there is no corresponding way to register code to run after it is complete.
+"""
+function async_steal_repl_backend()
+    atreplinit() do repl
+        @async begin
+            iter = 0
+            # wait for active_repl_backend to exist
+            while !isdefined(Base, :active_repl_backend) && iter < 20
+                sleep(0.05)
+                iter += 1
+            end
+            if isdefined(Base, :active_repl_backend)
+                steal_repl_backend(Base.active_repl_backend)
+            else
+                @warn "REPL initialization failed, Revise is not watching files."
+            end
+        end
+    end
+    return nothing
 end
 
 function __init__()
@@ -417,7 +552,7 @@ function __init__()
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
         if isdefined(Base, :active_repl_backend)
-            @async steal_repl_backend()
+            steal_repl_backend()
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
         end
@@ -434,6 +569,10 @@ function __init__()
     polling = get(ENV, "JULIA_REVISE_POLL", "0")
     if polling == "1"
         polling_files[] = watching_files[] = true
+    end
+    rev_include = get(ENV, "JULIA_REVISE_INCLUDE", "0")
+    if rev_include == "1"
+        tracking_Main_includes[] = true
     end
 end
 
