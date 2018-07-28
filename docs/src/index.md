@@ -21,7 +21,7 @@ or with `using Pkg; Pkg.add("Revise")`.
 ## Usage example
 
 ```julia
-(v0.7) pkg> add Example
+(v0.7) pkg> dev Example
   Updating registry at `/tmp/pkgs/registries/Uncurated`
   Updating git-repo `https://github.com/JuliaRegistries/Uncurated.git`
  Resolving package versions...
