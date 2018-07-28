@@ -519,6 +519,31 @@ end
 file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
     LineNumberNode(lnn.line + line_offset, file)
 
+function update_stacktrace_lineno!(trace)
+    for i = 1:length(trace)
+        t, n = trace[i]
+        if t.linfo isa Core.MethodInstance
+            sigt = t.linfo.def.sig
+            file = String(t.file)
+            if haskey(fileinfos, file)
+                fm = fileinfos[file].fm
+                for (mod, fmm) in fm
+                    if haskey(fmm.sigtmap, sigt)
+                        def = fmm.sigtmap[sigt]
+                        lineoffset = fmm.defmap[def][2]
+                        if lineoffset != 0
+                            t = StackTraces.StackFrame(t.func, t.file, t.line+lineoffset, t.linfo, t.from_c, t.inlined, t.pointer)
+                            trace[i] = (t, n)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return trace
+end
+
 function macroreplace!(ex::Expr, filename)
     for i = 1:length(ex.args)
         ex.args[i] = macroreplace!(ex.args[i], filename)
@@ -632,6 +657,8 @@ function __init__()
     if rev_include == "1"
         tracking_Main_includes[] = true
     end
+    # # Correct line numbers for code moving around
+    # Base.update_stackframes_callback[] = update_stacktrace_lineno!
 end
 
 ## WatchList utilities

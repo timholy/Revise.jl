@@ -26,8 +26,8 @@ doing it manually.
 Importantly, changes are detected in a manner that is independent of the specific
 line numbers in your code, so that you don't have to re-evaluate just
 because code moves around within the same file.
-(However, one unfortunate side effect is that
-[line numbers may become inaccurate in backtraces](https://github.com/timholy/Revise.jl/issues/51).)
+(One unfortunate side effect is that line numbers may become inaccurate in backtraces,
+but Revise takes pains to correct these, see below.)
 
 To accomplish this, Revise uses the following overall strategy:
 
