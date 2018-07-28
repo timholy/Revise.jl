@@ -7,13 +7,12 @@ const ExLike = Union{Expr,RelocatableExpr}
 # Much is taken from ExpressionUtils.jl but generalized to work with ExLike
 
 """
-    m = get_method(mod::Module, sig)
+    m = get_method(mod::Module, sigt)
 
-Get the method `m` with signature `sig` from module `mod`. This is used to provide
+Get the method `m` with signature-type `sigt` from module `mod`. This is used to provide
 the method to `Base.delete_method`. See also [`get_signature`](@ref).
 """
-function get_method(mod::Module, sig::ExLike)::Method
-    t = Core.eval(mod, convert(Expr, sig))
+function get_method(mod::Module, t)::Method
     mths = Base._methods_by_ftype(t, -1, typemax(UInt))
     length(mths) == 1 && return mths[1][3]
     if !isempty(mths)
@@ -27,8 +26,6 @@ function get_method(mod::Module, sig::ExLike)::Method
         end
     end
     io = IOBuffer()
-    println(io, "signature:")
-    dump(io, convert(Expr, sig))
     println(io, "Extracted method table:")
     println(io, mths)
     info = String(take!(io))
@@ -121,7 +118,21 @@ end
 is_trivial_block_wrapper(@nospecialize arg) = false
 
 function is_linenumber(@nospecialize stmt)
-    isa(stmt, LineNumberNode) || (isa(stmt, ExLike) & (stmt.head == :line))
+    isa(stmt, LineNumberNode) || (isa(stmt, ExLike) && (stmt.head == :line))
+end
+
+function firstlineno(rex::ExLike)
+    for a in rex.args
+        if is_linenumber(a)
+            isa(a, LineNumberNode) && return a.line
+            return a.args[1]
+        end
+        if isa(a, ExLike)
+            lineno = firstlineno(a)
+            isa(lineno, Integer) && return lineno
+        end
+    end
+    return nothing
 end
 
 argtypeexpr(s::Symbol, rest...) = (:Any, argtypeexpr(rest...)...)

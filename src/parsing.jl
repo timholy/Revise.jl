@@ -1,43 +1,41 @@
 """
-    md = parse_source(filename::AbstractString, mod::Module)
+    fm = parse_source(filename::AbstractString, mod::Module)
 
-Parse the source `filename`, returning a [`ModDict`](@ref) containing
-::Module=>::[`ExprsSigs`](@ref) pairs specifying the set of expressions evaluated in each
-module active in `filename`.
+Parse the source `filename`, returning a [`FileModules`](@ref) `fm`.
 `mod` is the "parent" module for the file (i.e., the one that `include`d the file);
-if `filename` defines more module(s) then these will all have separate entries in `md`.
+if `filename` defines more module(s) then these will all have separate entries in `fm`.
 
 If parsing `filename` fails, `nothing` is returned.
 """
 parse_source(filename::AbstractString, mod::Module) =
-    parse_source!(ModDict(mod=>ExprsSigs()), filename, mod)
+    parse_source!(FileModules(mod), filename, mod)
 
 """
-    parse_source!(md::ModDict, filename, mod::Module)
+    parse_source!(fm::FileModules, filename, mod::Module)
 
 Top-level parsing of `filename` as included into module
-`mod`. Successfully-parsed expressions will be added to `md`. Returns
-`md` if parsing finished successfully, otherwise `nothing` is returned.
+`mod`. Successfully-parsed expressions will be added to `fm`. Returns
+`fm` if parsing finished successfully, otherwise `nothing` is returned.
 
 See also [`parse_source`](@ref).
 """
-function parse_source!(md::ModDict, filename::AbstractString, mod::Module)
+function parse_source!(fm::FileModules, filename::AbstractString, mod::Module)
     if !isfile(filename)
         @warn "$filename is not a file, omitting from revision tracking"
         return nothing
     end
-    parse_source!(md, read(filename, String), Symbol(filename), 1, mod)
+    parse_source!(fm, read(filename, String), Symbol(filename), 1, mod)
 end
 
 """
-    success = parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Integer, mod::Module)
+    success = parse_source!(fm::FileModules, src::AbstractString, file::Symbol, pos::Integer, mod::Module)
 
 Parse a string `src` obtained by reading `file` as a single
 string. `pos` is the 1-based byte offset from which to begin parsing `src`.
 
 See also [`parse_source`](@ref).
 """
-function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Integer, mod::Module)
+function parse_source!(fm::FileModules, src::AbstractString, file::Symbol, pos::Integer, mod::Module)
     local ex, oldpos
     # Since `parse` doesn't keep track of line numbers (it works
     # expression-by-expression), to ensure good backtraces we have to
@@ -63,66 +61,66 @@ function parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Inte
         if isa(ex, Expr)
             ex = ex::Expr
             fix_line_statements!(ex, file, line_offset)  # fixes the backtraces
-            parse_expr!(md, ex, file, mod)
+            parse_expr!(fm, ex, file, mod)
         end
         # Update the number of lines
         line_offset += count(c->c=='\n', SubString(src, oldpos, pos-1))
     end
-    md
+    fm
 end
 
 """
-    success = parse_source!(md::ModDict, ex::Expr, file, mod::Module)
+    success = parse_source!(fm::FileModules, ex::Expr, file, mod::Module)
 
 For a `file` that defines a sub-module, parse the body `ex` of the
 sub-module.  `mod` will be the module into which this sub-module is
 evaluated (i.e., included). Successfully-parsed expressions will be
-added to `md`. Returns `true` if parsing finished successfully.
+added to `fm`. Returns `true` if parsing finished successfully.
 
 See also [`parse_source`](@ref).
 """
-function parse_source!(md::ModDict, ex::Expr, file::Symbol, mod::Module)
+function parse_source!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
     @assert ex.head == :block
     for a in ex.args
         if isa(a, Expr)
-            parse_expr!(md, a::Expr, file, mod)
+            parse_expr!(fm, a::Expr, file, mod)
         end
     end
-    md
+    fm
 end
 
 """
-    parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module)
+    parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
 
 Recursively parse the expressions in `ex`, iterating over blocks and
 sub-module definitions. Successfully parsed
-expressions are added to `md` with key `mod`, and any sub-modules will
-be stored in `md` using appropriate new keys. This accomplishes two main
+expressions are added to `fm` with key `mod`, and any sub-modules will
+be stored in `fm` using appropriate new keys. This accomplishes two main
 tasks:
 
 * add parsed expressions to the source-code cache (so that later we can detect changes)
 * determine the module into which each parsed expression is `eval`uated into
 """
-function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module)
+function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
     if ex.head == :block
         for a in ex.args
             a isa Expr || continue
-            parse_expr!(md, a, file, mod)
+            parse_expr!(fm, a, file, mod)
         end
-        return md
+        return fm
     end
     macroreplace!(ex, String(file))
     if ex.head == :line
-        return md
+        return fm
     elseif ex.head == :module
-        parse_module!(md, ex, file, mod)
+        parse_module!(fm, ex, file, mod)
     elseif isdocexpr(ex) && isa(ex.args[nargs_docexpr], Expr) && ex.args[nargs_docexpr].head == :module
         # Module with a docstring (issue #8)
         # Split into two expressions, a module definition followed by
         # `"docstring" newmodule`
-        newmod = parse_module!(md, ex.args[nargs_docexpr], file, mod)
+        newmod = parse_module!(fm, ex.args[nargs_docexpr], file, mod)
         ex.args[nargs_docexpr] = Symbol(newmod)
-        push!(md[mod].exprs, convert(RelocatableExpr, ex))
+        fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
     elseif ex.head == :call && ex.args[1] == :include
         # skip include statements
     else
@@ -130,13 +128,14 @@ function parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module)
         # modules, or include new files must be "real code." Add it to
         # the cache.
         rex = convert(RelocatableExpr, ex)
-        push!(md[mod].exprs, rex)
         sig = get_signature(rex)
         if isa(sig, ExLike)
-            push!(md[mod].sigs, sig)
+            fm[mod].defmap[rex] = sig  # we can't safely `eval` the types because they may not yet exist
+        else
+            fm[mod].defmap[rex] = nothing
         end
     end
-    md
+    fm
 end
 
 const nargs_docexpr = 4
@@ -145,13 +144,13 @@ isdocexpr(ex) = ex.head == :macrocall && ex.args[1] == GlobalRef(Core, Symbol("@
 
 
 """
-    newmod = parse_module!(md::ModDict, ex::Expr, file, mod::Module)
+    newmod = parse_module!(fm::FileModules, ex::Expr, file, mod::Module)
 
 Parse an expression `ex` that defines a new module `newmod`. This
 module is "parented" by `mod`. Source-code expressions are added to
-`md` under the appropriate module name.
+`fm` under the appropriate module name.
 """
-function parse_module!(md::ModDict, ex::Expr, file::Symbol, mod::Module)
+function parse_module!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
     newname = _module_name(ex)
     if mod != Base.__toplevel__ && !isdefined(mod, newname)
         try
@@ -162,8 +161,8 @@ function parse_module!(md::ModDict, ex::Expr, file::Symbol, mod::Module)
         end
     end
     newmod = mod == Base.__toplevel__ ? Base.root_module(mod, newname) : getfield(mod, newname)
-    md[newmod] = ExprsSigs()
-    parse_source!(md, ex.args[3], file, newmod)  # recurse into the body of the module
+    fm[newmod] = FMMaps()
+    parse_source!(fm, ex.args[3], file, newmod)  # recurse into the body of the module
     newmod
 end
 

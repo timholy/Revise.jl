@@ -90,7 +90,7 @@ end"""
         warnfile = randtmp()
         open(warnfile, "w") do io
             redirect_stderr(io) do
-                md = Revise.ModDict(Main=>Revise.ExprsSigs())
+                md = Revise.FileModules(Main)
                 @test Revise.parse_source!(md, """
 begin # this block should parse correctly, cf. issue #109
 
@@ -101,7 +101,7 @@ h{x) = 3  # error
 k(x) = 4
 """,
                                             :test, 1, Main) == nothing
-                @test convert(Revise.RelocatableExpr, :(g(x) = 2)) ∈ md[Main].exprs
+                @test haskey(md[Main].defmap, convert(Revise.RelocatableExpr, :(g(x) = 2)))
             end
         end
         @test occursin("parsing error near line 6", read(warnfile, String))
@@ -162,7 +162,7 @@ k(x) = 4
         compare_sigs(:(function foo(x, (count, name)) return 1 end))
     end
 
-    @testset "Comparison" begin
+    @testset "Comparison and line numbering" begin
         fl1 = joinpath(@__DIR__, "revisetest.jl")
         fl2 = joinpath(@__DIR__, "revisetest_revised.jl")
         fl3 = joinpath(@__DIR__, "revisetest_errors.jl")
@@ -171,30 +171,56 @@ k(x) = 4
         @test ReviseTest.cube(2) == 16
         @test ReviseTest.Internal.mult3(2) == 8
         oldmd = Revise.parse_source(fl1, Main)
+        Revise.instantiate_sigs!(oldmd)
         newmd = Revise.parse_source(fl2, Main)
-        revmd = Revise.revised_statements(newmd, oldmd)
-        @test length(revmd) == 2
-        @test haskey(revmd, ReviseTest) && haskey(revmd, ReviseTest.Internal)
-        @test length(revmd[ReviseTest.Internal].exprs) == 1
-        cmp = Revise.relocatable!(quote
-            mult3(x) = 3*x
-        end)
-        @test isequal(first(revmd[ReviseTest.Internal].exprs), collectexprs(cmp)[1])
-        @test length(revmd[ReviseTest].exprs) == 2
-        cmp = Revise.relocatable!(quote
-            cube(x) = x^3
-            fourth(x) = x^4  # this is an addition to the file
-        end)
-        @test isequal(revmd[ReviseTest].exprs, OrderedSet(collectexprs(cmp)))
-
-        Revise.eval_revised(revmd)
+        revmd = Revise.eval_revised(newmd, oldmd)
         @test ReviseTest.cube(2) == 8
         @test ReviseTest.Internal.mult3(2) == 6
 
+        @test length(revmd) == 3
+        @test haskey(revmd, ReviseTest) && haskey(revmd, ReviseTest.Internal)
+
+        dvs = collect(revmd[ReviseTest].defmap)
+        @test length(dvs) == 3
+        (def, val) = dvs[1]
+        @test isequal(def,  Revise.relocatable!(:(square(x) = x^2)))
+        @test val == (DataType[Tuple{typeof(ReviseTest.square),Any}], 0)
+        @test Revise.firstlineno(def) == 5
+        m = @which ReviseTest.square(1)
+        @test m.line == 5
+        @test revmd[ReviseTest].sigtmap[Tuple{typeof(ReviseTest.square),Any}] == def
+        (def, val) = dvs[2]
+        @test isequal(def, Revise.relocatable!(:(cube(x) = x^3)))
+        @test val == (DataType[Tuple{typeof(ReviseTest.cube),Any}], 0)
+        m = @which ReviseTest.cube(1)
+        @test m.line == 7
+        @test revmd[ReviseTest].sigtmap[Tuple{typeof(ReviseTest.cube),Any}] == def
+        (def, val) = dvs[3]
+        @test isequal(def, Revise.relocatable!(:(fourth(x) = x^4)))
+        @test val == (DataType[Tuple{typeof(ReviseTest.fourth),Any}], 0)
+        m = @which ReviseTest.fourth(1)
+        @test m.line == 9
+        @test revmd[ReviseTest].sigtmap[Tuple{typeof(ReviseTest.fourth),Any}] == def
+
+        dvs = collect(revmd[ReviseTest.Internal].defmap)
+        @test length(dvs) == 2
+        (def, val) = dvs[1]
+        @test isequal(def,  Revise.relocatable!(:(mult2(x) = 2*x)))
+        @test val == (DataType[Tuple{typeof(ReviseTest.Internal.mult2),Any}], 2)  # 2 because it shifted down 2 lines and was not evaled
+        @test Revise.firstlineno(def) == 11
+        m = @which ReviseTest.Internal.mult2(1)
+        @test m.line == 11
+        @test revmd[ReviseTest.Internal].sigtmap[Tuple{typeof(ReviseTest.Internal.mult2),Any}] == def
+        (def, val) = dvs[2]
+        @test isequal(def, Revise.relocatable!(:(mult3(x) = 3*x)))
+        @test val == (DataType[Tuple{typeof(ReviseTest.Internal.mult3),Any}], 0)  # 0 because it was freshly-evaled
+        m = @which ReviseTest.Internal.mult3(1)
+        @test m.line == 14
+        @test revmd[ReviseTest.Internal].sigtmap[Tuple{typeof(ReviseTest.Internal.mult3),Any}] == def
+
         # Backtraces
         newmd = Revise.parse_source(fl3, Main)
-        revmd = Revise.revised_statements(newmd, oldmd)
-        Revise.eval_revised(revmd)
+        revmd = Revise.eval_revised(newmd, revmd)
         try
             ReviseTest.cube(2)
             @test false
@@ -214,17 +240,15 @@ k(x) = 4
     end
 
     @testset "Display" begin
-        ex = Revise.relocatable!(:(f(x::Int) = x^2))
-        sig = Revise.get_signature(ex)
-        exsig = Revise.ExprsSigs(OrderedSet([ex]), OrderedSet([sig]))
-        @test string(exsig) == """
-ExprsSigs with 1 exprs and 1 method signatures
-Exprs:
-:(f(x::Int) = begin
-          x ^ 2
-      end)
-Method signatures:
-:(f(x::Int))"""
+        fm = Revise.parse_source(joinpath(@__DIR__, "revisetest.jl"), Main)
+        Revise.instantiate_sigs!(fm)
+        @test string(fm) == "OrderedCollections.OrderedDict(Main=>FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest=>FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal=>FMMaps(<2 expressions>, <2 signatures>))"
+        fmmr = fm[ReviseTest]
+        @test string(fmmr) == "FMMaps(<2 expressions>, <2 signatures>)"
+        io = IOBuffer()
+        print(IOContext(io, :limit=>false), fmmr)
+        str = String(take!(io))
+        @test str == "FMMaps with the following expressions:\n  :(square(x) = begin\n          x ^ 2\n      end)\n  :(cube(x) = begin\n          x ^ 4\n      end)\n"
     end
 
     @testset "File paths" begin
@@ -722,7 +746,7 @@ end
         push!(Revise.dont_watch_pkgs, :Example)
         push!(Revise.silence_pkgs, :Example)
         @eval import Example
-        for k in keys(Revise.file2modules)
+        for k in keys(Revise.fileinfos)
             if occursin("Example", k)
                 error("Should not track files in Example")
             end
@@ -901,18 +925,18 @@ end
     @testset "Recipes" begin
         # Tracking Base
         Revise.track(Base)
-        @test any(k->endswith(k, "number.jl"), keys(Revise.file2modules))
+        @test any(k->endswith(k, "number.jl"), keys(Revise.fileinfos))
 
         # Determine whether a git repo is available. Travis & Appveyor do not have this.
         repo, path = Revise.git_repo(Revise.juliadir)
         if repo != nothing
             # Tracking Core.Compiler
             Revise.track(Core.Compiler)
-            @test any(k->endswith(k, "compiler.jl"), keys(Revise.file2modules))
+            @test any(k->endswith(k, "compiler.jl"), keys(Revise.fileinfos))
 
             # Tracking stdlibs
             Revise.track(Unicode)
-            @test any(k->endswith(k, "Unicode.jl"), keys(Revise.file2modules))
+            @test any(k->endswith(k, "Unicode.jl"), keys(Revise.fileinfos))
         else
             @warn "skipping Core.Compiler and stdlibs tests due to lack of git repo"
         end

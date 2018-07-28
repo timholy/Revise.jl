@@ -24,8 +24,8 @@ function parse_pkg_files(id::PkgId)
                     for (modid, fname, _) in mods_files_mtimes
                         mod = modid.uuid === nothing && modid.name == "" ? Main : Base.root_module(modid)
                         # For precompiled packages, we can read the source later (whenever we need it)
-                        # from the *.ji cachefile. So push an empty ModDict.
-                        file2modules[fname] = FileModules(mod, path)
+                        # from the *.ji cachefile.
+                        fileinfos[fname] = FileInfo(mod, path)
                         push!(files, fname)
                         module2files[modsym] = files
                     end
@@ -58,9 +58,10 @@ function queue_includes!(files, modstring)
         mod, fname = included_files[i]
         modname = String(Symbol(mod))
         if startswith(modname, modstring) || endswith(fname, modstring*".jl")
-            md = parse_source(fname, mod)
-            if md != nothing
-                file2modules[fname] = FileModules(mod, md)
+            fm = parse_source(fname, mod)
+            instantiate_sigs!(fm)
+            if fm != nothing
+                fileinfos[fname] = FileInfo(fm)
             end
             push!(files, fname)
             push!(delids, i)
