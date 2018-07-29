@@ -489,27 +489,29 @@ Replace the REPL's normal backend with one that calls [`revise`](@ref) before ex
 any REPL input.
 """
 function steal_repl_backend(backend = Base.active_repl_backend)
-    # terminate the current backend
-    put!(backend.repl_channel, (nothing, -1))
-    fetch(backend.backend_task)
-    # restart a new backend that differs only by processing the
-    # revision queue before evaluating each user input
-    backend.backend_task = @async begin
-        while true
-            tls = task_local_storage()
-            tls[:SOURCE_PATH] = nothing
-            ast, show_value = take!(backend.repl_channel)
-            if show_value == -1
-                # exit flag
-                break
+    @async begin
+        # terminate the current backend
+        put!(backend.repl_channel, (nothing, -1))
+        fetch(backend.backend_task)
+        # restart a new backend that differs only by processing the
+        # revision queue before evaluating each user input
+        backend.backend_task = @async begin
+            while true
+                tls = task_local_storage()
+                tls[:SOURCE_PATH] = nothing
+                ast, show_value = take!(backend.repl_channel)
+                if show_value == -1
+                    # exit flag
+                    break
+                end
+                # Process revisions
+                revise(backend)
+                # Now eval the input
+                REPL.eval_user_input(ast, backend)
             end
-            # Process revisions
-            revise(backend)
-            # Now eval the input
-            REPL.eval_user_input(ast, backend)
         end
     end
-    backend
+    nothing
 end
 
 """
@@ -552,7 +554,7 @@ function __init__()
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
         if isdefined(Base, :active_repl_backend)
-            steal_repl_backend()
+            steal_repl_backend(Base.active_repl_backend)
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
         end
