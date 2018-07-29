@@ -657,8 +657,8 @@ function __init__()
     if rev_include == "1"
         tracking_Main_includes[] = true
     end
-    # # Correct line numbers for code moving around
-    # Base.update_stackframes_callback[] = update_stacktrace_lineno!
+    # Correct line numbers for code moving around
+    Base.update_stackframes_callback[] = update_stacktrace_lineno!
 end
 
 ## WatchList utilities
