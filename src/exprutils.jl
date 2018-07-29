@@ -1,4 +1,3 @@
-### Core functionality for method deletion
 using Core: MethodInstance
 using Base: MethodList
 
@@ -12,8 +11,8 @@ const ExLike = Union{Expr,RelocatableExpr}
 Get the method `m` with signature-type `sigt` from module `mod`. This is used to provide
 the method to `Base.delete_method`. See also [`get_signature`](@ref).
 """
-function get_method(mod::Module, t)::Method
-    mths = Base._methods_by_ftype(t, -1, typemax(UInt))
+function get_method(mod::Module, @nospecialize(sigt))::Method
+    mths = Base._methods_by_ftype(sigt, -1, typemax(UInt))
     length(mths) == 1 && return mths[1][3]
     if !isempty(mths)
         # There might be many methods, but the one that should match should be the
@@ -21,7 +20,7 @@ function get_method(mod::Module, t)::Method
         i = lastindex(mths)
         while i > 0
             m = mths[i][3]
-            m.sig == t && return m
+            m.sig == sigt && return m
             i -= 1
         end
     end
@@ -29,12 +28,12 @@ function get_method(mod::Module, t)::Method
     println(io, "Extracted method table:")
     println(io, mths)
     info = String(take!(io))
-    @warn "Revise failed to find any methods for signature $t\n  Most likely it was already deleted.\n$info"
+    @warn "Revise failed to find any methods for signature $sigt\n  Most likely it was already deleted.\n$info"
     nothing
 end
 
 """
-    sig = get_signature(expr)
+    sigex = get_signature(expr)
 
 Extract the signature from an expression `expr` that defines a function.
 
@@ -56,11 +55,11 @@ function get_signature(ex::E) where E <: ExLike
 end
 
 """
-    typexs = sig_type_exprs(ex::Expr)
+    typexs = sig_type_exprs(sigex::Expr)
 
-From a function signature `ex` (see [`get_signature`](@ref)), generate a list `typexs` of
-concrete signature type expressions.
-This list will have length 1 unless `ex` has default arguments,
+From a function signature-expression `sigex` (see [`get_signature`](@ref)), generate a list
+`typexs` of concrete signature type expressions.
+This list will have length 1 unless `sigex` has default arguments,
 in which case it will produce one type signature per valid number of supplied arguments.
 
 These type-expressions can be evaluated in the appropriate module to obtain a Tuple-type.
@@ -78,21 +77,21 @@ julia> Revise.sig_type_exprs(:(foo(x::Int, y::String="hello")))
  :(Tuple{Core.Typeof(foo), Int, String})
 ```
 """
-function sig_type_exprs(ex::Expr, wheres...)
-    if ex.head == :where
-        return sig_type_exprs(ex.args[1], ex.args[2:end], wheres...)
+function sig_type_exprs(sigex::Expr, wheres...)
+    if sigex.head == :where
+        return sig_type_exprs(sigex.args[1], sigex.args[2:end], wheres...)
     end
-    typexs = Expr[_sig_type_exprs(ex, wheres)]
+    typexs = Expr[_sig_type_exprs(sigex, wheres)]
     # If the method has default arguments, generate one type signature
     # for each valid call. This replicates the syntactic sugar that defines
     # multiple methods from a single definition.
-    while has_default_args(ex)
-        ex = Expr(ex.head, ex.args[1:end-1]...)
-        push!(typexs, _sig_type_exprs(ex, wheres))
+    while has_default_args(sigex)
+        sigex = Expr(sigex.head, sigex.args[1:end-1]...)
+        push!(typexs, _sig_type_exprs(sigex, wheres))
     end
     return reverse!(typexs)  # method table is organized in increasing # of args
 end
-sig_type_exprs(ex::RelocatableExpr) = sig_type_exprs(convert(Expr, ex))
+sig_type_exprs(ex::RelocatableExpr) = sig_type_exprs(convert(Expr, sigex))
 
 function _sig_type_exprs(ex, @nospecialize(wheres))
     fex = ex.args[1]
@@ -103,8 +102,8 @@ function _sig_type_exprs(ex, @nospecialize(wheres))
     sigex
 end
 
-function has_default_args(ex::Expr)
-    a = ex.args[end]
+function has_default_args(sigex::Expr)
+    a = sigex.args[end]
     return isa(a, Expr) && a.head == :kw
 end
 
