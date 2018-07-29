@@ -27,7 +27,7 @@ git:
 
 ## uncomment the following lines to override the default test script
 script:
-  - julia -e 'using Pkg; Pkg.add(pwd()); Pkg.build("Revise"); Pkg.test("Revise"; coverage=true)'
+  - julia -e 'using Pkg; Pkg.clone(pwd()); Pkg.build("Revise"); Pkg.test("Revise"; coverage=true)'
   - JULIA_REVISE_POLL=1 julia --code-coverage -e 'using Pkg; include(Pkg.dir("Revise", "test", "polling.jl"))'
 
 after_script:  # TODO: change to after_success once https://github.com/JuliaLang/julia/issues/28306 is fixed

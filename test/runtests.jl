@@ -940,6 +940,6 @@ end
         end
         rm(warnfile)
     end
-
-    GC.gc()   # work-around for https://github.com/JuliaLang/julia/issues/28306
 end
+
+GC.gc(); GC.gc(); GC.gc()   # work-around for https://github.com/JuliaLang/julia/issues/28306
