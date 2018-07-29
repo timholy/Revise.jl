@@ -522,18 +522,21 @@ This is necessary because code registered with `atreplinit` runs before the REPL
 initialized, and there is no corresponding way to register code to run after it is complete.
 """
 function async_steal_repl_backend()
-    atreplinit() do repl
-        @async begin
-            iter = 0
-            # wait for active_repl_backend to exist
-            while !isdefined(Base, :active_repl_backend) && iter < 20
-                sleep(0.05)
-                iter += 1
-            end
-            if isdefined(Base, :active_repl_backend)
-                steal_repl_backend(Base.active_repl_backend)
-            else
-                @warn "REPL initialization failed, Revise is not watching files."
+    mode = get(ENV, "JULIA_REVISE", "auto")
+    if mode == "auto"
+        atreplinit() do repl
+            @async begin
+                iter = 0
+                # wait for active_repl_backend to exist
+                while !isdefined(Base, :active_repl_backend) && iter < 20
+                    sleep(0.05)
+                    iter += 1
+                end
+                if isdefined(Base, :active_repl_backend)
+                    steal_repl_backend(Base.active_repl_backend)
+                else
+                    @warn "REPL initialization failed, Revise is not in automatic mode. Call `revise()` manually."
+                end
             end
         end
     end
