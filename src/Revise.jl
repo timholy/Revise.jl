@@ -489,27 +489,29 @@ Replace the REPL's normal backend with one that calls [`revise`](@ref) before ex
 any REPL input.
 """
 function steal_repl_backend(backend = Base.active_repl_backend)
-    # terminate the current backend
-    put!(backend.repl_channel, (nothing, -1))
-    fetch(backend.backend_task)
-    # restart a new backend that differs only by processing the
-    # revision queue before evaluating each user input
-    backend.backend_task = @async begin
-        while true
-            tls = task_local_storage()
-            tls[:SOURCE_PATH] = nothing
-            ast, show_value = take!(backend.repl_channel)
-            if show_value == -1
-                # exit flag
-                break
+    @async begin
+        # terminate the current backend
+        put!(backend.repl_channel, (nothing, -1))
+        fetch(backend.backend_task)
+        # restart a new backend that differs only by processing the
+        # revision queue before evaluating each user input
+        backend.backend_task = @async begin
+            while true
+                tls = task_local_storage()
+                tls[:SOURCE_PATH] = nothing
+                ast, show_value = take!(backend.repl_channel)
+                if show_value == -1
+                    # exit flag
+                    break
+                end
+                # Process revisions
+                revise(backend)
+                # Now eval the input
+                REPL.eval_user_input(ast, backend)
             end
-            # Process revisions
-            revise(backend)
-            # Now eval the input
-            REPL.eval_user_input(ast, backend)
         end
     end
-    backend
+    nothing
 end
 
 """
@@ -520,18 +522,21 @@ This is necessary because code registered with `atreplinit` runs before the REPL
 initialized, and there is no corresponding way to register code to run after it is complete.
 """
 function async_steal_repl_backend()
-    atreplinit() do repl
-        @async begin
-            iter = 0
-            # wait for active_repl_backend to exist
-            while !isdefined(Base, :active_repl_backend) && iter < 20
-                sleep(0.05)
-                iter += 1
-            end
-            if isdefined(Base, :active_repl_backend)
-                steal_repl_backend(Base.active_repl_backend)
-            else
-                @warn "REPL initialization failed, Revise is not watching files."
+    mode = get(ENV, "JULIA_REVISE", "auto")
+    if mode == "auto"
+        atreplinit() do repl
+            @async begin
+                iter = 0
+                # wait for active_repl_backend to exist
+                while !isdefined(Base, :active_repl_backend) && iter < 20
+                    sleep(0.05)
+                    iter += 1
+                end
+                if isdefined(Base, :active_repl_backend)
+                    steal_repl_backend(Base.active_repl_backend)
+                else
+                    @warn "REPL initialization failed, Revise is not in automatic mode. Call `revise()` manually."
+                end
             end
         end
     end
@@ -552,7 +557,7 @@ function __init__()
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
         if isdefined(Base, :active_repl_backend)
-            steal_repl_backend()
+            steal_repl_backend(Base.active_repl_backend)
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
         end
