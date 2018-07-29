@@ -22,17 +22,9 @@ or with `using Pkg; Pkg.add("Revise")`.
 
 ```julia
 (v0.7) pkg> dev Example
-  Updating registry at `/tmp/pkgs/registries/Uncurated`
-  Updating git-repo `https://github.com/JuliaRegistries/Uncurated.git`
- Resolving package versions...
-Downloaded Example ─ v0.5.1
-  Updating `/tmp/pkgs/environments/v0.7/Project.toml`
-  [7876af07] + Example v0.5.1
-  Updating `/tmp/pkgs/environments/v0.7/Manifest.toml`
-  [7876af07] + Example v0.5.1
+[...output related to installation...]
 
 julia> using Revise        # importantly, this must come before `using Example`
-[ Info: Precompiling module Revise
 
 julia> using Example
 

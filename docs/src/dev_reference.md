@@ -87,8 +87,12 @@ Revise.parse_source
 Revise.parse_source!
 Revise.parse_expr!
 Revise.parse_module!
+Revise.funcdef_expr
 Revise.get_signature
+Revise.get_callexpr
+Revise.signature_names
 Revise.sig_type_exprs
+Revise.argtypeexpr
 ```
 
 ### Git integration
