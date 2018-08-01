@@ -3,7 +3,7 @@ using Test
 
 @test isempty(detect_ambiguities(Revise, Base, Core))
 
-using Pkg, Unicode, Distributed
+using Pkg, Unicode, Distributed, InteractiveUtils
 using OrderedCollections: OrderedSet
 
 include("common.jl")
@@ -258,7 +258,7 @@ k(x) = 4
         push!(LOAD_PATH, testdir)
         for (pcflag, fbase) in ((true, "pc"), (false, "npc"))  # precompiled & not
             modname = uppercase(fbase)
-            pcexpr = pcflag ? nothing : :(__precompile__(false))
+            pcexpr = pcflag ? :() : :(__precompile__(false))
             # Create a package with the following structure:
             #   src/PkgName.jl   # PC.jl = precompiled, NPC.jl = nonprecompiled
             #   src/file2.jl
