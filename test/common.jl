@@ -1,6 +1,6 @@
 using Random
 
-const setseed = @static VERSION >= v"0.7.0-beta2.171" ? Random.seed! : srand
+const setseed = @static Random.seed!
 const rseed = Ref(Random.GLOBAL_RNG)  # to get new random directories (see #24445)
 function randtmp()
     setseed(rseed[])
