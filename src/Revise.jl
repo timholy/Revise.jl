@@ -337,31 +337,15 @@ function revise_file_now(file)
         error(file, " is not currently being tracked.")
     end
     fi = fileinfos[file]
-    topmod = first(keys(fi.fm))
-    if isempty(fi.fm)
-        # Source was never parsed, get it from the precompile cache
-        src = read_from_cache(fi, file)
-        if parse_source!(fi.fm, src, Symbol(file), 1, topmod) === nothing
-            @error "failed to parse cache file source text for $file"
-        end
-        instantiate_sigs!(fi.fm)
-    end
+    maybe_parse_from_cache!(fi, file)
     fmref = fi.fm
+    topmod = first(keys(fi.fm))
     fmnew = parse_source(file, topmod)
     if fmnew != nothing
         fmrep = eval_revised(fmnew, fmref)
         fileinfos[file] = FileInfo(fmrep, fi)
     end
     nothing
-end
-
-function read_from_cache(fm::FileInfo, file::AbstractString)
-    if fm.cachefile == basesrccache
-        return open(basesrccache) do io
-            Base._read_dependency_src(io, file)
-        end
-    end
-    Base.read_dependency_src(fm.cachefile, file)
 end
 
 function instantiate_sigs!(fm::FileModules)

@@ -93,6 +93,28 @@ function remove_from_included_files(modsym::Symbol)
     end
 end
 
+function read_from_cache(fi::FileInfo, file::AbstractString)
+    if fi.cachefile == basesrccache
+        return open(basesrccache) do io
+            Base._read_dependency_src(io, file)
+        end
+    end
+    Base.read_dependency_src(fi.cachefile, file)
+end
+
+function maybe_parse_from_cache!(fi::FileInfo, file::AbstractString)
+    if isempty(fi.fm)
+        # Source was never parsed, get it from the precompile cache
+        src = read_from_cache(fi, file)
+        topmod = first(keys(fi.fm))
+        if parse_source!(fi.fm, src, Symbol(file), 1, topmod) === nothing
+            @error "failed to parse cache file source text for $file"
+        end
+        instantiate_sigs!(fi.fm)
+    end
+    return fi
+end
+
 function watch_files_via_dir(dirname)
     wait_changed(dirname)  # this will block until there is a modification
     latestfiles = String[]
