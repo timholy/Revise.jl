@@ -3,7 +3,7 @@ module Revise
 using FileWatching, REPL, Base.CoreLogging, Distributed
 import LibGit2
 
-using OrderedCollections: OrderedSet
+using OrderedCollections: OrderedDict
 
 export revise
 
@@ -73,19 +73,19 @@ This list gets populated by callbacks that watch directories for updates.
 const revision_queue = Set{String}()
 
 """
-    Revise.file2modules
+    Revise.fileinfos
 
-Global variable, `file2modules` is the core information that allows re-evaluation of code in
-the proper module scope.
+`fileinfos` is the core information that tracks the relationship between source code
+and julia objects, and allows re-evaluation of code in the proper module scope.
 It is a dictionary indexed by absolute paths of files;
-`file2modules[filename]` returns a value of type [`Revise.FileModules`](@ref).
+`fileinfos[filename]` returns a value of type [`Revise.FileInfo`](@ref).
 """
-const file2modules = Dict{String,FileModules}()
+const fileinfos = Dict{String,FileInfo}()
 
 """
     Revise.module2files
 
-Global variable, `module2files` holds the list of filenames used to define a particular
+`module2files` holds the list of filenames used to define a particular
 module. This is only used by `revise(MyModule)` to "refresh" all the definitions in a module.
 """
 const module2files = Dict{Symbol,Vector{String}}()
@@ -132,108 +132,115 @@ const silence_pkgs = Set{Symbol}()
 const depsdir = joinpath(dirname(@__DIR__), "deps")
 const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
 
-"""
-    revmod = revised_statements(new_defs, old_defs)
-
-Return a `Dict(Module=>changeset)`, `revmod`, listing the changes that
-should be [`eval_revised`](@ref) for each module to update definitions from `old_defs` to
-`new_defs`.  See [`parse_source`](@ref) to obtain the `defs` structures.
-"""
-function revised_statements(newfm::FileModules, oldfm::FileModules)
-    @assert newfm.topmod == oldfm.topmod
-    revised_statements(newfm.md, oldfm.md)
-end
-
-function revised_statements(newmd::ModDict, oldmd::ModDict)
-    revmd = ModDict()
-    for (mod, newdefs) in newmd
-        if haskey(oldmd, mod) # in case of new submodules, see #43
-            revised_statements!(revmd, mod, newdefs, oldmd[mod])
-        end
-    end
-    revmd
-end
-
-revised_statements(mod::Module, newdefs::ExprsSigs, olddefs::ExprsSigs) =
-    revised_statements!(ModDict(), mod, newdefs, olddefs)
-
-function revised_statements!(revmd::ModDict, mod::Module,
-                             newdefs::ExprsSigs, olddefs::ExprsSigs)
-    # Detect new or revised expressions
-    for stmt in newdefs.exprs
-        if isa(stmt, RelocatableExpr)
-            stmt = stmt::RelocatableExpr
-            @assert stmt.head != :module
-            if stmt ∉ olddefs.exprs
-                if !haskey(revmd, mod)
-                    revmd[mod] = ExprsSigs()
-                end
-                push!(revmd[mod].exprs, stmt)
-            end
-        end
-    end
-    # Detect method deletions
-    for sig in olddefs.sigs
-        if sig ∉ newdefs.sigs
-            if !haskey(revmd, mod)
-                revmd[mod] = ExprsSigs()
-            end
-            push!(revmd[mod].sigs, sig)
-        end
-    end
-    revmd
-end
-
-"""
-    succeeded = eval_revised(revmd::ModDict, delete_methods=true)
-
-Evaluate the changes listed in `revmd`, which consists of deleting all
-the listed signatures in each `.sigs` field(s) (unless `delete_methods=false`)
-and evaluating expressions in the `.exprs` field(s).
-
-Returns `true` if all revisions in `revmd` were successfully implemented.
-"""
-function eval_revised(revmd::ModDict, delete_methods::Bool=true)
-    succeeded = true
-    for (mod, exprssigs) in revmd
-        # mod = mod == Base.__toplevel__ ? Main : mod
-        if delete_methods
-            for sig in exprssigs.sigs
-                try
-                    sigexs = sig_type_exprs(sig)
-                    for sig1 in sigexs  # default-arg functions generate multiple methods
-                        m = get_method(mod, sig1)
-                        isa(m, Method) && Base.delete_method(m)
-                    end
-                catch err
-                    succeeded = false
-                    @error "failure to delete signature $sig in module $mod"
-                    showerror(stderr, err)
-                end
-            end
-        end
-        for rex in exprssigs.exprs
-            ex = convert(Expr, rex)
-            try
-                if isdocexpr(ex) && mod == Base.__toplevel__
-                    Core.eval(Main, ex)
-                else
-                    Core.eval(mod, ex)
-                end
-            catch err
-                succeeded = false
-                @error "failure to evaluate changes in $mod"
-                showerror(stderr, err)
-                println(stderr, "\n", ex)
-            end
-        end
-    end
-    succeeded
-end
-
 function use_compiled_modules()
     return Base.JLOptions().use_compiled_modules != 0
 end
+
+
+
+"""
+    fmrep = eval_revised(fmnew::FileModules, fmref::FileModules)
+
+Implement the changes from `fmref` to `fmnew`, returning a replacement [`FileModules`](@ref)
+`fmrep`.
+"""
+function eval_revised(fmnew::FileModules, fmref::FileModules)
+    fmrep = FileModules(first(keys(fmref)))  # replacement for fmref
+    for (mod, fmmnew) in fmnew
+        fmrep[mod] = fmm = FMMaps()
+        if haskey(fmref, mod)
+            eval_revised!(fmm, mod, fmmnew, fmref[mod])
+            for p in workers()
+                p == myid() && continue
+                remotecall(eval_revised_dummy!, p, mod, fmmnew, fmref[mod])
+            end
+        else  # a new submodule (see #43)
+            eval_and_insert_all!(fmm, mod, fmmnew.defmap)
+            for p in workers()
+                p == myid() && continue
+                remotecall(eval_and_insert_all_dummy!, p, mod, fmmnew.defmap)
+            end
+        end
+    end
+    fmrep
+end
+
+function eval_revised!(fmmrep::FMMaps, mod::Module,
+                       fmmnew::FMMaps, fmmref::FMMaps)
+    # Update to the state of fmmnew, preventing any unnecessary evaluation
+    for (def,val) in fmmnew.defmap
+        @assert def != nothing
+        defref = getkey(fmmref.defmap, def, nothing)
+        if defref != nothing
+            # The same expression is found in both, only update the lineoffset
+            if val !== nothing
+                sigtref = fmmref.defmap[defref][1]
+                lnref = firstlineno(defref)
+                lnnew = firstlineno(def)
+                lineoffset = (isa(lnref, Integer) && isa(lnnew, Integer)) ? lnnew-lnref : 0
+                fmmrep.defmap[defref] = (sigtref, lineoffset)
+                for sigt in sigtref
+                    fmmrep.sigtmap[sigt] = defref
+                end
+            else
+                fmmrep.defmap[defref] = nothing
+            end
+        else
+            eval_and_insert!(fmmrep, mod, def=>val)
+        end
+    end
+    # Delete any methods missing in fmmnew
+    for (sigt,_) in fmmref.sigtmap
+        if !haskey(fmmrep.sigtmap, sigt)
+            m = get_method(mod, sigt)
+            if isa(m, Method)
+                Base.delete_method(m)
+            else
+                @warn "no method found for signature $sigt"
+            end
+        end
+    end
+    return fmmrep
+end
+
+eval_revised_dummy!(mod::Module, fmmnew::FMMaps, fmmref::FMMaps) =
+    eval_revised!(FMMaps(), mod, fmmnew, fmmref)
+
+function eval_and_insert!(fmm::FMMaps, mod::Module, pr::Pair)
+    def, val = pr.first, pr.second
+    ex = convert(Expr, def)
+    try
+        if isdocexpr(ex) && mod == Base.__toplevel__
+            Core.eval(Main, ex)
+        else
+            Core.eval(mod, ex)
+        end
+        if val isa RelocatableExpr
+            instantiate_sigs!(fmm, def, val, mod)
+        else
+            fmm.defmap[def] = val
+            if val !== nothing
+                for sigt in val[1]
+                    fmm.sigtmap[sigt] = def
+                end
+            end
+        end
+    catch err
+        @error "failure to evaluate changes in $mod"
+        showerror(stderr, err)
+        println_maxlines(stderr, "\n", ex; maxlines=20)
+    end
+    return fmm
+end
+
+function eval_and_insert_all!(fmm::FMMaps, mod::Module, defmap::DefMap)
+    for pr in defmap
+        eval_and_insert!(fmm, mod, pr)
+    end
+end
+
+eval_and_insert_all_dummy!(mod::Module, defmap::DefMap) =
+    eval_and_insert_all!(FMMaps(), mod, defmap)
 
 """
     Revise.init_watching(files)
@@ -317,49 +324,66 @@ Process revisions to `file`. This parses `file` and computes an expression-level
 between the current state of the file and its most recently evaluated state.
 It then deletes any removed methods and re-evaluates any changed expressions.
 
-`file` must be a key in [`Revise.file2modules`](@ref)
+`file` must be a key in [`Revise.fileinfos`](@ref)
 """
 function revise_file_now(file)
-    if !haskey(file2modules, file)
-        println("Revise is currently tracking the following files: ", keys(file2modules))
+    if !haskey(fileinfos, file)
+        println("Revise is currently tracking the following files: ", keys(fileinfos))
         error(file, " is not currently being tracked.")
     end
-    oldmd = file2modules[file]
-    if isempty(oldmd.md)
+    fi = fileinfos[file]
+    topmod = first(keys(fi.fm))
+    if isempty(fi.fm)
         # Source was never parsed, get it from the precompile cache
-        src = read_from_cache(oldmd, file)
-        push!(oldmd.md, oldmd.topmod=>ExprsSigs())
-        if !parse_source!(oldmd.md, src, Symbol(file), 1, oldmd.topmod)
+        src = read_from_cache(fi, file)
+        if parse_source!(fi.fm, src, Symbol(file), 1, topmod) === nothing
             @error "failed to parse cache file source text for $file"
         end
+        instantiate_sigs!(fi.fm)
     end
-    pr = parse_source(file, oldmd.topmod)
-    if pr != nothing
-        newmd = pr.second
-        revmd = revised_statements(newmd.md, oldmd.md)
-        if eval_revised(revmd)
-            file2modules[file] = newmd
-            for p in workers()
-                p == myid() && continue
-                try
-                    remotecall(Revise.eval_revised, p, revmd)
-                catch err
-                    @error "error revising worker $p"
-                    showerror(stderr, err)
-                end
-            end
-        end
+    fmref = fi.fm
+    fmnew = parse_source(file, topmod)
+    if fmnew != nothing
+        fmrep = eval_revised(fmnew, fmref)
+        fileinfos[file] = FileInfo(fmrep, fi)
     end
     nothing
 end
 
-function read_from_cache(fm::FileModules, file::AbstractString)
+function read_from_cache(fm::FileInfo, file::AbstractString)
     if fm.cachefile == basesrccache
         return open(basesrccache) do io
             Base._read_dependency_src(io, file)
         end
     end
     Base.read_dependency_src(fm.cachefile, file)
+end
+
+function instantiate_sigs!(fm::FileModules)
+    for (mod, fmm) in fm
+        instantiate_sigs!(fmm, mod)
+    end
+    return fm
+end
+
+function instantiate_sigs!(fmm::FMMaps, mod::Module)
+    for (def, sig) in fmm.defmap
+        if sig isa RelocatableExpr
+            instantiate_sigs!(fmm, def, sig, mod)
+        end
+    end
+    return fmm
+end
+
+function instantiate_sigs!(fmm::FMMaps, def::RelocatableExpr, sig::RelocatableExpr, mod::Module)
+    # Generate the signature-types
+    sigtexs = sig_type_exprs(sig)
+    sigts = Any[Core.eval(mod, s) for s in sigtexs]
+    # Insert into the maps
+    fmm.defmap[def] = (sigts, 0)
+    for sigt in sigts
+        fmm.sigtmap[sigt] = def
+    end
 end
 
 """
@@ -397,11 +421,16 @@ end
 
 Reevaluate every definition in `mod`, whether it was changed or not. This is useful
 to propagate an updated macro definition, or to force recompiling generated functions.
-
-Returns `true` if all revisions in `mod` were successfully implemented.
 """
 function revise(mod::Module)
-    all(map(file -> eval_revised(file2modules[file].md, false), module2files[Symbol(mod)]))
+    for file in module2files[Symbol(mod)]
+        for (mod,fmm) in fileinfos[file].fm
+            for def in keys(fmm.defmap)
+                Core.eval(mod, convert(Expr, def))
+            end
+        end
+    end
+    return true  # fixme try/catch?
 end
 
 """
@@ -415,9 +444,10 @@ it defaults to `Main`.
 function track(mod::Module, file::AbstractString)
     isfile(file) || error(file, " is not a file")
     file = normpath(abspath(file))
-    pr = parse_source(file, mod)
-    if isa(pr, Pair)
-        push!(file2modules, pr)
+    fm = parse_source(file, mod)
+    if fm != nothing
+        instantiate_sigs!(fm)
+        fileinfos[file] = FileInfo(fm)
     end
     init_watching((file,))
 end
@@ -445,6 +475,31 @@ silence(pkg::AbstractString) = silence(Symbol(pkg))
 
 ## Utilities
 
+function println_maxlines(io::IO, args...; maxlines::Integer=20)
+    # This is dumb but certain to work
+    iotmp = IOBuffer()
+    for a in args
+        print(iotmp, a)
+    end
+    print(iotmp, '\n')
+    seek(iotmp, 0)
+    lines = readlines(iotmp)
+    if length(lines) <= maxlines
+        for line in lines
+            println(io, line)
+        end
+        return
+    end
+    half = (maxlines+1) ÷ 2
+    for i = 1:half
+        println(io, lines[i])
+    end
+    println(io, ⋮)
+    for i = length(lines) - (maxlines-half) + 1:length(lines)
+        println(io, lines[i])
+    end
+end
+
 function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)
     if ex.head == :line
         ex.args[1] += line_offset
@@ -463,6 +518,31 @@ end
 
 file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
     LineNumberNode(lnn.line + line_offset, file)
+
+function update_stacktrace_lineno!(trace)
+    for i = 1:length(trace)
+        t, n = trace[i]
+        if t.linfo isa Core.MethodInstance
+            sigt = t.linfo.def.sig
+            file = String(t.file)
+            if haskey(fileinfos, file)
+                fm = fileinfos[file].fm
+                for (mod, fmm) in fm
+                    if haskey(fmm.sigtmap, sigt)
+                        def = fmm.sigtmap[sigt]
+                        lineoffset = fmm.defmap[def][2]
+                        if lineoffset != 0
+                            t = StackTraces.StackFrame(t.func, t.file, t.line+lineoffset, t.linfo, t.from_c, t.inlined, t.pointer)
+                            trace[i] = (t, n)
+                            break
+                        end
+                    end
+                end
+            end
+        end
+    end
+    return trace
+end
 
 function macroreplace!(ex::Expr, filename)
     for i = 1:length(ex.args)
@@ -577,6 +657,8 @@ function __init__()
     if rev_include == "1"
         tracking_Main_includes[] = true
     end
+    # Correct line numbers for code moving around
+    Base.update_stackframes_callback[] = update_stacktrace_lineno!
 end
 
 ## WatchList utilities

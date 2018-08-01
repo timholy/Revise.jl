@@ -13,6 +13,8 @@
 """
 A `RelocatableExpr` is exactly like an `Expr` except that comparisons
 between `RelocatableExpr`s ignore line numbering information.
+This allows one to detect that two expressions are the same no matter
+where they appear in a file.
 
 You can use `convert(Expr, rex::RelocatableExpr)` to convert to an `Expr`
 and `convert(RelocatableExpr, ex::Expr)` for the converse. Beware that

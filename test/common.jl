@@ -1,9 +1,8 @@
 using Random
 
-const setseed = @static Random.seed!
 const rseed = Ref(Random.GLOBAL_RNG)  # to get new random directories (see #24445)
 function randtmp()
-    setseed(rseed[])
+    Random.seed!(rseed[])
     dirname = joinpath(tempdir(), randstring(10))
     rseed[] = Random.GLOBAL_RNG
     dirname

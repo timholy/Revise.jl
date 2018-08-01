@@ -25,7 +25,7 @@ Revise.basesrccache
 Revise.watched_files
 Revise.revision_queue
 Revise.included_files
-Revise.file2modules
+Revise.fileinfos
 Revise.module2files
 ```
 
@@ -33,9 +33,11 @@ Revise.module2files
 
 ```@docs
 Revise.RelocatableExpr
-Revise.ExprsSigs
-Revise.ModDict
+Revise.DefMap
+Revise.SigtMap
+Revise.FMMaps
 Revise.FileModules
+Revise.FileInfo
 Revise.WatchList
 ```
 
@@ -75,7 +77,6 @@ Revise.revise_file_queued
 ```@docs
 Revise.revise_file_now
 Revise.eval_revised
-Revise.revised_statements
 Revise.get_method
 ```
 
