@@ -234,6 +234,7 @@ Method signatures:
         push!(LOAD_PATH, testdir)
         for (pcflag, fbase) in ((true, "pc"), (false, "npc"))  # precompiled & not
             modname = uppercase(fbase)
+            pcexpr = pcflag ? nothing : :(__precompile__(false))
             # Create a package with the following structure:
             #   src/PkgName.jl   # PC.jl = precompiled, NPC.jl = nonprecompiled
             #   src/file2.jl
@@ -244,8 +245,7 @@ Method signatures:
             mkpath(dn)
             open(joinpath(dn, modname*".jl"), "w") do io
                 println(io, """
-__precompile__($pcflag)
-
+$pcexpr
 module $modname
 
 export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5, using_macro_$(fbase)
@@ -300,7 +300,7 @@ end
             # Change the definition of function 1 (easiest to just rewrite the whole file)
             open(joinpath(dn, modname*".jl"), "w") do io
                 println(io, """
-__precompile__($pcflag)
+$pcexpr
 module $modname
 export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5, using_mac$(fbase)
 $(fbase)1() = -1
@@ -426,8 +426,6 @@ end
         mkpath(dn)
         open(joinpath(dn, "ModFILE.jl"), "w") do io
             println(io, """
-__precompile__()
-
 module ModFILE
 
 mf() = @__FILE__, 1
@@ -441,8 +439,6 @@ end
         sleep(0.1)
         open(joinpath(dn, "ModFILE.jl"), "w") do io
             println(io, """
-__precompile__()
-
 module ModFILE
 
 mf() = @__FILE__, 2
@@ -642,6 +638,7 @@ end
         mkpath(dn)
         open(joinpath(dn, "MethDel.jl"), "w") do io
             println(io, """
+__precompile__(false)   # "clean" Base doesn't have :revisefoo
 module MethDel
 f(x) = 1
 f(x::Int) = 2
@@ -892,7 +889,7 @@ end
             @test repo != nothing
             files = Revise.git_files(repo)
             @test "README.md" ∈ files
-            src = Revise.git_source(loc, "HEAD")
+            src = Revise.git_source(loc, "946d588328c2eb5fe5a56a21b4395379e41092e0")
             @test startswith(src, "__precompile__")
             src = Revise.git_source(loc, "eae5e000097000472280e6183973a665c4243b94") # 2nd commit in Revise's history
             @test src == "module Revise\n\n# package code goes here\n\nend # module\n"
