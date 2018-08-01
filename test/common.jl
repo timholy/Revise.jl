@@ -1,8 +1,9 @@
 using Random
 
+const setseed = @static VERSION >= v"0.7.0-beta2.171" ? Random.seed! : srand
 const rseed = Ref(Random.GLOBAL_RNG)  # to get new random directories (see #24445)
 function randtmp()
-    srand(rseed[])
+    setseed(rseed[])
     dirname = joinpath(tempdir(), randstring(10))
     rseed[] = Random.GLOBAL_RNG
     dirname
