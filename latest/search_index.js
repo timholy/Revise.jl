@@ -165,7 +165,55 @@ var documenterSearchIndex = {"docs": [
     "page": "How Revise works",
     "title": "How Revise works",
     "category": "section",
-    "text": "Revise is based on the fact that you can change functions even when they are defined in other modules. Here\'s an example showing how you do that manually (without using Revise):julia> convert(Float64, π)\n3.141592653589793\n\njulia> # That\'s too hard, let\'s make life easier for students\n\njulia> @eval Base convert(::Type{Float64}, x::Irrational{:π}) = 3.0\nconvert (generic function with 714 methods)\n\njulia> convert(Float64, π)\n3.0Revise removes some of the tedium of manually copying and pasting code into @eval statements. To decrease the amount of re-JITting required, Revise avoids reloading entire modules; instead, it takes care to eval only the changes in your package(s), much as you would if you were doing it manually. Importantly, changes are detected in a manner that is independent of the specific line numbers in your code, so that you don\'t have to re-evaluate just because code moves around within the same file. (However, one unfortunate side effect is that line numbers may become inaccurate in backtraces.)To accomplish this, Revise uses the following overall strategy:add callbacks to Base so that Revise gets notified when new packages are loaded or new files included\nprepare source-code caches for every new file. These caches will allow Revise to detect changes when files are updated. For precompiled packages this happens on an as-needed basis, using the cached source in the *.ji file. For non-precompiled packages, Revise parses the source for each included file immediately so that the initial state is known and changes can be detected.\nmonitor the file system for changes to any of the dependent files; it immediately appends any updates to a list of file names that need future processing\nintercept the REPL\'s backend to ensure that the list of files-to-be-revised gets processed each time you execute a new command at the REPL\nwhen a revision is triggered, the source file(s) are re-parsed, and a diff between the cached version and the new version is created. eval the diff in the appropriate module(s).\nreplace the cached version of each source file with the new version, so that further changes are diffed against the most recent update.You can find more detail about Revise\'s inner workings in the Developer reference."
+    "text": "Revise is based on the fact that you can change functions even when they are defined in other modules. Here\'s an example showing how you do that manually (without using Revise):julia> convert(Float64, π)\n3.141592653589793\n\njulia> # That\'s too hard, let\'s make life easier for students\n\njulia> @eval Base convert(::Type{Float64}, x::Irrational{:π}) = 3.0\nconvert (generic function with 714 methods)\n\njulia> convert(Float64, π)\n3.0Revise removes some of the tedium of manually copying and pasting code into @eval statements. To decrease the amount of re-JITting required, Revise avoids reloading entire modules; instead, it takes care to eval only the changes in your package(s), much as you would if you were doing it manually. Importantly, changes are detected in a manner that is independent of the specific line numbers in your code, so that you don\'t have to re-evaluate just because code moves around within the same file. (One unfortunate side effect is that line numbers may become inaccurate in backtraces, but Revise takes pains to correct these, see below.)To accomplish this, Revise uses the following overall strategy:add callbacks to Base so that Revise gets notified when new packages are loaded or new files included\nprepare source-code caches for every new file. These caches will allow Revise to detect changes when files are updated. For precompiled packages this happens on an as-needed basis, using the cached source in the *.ji file. For non-precompiled packages, Revise parses the source for each included file immediately so that the initial state is known and changes can be detected.\nmonitor the file system for changes to any of the dependent files; it immediately appends any updates to a list of file names that need future processing\nintercept the REPL\'s backend to ensure that the list of files-to-be-revised gets processed each time you execute a new command at the REPL\nwhen a revision is triggered, the source file(s) are re-parsed, and a diff between the cached version and the new version is created. eval the diff in the appropriate module(s).\nreplace the cached version of each source file with the new version, so that further changes are diffed against the most recent update."
+},
+
+{
+    "location": "internals.html#The-structure-of-Revise\'s-internal-representation-1",
+    "page": "How Revise works",
+    "title": "The structure of Revise\'s internal representation",
+    "category": "section",
+    "text": "Revise bridges between text files (your source code) and compiled code. Revise consequently maintains data structures that parallel Julia\'s own internal processing of code. When dealing with a source-code file, you start with strings, parse them to obtain Julia expressions, evaluate them to obtain Julia objects, and (where appropriate, e.g., for methods) compile them to machine code. This will be called the forward workflow. Revise sets up a few key structures that allow it to progress from files to modules to Julia expressions and types.Revise also sets up a backward workflow, proceeding from compiled code to Julia types back to Julia expressions. This workflow is useful, for example, when dealing with errors: the stack traces displayed by Julia link from the compiled code back to the source files. To make this possible, Julia builds \"breadcrumbs\" into compiled code that store the filename and line number at which each expression was found. However, these links are static, meaning they are set up once (when the code is compiled) and are not updated when the source file changes. Because trivial manipulations to source files (e.g., the insertion of blank lines and/or comments) can change the line number of an expression without necessitating its recompilation, Revise implements a way of correcting these line numbers before they are displayed to the user. This capability requires that Revise proceed backward from the compiled objects to something resembling the original text file."
+},
+
+{
+    "location": "internals.html#Terminology-1",
+    "page": "How Revise works",
+    "title": "Terminology",
+    "category": "section",
+    "text": "A few convenience terms are used throughout: definition, signature-expression, and signature-type. These terms are illustrated using the following example:<p><pre><code class=\"language-julia\">function <mark>print_item(io::IO, item, ntimes::Integer=1, pre::String=\"\")</mark>\n    print(io, pre)\n    for i = 1:ntimes\n        print(io, item)\n    end\nend</code></pre></p>This represents the definition of a method. Definitions are stored as expressions, using a Revise.RelocatableExpr. The highlighted portion is the signature-expression, specifying the name, argument names and their types, and (if applicable) type-parameters of the method.From the signature-expression we can generate one or more signature-types. Since this function has two default arguments, this signature-expression generates three signature-types, each corresponding to a different valid way of calling this method:Tuple{typeof(print_item),IO,Any}                    # print_item(io, item)\nTuple{typeof(print_item),IO,Any,Integer}            # print_item(io, item, 2)\nTuple{typeof(print_item),IO,Any,Integer,String}     # print_item(io, item, 2, \"  \")In Revise\'s internal code, a definition is often represented with a variable def, a signature-expression with sigex, and a signature-type with sigt."
+},
+
+{
+    "location": "internals.html#Core-data-structures-and-representations-1",
+    "page": "How Revise works",
+    "title": "Core data structures and representations",
+    "category": "section",
+    "text": "Two \"maps\" are central to Revise\'s inner workings: the DefMap links definition=>signature-types (the forward workflow), while the SigtMap links from signature-type=>definition (the backward workflow). Concretely, SigtMap is just a Dict mapping sigt=>def. Of note, a stack frame typically contains a link to a method, which stores the equivalent of sigt; consequently, this information allows one to look up the corresponding def.The DefMap is a bit more complex and has important constraints:For expressions that do not define a method, it is just def=>nothing\nFor expressions that do define a method, it is def=>([sigt1, ...], lineoffset). [sigt1, ...] is the list of signature-types generated from def (often just one, but more in the case of methods with default arguments). lineoffset is the correction to be added to the currently-compiled code\'s internal line numbers needed to make them match the current state of the source file.\nDefMap is represented as an OrderedDict so as to preserve the sequence in which expressions occur in the file. This can be important particularly for updating macro definitions, which affect the expansion of later code. The order is maintained so as to match the current ordering of the source-file, which is not necessarily the same as the ordering when these expressions were last evaled.\nEach key in the DefMap (the definition RelocatableExpr) is the most recently evaled version of the expression. This has an important consequence: the line numbers in the def (which are still present, even though not used for equality comparisons) correspond to the ones in compiled code. If the file is parsed again, comparing the line numbers embedded in two \"equal\" def exprs (the original and the new one) allows us to accurately determine the current value of lineoffset.Importantly, modules can be \"reconstructed\" from the keys of DefMap (or collection of DefMaps, if the module involves multiple files or has sub-modules), since they hold the complete ordered set of expressions that would be evaled to define the module.The DefMap and SigtMap are grouped in a Revise.FMMaps, which are then organized by the file in which they occur and their module of evaluation."
+},
+
+{
+    "location": "internals.html#An-example-1",
+    "page": "How Revise works",
+    "title": "An example",
+    "category": "section",
+    "text": "Consider a module, Items, defined by the following two source files:Items.jl:__precompile__(false)\n\nmodule Items\n\ninclude(\"indents.jl\")\n\nfunction print_item(io::IO, item, ntimes::Integer=1, pre::String=indent(item))\n    print(io, pre)\n    for i = 1:ntimes\n        print(io, item)\n    end\nend\n\nendindents.jl:indent(::UInt16) = 2\nindent(::UInt8)  = 4indents.jl is particularly simple: Revise represents it as \"indents.jl\"=>Dict(Items=>fmm1), specifying the filename, module(s) into which its code is evaled, and corresponding FMMaps. Because indents.jl only contains code from a single module (Items), the Dict has just one entry. fmm1 looks like this:fmm1 = FMMaps(DefMap(:(indent(::UInt16) = 2) => ([Tuple{typeof(indent),UInt16}], 0),\n                     :(indent(::UInt8) = 4)  => ([Tuple{typeof(indent),UInt8}], 0)\n                     ),\n              SigtMap(Tuple{typeof(indent),UInt16} => :(indent(::UInt16) = 2),\n                      Tuple{typeof(indent),UInt8}  => :(indent(::UInt8) = 4)\n                      ))The lineoffsets are initially set to 0 when the code is first compiled, but these may be updated if the source file is changed.Items.jl is represented with a bit more complexity, \"Items.jl\"=>Dict(Main=>fmm2, Main.Items=>fmm3). This is because Items.jl contains one expression (the __precompile__ statement) that is evaled in Main, and other expressions that are evaled in Items. Concretely,fmm2 = FMMaps(DefMap(:(__precompile__(false)) => nothing),\n              SigtMap())\nfmm3 = FMMaps(DefMap(:(include(\"indents.jl\")) => nothing,\n                     def => ([Tuple{typeof(print_item),IO,Any},\n                              Tuple{typeof(print_item),IO,Any,Integer},\n                              Tuple{typeof(print_item),IO,Any,Integer,String}], 0)),\n              SigtMap(Tuple{typeof(print_item),IO,Any} => def,\n                      Tuple{typeof(print_item),IO,Any,Integer} => def,\n                      Tuple{typeof(print_item),IO,Any,Integer,String} => def))where here def is the expression defining print_item."
+},
+
+{
+    "location": "internals.html#Revisions-and-computing-diffs-1",
+    "page": "How Revise works",
+    "title": "Revisions and computing diffs",
+    "category": "section",
+    "text": "When the file system notifies Revise that a file has been modified, Revise re-parses the file and assigns the expressions to the appropriate modules, creating a Revise.FileModules fmnew. It then compares fmnew against fmref, the reference object that is synchronized to code as it was evaled. The following actions are taken:if a def entry in fmref is equal to one fmnew, the expression is \"unchanged\" except possibly for line number. The lineoffset in fmref is updated as needed.\nif a def entry in fmref is not present in fmnew, that entry is deleted and any corresponding methods are also deleted.\nif a def entry in fmnew is not present in fmref, it is evaled and then added to fmref.Technically, a new fmref is generated every time to ensure that the expressions are ordered as in fmnew; however, conceptually this is better thought of as an updating of fmref, after which fmnew is discarded."
+},
+
+{
+    "location": "internals.html#Internal-API-1",
+    "page": "How Revise works",
+    "title": "Internal API",
+    "category": "section",
+    "text": "You can find more detail about Revise\'s inner workings in the Developer reference."
 },
 
 {
@@ -181,7 +229,7 @@ var documenterSearchIndex = {"docs": [
     "page": "User reference",
     "title": "Revise.revise",
     "category": "function",
-    "text": "revise()\n\neval any changes in the revision queue. See Revise.revision_queue.\n\n\n\n\n\nrevise(mod::Module)\n\nReevaluate every definition in mod, whether it was changed or not. This is useful to propagate an updated macro definition, or to force recompiling generated functions.\n\nReturns true if all revisions in mod were successfully implemented.\n\n\n\n\n\n"
+    "text": "revise()\n\neval any changes in the revision queue. See Revise.revision_queue.\n\n\n\n\n\nrevise(mod::Module)\n\nReevaluate every definition in mod, whether it was changed or not. This is useful to propagate an updated macro definition, or to force recompiling generated functions.\n\n\n\n\n\n"
 },
 
 {
@@ -321,11 +369,11 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.file2modules",
+    "location": "dev_reference.html#Revise.fileinfos",
     "page": "Developer reference",
-    "title": "Revise.file2modules",
+    "title": "Revise.fileinfos",
     "category": "constant",
-    "text": "Revise.file2modules\n\nGlobal variable, file2modules is the core information that allows re-evaluation of code in the proper module scope. It is a dictionary indexed by absolute paths of files; file2modules[filename] returns a value of type Revise.FileModules.\n\n\n\n\n\n"
+    "text": "Revise.fileinfos\n\nfileinfos is the core information that tracks the relationship between source code and julia objects, and allows re-evaluation of code in the proper module scope. It is a dictionary indexed by absolute paths of files; fileinfos[filename] returns a value of type Revise.FileInfo.\n\n\n\n\n\n"
 },
 
 {
@@ -333,7 +381,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.module2files",
     "category": "constant",
-    "text": "Revise.module2files\n\nGlobal variable, module2files holds the list of filenames used to define a particular module. This is only used by revise(MyModule) to \"refresh\" all the definitions in a module.\n\n\n\n\n\n"
+    "text": "Revise.module2files\n\nmodule2files holds the list of filenames used to define a particular module. This is only used by revise(MyModule) to \"refresh\" all the definitions in a module.\n\n\n\n\n\n"
 },
 
 {
@@ -341,7 +389,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Internal state management",
     "category": "section",
-    "text": "Revise.watched_files\nRevise.revision_queue\nRevise.included_files\nRevise.file2modules\nRevise.module2files"
+    "text": "Revise.watched_files\nRevise.revision_queue\nRevise.included_files\nRevise.fileinfos\nRevise.module2files"
 },
 
 {
@@ -349,23 +397,31 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.RelocatableExpr",
     "category": "type",
-    "text": "A RelocatableExpr is exactly like an Expr except that comparisons between RelocatableExprs ignore line numbering information.\n\nYou can use convert(Expr, rex::RelocatableExpr) to convert to an Expr and convert(RelocatableExpr, ex::Expr) for the converse. Beware that the latter operates in-place and is intended only for internal use.\n\n\n\n\n\n"
+    "text": "A RelocatableExpr is exactly like an Expr except that comparisons between RelocatableExprs ignore line numbering information. This allows one to detect that two expressions are the same no matter where they appear in a file.\n\nYou can use convert(Expr, rex::RelocatableExpr) to convert to an Expr and convert(RelocatableExpr, ex::Expr) for the converse. Beware that the latter operates in-place and is intended only for internal use.\n\n\n\n\n\n"
 },
 
 {
-    "location": "dev_reference.html#Revise.ExprsSigs",
+    "location": "dev_reference.html#Revise.DefMap",
     "page": "Developer reference",
-    "title": "Revise.ExprsSigs",
+    "title": "Revise.DefMap",
     "category": "type",
-    "text": "Revise.ExprsSigs\n\nstruct holding parsed source code.\n\nFields:\n\nexprs: all RelocatableExpr in the module or file\nsigs: all detected function signatures (used in method deletion)\n\nThese fields are stored as sets so that one can efficiently find the differences between two versions of the same module or file.\n\n\n\n\n\n"
+    "text": "DefMap\n\nMaps def=>nothing or def=>([sigt1,...], lineoffset), where:\n\ndef is an expression\nthe value is nothing if def does not define a method\nif it does define a method, sigt1... are the signature-types and lineoffset is the difference between the line number when the method was compiled and the current state of the source file.\n\nSee the documentation page How Revise works for more information.\n\n\n\n\n\n"
 },
 
 {
-    "location": "dev_reference.html#Revise.ModDict",
+    "location": "dev_reference.html#Revise.SigtMap",
     "page": "Developer reference",
-    "title": "Revise.ModDict",
+    "title": "Revise.SigtMap",
     "category": "type",
-    "text": "A ModDict is an alias for Dict{Module,ExprsSigs}. It is used to organize expressions according to their module of definition.\n\nSee also FileModules.\n\n\n\n\n\n"
+    "text": "SigtMap\n\nMaps sigt=>def, where sigt is the signature-type of a method and def the expression defining the method.\n\nSee the documentation page How Revise works for more information.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference.html#Revise.FMMaps",
+    "page": "Developer reference",
+    "title": "Revise.FMMaps",
+    "category": "type",
+    "text": "FMMaps\n\nsource=>sigtypes and sigtypes=>source mappings for a particular file/module combination. See the documentation page How Revise works for more information.\n\n\n\n\n\n"
 },
 
 {
@@ -373,7 +429,15 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.FileModules",
     "category": "type",
-    "text": "FileModules(topmod::Module, md::ModDict, [cachefile::String])\n\nStructure to hold the per-module expressions found when parsing a single file.  topmod is the current module when the file is parsed. md holds the evaluatable statements, organized by the module of their occurrence. In particular, if the file defines one or more new modules, then md contains key/value pairs for each module. If the file does not define any new modules, topmod is the only key in md.\n\nExample:\n\nSuppose MyPkg.jl has a file that looks like this:\n\n__precompile__(true)\n\nmodule MyPkg\n\nfoo(x) = x^2\n\nend\n\nThen if this module is loaded from Main, schematically the corresponding fm::FileModules looks something like\n\nfm.topmod = Main\nfm.md = Dict(Main=>ExprsSigs(OrderedSet([:(__precompile__(true))]), OrderedSet()),\n             Main.MyPkg=>ExprsSigs(OrderedSet([:(foo(x) = x^2)]), OrderedSet([:(foo(x))]))\n\nbecause the precompile statement occurs in Main, and the definition of foo occurs in Main.MyPkg.\n\nnote: Source cache files\nOptionally, a FileModule can also record the path to a cache file holding the original source code. This is applicable only for precompiled modules and Base. (This cache file is distinct from the original source file that might be edited by the developer, and it will always hold the state of the code when the package was precompiled or Julia\'s Base was built.) For such modules, the ExprsSigs will be empty for any file that has not yet been edited: the original source code gets parsed only when a revision needs to be made.Source cache files greatly reduce the overhead of using Revise.\n\nTo create a FileModules from a source file, see parse_source.\n\n\n\n\n\n"
+    "text": "FileModules\n\nFor a particular source file, the corresponding FileModules is an OrderedDict(mod1=>fmm1, mod2=>fmm2), mapping the collection of modules \"active\" in the file (the parent module and any submodules it defines) to their corresponding FMMaps.\n\nThe first key is guaranteed to be the module into which this file was included.\n\nTo create a FileModules from a source file, see parse_source.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference.html#Revise.FileInfo",
+    "page": "Developer reference",
+    "title": "Revise.FileInfo",
+    "category": "type",
+    "text": "FileInfo(fm::FileModules, cachefile=\"\")\n\nStructure to hold the per-module expressions found when parsing a single file. fm holds the FileModules for the file.\n\nOptionally, a FileInfo can also record the path to a cache file holding the original source code. This is applicable only for precompiled modules and Base. (This cache file is distinct from the original source file that might be edited by the developer, and it will always hold the state of the code when the package was precompiled or Julia\'s Base was built.) When a cache is available, fm will be empty until the file gets edited: the original source code gets parsed only when a revision needs to be made.\n\nSource cache files greatly reduce the overhead of using Revise.\n\n\n\n\n\n"
 },
 
 {
@@ -389,7 +453,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Types",
     "category": "section",
-    "text": "Revise.RelocatableExpr\nRevise.ExprsSigs\nRevise.ModDict\nRevise.FileModules\nRevise.WatchList"
+    "text": "Revise.RelocatableExpr\nRevise.DefMap\nRevise.SigtMap\nRevise.FMMaps\nRevise.FileModules\nRevise.FileInfo\nRevise.WatchList"
 },
 
 {
@@ -485,7 +549,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.revise_file_now",
     "category": "function",
-    "text": "Revise.revise_file_now(file)\n\nProcess revisions to file. This parses file and computes an expression-level diff between the current state of the file and its most recently evaluated state. It then deletes any removed methods and re-evaluates any changed expressions.\n\nfile must be a key in Revise.file2modules\n\n\n\n\n\n"
+    "text": "Revise.revise_file_now(file)\n\nProcess revisions to file. This parses file and computes an expression-level diff between the current state of the file and its most recently evaluated state. It then deletes any removed methods and re-evaluates any changed expressions.\n\nfile must be a key in Revise.fileinfos\n\n\n\n\n\n"
 },
 
 {
@@ -493,15 +557,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.eval_revised",
     "category": "function",
-    "text": "succeeded = eval_revised(revmd::ModDict, delete_methods=true)\n\nEvaluate the changes listed in revmd, which consists of deleting all the listed signatures in each .sigs field(s) (unless delete_methods=false) and evaluating expressions in the .exprs field(s).\n\nReturns true if all revisions in revmd were successfully implemented.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference.html#Revise.revised_statements",
-    "page": "Developer reference",
-    "title": "Revise.revised_statements",
-    "category": "function",
-    "text": "revmod = revised_statements(new_defs, old_defs)\n\nReturn a Dict(Module=>changeset), revmod, listing the changes that should be eval_revised for each module to update definitions from old_defs to new_defs.  See parse_source to obtain the defs structures.\n\n\n\n\n\n"
+    "text": "fmrep = eval_revised(fmnew::FileModules, fmref::FileModules)\n\nImplement the changes from fmref to fmnew, returning a replacement FileModules fmrep.\n\n\n\n\n\n"
 },
 
 {
@@ -509,7 +565,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.get_method",
     "category": "function",
-    "text": "m = get_method(mod::Module, sig)\n\nGet the method m with signature sig from module mod. This is used to provide the method to Base.delete_method. See also get_signature.\n\n\n\n\n\n"
+    "text": "m = get_method(mod::Module, sigt)\n\nGet the method m with signature-type sigt from module mod. This is used to provide the method to Base.delete_method. See also get_signature.\n\n\n\n\n\n"
 },
 
 {
@@ -517,7 +573,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Evaluating changes (revising) and computing diffs",
     "category": "section",
-    "text": "Revise.revise_file_now\nRevise.eval_revised\nRevise.revised_statements\nRevise.get_method"
+    "text": "Revise.revise_file_now\nRevise.eval_revised\nRevise.get_method"
 },
 
 {
@@ -525,7 +581,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.parse_source",
     "category": "function",
-    "text": "parse_source(filename::AbstractString, mod::Module)\n\nParse the source filename, returning a pair filename => fm::FileModules (see FileModules) containing the information needed to evaluate code in file. mod is the \"parent\" module for the file (i.e., the one that included the file); if filename defines more module(s) then these will all have separate entries in fm.md.\n\nIf parsing filename fails, nothing is returned.\n\n\n\n\n\n"
+    "text": "fm = parse_source(filename::AbstractString, mod::Module)\n\nParse the source filename, returning a FileModules fm. mod is the \"parent\" module for the file (i.e., the one that included the file); if filename defines more module(s) then these will all have separate entries in fm.\n\nIf parsing filename fails, nothing is returned.\n\n\n\n\n\n"
 },
 
 {
@@ -533,7 +589,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.parse_source!",
     "category": "function",
-    "text": "success = parse_source!(md::ModDict, filename, mod::Module)\n\nTop-level parsing of filename as included into module mod. Successfully-parsed expressions will be added to md. Returns true if parsing finished successfully.\n\nSee also parse_source.\n\n\n\n\n\nsuccess = parse_source!(md::ModDict, src::AbstractString, file::Symbol, pos::Integer, mod::Module)\n\nParse a string src obtained by reading file as a single string. pos is the 1-based byte offset from which to begin parsing src.\n\nSee also parse_source.\n\n\n\n\n\nsuccess = parse_source!(md::ModDict, ex::Expr, file, mod::Module)\n\nFor a file that defines a sub-module, parse the body ex of the sub-module.  mod will be the module into which this sub-module is evaluated (i.e., included). Successfully-parsed expressions will be added to md. Returns true if parsing finished successfully.\n\nSee also parse_source.\n\n\n\n\n\n"
+    "text": "parse_source!(fm::FileModules, filename, mod::Module)\n\nTop-level parsing of filename as included into module mod. Successfully-parsed expressions will be added to fm. Returns fm if parsing finished successfully, otherwise nothing is returned.\n\nSee also parse_source.\n\n\n\n\n\nsuccess = parse_source!(fm::FileModules, src::AbstractString, file::Symbol, pos::Integer, mod::Module)\n\nParse a string src obtained by reading file as a single string. pos is the 1-based byte offset from which to begin parsing src.\n\nSee also parse_source.\n\n\n\n\n\nsuccess = parse_source!(fm::FileModules, ex::Expr, file, mod::Module)\n\nFor a file that defines a sub-module, parse the body ex of the sub-module.  mod will be the module into which this sub-module is evaluated (i.e., included). Successfully-parsed expressions will be added to fm. Returns true if parsing finished successfully.\n\nSee also parse_source.\n\n\n\n\n\n"
 },
 
 {
@@ -541,7 +597,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.parse_expr!",
     "category": "function",
-    "text": "parse_expr!(md::ModDict, ex::Expr, file::Symbol, mod::Module)\n\nRecursively parse the expressions in ex, iterating over blocks and sub-module definitions. Successfully parsed expressions are added to md with key mod, and any sub-modules will be stored in md using appropriate new keys. This accomplishes two main tasks:\n\nadd parsed expressions to the source-code cache (so that later we can detect changes)\ndetermine the module into which each parsed expression is evaluated into\n\n\n\n\n\n"
+    "text": "parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)\n\nRecursively parse the expressions in ex, iterating over blocks and sub-module definitions. Successfully parsed expressions are added to fm with key mod, and any sub-modules will be stored in fm using appropriate new keys. This accomplishes two main tasks:\n\nadd parsed expressions to the source-code cache (so that later we can detect changes)\ndetermine the module into which each parsed expression is evaluated into\n\n\n\n\n\n"
 },
 
 {
@@ -549,7 +605,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.parse_module!",
     "category": "function",
-    "text": "newmod = parse_module!(md::ModDict, ex::Expr, file, mod::Module)\n\nParse an expression ex that defines a new module newmod. This module is \"parented\" by mod. Source-code expressions are added to md under the appropriate module name.\n\n\n\n\n\n"
+    "text": "newmod = parse_module!(fm::FileModules, ex::Expr, file, mod::Module)\n\nParse an expression ex that defines a new module newmod. This module is \"parented\" by mod. Source-code expressions are added to fm under the appropriate module name.\n\n\n\n\n\n"
 },
 
 {
