@@ -160,6 +160,10 @@ k(x) = 4
         compare_sigs(:(function foo(x, y="hello"; z::Int=0) return 1 end))
         # Destructured args
         compare_sigs(:(function foo(x, (count, name)) return 1 end))
+
+        # Return type annotations
+        @test Revise.sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)::Union{Type,Nothing})) ==
+              Revise.sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)))
     end
 
     @testset "Comparison and line numbering" begin

@@ -137,6 +137,10 @@ julia> Revise.sig_type_exprs(:(foo(x::AbstractVector{T}, y) where T))
 ```
 """
 function sig_type_exprs(sigex::Expr, wheres...)
+    if isempty(wheres) && sigex.head == :(::)
+        # return type annotation
+        sigex = sigex.args[1]
+    end
     if sigex.head == :where
         return sig_type_exprs(sigex.args[1], sigex.args[2:end], wheres...)
     end
