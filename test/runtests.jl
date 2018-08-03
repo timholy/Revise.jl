@@ -160,6 +160,10 @@ k(x) = 4
         compare_sigs(:(function foo(x, y="hello"; z::Int=0) return 1 end))
         # Destructured args
         compare_sigs(:(function foo(x, (count, name)) return 1 end))
+
+        # Return type annotations
+        @test Revise.sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)::Union{Type,Nothing})) ==
+              Revise.sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)))
     end
 
     @testset "Comparison and line numbering" begin
@@ -320,6 +324,8 @@ end
             @eval @test $(fn4)() == 4
             @eval @test $(fn5)() == 5
             @eval @test $(fn6)() == 6
+            m = @eval first(methods($fn1))
+            @test Revise.get_def(m) == convert(Revise.RelocatableExpr, :( $fn1() = 1 ))
             sleep(0.1)  # to ensure that the file watching has kicked in
             # Change the definition of function 1 (easiest to just rewrite the whole file)
             open(joinpath(dn, modname*".jl"), "w") do io
@@ -679,6 +685,7 @@ dfltargs(x::Int8, y::Int=0, z::Float32=1.0f0) = x+y+z
 
 hasmacro1(@nospecialize(x)) = x
 hasmacro2(@nospecialize(x::Int)) = x
+hasmacro3(@nospecialize(x::Int), y::Float64) = x
 
 hasdestructure1(x, (count, name)) = name^count
 hasdestructure2(x, (count, name)::Tuple{Int,Any}) = name^count
@@ -697,6 +704,7 @@ end
         @test MethDel.k(1; badchoice=2) == 2
         @test MethDel.hasmacro1(1) == 1
         @test MethDel.hasmacro2(1) == 1
+        @test MethDel.hasmacro3(1, 0.0) == 1
         @test MethDel.hasdestructure1(0, (3, "hi")) == "hihihi"
         @test MethDel.hasdestructure2(0, (3, "hi")) == "hihihi"
         @test Base.revisefoo(1.0) == 1
@@ -729,6 +737,7 @@ end
         @test MethDel.k(1; goodchoice=10) == 10
         @test_throws MethodError MethDel.hasmacro1(1)
         @test_throws MethodError MethDel.hasmacro2(1)
+        @test_throws MethodError MethDel.hasmacro3(1, 0.0)
         @test_throws MethodError MethDel.hasdestructure1(0, (3, "hi"))
         @test_throws MethodError MethDel.hasdestructure2(0, (3, "hi"))
         @test Base.revisefoo(1.0) == 1
