@@ -77,7 +77,13 @@ Revise.revise_file_queued
 ```@docs
 Revise.revise_file_now
 Revise.eval_revised
+```
+
+### Interchange between methods and signatures
+
+```@docs
 Revise.get_method
+Revise.get_def
 ```
 
 ### Parsing source code
@@ -90,7 +96,6 @@ Revise.parse_module!
 Revise.funcdef_expr
 Revise.get_signature
 Revise.get_callexpr
-Revise.signature_names
 Revise.sig_type_exprs
 Revise.argtypeexpr
 ```
