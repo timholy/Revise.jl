@@ -29,7 +29,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Home",
     "title": "Usage example",
     "category": "section",
-    "text": "(v0.7) pkg> dev Example\n  Updating registry at `/tmp/pkgs/registries/Uncurated`\n  Updating git-repo `https://github.com/JuliaRegistries/Uncurated.git`\n Resolving package versions...\nDownloaded Example ─ v0.5.1\n  Updating `/tmp/pkgs/environments/v0.7/Project.toml`\n  [7876af07] + Example v0.5.1\n  Updating `/tmp/pkgs/environments/v0.7/Manifest.toml`\n  [7876af07] + Example v0.5.1\n\njulia> using Revise        # importantly, this must come before `using Example`\n[ Info: Precompiling module Revise\n\njulia> using Example\n\njulia> hello(\"world\")\n\"Hello, world\"\n\njulia> Example.f()\nERROR: UndefVarError: f not defined\n\njulia> edit(hello)   # opens Example.jl in the editor you have configured\n\n# Now, add a function `f() = π` and save the file\n\njulia> Example.f()\nπ = 3.1415926535897...Revise is not tied to any particular editor. (The EDITOR or JULIA_EDITOR environment variables can be used to specify your preference.)It\'s even possible to use Revise on code in Julia\'s Base module or its standard libraries: just say Revise.track(Base) or using Pkg; Revise.track(Pkg). For Base, any changes that you\'ve made since you last built Julia will be automatically incorporated; for the stdlibs, any changes since the last git commit will be incorporated.See Using Revise by default if you want Revise to be available every time you start julia."
+    "text": "(v0.7) pkg> dev Example\n[...output related to installation...]\n\njulia> using Revise        # importantly, this must come before `using Example`\n\njulia> using Example\n\njulia> hello(\"world\")\n\"Hello, world\"\n\njulia> Example.f()\nERROR: UndefVarError: f not defined\n\njulia> edit(hello)   # opens Example.jl in the editor you have configured\n\n# Now, add a function `f() = π` and save the file\n\njulia> Example.f()\nπ = 3.1415926535897...Revise is not tied to any particular editor. (The EDITOR or JULIA_EDITOR environment variables can be used to specify your preference.)It\'s even possible to use Revise on code in Julia\'s Base module or its standard libraries: just say Revise.track(Base) or using Pkg; Revise.track(Pkg). For Base, any changes that you\'ve made since you last built Julia will be automatically incorporated; for the stdlibs, any changes since the last git commit will be incorporated.See Using Revise by default if you want Revise to be available every time you start julia."
 },
 
 {
@@ -561,19 +561,35 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.get_method",
-    "page": "Developer reference",
-    "title": "Revise.get_method",
-    "category": "function",
-    "text": "m = get_method(mod::Module, sigt)\n\nGet the method m with signature-type sigt from module mod. This is used to provide the method to Base.delete_method. See also get_signature.\n\n\n\n\n\n"
-},
-
-{
     "location": "dev_reference.html#Evaluating-changes-(revising)-and-computing-diffs-1",
     "page": "Developer reference",
     "title": "Evaluating changes (revising) and computing diffs",
     "category": "section",
-    "text": "Revise.revise_file_now\nRevise.eval_revised\nRevise.get_method"
+    "text": "Revise.revise_file_now\nRevise.eval_revised"
+},
+
+{
+    "location": "dev_reference.html#Revise.get_method",
+    "page": "Developer reference",
+    "title": "Revise.get_method",
+    "category": "function",
+    "text": "method = get_method(sigt)\n\nGet the method method with signature-type sigt. This is used to provide the method to Base.delete_method. See also get_signature.\n\nIf sigt does not correspond to a method, returns nothing.\n\nExamples\n\njulia> mymethod(::Int) = 1\nmymethod (generic function with 1 method)\n\njulia> mymethod(::AbstractFloat) = 2\nmymethod (generic function with 2 methods)\n\njulia> Revise.get_method(Tuple{typeof(mymethod), Int})\nmymethod(::Int64) in Main at REPL[0]:1\n\njulia> Revise.get_method(Tuple{typeof(mymethod), Float64})\nmymethod(::AbstractFloat) in Main at REPL[1]:1\n\njulia> Revise.get_method(Tuple{typeof(mymethod), Number})\n\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference.html#Revise.get_def",
+    "page": "Developer reference",
+    "title": "Revise.get_def",
+    "category": "function",
+    "text": "rex = get_def(method::Method)\n\nReturn the RelocatableExpr defining method. The source-file defining method must be tracked. If it is in Base, this will execute track(Base) if necessary.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference.html#Interchange-between-methods-and-signatures-1",
+    "page": "Developer reference",
+    "title": "Interchange between methods and signatures",
+    "category": "section",
+    "text": "Revise.get_method\nRevise.get_def"
 },
 
 {
@@ -609,11 +625,27 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "dev_reference.html#Revise.funcdef_expr",
+    "page": "Developer reference",
+    "title": "Revise.funcdef_expr",
+    "category": "function",
+    "text": "exf = funcdef_expr(ex)\n\nRecurse, if necessary, into ex until the first function definition expression is found.\n\nExample\n\njulia> Revise.funcdef_expr(quote\n       \"\"\"\n       A docstring\n       \"\"\"\n       @inline foo(x) = 5\n       end)\n:(foo(x) = begin\n          #= REPL[31]:5 =#\n          5\n      end)\n\n\n\n\n\n"
+},
+
+{
     "location": "dev_reference.html#Revise.get_signature",
     "page": "Developer reference",
     "title": "Revise.get_signature",
     "category": "function",
-    "text": "sig = get_signature(expr)\n\nExtract the signature from an expression expr that defines a function.\n\nIf expr does not define a function, returns nothing.\n\n\n\n\n\n"
+    "text": "sigex = get_signature(expr)\n\nExtract the signature from an expression expr that defines a function.\n\nIf expr does not define a function, returns nothing.\n\nExamples\n\njulia> Revise.get_signature(quote\n       function count_different(x::AbstractVector{T}, y::AbstractVector{S}) where {S,T}\n           sum(x .!= y)\n       end\n       end)\n:(count_different(x::AbstractVector{T}, y::AbstractVector{S}) where {S, T})\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference.html#Revise.get_callexpr",
+    "page": "Developer reference",
+    "title": "Revise.get_callexpr",
+    "category": "function",
+    "text": "callex = get_callexpr(sigex::ExLike)\n\nReturn the \"call\" expression for a signature-expression sigex. (This strips out :where statements.)\n\nExample\n\njulia> Revise.get_callexpr(:(nested(x::A) where A<:AbstractVector{T} where T))\n:(nested(x::A))\n\n\n\n\n\n"
 },
 
 {
@@ -621,7 +653,15 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.sig_type_exprs",
     "category": "function",
-    "text": "typexs = sig_type_exprs(ex::Expr)\n\nFrom a function signature ex (see get_signature), generate a list typexs of concrete signature type expressions. This list will have length 1 unless ex has default arguments, in which case it will produce one type signature per valid number of supplied arguments.\n\nThese type-expressions can be evaluated in the appropriate module to obtain a Tuple-type.\n\nExamples\n\njulia> Revise.sig_type_exprs(:(foo(x::Int, y::String)))\n1-element Array{Expr,1}:\n:(Tuple{Core.Typeof(foo), Int, String})\n\njulia> Revise.sig_type_exprs(:(foo(x::Int, y::String=\"hello\")))\n2-element Array{Expr,1}:\n :(Tuple{Core.Typeof(foo), Int})\n :(Tuple{Core.Typeof(foo), Int, String})\n\n\n\n\n\n"
+    "text": "typexs = sig_type_exprs(sigex::Expr)\n\nFrom a function signature-expression sigex (see get_signature), generate a list typexs of concrete signature type expressions. This list will have length 1 unless sigex has default arguments, in which case it will produce one type signature per valid number of supplied arguments.\n\nThese type-expressions can be evaluated in the appropriate module to obtain a Tuple-type.\n\nExamples\n\njulia> Revise.sig_type_exprs(:(foo(x::Int, y::String)))\n1-element Array{Expr,1}:\n :(Tuple{Core.Typeof(foo), Int, String})\n\njulia> Revise.sig_type_exprs(:(foo(x::Int, y::String=\"hello\")))\n2-element Array{Expr,1}:\n :(Tuple{Core.Typeof(foo), Int})\n :(Tuple{Core.Typeof(foo), Int, String})\n\njulia> Revise.sig_type_exprs(:(foo(x::AbstractVector{T}, y) where T))\n1-element Array{Expr,1}:\n :(Tuple{Core.Typeof(foo), AbstractVector{T}, Any} where T)\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference.html#Revise.argtypeexpr",
+    "page": "Developer reference",
+    "title": "Revise.argtypeexpr",
+    "category": "function",
+    "text": "typeex1, typeex2, ... = argtypeexpr(ex...)\n\nReturn expressions that specify the types assigned to each argument in a method signature. Returns :Any if no type is assigned to a specific argument. It also skips keyword arguments.\n\nex... should be arguments 2:end of a :call expression (i.e., skipping over the function name).\n\nExamples\n\njulia> sigex = :(varargs(x, rest::Int...))\n:(varargs(x, rest::Int...))\n\njulia> Revise.argtypeexpr(Revise.get_callexpr(sigex).args[2:end]...)\n(:Any, :(Vararg{Int}))\n\njulia> sigex = :(complexargs(w::Vector{T}, @nospecialize(x::Integer), y, z::String=\"\"; kwarg::Bool=false) where T)\n:(complexargs(w::Vector{T}, #= REPL[39]:1 =# @nospecialize(x::Integer), y, z::String=\"\"; kwarg::Bool=false) where T)\n\njulia> Revise.argtypeexpr(Revise.get_callexpr(sigex).args[2:end]...)\n(:(Vector{T}), :Integer, :Any, :String)\n\n\n\n\n\n"
 },
 
 {
@@ -629,7 +669,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Parsing source code",
     "category": "section",
-    "text": "Revise.parse_source\nRevise.parse_source!\nRevise.parse_expr!\nRevise.parse_module!\nRevise.get_signature\nRevise.sig_type_exprs"
+    "text": "Revise.parse_source\nRevise.parse_source!\nRevise.parse_expr!\nRevise.parse_module!\nRevise.funcdef_expr\nRevise.get_signature\nRevise.get_callexpr\nRevise.sig_type_exprs\nRevise.argtypeexpr"
 },
 
 {
