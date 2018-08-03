@@ -535,7 +535,7 @@ function get_def(method::Method)
     nothing
 end
 
-function println_maxsize(io::IO, args...; maxchars::Integer=500, maxlines::Integer=20)
+function printf_maxsize(f::Function, io::IO, args...; maxchars::Integer=500, maxlines::Integer=20)
     # This is dumb but certain to work
     iotmp = IOBuffer()
     for a in args
@@ -550,20 +550,21 @@ function println_maxsize(io::IO, args...; maxchars::Integer=500, maxlines::Integ
     lines = split(str, '\n')
     if length(lines) <= maxlines
         for line in lines
-            println(io, line)
+            f(io, line)
         end
         return
     end
     half = (maxlines+1) ÷ 2
     for i = 1:half
-        println(io, lines[i])
+        f(io, lines[i])
     end
-    println(io, ⋮)
+    maxlines > 1 && f(io, ⋮)
     for i = length(lines) - (maxlines-half) + 1:length(lines)
-        println(io, lines[i])
+        f(io, lines[i])
     end
 end
 println_maxsize(args...; kwargs...) = println_maxsize(stdout, args...; kwargs...)
+println_maxsize(io::IO, args...; kwargs...) = printf_maxsize(println, stdout, args...; kwargs...)
 
 function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)
     if ex.head == :line
