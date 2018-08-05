@@ -20,8 +20,11 @@ function rm_precompile(pkgname::AbstractString)
     end
 end
 
-# An empty module that we can evaluate into
+# A junk module that we can evaluate into
 module ReviseTestPrivate
+struct Inner
+    x::Float64
+end
 end
 
 function private_module()
@@ -164,6 +167,15 @@ k(x) = 4
         # Return type annotations
         @test Revise.sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)::Union{Type,Nothing})) ==
               Revise.sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)))
+
+        # Overloading call
+        def = :((i::Inner)(::String) = i.x)
+        sig = Revise.get_signature(def)
+        sigexs = Revise.sig_type_exprs(sig)
+        Core.eval(ReviseTestPrivate, def)
+        i = ReviseTestPrivate.Inner(3)
+        m = @which i("hello")
+        @test Core.eval(ReviseTestPrivate, sigexs[1]) == m.sig
     end
 
     @testset "Comparison and line numbering" begin
