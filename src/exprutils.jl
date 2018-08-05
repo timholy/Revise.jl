@@ -158,7 +158,12 @@ sig_type_exprs(sigex::RelocatableExpr) = sig_type_exprs(convert(Expr, sigex))
 
 function _sig_type_exprs(ex, @nospecialize(wheres))
     fex = ex.args[1]
-    sigex = Expr(:curly, :Tuple, :(Core.Typeof($fex)), argtypeexpr(ex.args[2:end]...)...)
+    if isa(fex, Expr) && fex.head == :(::)
+        fexTex = fex.args[2]
+    else
+        fexTex = :(Core.Typeof($fex))
+    end
+    sigex = Expr(:curly, :Tuple, fexTex, argtypeexpr(ex.args[2:end]...)...)
     for w in wheres
         sigex = Expr(:where, sigex, w...)
     end
