@@ -946,6 +946,7 @@ end
             # Tracking stdlibs
             Revise.track(Unicode)
             @test any(k->endswith(k, "Unicode.jl"), keys(Revise.fileinfos))
+            @test Revise.get_def(first(methods(Unicode.isassigned))) isa Revise.RelocatableExpr
         else
             @warn "skipping Core.Compiler and stdlibs tests due to lack of git repo"
         end

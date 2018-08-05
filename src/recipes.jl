@@ -58,6 +58,8 @@ function track_subdir_from_git(mod::Module, subdir::AbstractString)
         fi = FileInfo(fmod)
         if parse_source!(fi.fm, src, Symbol(file), 1, fmod) === nothing
             warn("failed to parse Git source text for ", file)
+        else
+            instantiate_sigs!(fi.fm)
         end
         fileinfos[fullpath] = fi
         push!(wfiles, fullpath)
