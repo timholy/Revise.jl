@@ -3,7 +3,7 @@ using Test
 
 @test isempty(detect_ambiguities(Revise, Base, Core))
 
-using Pkg, Unicode, Distributed, InteractiveUtils
+using Pkg, Unicode, Distributed, InteractiveUtils, REPL
 using OrderedCollections: OrderedSet
 
 include("common.jl")
@@ -959,6 +959,12 @@ end
             Revise.track(Unicode)
             @test any(k->endswith(k, "Unicode.jl"), keys(Revise.fileinfos))
             @test Revise.get_def(first(methods(Unicode.isassigned))) isa Revise.RelocatableExpr
+
+            # Test that we skip over files that don't end in ".jl"
+            logs, _ = Test.collect_test_logs() do
+                Revise.track(REPL)
+            end
+            @test isempty(logs)
         else
             @warn "skipping Core.Compiler and stdlibs tests due to lack of git repo"
         end

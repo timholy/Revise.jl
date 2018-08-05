@@ -45,7 +45,7 @@ function track_subdir_from_git(mod::Module, subdir::AbstractString)
     end
     prefix = subdir[length(repo_path)+2:end]   # git-relative path of this subdir
     tree = git_tree(repo, Base.GIT_VERSION_INFO.commit)
-    files = Iterators.filter(file->startswith(file, prefix), keys(tree))
+    files = Iterators.filter(file->startswith(file, prefix) && endswith(file, ".jl"), keys(tree))
     ccall((:giterr_clear, :libgit2), Cvoid, ())  # necessary to avoid errors like "the global/xdg file 'attributes' doesn't exist: No such file or directory"
     wfiles = String[]  # files to watch
     for file in files
