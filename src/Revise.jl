@@ -367,7 +367,13 @@ end
 function instantiate_sigs!(fmm::FMMaps, def::RelocatableExpr, sig::RelocatableExpr, mod::Module)
     # Generate the signature-types
     sigtexs = sig_type_exprs(sig)
-    sigts = Any[Core.eval(mod, s) for s in sigtexs]
+    local sigts
+    try
+        sigts = Any[Core.eval(mod, s) for s in sigtexs]
+    catch err
+        @warn "error processing module $mod signature expressions $sigtexs from $def"
+        rethrow(err)
+    end
     # Insert into the maps
     fmm.defmap[def] = (sigts, 0)
     for sigt in sigts
