@@ -29,7 +29,7 @@ function funcdef_expr(ex)
     if ex.head == :macrocall
         if ex.args[1] isa GlobalRef && ex.args[1].name == Symbol("@doc")
             return funcdef_expr(ex.args[end])
-        elseif ex.args[1] ∈ (Symbol("@inline"), Symbol("@noinline"))
+        elseif ex.args[1] ∈ (Symbol("@inline"), Symbol("@noinline"), Symbol("@propagate_inbounds"))
             return funcdef_expr(ex.args[3])
         else
             io = IOBuffer()

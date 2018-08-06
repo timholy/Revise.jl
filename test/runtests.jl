@@ -176,6 +176,16 @@ k(x) = 4
         i = ReviseTestPrivate.Inner(3)
         m = @which i("hello")
         @test Core.eval(ReviseTestPrivate, sigexs[1]) == m.sig
+
+        # Annotations
+        refex =  Revise.relocatable!(:(function foo(x) x^2 end))
+        for ex in (:(@inline function foo(x) x^2 end),
+                   :(@noinline function foo(x) x^2 end),
+                   :(@propagate_inbounds function foo(x) x^2 end))
+            @test Revise.get_signature(ex) == :(foo(x))
+            @test Revise.relocatable!(Revise.funcdef_expr(ex)) == refex
+        end
+
     end
 
     @testset "Comparison and line numbering" begin
