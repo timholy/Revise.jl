@@ -14,7 +14,6 @@ function track(mod::Module)
         # note any modified since Base was built
         files = String[]
         for (submod, filename) in Base._included_files
-            submod == Main || startswith(String(nameof(submod)), "Base") || continue
             push!(fileinfos, filename=>FileInfo(submod, basesrccache))
             push!(files, filename)
             if mtime(filename) > mtcache
