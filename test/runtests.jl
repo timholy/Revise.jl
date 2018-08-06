@@ -176,6 +176,12 @@ k(x) = 4
         i = ReviseTestPrivate.Inner(3)
         m = @which i("hello")
         @test Core.eval(ReviseTestPrivate, sigexs[1]) == m.sig
+        def = :((::Type{Inner})(::Dict) = 17)
+        sig = Revise.get_signature(def)
+        sigexs = Revise.sig_type_exprs(sig)
+        Core.eval(ReviseTestPrivate, def)
+        m = @which ReviseTestPrivate.Inner(Dict("a"=>1))
+        @test Core.eval(ReviseTestPrivate, sigexs[1]) == m.sig
 
         # Annotations
         refex =  Revise.relocatable!(:(function foo(x) x^2 end))

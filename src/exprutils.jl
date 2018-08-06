@@ -159,7 +159,7 @@ sig_type_exprs(sigex::RelocatableExpr) = sig_type_exprs(convert(Expr, sigex))
 function _sig_type_exprs(ex, @nospecialize(wheres))
     fex = ex.args[1]
     if isa(fex, Expr) && fex.head == :(::)
-        fexTex = fex.args[2]
+        fexTex = fex.args[end]
     else
         fexTex = :(Core.Typeof($fex))
     end
