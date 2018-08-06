@@ -794,9 +794,8 @@ end
 revise_f(x) = 1
 """)
         end
-        include(srcfile)
+        includet(srcfile)
         @test revise_f(10) == 1
-        Revise.track(srcfile)
         sleep(0.1)
         open(srcfile, "w") do io
             print(io, """
