@@ -371,7 +371,7 @@ function instantiate_sigs!(fmm::FMMaps, def::RelocatableExpr, sig::RelocatableEx
     try
         sigts = Any[Core.eval(mod, s) for s in sigtexs]
     catch err
-        @warn "error processing module $mod signature expressions $sigtexs from $def"
+        sigwarn(mod, sigtexs, def)
         rethrow(err)
     end
     # Insert into the maps
@@ -379,7 +379,9 @@ function instantiate_sigs!(fmm::FMMaps, def::RelocatableExpr, sig::RelocatableEx
     for sigt in sigts
         fmm.sigtmap[sigt] = def
     end
+    return def
 end
+@noinline sigwarn(mod, sigtexs, def) = @warn "error processing module $mod signature expressions $sigtexs from $def"
 
 """
     revise()

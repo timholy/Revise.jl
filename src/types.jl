@@ -40,7 +40,7 @@ defining the method.
 
 See the documentation page [How Revise works](@ref) for more information.
 """
-const SigtMap = Dict{Any,RelocatableExpr}   # sigt=>def
+const SigtMap = IdDict{Any,RelocatableExpr}   # sigt=>def
 
 """
     FMMaps
