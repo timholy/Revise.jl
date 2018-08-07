@@ -31,6 +31,8 @@ function funcdef_expr(ex)
             return funcdef_expr(ex.args[end])
         elseif ex.args[1] ∈ (Symbol("@inline"), Symbol("@noinline"), Symbol("@propagate_inbounds"))
             return funcdef_expr(ex.args[3])
+        elseif ex.args[1] == Symbol("@eval")
+            return funcdef_expr(ex.args[end])
         else
             io = IOBuffer()
             dump(io, ex)

@@ -192,6 +192,12 @@ k(x) = 4
             @test Revise.relocatable!(Revise.funcdef_expr(ex)) == refex
         end
 
+        # @eval-defined methods
+        ex = :(@eval getindex(A::Array, i1::Int, i2::Int, I::Int...) = (@_inline_meta; arrayref($(Expr(:boundscheck)), A, i1, i2, I...)))
+        @test Revise.get_signature(ex) == :(getindex(A::Array, i1::Int, i2::Int, I::Int...))
+        @test Revise.relocatable!(Revise.funcdef_expr(ex)) == Revise.relocatable!(
+            :(getindex(A::Array, i1::Int, i2::Int, I::Int...) = (@_inline_meta; arrayref($(Expr(:boundscheck)), A, i1, i2, I...)))
+            )
     end
 
     @testset "Comparison and line numbering" begin
