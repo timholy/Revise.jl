@@ -71,7 +71,7 @@ function striplines!(rex::RelocatableExpr)
         # for macros, the show method in Base assumes the line number is there,
         # so don't strip it
         args3 = [a isa RelocatableExpr ? striplines!(a) : a for a in rex.args[3:end]]
-        return RelocatableExpr(rex.head, rex.args[1:2]..., args3...)
+        return RelocatableExpr(rex.head, rex.args[1], nothing, args3...)
     end
     args = [a isa RelocatableExpr ? striplines!(a) : a for a in rex.args]
     fargs = collect(LineSkippingIterator(args))

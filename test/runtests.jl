@@ -278,6 +278,10 @@ k(x) = 4
     end
 
     @testset "Display" begin
+        io = IOBuffer()
+        show(io, Revise.relocatable!(:(@inbounds x[2])))
+        str = String(take!(io))
+        @test str == ":(@inbounds x[2])"
         fm = Revise.parse_source(joinpath(@__DIR__, "revisetest.jl"), Main)
         Revise.instantiate_sigs!(fm)
         @test string(fm) == "OrderedCollections.OrderedDict(Main=>FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest=>FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal=>FMMaps(<2 expressions>, <2 signatures>))"
