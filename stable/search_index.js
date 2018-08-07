@@ -241,6 +241,14 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "user_reference.html#Revise.includet",
+    "page": "User reference",
+    "title": "Revise.includet",
+    "category": "function",
+    "text": "includet(filename)\n\nInclude and track filename.\n\n\n\n\n\n"
+},
+
+{
     "location": "user_reference.html#Revise.dont_watch_pkgs",
     "page": "User reference",
     "title": "Revise.dont_watch_pkgs",
@@ -261,7 +269,7 @@ var documenterSearchIndex = {"docs": [
     "page": "User reference",
     "title": "User reference",
     "category": "section",
-    "text": "There are really only two functions that a user would be expected to call manually: revise and Revise.track. Other user-level constructs might apply if you want to exclude Revise from watching specific packages.revise\nRevise.track\nRevise.dont_watch_pkgs\nRevise.silence"
+    "text": "There are really only three functions that a user would be expected to call manually: revise, includet, and Revise.track. Other user-level constructs might apply if you want to exclude Revise from watching specific packages.revise\nRevise.track\nincludet\nRevise.dont_watch_pkgs\nRevise.silence"
 },
 
 {
