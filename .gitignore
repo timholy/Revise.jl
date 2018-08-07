@@ -5,3 +5,6 @@ deps/silence.txt
 deps/build.log
 docs/build
 docs/site
+*.aux
+*.log
+docs/src/figures/diagram.pdf

@@ -53,6 +53,12 @@ To accomplish this, Revise uses the following overall strategy:
 
 ## The structure of Revise's internal representation
 
+![diagram](figures/diagram.png)
+
+**Figure notes**: Nodes represent primary objects in Julia's compilation pipeline.
+Arrows and their labels represent functions or data structures that allow you to move from one node to another.
+Red ("destructive") paths force recompilation of dependent functions.
+
 Revise bridges between text files (your source code) and compiled code.
 Revise consequently maintains data structures that parallel Julia's own internal
 processing of code.
