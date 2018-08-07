@@ -5,7 +5,7 @@ import LibGit2
 
 using OrderedCollections: OrderedDict
 
-export revise
+export revise, includet
 
 """
     Revise.watching_files[]
@@ -448,6 +448,13 @@ function track(mod::Module, file::AbstractString)
 end
 
 track(file::AbstractString) = track(Main, file)
+
+"""
+    includet(filename)
+
+Include and track `filename`.
+"""
+includet(file::AbstractString) = (Base.include(Main, file); track(Main, file))
 
 """
     Revise.silence(pkg)

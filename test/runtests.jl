@@ -176,6 +176,28 @@ k(x) = 4
         i = ReviseTestPrivate.Inner(3)
         m = @which i("hello")
         @test Core.eval(ReviseTestPrivate, sigexs[1]) == m.sig
+        def = :((::Type{Inner})(::Dict) = 17)
+        sig = Revise.get_signature(def)
+        sigexs = Revise.sig_type_exprs(sig)
+        Core.eval(ReviseTestPrivate, def)
+        m = @which ReviseTestPrivate.Inner(Dict("a"=>1))
+        @test Core.eval(ReviseTestPrivate, sigexs[1]) == m.sig
+
+        # Annotations
+        refex =  Revise.relocatable!(:(function foo(x) x^2 end))
+        for ex in (:(@inline function foo(x) x^2 end),
+                   :(@noinline function foo(x) x^2 end),
+                   :(@propagate_inbounds function foo(x) x^2 end))
+            @test Revise.get_signature(ex) == :(foo(x))
+            @test Revise.relocatable!(Revise.funcdef_expr(ex)) == refex
+        end
+
+        # @eval-defined methods
+        ex = :(@eval getindex(A::Array, i1::Int, i2::Int, I::Int...) = (@_inline_meta; arrayref($(Expr(:boundscheck)), A, i1, i2, I...)))
+        @test Revise.get_signature(ex) == :(getindex(A::Array, i1::Int, i2::Int, I::Int...))
+        @test Revise.relocatable!(Revise.funcdef_expr(ex)) == Revise.relocatable!(
+            :(getindex(A::Array, i1::Int, i2::Int, I::Int...) = (@_inline_meta; arrayref($(Expr(:boundscheck)), A, i1, i2, I...)))
+            )
     end
 
     @testset "Comparison and line numbering" begin
@@ -256,6 +278,10 @@ k(x) = 4
     end
 
     @testset "Display" begin
+        io = IOBuffer()
+        show(io, Revise.relocatable!(:(@inbounds x[2])))
+        str = String(take!(io))
+        @test str == ":(@inbounds x[2])"
         fm = Revise.parse_source(joinpath(@__DIR__, "revisetest.jl"), Main)
         Revise.instantiate_sigs!(fm)
         @test string(fm) == "OrderedCollections.OrderedDict(Main=>FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest=>FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal=>FMMaps(<2 expressions>, <2 signatures>))"
@@ -794,9 +820,8 @@ end
 revise_f(x) = 1
 """)
         end
-        include(srcfile)
+        includet(srcfile)
         @test revise_f(10) == 1
-        Revise.track(srcfile)
         sleep(0.1)
         open(srcfile, "w") do io
             print(io, """
@@ -947,6 +972,7 @@ end
         # Tracking Base
         Revise.track(Base)
         @test any(k->endswith(k, "number.jl"), keys(Revise.fileinfos))
+        @test length(filter(k->endswith(k, "file.jl"), keys(Revise.fileinfos))) == 2
 
         # Determine whether a git repo is available. Travis & Appveyor do not have this.
         repo, path = Revise.git_repo(Revise.juliadir)
