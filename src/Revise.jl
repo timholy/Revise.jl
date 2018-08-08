@@ -366,7 +366,13 @@ end
 
 function instantiate_sigs!(fmm::FMMaps, def::RelocatableExpr, sig::RelocatableExpr, mod::Module)
     # Generate the signature-types
-    sigtexs = sig_type_exprs(sig)
+    local sigtexs
+    try
+        sigtexs = sig_type_exprs(sig)
+    catch err
+        sigwarn(mod, sig, def)
+        rethrow(err)
+    end
     local sigts
     try
         sigts = Any[Core.eval(mod, s) for s in sigtexs]
