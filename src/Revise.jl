@@ -107,15 +107,43 @@ Full path to the running Julia's cache of source code defining `Base`.
 const basesrccache = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache")
 
 """
+    Revise.basebuilddir
+
+Julia's top-level directory when Julia was built, as recorded by the entries in
+`Base._included_files`.
+"""
+const basebuilddir = begin
+    sysimg = filter(x->endswith(x[2], "sysimg.jl"), Base._included_files)[1][2]
+    dirname(dirname(sysimg))
+end
+
+"""
     Revise.juliadir
 
-Constant specifying full path to julia top-level directory from which julia was built.
-This is reliable even for cross-builds.
+Constant specifying full path to julia top-level source directory.
+This should be reliable even for local builds, cross-builds, and binary installs.
 """
 const juliadir = begin
-    basefiles = map(x->x[2], Base._included_files)
-    sysimg = filter(x->endswith(x, "sysimg.jl"), basefiles)[1]
-    dirname(dirname(sysimg))
+    local jldir = basebuilddir
+    if !isdir(joinpath(jldir, "base"))
+        # Binaries probably end up here. We fall back on Sys.BINDIR
+        jldir = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
+        if !isdir(joinpath(jldir, "base"))
+            while true
+                trydir = joinpath(jldir, "base")
+                isdir(trydir) && break
+                trydir = joinpath(jldir, "share", "julia", "base")
+                if isdir(trydir)
+                    jldir = joinpath(jldir, "share", "julia")
+                    break
+                end
+                jldirnext = dirname(jldir)
+                jldirnext == jldir && break
+                jldir = jldirnext
+            end
+        end
+    end
+    jldir
 end
 
 """
@@ -543,7 +571,7 @@ function get_def(method::Method)
         # See whether it's in Base
         basefile = Base.find_source_file(filename)
         basefile == nothing && error("file $filename must be tracked by Revise")
-        filename = realpath(basefile)
+        filename = fixpath(realpath(basefile))
     end
     if !haskey(fileinfos, filename)
         @info "tracking Base"

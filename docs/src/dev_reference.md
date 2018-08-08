@@ -17,6 +17,7 @@ Revise.tracking_Main_includes
 ```@docs
 Revise.juliadir
 Revise.basesrccache
+Revise.basebuilddir
 ```
 
 ### Internal state management
