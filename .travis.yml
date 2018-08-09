@@ -33,7 +33,7 @@ script:
 
 after_script:  # TODO: change to after_success once https://github.com/JuliaLang/julia/issues/28306 is fixed
   # push coverage results to Codecov
-  - julia -e 'using Pkg; cd(Pkg.dir("Revise")); Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'
+  - julia -e 'using Pkg, Revise; cd(joinpath(dirname(pathof(Revise)), "..")); Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'
   # Update the documentation
   - julia -e 'using Pkg; Pkg.add("Documenter")'
-  - julia -e 'ENV["DOCUMENTER_DEBUG"] = "true"; using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "..", "docs", "make.jl"))'
+  - julia -e 'ENV["DOCUMENTER_DEBUG"] = "true"; using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "docs", "make.jl"))'
