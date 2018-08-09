@@ -35,5 +35,5 @@ after_script:  # TODO: change to after_success once https://github.com/JuliaLang
   # push coverage results to Codecov
   - julia -e 'using Pkg; cd(Pkg.dir("Revise")); Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'
   # Update the documentation
-  - julia -e 'Pkg.add("Documenter")'
-  - julia -e 'ENV["DOCUMENTER_DEBUG"] = "true"; cd(Pkg.dir("Revise")); include(joinpath("docs", "make.jl"))'
+  - julia -e 'using Pkg; Pkg.add("Documenter")'
+  - julia -e 'ENV["DOCUMENTER_DEBUG"] = "true"; using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "..", "docs", "make.jl"))'
