@@ -531,6 +531,7 @@ If it is in Base, this will execute `track(Base)` if necessary.
 """
 function get_def(method::Method)
     filename = String(method.file)
+    yield()   # magic bug fix for the OSX test failures. TODO: figure out why this works (prob. Julia bug)
     startswith(filename, "REPL") && error("methods defined at the REPL are not yet supported")
     if !haskey(fileinfos, filename)
         # See whether it's in Base
