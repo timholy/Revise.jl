@@ -1,5 +1,5 @@
 if Sys.islinux()
-    max_watches = parse(Int, chomp(read(`sysctl -n fs.inotify.max_user_watches`, String)))
+    max_watches=parse(Int, chomp(read(`cat /proc/sys/fs/inotify/max_user_watches`, String)))
     if max_watches <= 8192 && !isfile(joinpath(@__DIR__, "user_watches"))
         default_watches = 65536
         msg = """
