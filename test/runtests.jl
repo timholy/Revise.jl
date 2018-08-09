@@ -167,6 +167,13 @@ k(x) = 4
         # Return type annotations
         @test Revise.sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)::Union{Type,Nothing})) ==
               Revise.sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)))
+        def = quote
+            function +(x::Bool, y::T)::promote_type(Bool,T) where T<:AbstractFloat
+                return ifelse(x, oneunit(y) + y, y)
+            end
+        end
+        sig = Revise.get_signature(def)
+        @test Revise.sig_type_exprs(sig) == [:(Tuple{Core.Typeof(+), Bool, T} where T<:AbstractFloat)]
 
         # Overloading call
         def = :((i::Inner)(::String) = i.x)
