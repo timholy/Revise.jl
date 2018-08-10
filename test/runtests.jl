@@ -492,6 +492,26 @@ end
         pop!(LOAD_PATH)
     end
 
+    # issue #131
+    @testset "Base & stdlib file paths" begin
+        @test isfile(Revise.basesrccache)
+        targetfn = Base.Filesystem.path_separator * joinpath("good", "path", "mydir", "myfile.jl")
+        @test Revise.fixpath("/some/bad/path/mydir/myfile.jl"; badpath="/some/bad/path", goodpath="/good/path") == targetfn
+        @test Revise.fixpath("/some/bad/path/mydir/myfile.jl"; badpath="/some/bad/path/", goodpath="/good/path") == targetfn
+        @test isfile(Revise.fixpath(Base.find_source_file("array.jl")))
+        failedfiles = Tuple{String,String}[]
+        for (mod,file) = Base._included_files
+            fixedfile = Revise.fixpath(file)
+            if !isfile(fixedfile)
+                push!(failedfiles, (file, fixedfile))
+            end
+        end
+        if !isempty(failedfiles)
+            display(failedfiles)
+        end
+        @test isempty(failedfiles)
+    end
+
     # issue #36
     @testset "@__FILE__" begin
         testdir = randtmp()
@@ -1054,7 +1074,7 @@ end
                     catch
                     end
                 end
-                yry()
+                try yry() catch end
             end
         end
         if !Sys.isapple()

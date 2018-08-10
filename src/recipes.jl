@@ -8,6 +8,10 @@ standard libraries.
 """
 function track(mod::Module)
     if mod == Base
+        # Test whether we know where to find the files
+        if !isdir(joinpath(juliadir, "base"))
+            @error "unable to find path containing Julia's base/ folder, tracking is not possible"
+        end
         # Determine when the basesrccache was built
         mtcache = mtime(basesrccache)
         # Initialize expression-tracking for files, and
@@ -15,6 +19,7 @@ function track(mod::Module)
         files = String[]
         for (submod, filename) in Base._included_files
             push!(fileinfos, filename=>FileInfo(submod, basesrccache))
+            filename = fixpath(filename)
             push!(files, filename)
             if mtime(filename) > mtcache
                 push!(revision_queue, filename)
@@ -35,6 +40,19 @@ function track(mod::Module)
     nothing
 end
 
+# Fix paths to files that define Julia (base and stdlibs)
+function fixpath(filename; badpath=basebuilddir, goodpath=juliadir)
+    isfile(filename) && return filename
+    startswith(filename, badpath) || error(filename, " does not start with ", badpath)
+    relfilename = relpath(filename, badpath)
+    for strippath in (joinpath("usr", "share", "julia"),)
+        if startswith(relfilename, strippath)
+            relfilename = relpath(relfilename, strippath)
+        end
+    end
+    return normpath(joinpath(goodpath, relfilename))
+end
+
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
 function track_subdir_from_git(mod::Module, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit)
     # diff against files at the same commit used to build Julia
@@ -42,7 +60,7 @@ function track_subdir_from_git(mod::Module, subdir::AbstractString; commit=Base.
     if repo == nothing
         error("could not find git repository at $subdir")
     end
-    prefix = subdir[length(repo_path)+2:end]   # git-relative path of this subdir
+    prefix = relpath(subdir, repo_path)   # git-relative path of this subdir
     tree = git_tree(repo, commit)
     files = Iterators.filter(file->startswith(file, prefix) && endswith(file, ".jl"), keys(tree))
     ccall((:giterr_clear, :libgit2), Cvoid, ())  # necessary to avoid errors like "the global/xdg file 'attributes' doesn't exist: No such file or directory"
