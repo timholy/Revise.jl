@@ -4,6 +4,7 @@ using Test
 @test isempty(detect_ambiguities(Revise, Base, Core))
 
 using Pkg, Unicode, Distributed, InteractiveUtils, REPL
+import LibGit2
 using OrderedCollections: OrderedSet
 
 include("common.jl")
@@ -950,15 +951,14 @@ end
             p == myid() && continue
             @test_throws RemoteException remotecall_fetch(ReviseDistributed.g, p, 1)
         end
+        rmprocs(allworkers[2:3]...; waitfor=10)
     end
 
     @testset "Git" begin
         if haskey(ENV, "CI")   # if we're doing CI testing (Travis, Appveyor, etc.)
             # First do a full git checkout of a package (we'll use Revise itself)
             @warn "checking out a development copy of Revise for testing purposes"
-            pkg = Pkg.Types.PackageSpec("Revise")
-            pkg.repo = Pkg.Types.GitRepo("", "")
-            Pkg.API.add_or_develop(Pkg.Types.Context(), [pkg], mode=:develop)
+            pkg = Pkg.develop("Revise")
         end
         loc = Base.find_package("Revise")
         if occursin("dev", loc)
@@ -973,6 +973,44 @@ end
         else
             @warn "skipping git tests because Revise is not under development"
         end
+        # Issue #135
+        randdir = randtmp()
+        modname = "ModuleWithNewFile"
+        push!(to_remove, randdir)
+        push!(LOAD_PATH, randdir)
+        randdir = joinpath(randdir, modname)
+        mkpath(joinpath(randdir, "src"))
+        mainjl = joinpath(randdir, "src", modname*".jl")
+        LibGit2.with(LibGit2.init(randdir)) do repo
+            open(mainjl, "w") do io
+                println(io, """
+                module $modname
+                end
+                """)
+            end
+            LibGit2.add!(repo, joinpath("src", modname*".jl"))
+            test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
+            LibGit2.commit(repo, "New file test"; author=test_sig, committer=test_sig)
+        end
+        @eval using $(Symbol(modname))
+        extrajl = joinpath(randdir, "src", "extra.jl")
+        open(extrajl, "w") do io
+            println(io, """
+            println("extra")
+            """)
+        end
+        open(mainjl, "w") do io
+            println(io, """
+            module $modname
+            include("extra.jl")
+            end
+            """)
+        end
+        repo = LibGit2.GitRepo(randdir)
+        LibGit2.add!(repo, joinpath("src", "extra.jl"))
+        thismod = Base.root_module(Base.PkgId(modname))
+        Revise.track_subdir_from_git(thismod, joinpath(randdir, "src"); commit="HEAD")
+        @test haskey(Revise.fileinfos, mainjl)
     end
 
     @testset "Recipes" begin

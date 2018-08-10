@@ -73,12 +73,7 @@ end
 
 function git_source(file::AbstractString, tree::LibGit2.GitTree)
     local blob
-    try
-        blob = tree[file]
-    catch
-        println("available keys: ", collect(keys(tree)))
-        rethrow()
-    end
+    blob = tree[file]
     if blob == nothing
         # assume empty tree when tracking new files
         src = ""

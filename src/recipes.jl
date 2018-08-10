@@ -36,20 +36,29 @@ function track(mod::Module)
 end
 
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
-function track_subdir_from_git(mod::Module, subdir::AbstractString)
+function track_subdir_from_git(mod::Module, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit)
     # diff against files at the same commit used to build Julia
     repo, repo_path = git_repo(subdir)
     if repo == nothing
         error("could not find git repository at $subdir")
     end
     prefix = subdir[length(repo_path)+2:end]   # git-relative path of this subdir
-    tree = git_tree(repo, Base.GIT_VERSION_INFO.commit)
+    tree = git_tree(repo, commit)
     files = Iterators.filter(file->startswith(file, prefix) && endswith(file, ".jl"), keys(tree))
     ccall((:giterr_clear, :libgit2), Cvoid, ())  # necessary to avoid errors like "the global/xdg file 'attributes' doesn't exist: No such file or directory"
     wfiles = String[]  # files to watch
     for file in files
         fullpath = joinpath(repo_path, file)
-        src = git_source(file, tree)
+        local src
+        try
+            src = git_source(file, tree)
+        catch err
+            if err isa KeyError
+                @warn "skipping $file, not found in repo"
+                continue
+            end
+            rethrow(err)
+        end
         if src != read(fullpath, String)
             push!(revision_queue, fullpath)
         end
