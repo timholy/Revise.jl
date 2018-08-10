@@ -3,6 +3,11 @@ using Test
 
 @test isempty(detect_ambiguities(Revise, Base, Core))
 
+@test isfile(Base.find_source_file("array.jl"))
+for (mod,file) = Base._included_files
+    @test isfile(file)
+end
+
 using Pkg, Unicode, Distributed, InteractiveUtils, REPL
 import LibGit2
 using OrderedCollections: OrderedSet
