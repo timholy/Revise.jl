@@ -333,7 +333,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.juliadir",
     "category": "constant",
-    "text": "Revise.juliadir\n\nConstant specifying full path to julia top-level directory from which julia was built. This is reliable even for cross-builds.\n\n\n\n\n\n"
+    "text": "Revise.juliadir\n\nConstant specifying full path to julia top-level source directory. This should be reliable even for local builds, cross-builds, and binary installs.\n\n\n\n\n\n"
 },
 
 {
@@ -345,11 +345,19 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "dev_reference.html#Revise.basebuilddir",
+    "page": "Developer reference",
+    "title": "Revise.basebuilddir",
+    "category": "constant",
+    "text": "Revise.basebuilddir\n\nJulia\'s top-level directory when Julia was built, as recorded by the entries in Base._included_files.\n\n\n\n\n\n"
+},
+
+{
     "location": "dev_reference.html#Path-related-variables-1",
     "page": "Developer reference",
     "title": "Path-related variables",
     "category": "section",
-    "text": "Revise.juliadir\nRevise.basesrccache"
+    "text": "Revise.juliadir\nRevise.basesrccache\nRevise.basebuilddir"
 },
 
 {
