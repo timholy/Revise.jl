@@ -974,43 +974,45 @@ end
             @warn "skipping git tests because Revise is not under development"
         end
         # Issue #135
-        randdir = randtmp()
-        modname = "ModuleWithNewFile"
-        push!(to_remove, randdir)
-        push!(LOAD_PATH, randdir)
-        randdir = joinpath(randdir, modname)
-        mkpath(joinpath(randdir, "src"))
-        mainjl = joinpath(randdir, "src", modname*".jl")
-        LibGit2.with(LibGit2.init(randdir)) do repo
+        if !Sys.iswindows()
+            randdir = randtmp()
+            modname = "ModuleWithNewFile"
+            push!(to_remove, randdir)
+            push!(LOAD_PATH, randdir)
+            randdir = joinpath(randdir, modname)
+            mkpath(joinpath(randdir, "src"))
+            mainjl = joinpath(randdir, "src", modname*".jl")
+            LibGit2.with(LibGit2.init(randdir)) do repo
+                open(mainjl, "w") do io
+                    println(io, """
+                    module $modname
+                    end
+                    """)
+                end
+                LibGit2.add!(repo, joinpath("src", modname*".jl"))
+                test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
+                LibGit2.commit(repo, "New file test"; author=test_sig, committer=test_sig)
+            end
+            @eval using $(Symbol(modname))
+            extrajl = joinpath(randdir, "src", "extra.jl")
+            open(extrajl, "w") do io
+                println(io, """
+                println("extra")
+                """)
+            end
             open(mainjl, "w") do io
                 println(io, """
                 module $modname
+                include("extra.jl")
                 end
                 """)
             end
-            LibGit2.add!(repo, joinpath("src", modname*".jl"))
-            test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
-            LibGit2.commit(repo, "New file test"; author=test_sig, committer=test_sig)
+            repo = LibGit2.GitRepo(randdir)
+            LibGit2.add!(repo, joinpath("src", "extra.jl"))
+            thismod = Base.root_module(Base.PkgId(modname))
+            Revise.track_subdir_from_git(thismod, joinpath(randdir, "src"); commit="HEAD")
+            @test haskey(Revise.fileinfos, mainjl)
         end
-        @eval using $(Symbol(modname))
-        extrajl = joinpath(randdir, "src", "extra.jl")
-        open(extrajl, "w") do io
-            println(io, """
-            println("extra")
-            """)
-        end
-        open(mainjl, "w") do io
-            println(io, """
-            module $modname
-            include("extra.jl")
-            end
-            """)
-        end
-        repo = LibGit2.GitRepo(randdir)
-        LibGit2.add!(repo, joinpath("src", "extra.jl"))
-        thismod = Base.root_module(Base.PkgId(modname))
-        Revise.track_subdir_from_git(thismod, joinpath(randdir, "src"); commit="HEAD")
-        @test haskey(Revise.fileinfos, mainjl)
     end
 
     @testset "Recipes" begin
