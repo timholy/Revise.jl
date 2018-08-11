@@ -1038,7 +1038,9 @@ end
     @testset "Recipes" begin
         # Tracking Base
         Revise.track(Base)
-        @test any(k->endswith(k, "number.jl"), keys(Revise.fileinfos))
+        numberfile, numberinfo = first(filter(keyval->endswith(keyval.first, "number.jl"), Revise.fileinfos))
+        Revise.maybe_parse_from_cache!(numberinfo, numberfile)
+        @test numberinfo.fm[Base].sigtmap[Tuple{typeof(isinteger),Integer}] isa Revise.RelocatableExpr
         @test length(filter(k->endswith(k, "file.jl"), keys(Revise.fileinfos))) == 2
 
         # Determine whether a git repo is available. Travis & Appveyor do not have this.
