@@ -95,8 +95,10 @@ end
 
 function read_from_cache(fi::FileInfo, file::AbstractString)
     if fi.cachefile == basesrccache
+        # Get the original path
+        filec = get(cache_file_key, file, file)
         return open(basesrccache) do io
-            Base._read_dependency_src(io, file)
+            Base._read_dependency_src(io, filec)
         end
     end
     Base.read_dependency_src(fi.cachefile, file)

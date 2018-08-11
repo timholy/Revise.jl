@@ -18,8 +18,8 @@ function track(mod::Module)
         # note any modified since Base was built
         files = String[]
         for (submod, filename) in Base._included_files
-            push!(fileinfos, filename=>FileInfo(submod, basesrccache))
             filename = fixpath(filename)
+            push!(fileinfos, filename=>FileInfo(submod, basesrccache))
             push!(files, filename)
             if mtime(filename) > mtcache
                 push!(revision_queue, filename)
@@ -43,6 +43,7 @@ end
 # Fix paths to files that define Julia (base and stdlibs)
 function fixpath(filename; badpath=basebuilddir, goodpath=juliadir)
     isfile(filename) && return filename
+    filec = filename
     startswith(filename, badpath) || error(filename, " does not start with ", badpath)
     relfilename = relpath(filename, badpath)
     for strippath in (joinpath("usr", "share", "julia"),)
@@ -50,7 +51,9 @@ function fixpath(filename; badpath=basebuilddir, goodpath=juliadir)
             relfilename = relpath(relfilename, strippath)
         end
     end
-    return normpath(joinpath(goodpath, relfilename))
+    filename = normpath(joinpath(goodpath, relfilename))
+    cache_file_key[filename] = filec
+    return filename
 end
 
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
