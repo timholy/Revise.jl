@@ -18,8 +18,8 @@ function track(mod::Module)
         # note any modified since Base was built
         files = String[]
         for (submod, filename) in Base._included_files
-            push!(fileinfos, filename=>FileInfo(submod, basesrccache))
             filename = fixpath(filename)
+            push!(fileinfos, filename=>FileInfo(submod, basesrccache))
             push!(files, filename)
             if mtime(filename) > mtcache
                 push!(revision_queue, filename)
