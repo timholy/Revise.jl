@@ -145,6 +145,7 @@ const juliadir = begin
     end
     jldir
 end
+const cache_file_key = Dict{String,String}() # corrected=>uncorrected filenames
 
 """
     Revise.dont_watch_pkgs

@@ -1040,10 +1040,9 @@ end
         Revise.track(Base)
         @test any(k->endswith(k, "number.jl"), keys(Revise.fileinfos))
         @test length(filter(k->endswith(k, "file.jl"), keys(Revise.fileinfos))) == 2
-
         m = @which show([1,2,3])
-        get_def(m)
-        
+        @test Revise.get_def(m) isa Revise.RelocatableExpr
+
         # Determine whether a git repo is available. Travis & Appveyor do not have this.
         repo, path = Revise.git_repo(Revise.juliadir)
         if repo != nothing

@@ -43,6 +43,7 @@ end
 # Fix paths to files that define Julia (base and stdlibs)
 function fixpath(filename; badpath=basebuilddir, goodpath=juliadir)
     isfile(filename) && return filename
+    filec = filename
     startswith(filename, badpath) || error(filename, " does not start with ", badpath)
     relfilename = relpath(filename, badpath)
     for strippath in (joinpath("usr", "share", "julia"),)
@@ -50,7 +51,9 @@ function fixpath(filename; badpath=basebuilddir, goodpath=juliadir)
             relfilename = relpath(relfilename, strippath)
         end
     end
-    return normpath(joinpath(goodpath, relfilename))
+    filename = normpath(joinpath(goodpath, relfilename))
+    cache_file_key[filename] = filec
+    return filename
 end
 
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
