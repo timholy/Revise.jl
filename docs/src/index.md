@@ -53,6 +53,18 @@ for the stdlibs, any changes since the last git commit will be incorporated.
 See [Using Revise by default](@ref) if you want Revise to be available every time you
 start julia.
 
+## What Revise can track
+
+Revise is fairly ambitious: if all is working you should be able to track changes to
+
+- any package that you load with `import` or `using`
+- any script you load with [`includet`](@ref)
+- any file defining `Base` julia itself (with `Revise.track(Base)`)
+- any file defining `Core.Compiler` (with `Revise.track(Core.Compiler)`)
+- any of Julia's standard libraries (with, e.g., `using Unicode; Revise.track(Unicode)`)
+
+The last two require that you clone Julia and build it yourself from source.
+
 ## If Revise doesn't work as expected
 
 If Revise isn't working for you, here are some steps to try:
@@ -61,7 +73,9 @@ If Revise isn't working for you, here are some steps to try:
   In particular, some file systems (like NFS) might require special options.
 - Revise can't handle all kinds of code changes; for more information,
   see the section on [Limitations](@ref).
-- Try running `test Revise` from the Pkg REPL-mode. If tests pass, check the documentation
-  to make sure you understand how Revise should work.
+- Try running `test Revise` from the Pkg REPL-mode.
+  If tests pass, check the documentation to make sure you understand how Revise should work.
+  If they fail (especially if it mirrors functionality that you need and isn't working), see
+  [Fixing a broken or partially-working installation](@ref) for some suggestions.
 
 If you still encounter problems, please [file an issue](https://github.com/timholy/Revise.jl/issues).

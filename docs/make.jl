@@ -23,7 +23,7 @@ makedocs(
 deploydocs(
     repo = "github.com/timholy/Revise.jl.git",
     target = "build",
-    julia = "nightly",
+    julia = "1.0",
     deps = nothing,
     make = nothing,
 )
