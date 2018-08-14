@@ -33,11 +33,19 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "index.html#What-Revise-can-track-1",
+    "page": "Home",
+    "title": "What Revise can track",
+    "category": "section",
+    "text": "Revise is fairly ambitious: if all is working you should be able to track changes toany package that you load with import or using\nany script you load with includet\nany file defining Base julia itself (with Revise.track(Base))\nany file defining Core.Compiler (with Revise.track(Core.Compiler))\nany of Julia\'s standard libraries (with, e.g., using Unicode; Revise.track(Unicode))The last two require that you clone Julia and build it yourself from source."
+},
+
+{
     "location": "index.html#If-Revise-doesn\'t-work-as-expected-1",
     "page": "Home",
     "title": "If Revise doesn\'t work as expected",
     "category": "section",
-    "text": "If Revise isn\'t working for you, here are some steps to try:See Configuration for information on customization options. In particular, some file systems (like NFS) might require special options.\nRevise can\'t handle all kinds of code changes; for more information, see the section on Limitations.\nTry running test Revise from the Pkg REPL-mode. If tests pass, check the documentation to make sure you understand how Revise should work.If you still encounter problems, please file an issue."
+    "text": "If Revise isn\'t working for you, here are some steps to try:See Configuration for information on customization options. In particular, some file systems (like NFS) might require special options.\nRevise can\'t handle all kinds of code changes; for more information, see the section on Limitations.\nTry running test Revise from the Pkg REPL-mode. If tests pass, check the documentation to make sure you understand how Revise should work. If they fail (especially if it mirrors functionality that you need and isn\'t working), see Fixing a broken or partially-working installation for some suggestions.If you still encounter problems, please file an issue."
 },
 
 {
@@ -102,6 +110,14 @@ var documenterSearchIndex = {"docs": [
     "title": "User scripts: JULIA_REVISE_INCLUDE",
     "category": "section",
     "text": "By default, Revise only tracks files that have been required as a consequence of a using or import statement; files loaded by include are not tracked, unless you explicitly use Revise.track(filename). However, you can turn on automatic tracking by setting the environment variable JULIA_REVISE_INCLUDE to the string \"1\" (e.g., JULIA_REVISE_INCLUDE=1 in a bash script)."
+},
+
+{
+    "location": "config.html#Fixing-a-broken-or-partially-working-installation-1",
+    "page": "Configuration",
+    "title": "Fixing a broken or partially-working installation",
+    "category": "section",
+    "text": "During certain types of usage you might receive messages likeWarning: /some/system/path/stdlib/v1.0/SHA/src is not an existing directory, Revise is not watchingand this indicates that some of Revise\'s functionality is broken.Revise\'s test suite covers a broad swath of functionality, and so if something is broken a good first start towards resolving the problem is to run pkg> test Revise. Note that some test failures may not really matter to you personally: if, for example, you don\'t plan on hacking on Julia\'s compiler then you may not be concerned about failures related to Revise.track(Core.Compiler). However, because Revise is used by Rebugger and it is common to step into Base methods while debugging, there may be more cases than you might otherwise expect in which you might wish for Revise\'s more \"advanced\" functionality.In the majority of cases, failures come down to Revise having trouble locating source code on your drive. This problem should be fixable, because Revise includes functionality to update its links to source files, as long as it knows what to do.Here are some possible test warnings and errors, and steps you might take to fix them:Error: Package Example not found in current path: This (tiny) package is only used for testing purposes, and gets installed automatically if you do pkg> test Revise, but not if you include(\"runtests.jl\") from inside Revise\'s test/ directory. You can prevent the error with pkg> add Example.\nBase & stdlib file paths: Test Failed at /some/path...  Expression: isfile(Revise.basesrccache) This failure is quite serious, and indicates that you will be unable to access code in Base. To fix this, look for a file called \"base.cache\" somewhere in your Julia install or build directory (for the author, it is at /home/tim/src/julia-1.0/usr/share/julia/base.cache). Now compare this with the value of Revise.basesrccache. (If you\'re getting this failure, presumably they are different.) An important \"top level\" directory is Sys.BINDIR; if they differ already at this level, consider adding a symbolic link from the location pointed at by Sys.BINDIR to the corresponding top-level directory in your actual Julia installation. You\'ll know you\'ve succeeded in specifying it correctly when, after restarting Julia, Revise.basesrccache points to the correct file and Revise.juliadir points to the directory that contains base/. If this workaround is not possible or does not succeed, please file an issue with a description of why you can\'t use it and/or\ndetails from versioninfo and information about how you obtained your Julia installation;\nthe values of Revise.basesrccache and Revise.juliadir, and the actual paths to base.cache and the directory containing the running Julia\'s base/;\nwhat you attempted when trying to fix the problem;\nif possible, your best understanding of why this failed to fix it.\nskipping Core.Compiler and stdlibs tests due to lack of git repo: this likely indicates that you downloaded a Julia binary rather than building Julia from source. While Revise should be able to access the code in Base, at the current time it is not possible for Revise to access julia\'s stdlibs unless you clone Julia\'s repository and build it from source.\nskipping git tests because Revise is not under development: this warning should be harmless. Revise has built-in functionality for extracting source code using git, and it uses itself (i.e., its own git repository) for testing purposes. These tests run only if you have checked out Revise for development (pkg> dev Revise) or on the continuous integration servers (Travis and Appveyor)."
 },
 
 {
@@ -245,7 +261,7 @@ var documenterSearchIndex = {"docs": [
     "page": "User reference",
     "title": "Revise.includet",
     "category": "function",
-    "text": "includet(filename)\n\nInclude and track filename.\n\n\n\n\n\n"
+    "text": "includet(filename)\n\nLoad filename and track any future changes to it. includet is deliberately non-recursive, so if filename loads any other files, they will not be automatically tracked. (See Revise.track to set it up manually.)\n\nincludet is intended for \"user scripts,\" e.g., a file you use locally for a specific purpose such as loading a specific data set or performing some kind of analysis. Do not use includet for packages, as those should be handled by using or import. If using and import aren\'t working, you may have packages in a non-standard location; try fixing it with something like push!(LOAD_PATH, \"/path/to/my/private/repos\").\n\n\n\n\n\n"
 },
 
 {
