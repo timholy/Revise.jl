@@ -34,9 +34,7 @@ function parse_cache_header(f::IO)
                 totbytes -= n1
             end
         end
-        if depname[1] == '\0'
-            push!(requires, mod => binunpack(depname))
-        else
+        if depname[1] != '\0'
             push!(includes, (mod, depname, mtime))
         end
         totbytes -= 4 + 4 + n2 + 8
