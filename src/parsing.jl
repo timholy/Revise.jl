@@ -125,8 +125,20 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         # skip include statements
     else
         # Any expression that *doesn't* define line numbers, new
-        # modules, or include new files must be "real code." Add it to
-        # the cache.
+        # modules, or include new files must be "real code."
+        # Handle macros
+        while ex.head == :macrocall
+            if ex.args[1] ∈ poppable_macro
+                ex = ex.args[end]
+                continue
+            else
+                ex = macroexpand(mod, ex)
+            end
+        end
+        if ex isa Expr && ex.head == :block
+            return parse_expr!(fm, ex, file, mod)
+        end
+        # Add any method definitions to the cache
         rex = convert(RelocatableExpr, ex)
         sig = get_signature(rex)
         if isa(sig, ExLike)

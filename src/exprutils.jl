@@ -4,6 +4,7 @@ using Core: MethodInstance
 using Base: MethodList
 
 const ExLike = Union{Expr,RelocatableExpr}
+const poppable_macro = (Symbol("@inline"), Symbol("@noinline"), Symbol("@propagate_inbounds"), Symbol("@eval"))
 
 """
     exf = funcdef_expr(ex)
@@ -29,9 +30,7 @@ function funcdef_expr(ex)
     if ex.head == :macrocall
         if ex.args[1] isa GlobalRef && ex.args[1].name == Symbol("@doc")
             return funcdef_expr(ex.args[end])
-        elseif ex.args[1] ∈ (Symbol("@inline"), Symbol("@noinline"), Symbol("@propagate_inbounds"))
-            return funcdef_expr(ex.args[3])
-        elseif ex.args[1] == Symbol("@eval")
+        elseif ex.args[1] ∈ poppable_macro
             return funcdef_expr(ex.args[end])
         else
             io = IOBuffer()
@@ -39,7 +38,7 @@ function funcdef_expr(ex)
             throw(ArgumentError(string("unrecognized macro expression:\n", String(take!(io)))))
         end
     end
-    if ex.head == :block
+    if is_trivial_block_wrapper(ex)
         return funcdef_expr(first(LineSkippingIterator(ex.args)))
     end
     if ex.head == :function || ex.head == :(=)
@@ -76,8 +75,8 @@ julia> Revise.get_signature(quote
 ```
 """
 function get_signature(ex::E) where E <: ExLike
-    while ex.head == :macrocall && isa(ex.args[end], E) || is_trivial_block_wrapper(ex)
-        ex = ex.args[end]::E
+    if ex.head == :macrocall
+        error("macros must be handled externally")
     end
     if ex.head == :function
         return ex.args[1]
@@ -200,8 +199,11 @@ julia> Revise.argtypeexpr(Revise.get_callexpr(sigex).args[2:end]...)
 """
 function argtypeexpr(ex::ExLike, rest...)
     # Handle @nospecialize(x)
-    if ex.head == :macrocall
+    if ex.head == :macrocall && length(ex.args) >= 3 && ex.args[1] == Symbol("@nospecialize")
         return (argtypeexpr(ex.args[3])..., argtypeexpr(rest...)...)
+    end
+    if ex.head == :meta && length(ex.args) >= 2 && ex.args[1] == :nospecialize
+        return (argtypeexpr(ex.args[2])..., argtypeexpr(rest...)...)
     end
     if ex.head == :...
         # Handle varargs (those expressed with dots rather than Vararg{T,N})
