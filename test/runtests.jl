@@ -49,6 +49,11 @@ function compare_sigs(ex)
     compare_sigs(ex, typex)
 end
 
+module PlottingDummy
+using RecipesBase
+struct PlotDummy end
+end
+
 @testset "Revise" begin
 
     function collectexprs(ex::Revise.RelocatableExpr)
@@ -173,7 +178,7 @@ k(x) = 4
                 return ifelse(x, oneunit(y) + y, y)
             end
         end
-        sig = Revise.get_signature(def)
+        sig = Revise.get_signature(Revise.funcdef_expr(def))
         @test Revise.sig_type_exprs(sig) == [:(Tuple{Core.Typeof(+), Bool, T} where T<:AbstractFloat)]
 
         # Overloading call
@@ -196,13 +201,13 @@ k(x) = 4
         for ex in (:(@inline function foo(x) x^2 end),
                    :(@noinline function foo(x) x^2 end),
                    :(@propagate_inbounds function foo(x) x^2 end))
-            @test Revise.get_signature(ex) == :(foo(x))
+            @test Revise.get_signature(Revise.funcdef_expr(ex)) == :(foo(x))
             @test Revise.relocatable!(Revise.funcdef_expr(ex)) == refex
         end
 
         # @eval-defined methods
         ex = :(@eval getindex(A::Array, i1::Int, i2::Int, I::Int...) = (@_inline_meta; arrayref($(Expr(:boundscheck)), A, i1, i2, I...)))
-        @test Revise.get_signature(ex) == :(getindex(A::Array, i1::Int, i2::Int, I::Int...))
+        @test Revise.get_signature(Revise.funcdef_expr(ex)) == :(getindex(A::Array, i1::Int, i2::Int, I::Int...))
         @test Revise.relocatable!(Revise.funcdef_expr(ex)) == Revise.relocatable!(
             :(getindex(A::Array, i1::Int, i2::Int, I::Int...) = (@_inline_meta; arrayref($(Expr(:boundscheck)), A, i1, i2, I...)))
             )
@@ -283,6 +288,15 @@ k(x) = 4
             bt = throwing_function(stacktrace(catch_backtrace()))
             @test bt.func == :mult2 && bt.file == Symbol(fl3) && bt.line == 13
         end
+    end
+
+    @testset "Macros that define methods" begin
+        # issues Revise#148, Rebugger#3
+        fm = Revise.FileModules(PlottingDummy)
+        Revise.parse_expr!(fm, :(@recipe function f(pd::PlotDummy) -55 end), Symbol("dummyfile.jl"), PlottingDummy)
+        def, sigex = first(fm[PlottingDummy].defmap)
+        gr = GlobalRef(PlottingDummy.RecipesBase, :RecipesBase)
+        @test convert(Expr, sigex) == :($gr.apply_recipe(plotattributes::Dict{Symbol, Any}, pd::PlotDummy))
     end
 
     @testset "Display" begin
