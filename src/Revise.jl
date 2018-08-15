@@ -1,7 +1,8 @@
 module Revise
 
-using FileWatching, REPL, Base.CoreLogging, Distributed
+using FileWatching, REPL, Base.CoreLogging, Distributed, UUIDs
 import LibGit2
+using Base: PkgId
 
 using OrderedCollections: OrderedDict
 

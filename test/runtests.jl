@@ -454,6 +454,42 @@ end
         # Remove the precompiled file
         rm_precompile("PC")
 
+        # Submodules (issue #142)
+        srcdir = joinpath(testdir, "Mysupermodule", "src")
+        subdir = joinpath(srcdir, "Mymodule")
+        mkpath(subdir)
+        open(joinpath(srcdir, "Mysupermodule.jl"), "w") do io
+            print(io, """
+                module Mysupermodule
+                include("Mymodule/Mymodule.jl")
+                end
+                """)
+        end
+        open(joinpath(subdir, "Mymodule.jl"), "w") do io
+            print(io, """
+                module Mymodule
+                include("filesub.jl")
+                end
+                """)
+        end
+        open(joinpath(subdir, "filesub.jl"), "w") do io
+            print(io, """
+                func() = 1
+                """)
+        end
+        sleep(2.1)
+        @eval using Mysupermodule
+        @test Mysupermodule.Mymodule.func() == 1
+        sleep(1.1)
+        yry()
+        open(joinpath(subdir, "filesub.jl"), "w") do io
+            print(io, """
+                func() = 2
+                """)
+        end
+        yry()
+        @test Mysupermodule.Mymodule.func() == 2
+
         # Test files paths that can't be statically parsed
         dn = joinpath(testdir, "LoopInclude", "src")
         mkpath(dn)

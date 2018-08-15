@@ -1,5 +1,60 @@
 using Base: PkgId
 
+# A near-copy of `base/loading.jl`. However, this retains the full module path to the file.
+function parse_cache_header(f::IO)
+    modules = Vector{Pair{PkgId, UInt64}}()
+    while true
+        n = read(f, Int32)
+        n == 0 && break
+        sym = String(read(f, n)) # module name
+        uuid = UUID((read(f, UInt64), read(f, UInt64))) # pkg UUID
+        build_id = read(f, UInt64) # build UUID (mostly just a timestamp)
+        push!(modules, PkgId(uuid, sym) => build_id)
+    end
+    totbytes = read(f, Int64) # total bytes for file dependencies
+    # read the list of requirements
+    # and split the list into include and requires statements
+    includes = Tuple{Module, String, Float64}[]
+    requires = Pair{Module, PkgId}[]
+    while true
+        n2 = read(f, Int32)
+        n2 == 0 && break
+        depname = String(read(f, n2))
+        mtime = read(f, Float64)
+        n1 = read(f, Int32)
+        mod = (n1 == 0) ? Main : Base.root_module(modules[n1].first)
+        if n1 != 0
+            # determine the complete module path
+            while true
+                n1 = read(f, Int32)
+                totbytes -= 4
+                n1 == 0 && break
+                submodname = String(read(f, n1))
+                mod = getfield(mod, Symbol(submodname))
+                totbytes -= n1
+            end
+        end
+        if depname[1] == '\0'
+            push!(requires, mod => binunpack(depname))
+        else
+            push!(includes, (mod, depname, mtime))
+        end
+        totbytes -= 4 + 4 + n2 + 8
+    end
+    @assert totbytes == 12 "header of cache file appears to be corrupt"
+    return modules, (includes, requires)
+end
+
+function parse_cache_header(cachefile::String)
+    io = open(cachefile, "r")
+    try
+        !Base.isvalid_cache_header(io) && throw(ArgumentError("Invalid header in cache file $cachefile."))
+        return parse_cache_header(io)
+    finally
+        close(io)
+    end
+end
+
 """
     parse_pkg_files(modsym)
 
@@ -16,13 +71,12 @@ function parse_pkg_files(id::PkgId)
         uuid = id.uuid
         paths = Base.find_all_in_cache_path(id)
         for path in paths
-            provides, includes_requires = Base.parse_cache_header(path)
+            provides, includes_requires = parse_cache_header(path)
             mods_files_mtimes, _ = includes_requires
             for (pkgid, buildid) in provides
                 if pkgid.uuid === uuid && pkgid.name == id.name
                     # found the right cache file
-                    for (modid, fname, _) in mods_files_mtimes
-                        mod = modid.uuid === nothing && modid.name == "" ? Main : Base.root_module(modid)
+                    for (mod, fname, _) in mods_files_mtimes
                         # For precompiled packages, we can read the source later (whenever we need it)
                         # from the *.ji cachefile.
                         fileinfos[fname] = FileInfo(mod, path)
