@@ -67,6 +67,43 @@ Revise supports changes to code in worker processes.
 The code must be loaded in the main process in which Revise is running, and you must use
 `@everywhere using Revise`.
 
+Revise cannot handle changes in anonymous functions used in `remotecall`s.
+Consider the following module definition:
+
+```julia
+module ParReviseExample
+using Distributed
+
+greet(x) = println("Hello, ", x)
+
+foo() = for p in workers()
+    remotecall_fetch(() -> greet("Bar"), p)
+end
+
+end # module
+```
+
+Changing the remotecall to `remotecall_fetch((x) -> greet("Bar"), p, 1)` will fail,
+because the new anonymous function is not defined on all workers.
+The workaround is to write the code to use named functions, e.g.,
+
+```julia
+module ParReviseExample
+using Distributed
+
+greet(x) = println("Hello, ", x)
+greetcaller() = greet("Bar")
+
+foo() = for p in workers()
+    remotecall_fetch(greetcaller, p)
+end
+
+end # module
+```
+
+and the corresponding edit to the code would be to modify it to `greetcaller(x) = greet("Bar")`
+and `remotecall_fetch(greetcaller, p, 1)`.
+
 ### Changes that Revise cannot handle
 
 Finally, there are some kinds of changes that Revise cannot incorporate into a running Julia session:
