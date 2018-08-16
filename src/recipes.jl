@@ -61,7 +61,7 @@ function track_subdir_from_git(mod::Module, subdir::AbstractString; commit=Base.
     # diff against files at the same commit used to build Julia
     repo, repo_path = git_repo(subdir)
     if repo == nothing
-        error("could not find git repository at $subdir")
+        throw(GitRepoException(subdir))
     end
     prefix = relpath(subdir, repo_path)   # git-relative path of this subdir
     tree = git_tree(repo, commit)
@@ -86,7 +86,7 @@ function track_subdir_from_git(mod::Module, subdir::AbstractString; commit=Base.
         fmod = get(juliaf2m, fullpath, Core.Compiler)  # Core.Compiler is not cached
         fi = FileInfo(fmod)
         if parse_source!(fi.fm, src, Symbol(file), 1, fmod) === nothing
-            warn("failed to parse Git source text for ", file)
+            @warn "failed to parse Git source text for $file"
         else
             instantiate_sigs!(fi.fm)
         end

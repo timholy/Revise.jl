@@ -124,3 +124,11 @@ Initialze an empty FileInfo for a file that is `include`d into `mod`.
 FileInfo(mod::Module, cachefile::AbstractString="") = FileInfo(FileModules(mod), cachefile)
 
 FileInfo(fm::FileModules, fi::FileInfo) = FileInfo(fm, fi.cachefile)
+
+struct GitRepoException <: Exception
+    filename::String
+end
+
+function Base.showerror(io::IO, ex::GitRepoException)
+    print(io, "no repository at ", ex.filename, " to track stdlibs you must build Julia from source")
+end
