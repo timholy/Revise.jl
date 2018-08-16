@@ -157,7 +157,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Limitations",
     "title": "Distributed computing (multiple workers)",
     "category": "section",
-    "text": "Revise supports changes to code in worker processes. The code must be loaded in the main process in which Revise is running, and you must use @everywhere using Revise."
+    "text": "Revise supports changes to code in worker processes. The code must be loaded in the main process in which Revise is running, and you must use @everywhere using Revise.Revise cannot handle changes in anonymous functions used in remotecalls. Consider the following module definition:module ParReviseExample\nusing Distributed\n\ngreet(x) = println(\"Hello, \", x)\n\nfoo() = for p in workers()\n    remotecall_fetch(() -> greet(\"Bar\"), p)\nend\n\nend # moduleChanging the remotecall to remotecall_fetch((x) -> greet(\"Bar\"), p, 1) will fail, because the new anonymous function is not defined on all workers. The workaround is to write the code to use named functions, e.g.,module ParReviseExample\nusing Distributed\n\ngreet(x) = println(\"Hello, \", x)\ngreetcaller() = greet(\"Bar\")\n\nfoo() = for p in workers()\n    remotecall_fetch(greetcaller, p)\nend\n\nend # moduleand the corresponding edit to the code would be to modify it to greetcaller(x) = greet(\"Bar\") and remotecall_fetch(greetcaller, p, 1)."
 },
 
 {
