@@ -1080,8 +1080,11 @@ end
             repo = LibGit2.GitRepo(randdir)
             LibGit2.add!(repo, joinpath("src", "extra.jl"))
             thismod = Base.root_module(Base.PkgId(modname))
-            Revise.track_subdir_from_git(thismod, joinpath(randdir, "src"); commit="HEAD")
+            logs, _ = Test.collect_test_logs() do
+                Revise.track_subdir_from_git(thismod, joinpath(randdir, "src"); commit="HEAD")
+            end
             @test haskey(Revise.fileinfos, mainjl)
+            @test startswith(logs[1].message, "skipping src/extra.jl")
         end
     end
 
@@ -1116,23 +1119,25 @@ end
     end
 
     @testset "Cleanup" begin
-        warnfile = randtmp()
-        open(warnfile, "w") do io
-            redirect_stderr(io) do
-                for name in to_remove
-                    try
-                        rm(name; force=true, recursive=true)
-                        deleteat!(LOAD_PATH, findall(LOAD_PATH .== name))
-                    catch
+        logs, _ = Test.collect_test_logs() do
+            warnfile = randtmp()
+            open(warnfile, "w") do io
+                redirect_stderr(io) do
+                    for name in to_remove
+                        try
+                            rm(name; force=true, recursive=true)
+                            deleteat!(LOAD_PATH, findall(LOAD_PATH .== name))
+                        catch
+                        end
                     end
+                    try yry() catch end
                 end
-                try yry() catch end
             end
+            if !Sys.isapple()
+                @test occursin("is not an existing directory", read(warnfile, String))
+            end
+            rm(warnfile)
         end
-        if !Sys.isapple()
-            @test occursin("is not an existing directory", read(warnfile, String))
-        end
-        rm(warnfile)
     end
 end
 
