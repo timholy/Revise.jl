@@ -578,6 +578,21 @@ function get_def(method::Method)
     filename = String(method.file)
     yield()   # magic bug fix for the OSX test failures. TODO: figure out why this works (prob. Julia bug)
     startswith(filename, "REPL") && error("methods defined at the REPL are not yet supported")
+    # First we check for whether `filename` is consistent with the module.
+    # If not, most likely this is a method that was defined via a macro defined in a different module.
+    # E.g., https://github.com/timholy/Rebugger.jl/issues/3
+    modfiles = get(module2files, nameof(method.module), nothing)
+    if modfiles != nothing && filename ∉ modfiles
+        # Try to find the actual file
+        for file in modfiles
+            fi = fileinfos[file]
+            maybe_parse_from_cache!(fi, file)
+            haskey(fi.fm, method.module) || continue
+            map = fi.fm[method.module].sigtmap
+            def = get(map, method.sig, nothing)
+            def == nothing || return def
+        end
+    end
     if !haskey(fileinfos, filename)
         # See whether it's in Base
         basefile = Base.find_source_file(filename)
