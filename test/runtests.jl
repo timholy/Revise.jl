@@ -1114,6 +1114,7 @@ end
             end
             @test isempty(logs)
         else
+            @test_throws Revise.GitRepoException Revise.track(Unicode)
             @warn "skipping Core.Compiler and stdlibs tests due to lack of git repo"
         end
     end
