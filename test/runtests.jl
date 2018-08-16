@@ -1137,3 +1137,19 @@ end
 end
 
 GC.gc(); GC.gc(); GC.gc()   # work-around for https://github.com/JuliaLang/julia/issues/28306
+
+# Now do a large-scale real-world test, in an attempt to prevent issues like #155
+if Sys.islinux()
+    @testset "Plots" begin
+        if !haskey(Revise.module2files, :Plots)
+            n = length(Revise.fileinfos)
+            @eval using Plots
+            yry()
+            @test length(Revise.fileinfos) > n+100  # issue #155
+        end
+        # https://github.com/timholy/Rebugger.jl/issues/3
+        m = which(Plots.histogram, Tuple{Vector{Float64}})
+        def = Revise.get_def(m)
+        @test def isa Revise.RelocatableExpr
+    end
+end
