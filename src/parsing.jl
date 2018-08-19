@@ -127,7 +127,7 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         # Any expression that *doesn't* define line numbers, new
         # modules, or include new files must be "real code."
         # Handle macros
-        while ex.head == :macrocall
+        while ex isa Expr && ex.head == :macrocall
             if ex.args[1] ∈ poppable_macro
                 ex = ex.args[end]
                 continue
@@ -135,7 +135,8 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
                 ex = macroexpand(mod, ex)
             end
         end
-        if ex isa Expr && ex.head == :block
+        ex isa Expr || return fm
+        if ex.head == :block
             return parse_expr!(fm, ex, file, mod)
         end
         # Add any method definitions to the cache

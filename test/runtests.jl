@@ -26,6 +26,10 @@ module ReviseTestPrivate
 struct Inner
     x::Float64
 end
+
+macro changeto1(args...)
+    return 1
+end
 end
 
 function private_module()
@@ -290,13 +294,18 @@ k(x) = 4
         end
     end
 
-    @testset "Macros that define methods" begin
+    @testset "Macros" begin
         # issues Revise#148, Rebugger#3
         fm = Revise.FileModules(PlottingDummy)
         Revise.parse_expr!(fm, :(@recipe function f(pd::PlotDummy) -55 end), Symbol("dummyfile.jl"), PlottingDummy)
         def, sigex = first(fm[PlottingDummy].defmap)
         gr = GlobalRef(PlottingDummy.RecipesBase, :RecipesBase)
         @test convert(Expr, sigex) == :($gr.apply_recipe(plotattributes::Dict{Symbol, Any}, pd::PlotDummy))
+
+        # macros that return a non-expression
+        fm = Revise.FileModules(ReviseTestPrivate)
+        Revise.parse_expr!(fm, :(@changeto1 function f(x) -55 end), Symbol("dummyfile.jl"), ReviseTestPrivate)
+        @test isempty(fm[ReviseTestPrivate].defmap)
     end
 
     @testset "Display" begin
