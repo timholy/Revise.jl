@@ -35,16 +35,12 @@ end
     echo 65536 | sudo tee -a /proc/sys/fs/inotify/max_user_watches
     ```
 
-    at the Linux prompt. **This should be done automatically by Revise's `deps/build.jl` script**,
-    but if you encounter the above error consider increasing it further (e.g., to 524288,
+    at the Linux prompt. (The maximum value is 524288,
     which will allocate half a gigabyte of RAM to file-watching).
     For more information see [issue #26](https://github.com/timholy/Revise.jl/issues/26).
 
-    You can prevent the build script from trying to increase the number of watched files
-    by creating an empty file `/path/to/Revise/deps/user_watches`.
-    For example, from the Linux prompt use `touch /path/to/Revise/deps/user_watches`.
-    This will prevent Revise from prompting you for your password every time the build
-    script runs (e.g., when a new version of Revise is installed).
+    Changing the value this way may not last through the next reboot,
+    but [you can also change it permanently](https://askubuntu.com/questions/716431/inotify-max-user-watches-value-resets-on-reboot-how-to-change-it-permanently).
 
 ## Configuration options
 

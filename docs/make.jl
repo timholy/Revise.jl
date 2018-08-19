@@ -11,6 +11,7 @@ makedocs(
         "Home" => "index.md",
         "config.md",
         "limitations.md",
+        "debugging.md",
         "internals.md",
         "user_reference.md",
         "dev_reference.md",

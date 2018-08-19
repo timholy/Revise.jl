@@ -10,6 +10,7 @@ module Internal
 
 mult2(x) = 2*x
 mult3(x) = 4*x  # oops
+mult4(x) = -x
 
 end  # Internal
 

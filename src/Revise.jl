@@ -6,7 +6,7 @@ using Base: PkgId
 
 using OrderedCollections: OrderedDict
 
-export revise, includet
+export revise, includet, MethodSummary
 
 """
     Revise.watching_files[]
@@ -215,7 +215,7 @@ function eval_revised!(fmmrep::FMMaps, mod::Module,
         if defref != nothing
             # The same expression is found in both, only update the lineoffset
             if val !== nothing
-                sigtref = fmmref.defmap[defref][1]
+                sigtref, oldoffset = fmmref.defmap[defref]
                 lnref = firstlineno(defref)
                 lnnew = firstlineno(def)
                 lineoffset = (isa(lnref, Integer) && isa(lnnew, Integer)) ? lnnew-lnref : 0
@@ -223,6 +223,7 @@ function eval_revised!(fmmrep::FMMaps, mod::Module,
                 for sigt in sigtref
                     fmmrep.sigtmap[sigt] = defref
                 end
+                oldoffset != lineoffset && @debug "LineOffset" _group="Action" time=time() deltainfo=(sigtref, lnnew, oldoffset=>lineoffset)
             else
                 fmmrep.defmap[defref] = nothing
             end
@@ -244,6 +245,7 @@ function eval_revised!(fmmrep::FMMaps, mod::Module,
                 info = String(take!(io))
                 @warn "Revise failed to find any methods for signature $sigt\n  Perhaps it was already deleted.\n$info"
             end
+            @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sigt, MethodSummary(m))
         end
     end
     return fmmrep
@@ -261,6 +263,7 @@ function eval_and_insert!(fmm::FMMaps, mod::Module, pr::Pair)
         else
             Core.eval(mod, ex)
         end
+        @debug "Eval" _group="Action" time=time() deltainfo=(mod, relocatable!(ex))
         if val isa RelocatableExpr
             instantiate_sigs!(fmm, def, val, mod)
         else

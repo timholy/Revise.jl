@@ -40,6 +40,7 @@ Revise.FMMaps
 Revise.FileModules
 Revise.FileInfo
 Revise.WatchList
+MethodSummary
 ```
 
 ## Function reference
