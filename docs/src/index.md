@@ -79,3 +79,6 @@ If Revise isn't working for you, here are some steps to try:
   [Fixing a broken or partially-working installation](@ref) for some suggestions.
 
 If you still encounter problems, please [file an issue](https://github.com/timholy/Revise.jl/issues).
+If Revise isn't following all the changes that you think it should, try turning on
+logging with `Revise.islogging[] = true`, carrying out the steps for which Revise fails,
+and then reporting the contents of `Revise.logdiff` in your issue.

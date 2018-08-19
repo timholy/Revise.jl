@@ -132,3 +132,24 @@ end
 function Base.showerror(io::IO, ex::GitRepoException)
     print(io, "no repository at ", ex.filename, " to track stdlibs you must build Julia from source")
 end
+
+"""
+    Diff(mode::Char, info, t=time())
+
+Create a `Diff` element indicating a change due to revision, used for logging.
+When logging is on, Revise creates these in a few flavors:
+
+- `Diff('+', (mod, expr))`: `expr` got `eval`ed in module `mod` (an addition or revision to an existing method)
+- `Diff('-', (sigt, method))`: `method` got deleted
+- `Diff('l', (sigt, oldoffset=>newoffset))`: update the line number offset for signature `sigt`
+
+The time of the revision is also recorded, which can be useful for figuring out what
+triggered a specific change. If you turn on logging from the REPL, consider also using
+`tstart = time()` to record the time at which you initiated logging.
+"""
+struct Diff
+    mode::Char
+    info
+    t::Float64
+end
+Diff(mode::Char, info) = Diff(mode, info, time())

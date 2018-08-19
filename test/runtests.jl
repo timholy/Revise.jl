@@ -222,11 +222,18 @@ k(x) = 4
         fl2 = joinpath(@__DIR__, "revisetest_revised.jl")
         fl3 = joinpath(@__DIR__, "revisetest_errors.jl")
         include(fl1)  # So the modules are defined
+        Revise.islogging[] = true                 # also test the logging functionality
         # test the "mistakes"
         @test ReviseTest.cube(2) == 16
         @test ReviseTest.Internal.mult3(2) == 8
+        @test ReviseTest.Internal.mult4(2) == -2
+        # Construct the Diff from the deletion while we still have the method
+        meth = first(methods(ReviseTest.Internal.mult4))
+        deldiff = Revise.Diff('-', (Tuple{typeof(ReviseTest.Internal.mult4),Any}, meth))
+
         oldmd = Revise.parse_source(fl1, Main)
         Revise.instantiate_sigs!(oldmd)
+
         newmd = Revise.parse_source(fl2, Main)
         revmd = Revise.eval_revised(newmd, oldmd)
         @test ReviseTest.cube(2) == 8
@@ -273,6 +280,17 @@ k(x) = 4
         @test m.line == 14
         @test revmd[ReviseTest.Internal].sigtmap[Tuple{typeof(ReviseTest.Internal.mult3),Any}] == def
 
+        @test_throws MethodError ReviseTest.Internal.mult4(2)
+
+        cmpdiff(d1, d2) = d1.mode == d2.mode && d1.info == d2.info
+        @test length(Revise.logdiff) == 5
+        @test cmpdiff(Revise.logdiff[1], Revise.Diff('+', (ReviseTest, Revise.relocatable!(:(cube(x) = x^3)))))
+        @test cmpdiff(Revise.logdiff[2], Revise.Diff('+', (ReviseTest, Revise.relocatable!(:(fourth(x) = x^4)))))
+        @test cmpdiff(Revise.logdiff[3], Revise.Diff('l', (Any[Tuple{typeof(ReviseTest.Internal.mult2),Any}], 0 => 2)))
+        @test cmpdiff(Revise.logdiff[4], Revise.Diff('+', (ReviseTest.Internal, Revise.relocatable!(:(mult3(x) = 3*x)))))
+        @test cmpdiff(Revise.logdiff[5], deldiff)
+        empty!(Revise.logdiff)
+
         # Backtraces
         newmd = Revise.parse_source(fl3, Main)
         revmd = Revise.eval_revised(newmd, revmd)
@@ -292,6 +310,11 @@ k(x) = 4
             bt = throwing_function(stacktrace(catch_backtrace()))
             @test bt.func == :mult2 && bt.file == Symbol(fl3) && bt.line == 13
         end
+        @test length(Revise.logdiff) == 2
+        @test cmpdiff(Revise.logdiff[1], Revise.Diff('+', (ReviseTest, Revise.relocatable!(:(cube(x) = error("cube"))))))
+        @test cmpdiff(Revise.logdiff[2], Revise.Diff('+', (ReviseTest.Internal, Revise.relocatable!(:(mult2(x) = error("mult2"))))))
+
+        Revise.islogging[] = false
     end
 
     @testset "Macros" begin
@@ -315,7 +338,7 @@ k(x) = 4
         @test str == ":(@inbounds x[2])"
         fm = Revise.parse_source(joinpath(@__DIR__, "revisetest.jl"), Main)
         Revise.instantiate_sigs!(fm)
-        @test string(fm) == "OrderedCollections.OrderedDict(Main=>FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest=>FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal=>FMMaps(<2 expressions>, <2 signatures>))"
+        @test string(fm) == "OrderedCollections.OrderedDict(Main=>FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest=>FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal=>FMMaps(<3 expressions>, <3 signatures>))"
         fmmr = fm[ReviseTest]
         @test string(fmmr) == "FMMaps(<2 expressions>, <2 signatures>)"
         io = IOBuffer()
