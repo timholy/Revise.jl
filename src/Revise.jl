@@ -30,7 +30,18 @@ See the documentation for the `JULIA_REVISE_POLL` environment variable.
 """
 const polling_files = Ref(false)
 function wait_changed(file)
-    polling_files[] ? poll_file(file) : watch_file(file)
+    try
+        polling_files[] ? poll_file(file) : watch_file(file)
+    catch err
+        if Sys.islinux() && err isa SystemError && err.errnum == 28  # ENOSPC
+            @warn """Your operating system has run out of inotify capacity.
+            Check the current value with `cat /proc/sys/fs/inotify/max_user_watches`.
+            Set it to a higher level with, e.g., `echo 65536 | sudo tee -a /proc/sys/fs/inotify/max_user_watches`.
+            This requires having administrative privileges on your machine (or talk to your sysadmin).
+            See https://github.com/timholy/Revise.jl/issues/26 for more information."""
+        end
+        rethrow(err)
+    end
     return nothing
 end
 
