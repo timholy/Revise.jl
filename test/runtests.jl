@@ -385,7 +385,13 @@ end
             @eval @test $(fn5)() == 5
             @eval @test $(fn6)() == 6
             m = @eval first(methods($fn1))
-            @test Revise.get_def(m) == convert(Revise.RelocatableExpr, :( $fn1() = 1 ))
+            ex = Revise.get_def(m)
+            @test ex == convert(Revise.RelocatableExpr, :( $fn1() = 1 ))
+            # Check that get_def returns copies
+            ex2 = deepcopy(ex)
+            ex.args[end].args[end] = 2
+            @test Revise.get_def(m) == ex2
+            @test Revise.get_def(m) != ex
             sleep(0.1)  # to ensure that the file watching has kicked in
             # Change the definition of function 1 (easiest to just rewrite the whole file)
             open(joinpath(dn, modname*".jl"), "w") do io
