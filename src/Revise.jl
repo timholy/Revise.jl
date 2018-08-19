@@ -6,7 +6,7 @@ using Base: PkgId
 
 using OrderedCollections: OrderedDict
 
-export revise, includet
+export revise, includet, MethodSummary
 
 """
     Revise.watching_files[]
@@ -61,18 +61,6 @@ include("exprutils.jl")
 include("pkgs.jl")
 include("git.jl")
 include("recipes.jl")
-
-"""
-    Revise.islogging[]
-
-If `true`, Revise will log every change in `Revise.logdiff`. Turn logging on with
-
-    Revise.islogging[] = true
-
-and off by setting it to false.
-"""
-const islogging = Ref(false)
-const logdiff = Diff[]
 
 ### Globals to keep track of state
 
@@ -221,7 +209,6 @@ end
 function eval_revised!(fmmrep::FMMaps, mod::Module,
                        fmmnew::FMMaps, fmmref::FMMaps)
     # Update to the state of fmmnew, preventing any unnecessary evaluation
-    islog = islogging[]
     for (def,val) in fmmnew.defmap
         @assert def != nothing
         defref = getkey(fmmref.defmap, def, nothing)
@@ -236,12 +223,12 @@ function eval_revised!(fmmrep::FMMaps, mod::Module,
                 for sigt in sigtref
                     fmmrep.sigtmap[sigt] = defref
                 end
-                islog && oldoffset != lineoffset && push!(logdiff, Diff('l', (sigtref, oldoffset=>lineoffset)))
+                oldoffset != lineoffset && @debug "LineOffset" _group="Action" time=time() deltainfo=(sigtref, lnnew, oldoffset=>lineoffset)
             else
                 fmmrep.defmap[defref] = nothing
             end
         else
-            eval_and_insert!(fmmrep, mod, def=>val, islog)
+            eval_and_insert!(fmmrep, mod, def=>val)
         end
     end
     # Delete any methods missing in fmmnew
@@ -258,7 +245,7 @@ function eval_revised!(fmmrep::FMMaps, mod::Module,
                 info = String(take!(io))
                 @warn "Revise failed to find any methods for signature $sigt\n  Perhaps it was already deleted.\n$info"
             end
-            islog && push!(logdiff, Diff('-', (sigt, m)))
+            @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sigt, MethodSummary(m))
         end
     end
     return fmmrep
@@ -267,7 +254,7 @@ end
 eval_revised_dummy!(mod::Module, fmmnew::FMMaps, fmmref::FMMaps) =
     eval_revised!(FMMaps(), mod, fmmnew, fmmref)
 
-function eval_and_insert!(fmm::FMMaps, mod::Module, pr::Pair, islog=false)
+function eval_and_insert!(fmm::FMMaps, mod::Module, pr::Pair)
     def, val = pr.first, pr.second
     ex = convert(Expr, def)
     try
@@ -276,7 +263,7 @@ function eval_and_insert!(fmm::FMMaps, mod::Module, pr::Pair, islog=false)
         else
             Core.eval(mod, ex)
         end
-        islog && push!(logdiff, Diff('+', (mod, relocatable!(ex))))
+        @debug "Eval" _group="Action" time=time() deltainfo=(mod, relocatable!(ex))
         if val isa RelocatableExpr
             instantiate_sigs!(fmm, def, val, mod)
         else
