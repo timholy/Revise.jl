@@ -202,7 +202,9 @@ julia> Revise.argtypeexpr(Revise.get_callexpr(sigex).args[2:end]...)
 """
 function argtypeexpr(ex::ExLike, rest...)
     # Handle @nospecialize(x)
-    if ex.head == :macrocall && length(ex.args) >= 3 && ex.args[1] == Symbol("@nospecialize")
+    a = ex.args[1]
+    if ex.head == :macrocall && length(ex.args) >= 3 && (a == Symbol("@nospecialize") ||
+            (a isa Expr && a.head == :. && length(a.args) > 1 && a.args[end] == QuoteNode(Symbol("@nospecialize"))))
         return (argtypeexpr(ex.args[3])..., argtypeexpr(rest...)...)
     end
     if ex.head == :meta && length(ex.args) >= 2 && ex.args[1] == :nospecialize
