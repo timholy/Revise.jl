@@ -13,7 +13,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Home",
     "title": "Introduction to Revise",
     "category": "section",
-    "text": "Revise.jl may help you keep your Julia sessions running longer, reducing the need to restart when you make changes to code. With Revise, you can be in the middle of a session and then update packages, switch git branches or stash/unstash code, and/or edit the source code; typically, the changes will be incorporated into the very next command you issue from the REPL. This can save you the overhead of restarting, loading packages, and waiting for code to JIT-compile."
+    "text": "Revise.jl may help you keep your Julia sessions running longer, reducing the need to restart when you make changes to code. With Revise, you can be in the middle of a session and then edit source code, update packages, switch git branches, and/or stash/unstash code; typically, the changes will be incorporated into the very next command you issue from the REPL. This can save you the overhead of restarting, loading packages, and waiting for code to JIT-compile."
 },
 
 {
@@ -29,7 +29,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Home",
     "title": "Usage example",
     "category": "section",
-    "text": "(v0.7) pkg> dev Example\n[...output related to installation...]\n\njulia> using Revise        # importantly, this must come before `using Example`\n\njulia> using Example\n\njulia> hello(\"world\")\n\"Hello, world\"\n\njulia> Example.f()\nERROR: UndefVarError: f not defined\n\njulia> edit(hello)   # opens Example.jl in the editor you have configured\n\n# Now, add a function `f() = π` and save the file\n\njulia> Example.f()\nπ = 3.1415926535897...Revise is not tied to any particular editor. (The EDITOR or JULIA_EDITOR environment variables can be used to specify your preference.)It\'s even possible to use Revise on code in Julia\'s Base module or its standard libraries: just say Revise.track(Base) or using Pkg; Revise.track(Pkg). For Base, any changes that you\'ve made since you last built Julia will be automatically incorporated; for the stdlibs, any changes since the last git commit will be incorporated.See Using Revise by default if you want Revise to be available every time you start julia."
+    "text": "(v0.7) pkg> dev Example\n[...output related to installation...]\n\njulia> using Revise        # importantly, this must come before `using Example`\n\njulia> using Example\n\njulia> hello(\"world\")\n\"Hello, world\"\n\njulia> Example.f()\nERROR: UndefVarError: f not defined\n\njulia> edit(hello)   # opens Example.jl in the editor you have configured\n\n# Now, add a function `f() = π` and save the file\n\njulia> Example.f()\nπ = 3.1415926535897...Revise is not tied to any particular editor. (The EDITOR or JULIA_EDITOR environment variables can be used to specify your preference.)See Using Revise by default if you want Revise to be available every time you start julia."
 },
 
 {
@@ -41,11 +41,27 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "index.html#Secrets-of-Revise-\"wizards\"-1",
+    "page": "Home",
+    "title": "Secrets of Revise \"wizards\"",
+    "category": "section",
+    "text": "Revise can assist with methodologies like test-driven development. While it\'s often desirable to write the test first, sometimes when fixing a bug it\'s very difficult to write a good test until you understand the bug better. Often that means basically fixing the bug before your write the test. With Revise, you canfix the bug while simultaneously developing a high-quality test\nverify that your test passes with the fixed code\ngit stash your fix and check that your new test fails on the old code, thus verifying that your test captures the essence of the former bug (if it doesn\'t fail, you need a better test!)\ngit stash pop, test again, commit, and submitall without restarting your Julia session."
+},
+
+{
+    "location": "index.html#What-else-do-I-need-to-know?-1",
+    "page": "Home",
+    "title": "What else do I need to know?",
+    "category": "section",
+    "text": "Except in cases of problems (see below), that\'s it! Revise is a tool that runs in the background, and when all is well it should be essentially invisible, except that you don\'t have to restart Julia so often.Revise can also be used as a \"library\" by developers who want to add other new capabilities to Julia; the sections How Revise works and Developer reference are particularly relevant for them."
+},
+
+{
     "location": "index.html#If-Revise-doesn\'t-work-as-expected-1",
     "page": "Home",
     "title": "If Revise doesn\'t work as expected",
     "category": "section",
-    "text": "If Revise isn\'t working for you, here are some steps to try:See Configuration for information on customization options. In particular, some file systems (like NFS) might require special options.\nRevise can\'t handle all kinds of code changes; for more information, see the section on Limitations.\nTry running test Revise from the Pkg REPL-mode. If tests pass, check the documentation to make sure you understand how Revise should work. If they fail (especially if it mirrors functionality that you need and isn\'t working), see Fixing a broken or partially-working installation for some suggestions.If you still encounter problems, please file an issue."
+    "text": "If Revise isn\'t working for you, here are some steps to try:See Configuration for information on customization options. In particular, some file systems (like NFS) might require special options.\nRevise can\'t handle all kinds of code changes; for more information, see the section on Limitations.\nTry running test Revise from the Pkg REPL-mode. If tests pass, check the documentation to make sure you understand how Revise should work. If they fail (especially if it mirrors functionality that you need and isn\'t working), see Fixing a broken or partially-working installation for some suggestions.If you still encounter problems, please file an issue. Especially if you think Revise is making mistakes in adding or deleting methods, please see the page on Debugging Revise for information about how to attach logs to your bug report."
 },
 
 {
@@ -77,7 +93,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Configuration",
     "title": "System configuration",
     "category": "section",
-    "text": "note: Linux-specific configuration\nRevise needs to be notified by your filesystem about changes to your code, which means that the files that define your modules need to be watched for updates. Some systems impose limits on the number of files and directories that can be watched simultaneously; if this limit is hit, on Linux this can result in a fairly cryptic error likeERROR: start_watching (File Monitor): no space left on device (ENOSPC)The cure is to increase the number of files that can be watched, by executingecho 65536 | sudo tee -a /proc/sys/fs/inotify/max_user_watchesat the Linux prompt. This should be done automatically by Revise\'s deps/build.jl script, but if you encounter the above error consider increasing it further (e.g., to 524288, which will allocate half a gigabyte of RAM to file-watching). For more information see issue #26.You can prevent the build script from trying to increase the number of watched files by creating an empty file /path/to/Revise/deps/user_watches. For example, from the Linux prompt use touch /path/to/Revise/deps/user_watches. This will prevent Revise from prompting you for your password every time the build script runs (e.g., when a new version of Revise is installed)."
+    "text": "note: Linux-specific configuration\nRevise needs to be notified by your filesystem about changes to your code, which means that the files that define your modules need to be watched for updates. Some systems impose limits on the number of files and directories that can be watched simultaneously; if this limit is hit, on Linux this can result in a fairly cryptic error likeERROR: start_watching (File Monitor): no space left on device (ENOSPC)The cure is to increase the number of files that can be watched, by executingecho 65536 | sudo tee -a /proc/sys/fs/inotify/max_user_watchesat the Linux prompt. (The maximum value is 524288, which will allocate half a gigabyte of RAM to file-watching). For more information see issue #26.Changing the value this way may not last through the next reboot, but you can also change it permanently."
 },
 
 {
@@ -166,6 +182,54 @@ var documenterSearchIndex = {"docs": [
     "title": "Changes that Revise cannot handle",
     "category": "section",
     "text": "Finally, there are some kinds of changes that Revise cannot incorporate into a running Julia session:changes to type definitions\nfile or module renames\nconflicts between variables and functions sharing the same nameThese kinds of changes require that you restart your Julia session."
+},
+
+{
+    "location": "debugging.html#",
+    "page": "Debugging Revise",
+    "title": "Debugging Revise",
+    "category": "page",
+    "text": ""
+},
+
+{
+    "location": "debugging.html#Debugging-Revise-1",
+    "page": "Debugging Revise",
+    "title": "Debugging Revise",
+    "category": "section",
+    "text": "If Revise isn\'t behaving the way you expect it to, it can be useful to examine the decisions it made. Revise supports Julia\'s Logging framework and can optionally record its decisions in a format suitable for later inspection. What follows is a simple series of steps you can use to turn on logging, capture messages, and then submit them with a bug report. Alternatively, more advanced developers may want to examine the logs themselves to determine the source of Revise\'s error, and for such users a few tips about interpreting the log messages are also provided below."
+},
+
+{
+    "location": "debugging.html#Turning-on-logging-1",
+    "page": "Debugging Revise",
+    "title": "Turning on logging",
+    "category": "section",
+    "text": "Currently, the best way to turn on logging is within a running Julia session:julia> using Test, Logging\n\njulia> using Base.CoreLogging: Debug\n\njulia> rlogger = Test.TestLogger(min_level=Debug);\n\njulia> stdlogger = global_logger(rlogger);(The next-to-last line creates a logging object to capture @debug statements, and the last sets it as the active logger, saving the previous setting to a variable stdlogger in case you want to restore it later.)Now carry out the series of julia commands and code edits that reproduces the problem."
+},
+
+{
+    "location": "debugging.html#Capturing-the-logs-and-submitting-them-with-your-bug-report-1",
+    "page": "Debugging Revise",
+    "title": "Capturing the logs and submitting them with your bug report",
+    "category": "section",
+    "text": "Once all the revisions have been triggered and the mistake has been reproduced, it\'s time to capture the logs:julia> logs = filter(r->r.level==Debug && r._module==Revise, rlogger.logs);You can either let these print to the console and copy/paste the text output into the issue, or if they are extensive you can save logs to a file (e.g., in JLD2 format) and upload the file somewhere.See also A complete debugging demo below."
+},
+
+{
+    "location": "debugging.html#The-structure-of-the-logs-1",
+    "page": "Debugging Revise",
+    "title": "The structure of the logs",
+    "category": "section",
+    "text": "For those who want to do a little investigating on their own, it may be helpful to know that Revise\'s decisions are captured in the group called \"Action,\" and they come in three flavors:log entries with message \"Eval\" signify a call to eval; for these events, keyword :deltainfo has value (mod, expr) where mod is the module of evaluation and expr is a Revise.RelocatableExpr containing the expression that was evaluated.\nlog entries with message \"DeleteMethod\" signify a method deletion; for these events, keyword :deltainfo has value (sigt, methsummary) where sigt is the signature of the method that Revise intended to delete and methsummary is a MethodSummary of the method that Revise actually found to delete.\nlog entries with message \"LineOffset\" correspond to updates to Revise\'s own internal estimates of how far a given method has become displaced from the line number it occupied when it was last evaluated. For these events, :deltainfo has value (sigt, newlineno, oldoffset=>newoffset).If you\'re debugging mistakes in method creation/deletion, the \"LineOffset\" events may be distracting; you can remove them by additionally filtering on r.message ∈ (\"Eval\", \"DeleteMethod\").Note that Revise records the time of each revision, which can sometimes be useful in determining which revisions occur in conjunction with which user actions. If you want to make use of this, it can be handy to capture the start time with tstart = time() before commencing on a session."
+},
+
+{
+    "location": "debugging.html#A-complete-debugging-demo-1",
+    "page": "Debugging Revise",
+    "title": "A complete debugging demo",
+    "category": "section",
+    "text": "From within Revise\'s test/ directory, try the following:julia> using Test, Logging\n\njulia> using Base.CoreLogging: Debug\n\njulia> rlogger = Test.TestLogger(min_level=Debug);\n\njulia> stdlogger = global_logger(rlogger);\n\nshell> cp revisetest.jl /tmp/\n\njulia> includet(\"/tmp/revisetest.jl\")\n\njulia> ReviseTest.cube(3)\n81\n\nshell> cp revisetest_revised.jl /tmp/revisetest.jl\n\njulia> ReviseTest.cube(3)\n27\n\njulia> rlogger.logs\n5-element Array{Test.LogRecord,1}:\n Test.LogRecord(Debug, \"Eval\", Revise, \"Action\", :Revise_443cc0b6, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 266, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Module,Revise.RelocatableExpr}}}}(:time=>1.5347e9,:deltainfo=>(Main.ReviseTest, :(cube(x) = begin\n          x ^ 3\n      end))))\n Test.LogRecord(Debug, \"Eval\", Revise, \"Action\", :Revise_443cc0b7, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 266, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Module,Revise.RelocatableExpr}}}}(:time=>1.5347e9,:deltainfo=>(Main.ReviseTest, :(fourth(x) = begin\n          x ^ 4\n      end))))\n Test.LogRecord(Debug, \"LineOffset\", Revise, \"Action\", :Revise_3e9f6659, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 226, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Array{Any,1},Int64,Pair{Int64,Int64}}}}}(:time=>1.5347e9,:deltainfo=>(Any[Tuple{typeof(mult2),Any}], 13, 0=>2)))\n Test.LogRecord(Debug, \"Eval\", Revise, \"Action\", :Revise_443cc0b8, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 266, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Module,Revise.RelocatableExpr}}}}(:time=>1.5347e9,:deltainfo=>(Main.ReviseTest.Internal, :(mult3(x) = begin\n          3x\n      end))))\n Test.LogRecord(Debug, \"DeleteMethod\", Revise, \"Action\", :Revise_04f4de6f, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 248, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{DataType,MethodSummary}}}}(:time=>1.5347e9,:deltainfo=>(Tuple{typeof(mult4),Any}, MethodSummary(:mult4, :Internal, Symbol(\"/tmp/revisetest.jl\"), 13, Tuple{typeof(mult4),Any}))))Note that in some cases it can also be helpful to independently record the sequence of edits to the file. You can make copies cp editedfile.jl > /tmp/version1.jl, edit code, cp editedfile.jl > /tmp/version2.jl, etc. diff version1.jl version2.jl can be used to capture a compact summary of the changes and pasted into the bug report."
 },
 
 {
@@ -481,11 +545,19 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "dev_reference.html#Revise.MethodSummary",
+    "page": "Developer reference",
+    "title": "Revise.MethodSummary",
+    "category": "type",
+    "text": "MethodSummary(method)\n\nCreate a portable summary of a method. In particular, a MethodSummary can be saved to a JLD2 file.\n\n\n\n\n\n"
+},
+
+{
     "location": "dev_reference.html#Types-1",
     "page": "Developer reference",
     "title": "Types",
     "category": "section",
-    "text": "Revise.RelocatableExpr\nRevise.DefMap\nRevise.SigtMap\nRevise.FMMaps\nRevise.FileModules\nRevise.FileInfo\nRevise.WatchList"
+    "text": "Revise.RelocatableExpr\nRevise.DefMap\nRevise.SigtMap\nRevise.FMMaps\nRevise.FileModules\nRevise.FileInfo\nRevise.WatchList\nMethodSummary"
 },
 
 {
