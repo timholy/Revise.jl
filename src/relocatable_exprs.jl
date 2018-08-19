@@ -52,6 +52,12 @@ function Base.convert(::Type{Expr}, rex::RelocatableExpr)
     ex
 end
 
+function Base.copy(rex::RelocatableExpr)
+    crex = RelocatableExpr(rex.head)
+    crex.args = Any[a isa RelocatableExpr ? copy(a) : a for a in rex.args]
+    crex
+end
+
 # Implement the required comparison functions. `hash` is needed for Dicts.
 function Base.:(==)(a::RelocatableExpr, b::RelocatableExpr)
     a.head == b.head && isequal(LineSkippingIterator(a.args), LineSkippingIterator(b.args))
