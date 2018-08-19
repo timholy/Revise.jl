@@ -39,7 +39,8 @@ end
     which will allocate half a gigabyte of RAM to file-watching).
     For more information see [issue #26](https://github.com/timholy/Revise.jl/issues/26).
 
-    Rebooting can reset the number; for a more permanent change see https://askubuntu.com/questions/716431/inotify-max-user-watches-value-resets-on-reboot-how-to-change-it-permanently.
+    Changing the value this way may not last through the next reboot,
+    but [you can also change it permanently](https://askubuntu.com/questions/716431/inotify-max-user-watches-value-resets-on-reboot-how-to-change-it-permanently).
 
 ## Configuration options
 

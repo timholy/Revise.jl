@@ -2,10 +2,9 @@
 
 `Revise.jl` may help you keep your Julia sessions running longer, reducing the
 need to restart when you make changes to code.
-With Revise, you can be in the middle of a session and then update packages, switch git branches
-or stash/unstash code,
-and/or edit the source code; typically, the changes will be incorporated
-into the very next command you issue from the REPL.
+With Revise, you can be in the middle of a session and then edit source code,
+update packages, switch git branches, and/or stash/unstash code;
+typically, the changes will be incorporated into the very next command you issue from the REPL.
 This can save you the overhead of restarting, loading packages, and waiting for code to JIT-compile.
 
 ## Installation
@@ -45,11 +44,6 @@ julia> Example.f()
 Revise is not tied to any particular editor.
 (The [EDITOR or JULIA_EDITOR](https://docs.julialang.org/en/latest/stdlib/InteractiveUtils/#InteractiveUtils.edit-Tuple{AbstractString,Integer}) environment variables can be used to specify your preference.)
 
-It's even possible to use Revise on code in Julia's `Base` module or its standard libraries:
-just say `Revise.track(Base)` or `using Pkg; Revise.track(Pkg)`.
-For `Base`, any changes that you've made since you last built Julia will be automatically incorporated;
-for the stdlibs, any changes since the last git commit will be incorporated.
-
 See [Using Revise by default](@ref) if you want Revise to be available every time you
 start julia.
 
@@ -64,6 +58,34 @@ Revise is fairly ambitious: if all is working you should be able to track change
 - any of Julia's standard libraries (with, e.g., `using Unicode; Revise.track(Unicode)`)
 
 The last two require that you clone Julia and build it yourself from source.
+
+## Secrets of Revise "wizards"
+
+Revise can assist with methodologies like
+[test-driven development](https://en.wikipedia.org/wiki/Test-driven_development).
+While it's often desirable to write the test first, sometimes when fixing a bug
+it's very difficult to write a good test until you understand the bug better.
+Often that means basically fixing the bug before your write the test.
+With Revise, you can
+
+- fix the bug while simultaneously developing a high-quality test
+- verify that your test passes with the fixed code
+- `git stash` your fix and check that your new test fails on the old code,
+  thus verifying that your test captures the essence of the former bug (if it doesn't fail,
+  you need a better test!)
+- `git stash pop`, test again, commit, and submit
+
+all without restarting your Julia session.
+
+## What else do I need to know?
+
+Except in cases of problems (see below), that's it!
+Revise is a tool that runs in the background, and when all is well it should be
+essentially invisible, except that you don't have to restart Julia so often.
+
+Revise can also be used as a "library" by developers who want to add other new capabilities
+to Julia; the sections [How Revise works](@ref) and [Developer reference](@ref) are
+particularly relevant for them.
 
 ## If Revise doesn't work as expected
 
