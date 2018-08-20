@@ -209,6 +209,7 @@ end
 function eval_revised!(fmmrep::FMMaps, mod::Module,
                        fmmnew::FMMaps, fmmref::FMMaps)
     # Update to the state of fmmnew, preventing any unnecessary evaluation
+    @debug "Diff" _group="Parsing" activemodule=mod newexprs=setdiff(keys(fmmnew.defmap), keys(fmmref.defmap)) oldexprs=setdiff(keys(fmmref.defmap), keys(fmmnew.defmap))
     for (def,val) in fmmnew.defmap
         @assert def != nothing
         defref = getkey(fmmref.defmap, def, nothing)

@@ -22,6 +22,7 @@ function track(mod::Module)
             push!(fileinfos, filename=>FileInfo(submod, basesrccache))
             push!(files, filename)
             if mtime(filename) > mtcache
+                @debug "Recipe for Base" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
                 push!(revision_queue, filename)
             end
         end
