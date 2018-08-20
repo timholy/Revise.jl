@@ -326,6 +326,23 @@ k(x) = 4
         cmpdiff(logs[1], "Eval"; deltainfo=(ReviseTest, Revise.relocatable!(:(cube(x) = error("cube")))))
         cmpdiff(logs[2], "Eval"; deltainfo=(ReviseTest.Internal, Revise.relocatable!(:(mult2(x) = error("mult2")))))
         global_logger(stdlogger)
+
+        # Gensymmed symbols
+        rex1 = Revise.relocatable!(macroexpand(Main, :(t = @elapsed(foo(x)))))
+        rex2 = Revise.relocatable!(macroexpand(Main, :(t = @elapsed(foo(x)))))
+        @test isequal(rex1, rex2)
+        @test hash(rex1) == hash(rex2)
+        rex3 = Revise.relocatable!(macroexpand(Main, :(t = @elapsed(bar(x)))))
+        @test !isequal(rex1, rex3)
+        @test hash(rex1) != hash(rex3)
+        sym1, sym2 = gensym(:hello), gensym(:hello)
+        rex1 = Revise.relocatable!(:(x = $sym1))
+        rex2 = Revise.relocatable!(:(x = $sym2))
+        @test isequal(rex1, rex2)
+        @test hash(rex1) == hash(rex2)
+        sym3 = gensym(:world)
+        @test !isequal(rex1, rex3)
+        @test hash(rex1) != hash(rex3)
     end
 
     @testset "Macros" begin

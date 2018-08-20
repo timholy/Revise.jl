@@ -127,6 +127,10 @@ function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
             valb = valb::RelocatableExpr
             vala.head == valb.head || return false
             isequal(LineSkippingIterator(vala.args), LineSkippingIterator(valb.args)) || return false
+        elseif isa(vala, Symbol) && isa(valb, Symbol)
+            # two gensymed symbols do not need to match
+            sa, sb = String(vala), String(valb)
+            (startswith(sa, '#') && startswith(sb, '#')) || isequal(vala, valb) || return false
         else
             isequal(vala, valb) || return false
         end
@@ -135,9 +139,19 @@ function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
 end
 
 const hashlsi_seed = UInt == UInt64 ? 0x533cb920dedccdae : 0x2667c89b
+const gensymmed_rex = r"(^##([^#]+)#|^#\d+#([^#]+))"
 function Base.hash(iter::LineSkippingIterator, h::UInt)
     h += hashlsi_seed
     for x in iter
+        if x isa Symbol
+            # For gensymmed symbols, hash on the "base" name
+            xs = String(x)
+            if startswith(xs, '#')
+                c = match(gensymmed_rex, xs).captures
+                h += hash(c[3] == nothing ? c[2] : c[3], h)
+                continue
+            end
+        end
         h += hash(x, h)
     end
     h
