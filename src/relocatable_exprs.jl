@@ -68,7 +68,7 @@ Base.hash(x::RelocatableExpr, h::UInt) = hash(LineSkippingIterator(x.args),
                                               hash(x.head, h + hashrex_seed))
 
 function Base.show(io::IO, rex::RelocatableExpr)
-    rexf = striplines!(deepcopy(rex))
+    rexf = striplines!(copy(rex))
     show(io, convert(Expr, rexf))
 end
 
