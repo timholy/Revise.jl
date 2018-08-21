@@ -91,21 +91,38 @@ julia> ReviseTest.cube(3)
 27
 
 julia> rlogger.logs
-5-element Array{Test.LogRecord,1}:
- Test.LogRecord(Debug, "Eval", Revise, "Action", :Revise_443cc0b6, "/home/tim/.julia/dev/Revise/src/Revise.jl", 266, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Module,Revise.RelocatableExpr}}}}(:time=>1.5347e9,:deltainfo=>(Main.ReviseTest, :(cube(x) = begin
+8-element Array{Test.LogRecord,1}:
+ Test.LogRecord(Debug, "Diff", Revise, "Parsing", :Revise_1dfe9141, "/home/tim/.julia/dev/Revise/src/Revise.jl", 212, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol,Symbol},NamedTuple{(:activemodule, :newexprs, :oldexprs),Tuple{Tuple{Symbol},Set{Revise.RelocatableExpr},Set{Revise.RelocatableExpr}}}}(:activemodule=>(:Main,),:newexprs=>Set(Revise.RelocatableExpr[]),:oldexprs=>Set(Revise.RelocatableExpr[])))
+ Test.LogRecord(Debug, "Diff", Revise, "Parsing", :Revise_1dfe9142, "/home/tim/.julia/dev/Revise/src/Revise.jl", 212, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol,Symbol},NamedTuple{(:activemodule, :newexprs, :oldexprs),Tuple{Tuple{Symbol,Symbol},Set{Revise.RelocatableExpr},Set{Revise.RelocatableExpr}}}}(:activemodule=>(:Main, :ReviseTest),:newexprs=>Set(Revise.RelocatableExpr[:(fourth(x) = begin
+          x ^ 4
+      end), :(cube(x) = begin
+          x ^ 3
+      end)]),:oldexprs=>Set(Revise.RelocatableExpr[:(cube(x) = begin
+          x ^ 4
+      end)])))
+ Test.LogRecord(Debug, "Eval", Revise, "Action", :Revise_443cc0b6, "/home/tim/.julia/dev/Revise/src/Revise.jl", 267, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Module,Revise.RelocatableExpr}}}}(:time=>1.53487e9,:deltainfo=>(Main.ReviseTest, :(cube(x) = begin
           x ^ 3
       end))))
- Test.LogRecord(Debug, "Eval", Revise, "Action", :Revise_443cc0b7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 266, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Module,Revise.RelocatableExpr}}}}(:time=>1.5347e9,:deltainfo=>(Main.ReviseTest, :(fourth(x) = begin
+ Test.LogRecord(Debug, "Eval", Revise, "Action", :Revise_443cc0b7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 267, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Module,Revise.RelocatableExpr}}}}(:time=>1.53487e9,:deltainfo=>(Main.ReviseTest, :(fourth(x) = begin
           x ^ 4
       end))))
- Test.LogRecord(Debug, "LineOffset", Revise, "Action", :Revise_3e9f6659, "/home/tim/.julia/dev/Revise/src/Revise.jl", 226, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Array{Any,1},Int64,Pair{Int64,Int64}}}}}(:time=>1.5347e9,:deltainfo=>(Any[Tuple{typeof(mult2),Any}], 13, 0=>2)))
- Test.LogRecord(Debug, "Eval", Revise, "Action", :Revise_443cc0b8, "/home/tim/.julia/dev/Revise/src/Revise.jl", 266, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Module,Revise.RelocatableExpr}}}}(:time=>1.5347e9,:deltainfo=>(Main.ReviseTest.Internal, :(mult3(x) = begin
+ Test.LogRecord(Debug, "Diff", Revise, "Parsing", :Revise_1dfe9143, "/home/tim/.julia/dev/Revise/src/Revise.jl", 212, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol,Symbol},NamedTuple{(:activemodule, :newexprs, :oldexprs),Tuple{Tuple{Symbol,Symbol,Symbol},Set{Revise.RelocatableExpr},Set{Revise.RelocatableExpr}}}}(:activemodule=>(:Main, :ReviseTest, :Internal),:newexprs=>Set(Revise.RelocatableExpr[:(mult3(x) = begin
+          3x
+      end)]),:oldexprs=>Set(Revise.RelocatableExpr[:(mult4(x) = begin
+          -x
+      end), :(mult3(x) = begin
+          4x
+      end)])))
+ Test.LogRecord(Debug, "LineOffset", Revise, "Action", :Revise_3e9f6659, "/home/tim/.julia/dev/Revise/src/Revise.jl", 227, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Array{Any,1},Int64,Pair{Int64,Int64}}}}}(:time=>1.53487e9,:deltainfo=>(Any[Tuple{typeof(mult2),Any}], 13, 0=>2)))
+ Test.LogRecord(Debug, "Eval", Revise, "Action", :Revise_443cc0b8, "/home/tim/.julia/dev/Revise/src/Revise.jl", 267, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Module,Revise.RelocatableExpr}}}}(:time=>1.53487e9,:deltainfo=>(Main.ReviseTest.Internal, :(mult3(x) = begin
           3x
       end))))
- Test.LogRecord(Debug, "DeleteMethod", Revise, "Action", :Revise_04f4de6f, "/home/tim/.julia/dev/Revise/src/Revise.jl", 248, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{DataType,MethodSummary}}}}(:time=>1.5347e9,:deltainfo=>(Tuple{typeof(mult4),Any}, MethodSummary(:mult4, :Internal, Symbol("/tmp/revisetest.jl"), 13, Tuple{typeof(mult4),Any}))))
+ Test.LogRecord(Debug, "DeleteMethod", Revise, "Action", :Revise_04f4de6f, "/home/tim/.julia/dev/Revise/src/Revise.jl", 249, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{DataType,MethodSummary}}}}(:time=>1.53487e9,:deltainfo=>(Tuple{typeof(mult4),Any}, MethodSummary(:mult4, :Internal, Symbol("/tmp/revisetest.jl"), 13, Tuple{typeof(mult4),Any}))))
 ```
+In addition to the "Action" items, you can see other entries that record the "Diff"s encountered
+by Revise during revision.
 
-Note that in some cases it can also be helpful to independently record the sequence of edits to the file.
+In rare cases it might be helpful to independently record the sequence of edits to the file.
 You can make copies `cp editedfile.jl > /tmp/version1.jl`, edit code, `cp editedfile.jl > /tmp/version2.jl`,
 etc.
 `diff version1.jl version2.jl` can be used to capture a compact summary of the changes
