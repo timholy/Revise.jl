@@ -341,8 +341,9 @@ k(x) = 4
         @test isequal(rex1, rex2)
         @test hash(rex1) == hash(rex2)
         sym3 = gensym(:world)
-        @test !isequal(rex1, rex3)
-        @test hash(rex1) != hash(rex3)
+        rex3 = Revise.relocatable!(:(x = $sym3))
+        @test isequal(rex1, rex3)
+        @test hash(rex1) == hash(rex3)
     end
 
     @testset "Macros" begin
