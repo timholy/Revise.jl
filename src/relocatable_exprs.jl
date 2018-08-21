@@ -68,7 +68,7 @@ Base.hash(x::RelocatableExpr, h::UInt) = hash(LineSkippingIterator(x.args),
                                               hash(x.head, h + hashrex_seed))
 
 function Base.show(io::IO, rex::RelocatableExpr)
-    rexf = striplines!(deepcopy(rex))
+    rexf = striplines!(copy(rex))
     show(io, convert(Expr, rexf))
 end
 
@@ -127,6 +127,10 @@ function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
             valb = valb::RelocatableExpr
             vala.head == valb.head || return false
             isequal(LineSkippingIterator(vala.args), LineSkippingIterator(valb.args)) || return false
+        elseif isa(vala, Symbol) && isa(valb, Symbol)
+            # two gensymed symbols do not need to match
+            sa, sb = String(vala), String(valb)
+            (startswith(sa, '#') && startswith(sb, '#')) || isequal(vala, valb) || return false
         else
             isequal(vala, valb) || return false
         end
@@ -138,6 +142,13 @@ const hashlsi_seed = UInt == UInt64 ? 0x533cb920dedccdae : 0x2667c89b
 function Base.hash(iter::LineSkippingIterator, h::UInt)
     h += hashlsi_seed
     for x in iter
+        if x isa Symbol
+            xs = String(x)
+            if startswith(xs, '#')  # all gensymmed symbols are treated as identical
+                h += hash("gensym", h)
+                continue
+            end
+        end
         h += hash(x, h)
     end
     h
