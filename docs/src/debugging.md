@@ -14,18 +14,15 @@ messages are also provided below.
 
 Currently, the best way to turn on logging is within a running Julia session:
 
-```jldoctest
-julia> using Test, Logging
-
-julia> using Base.CoreLogging: Debug
-
-julia> rlogger = Test.TestLogger(min_level=Debug);
-
-julia> stdlogger = global_logger(rlogger);
+```jldoctest; setup=(using Revise)
+julia> rlogger = Revise.debug_logger()
+Test.TestLogger(Test.LogRecord[], Debug, false, nothing)
 ```
-(The next-to-last line creates a logging object to capture `@debug` statements, and the last
-sets it as the active logger, saving the previous setting to a variable `stdlogger` in
-case you want to restore it later.)
+Hold on to `rlogger`; you're going to use it at the end to retrieve the logs.
+
+!!! note
+
+    This replaces the global logger; in rare circumstances this may have consequences for other code.
 
 Now carry out the series of julia commands and code edits that reproduces the problem.
 
@@ -47,7 +44,7 @@ See also [A complete debugging demo](@ref) below.
 ## The structure of the logs
 
 For those who want to do a little investigating on their own, it may be helpful to
-know that Revise's decisions are captured in the group called "Action," and they come in three
+know that Revise's core decisions are captured in the group called "Action," and they come in three
 flavors:
 
 - log entries with message `"Eval"` signify a call to `eval`; for these events,
@@ -72,18 +69,14 @@ determining which revisions occur in conjunction with which user actions.
 If you want to make use of this, it can be handy to capture the start time with `tstart = time()`
 before commencing on a session.
 
+See [`Revise.debug_logger`](@ref) for information on groups besides "Action."
+
 ## A complete debugging demo
 
 From within Revise's `test/` directory, try the following:
 
 ```julia
-julia> using Test, Logging
-
-julia> using Base.CoreLogging: Debug
-
-julia> rlogger = Test.TestLogger(min_level=Debug);
-
-julia> stdlogger = global_logger(rlogger);
+julia> rlogger = Revise.debug_logger();
 
 shell> cp revisetest.jl /tmp/
 
