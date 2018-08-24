@@ -1,6 +1,6 @@
 module Revise
 
-using FileWatching, REPL, Base.CoreLogging, Distributed, UUIDs
+using FileWatching, REPL, Distributed, UUIDs
 import LibGit2
 using Base: PkgId
 
@@ -61,6 +61,7 @@ include("exprutils.jl")
 include("pkgs.jl")
 include("git.jl")
 include("recipes.jl")
+include("logging.jl")
 
 ### Globals to keep track of state
 
@@ -209,44 +210,46 @@ end
 function eval_revised!(fmmrep::FMMaps, mod::Module,
                        fmmnew::FMMaps, fmmref::FMMaps)
     # Update to the state of fmmnew, preventing any unnecessary evaluation
-    @debug "Diff" _group="Parsing" activemodule=fullname(mod) newexprs=setdiff(keys(fmmnew.defmap), keys(fmmref.defmap)) oldexprs=setdiff(keys(fmmref.defmap), keys(fmmnew.defmap))
-    for (def,val) in fmmnew.defmap
-        @assert def != nothing
-        defref = getkey(fmmref.defmap, def, nothing)
-        if defref != nothing
-            # The same expression is found in both, only update the lineoffset
-            if val !== nothing
-                sigtref, oldoffset = fmmref.defmap[defref]
-                lnref = firstlineno(defref)
-                lnnew = firstlineno(def)
-                lineoffset = (isa(lnref, Integer) && isa(lnnew, Integer)) ? lnnew-lnref : 0
-                fmmrep.defmap[defref] = (sigtref, lineoffset)
-                for sigt in sigtref
-                    fmmrep.sigtmap[sigt] = defref
+    with_logger(_debug_logger) do
+        @debug "Diff" _group="Parsing" activemodule=fullname(mod) newexprs=setdiff(keys(fmmnew.defmap), keys(fmmref.defmap)) oldexprs=setdiff(keys(fmmref.defmap), keys(fmmnew.defmap))
+        for (def,val) in fmmnew.defmap
+            @assert def != nothing
+            defref = getkey(fmmref.defmap, def, nothing)
+            if defref != nothing
+                # The same expression is found in both, only update the lineoffset
+                if val !== nothing
+                    sigtref, oldoffset = fmmref.defmap[defref]
+                    lnref = firstlineno(defref)
+                    lnnew = firstlineno(def)
+                    lineoffset = (isa(lnref, Integer) && isa(lnnew, Integer)) ? lnnew-lnref : 0
+                    fmmrep.defmap[defref] = (sigtref, lineoffset)
+                    for sigt in sigtref
+                        fmmrep.sigtmap[sigt] = defref
+                    end
+                    oldoffset != lineoffset && @debug "LineOffset" _group="Action" time=time() deltainfo=(sigtref, lnnew, oldoffset=>lineoffset)
+                else
+                    fmmrep.defmap[defref] = nothing
                 end
-                oldoffset != lineoffset && @debug "LineOffset" _group="Action" time=time() deltainfo=(sigtref, lnnew, oldoffset=>lineoffset)
             else
-                fmmrep.defmap[defref] = nothing
+                eval_and_insert!(fmmrep, mod, def=>val)
             end
-        else
-            eval_and_insert!(fmmrep, mod, def=>val)
         end
-    end
-    # Delete any methods missing in fmmnew
-    for (sigt,_) in fmmref.sigtmap
-        if !haskey(fmmrep.sigtmap, sigt)
-            m = get_method(sigt)
-            if isa(m, Method)
-                Base.delete_method(m)
-            else
-                mths = Base._methods_by_ftype(sigt, -1, typemax(UInt))
-                io = IOBuffer()
-                println(io, "Extracted method table:")
-                println(io, mths)
-                info = String(take!(io))
-                @warn "Revise failed to find any methods for signature $sigt\n  Perhaps it was already deleted.\n$info"
+        # Delete any methods missing in fmmnew
+        for (sigt,_) in fmmref.sigtmap
+            if !haskey(fmmrep.sigtmap, sigt)
+                m = get_method(sigt)
+                if isa(m, Method)
+                    Base.delete_method(m)
+                else
+                    mths = Base._methods_by_ftype(sigt, -1, typemax(UInt))
+                    io = IOBuffer()
+                    println(io, "Extracted method table:")
+                    println(io, mths)
+                    info = String(take!(io))
+                    @warn "Revise failed to find any methods for signature $sigt\n  Perhaps it was already deleted.\n$info"
+                end
+                @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sigt, MethodSummary(m))
             end
-            @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sigt, MethodSummary(m))
         end
     end
     return fmmrep
@@ -796,41 +799,6 @@ function async_steal_repl_backend()
         end
     end
     return nothing
-end
-
-"""
-    logger = Revise.debug_logger()
-
-Turn on [debug logging](https://docs.julialang.org/en/stable/stdlib/Logging/) and return the logger object.
-`logger.logs` contains a list of the logged events. The items in this list are of type `Test.LogRecord`,
-with the following relevant fields:
-
-- `group`: the event category. Revise currently uses the following groups:
-  + "Action": a change was implemented, of type described in the `message` field.
-  + "Parsing": a "significant" event in parsing. For these, examine the `message` field
-    for more information.
-  + "Watching": an indication that Revise determined that a particular file needed to be
-    examined for possible code changes. This is typically done on the basis of `mtime`,
-    the modification time of the file, and does not necessarily indicate that there were
-    any changes.
-- `message`: a string containing more information. Some examples:
-  + For entries in the "Action" group, `message` can be `"Eval"` when modifying
-    old methods or defining new ones, "DeleteMethod" when deleting a method,
-    and "LineOffset" to indicate that the line offset for a method
-    was updated (the last only affects the printing of stacktraces upon error,
-    it does not change how code runs)
-  + Items with group "Parsing" and message "Diff" contain sets `:newexprs` and `:oldexprs`
-    that contain the expression unique to post- or pre-revision, respectively.
-- `kwargs`: a pairs list of any other data. This is usually specific to particular `group`/`message`
-  combinations.
-
-Note that the logs may also contain information from sources other than Revise.
-"""
-function debug_logger()
-    @eval using Test
-    rlogger = Test.TestLogger(min_level=CoreLogging.Debug)
-    CoreLogging.global_logger(rlogger)
-    return rlogger
 end
 
 function __init__()
