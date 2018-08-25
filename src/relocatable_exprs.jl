@@ -28,6 +28,8 @@ mutable struct RelocatableExpr
     RelocatableExpr(head::Symbol, args...) = new(head, [args...])
 end
 
+const ExLike = Union{Expr,RelocatableExpr}
+
 # Works in-place and hence is unsafe. Only for internal use.
 Base.convert(::Type{RelocatableExpr}, ex::Expr) = relocatable!(ex)
 

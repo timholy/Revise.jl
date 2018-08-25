@@ -127,21 +127,18 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         # Any expression that *doesn't* define line numbers, new
         # modules, or include new files must be "real code."
         # Handle macros
-        while ex isa Expr && ex.head == :macrocall
-            if ex.args[1] ∈ poppable_macro
-                ex = ex.args[end]
-                continue
-            else
-                ex = macroexpand(mod, ex)
-            end
+        ex0 = ex
+        if ex isa Expr && ex.head == :macrocall
+            ex0, ex = macexpand(mod, ex)
         end
         ex isa Expr || return fm
+        ex.head == :tuple && isempty(ex.args) && return fm
         if ex.head == :block
             return parse_expr!(fm, ex, file, mod)
         end
         # Add any method definitions to the cache
-        rex = convert(RelocatableExpr, ex)
-        sig = get_signature(rex)
+        sig = get_signature(convert(RelocatableExpr, ex))
+        rex = convert(RelocatableExpr, ex0)
         if isa(sig, ExLike)
             fm[mod].defmap[rex] = sig  # we can't safely `eval` the types because they may not yet exist
         else
@@ -149,6 +146,19 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         end
     end
     fm
+end
+
+function macexpand(mod::Module, ex::Expr)
+    ex0 = ex
+    if ex.args[1] ∈ poppable_macro
+        ex = ex.args[end]
+        if ex isa Expr && ex.head == :macrocall
+            ex0.args[end], ex = macexpand(mod, ex)
+        end
+    else
+        ex0 = ex = macroexpand(mod, ex)
+    end
+    return ex0, ex
 end
 
 const nargs_docexpr = 4

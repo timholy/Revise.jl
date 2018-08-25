@@ -32,6 +32,10 @@ end
 macro changeto1(args...)
     return 1
 end
+
+macro donothing(ex)
+    esc(ex)
+end
 end
 
 function private_module()
@@ -756,6 +760,95 @@ end
         for (k, v) in odict
             @test haskey(ndict, k)
         end
+    end
+
+    # issue #165
+    @testset "Changing @inline annotations" begin
+        testdir = randtmp()
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "PerfAnnotations", "src")
+        mkpath(dn)
+        open(joinpath(dn, "PerfAnnotations.jl"), "w") do io
+            println(io, """
+            module PerfAnnotations
+
+            @inline hasinline(x) = x
+            check_hasinline(x) = hasinline(x)
+
+            @noinline hasnoinline(x) = x
+            check_hasnoinline(x) = hasnoinline(x)
+
+            notannot1(x) = x
+            check_notannot1(x) = notannot1(x)
+
+            notannot2(x) = x
+            check_notannot2(x) = notannot2(x)
+
+            end
+            """)
+        end
+        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        @eval using PerfAnnotations
+        @test PerfAnnotations.check_hasinline(3) == 3
+        @test PerfAnnotations.check_hasnoinline(3) == 3
+        @test PerfAnnotations.check_notannot1(3) == 3
+        @test PerfAnnotations.check_notannot2(3) == 3
+        ci = code_typed(PerfAnnotations.check_hasinline, Tuple{Int})[1].first
+        @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
+        ci = code_typed(PerfAnnotations.check_hasnoinline, Tuple{Int})[1].first
+        @test length(ci.code) == 2 && ci.code[1].head == :invoke
+        ci = code_typed(PerfAnnotations.check_notannot1, Tuple{Int})[1].first
+        @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
+        ci = code_typed(PerfAnnotations.check_notannot2, Tuple{Int})[1].first
+        @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
+        sleep(0.1)
+        open(joinpath(dn, "PerfAnnotations.jl"), "w") do io
+            println(io, """
+            module PerfAnnotations
+
+            hasinline(x) = x
+            check_hasinline(x) = hasinline(x)
+
+            hasnoinline(x) = x
+            check_hasnoinline(x) = hasnoinline(x)
+
+            @inline notannot1(x) = x
+            check_notannot1(x) = notannot1(x)
+
+            @noinline notannot2(x) = x
+            check_notannot2(x) = notannot2(x)
+
+            end
+            """)
+        end
+        yry()
+        @test PerfAnnotations.check_hasinline(3) == 3
+        @test PerfAnnotations.check_hasnoinline(3) == 3
+        @test PerfAnnotations.check_notannot1(3) == 3
+        @test PerfAnnotations.check_notannot2(3) == 3
+        ci = code_typed(PerfAnnotations.check_hasinline, Tuple{Int})[1].first
+        @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
+        ci = code_typed(PerfAnnotations.check_hasnoinline, Tuple{Int})[1].first
+        @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
+        ci = code_typed(PerfAnnotations.check_notannot1, Tuple{Int})[1].first
+        @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
+        ci = code_typed(PerfAnnotations.check_notannot2, Tuple{Int})[1].first
+        @test length(ci.code) == 2 && ci.code[1].head == :invoke
+        rm_precompile("PerfAnnotations")
+
+        # Check nesting
+        ex = :(@propagate_inbounds @donothing @inline foo(x) = 1)
+        ex0, ex1 = Revise.relocatable!.(Revise.macexpand(ReviseTestPrivate, ex))
+        @test ex0 == Revise.relocatable!(:(@propagate_inbounds foo(x) = ($(Expr(:meta, :inline)); 1)))
+        @test ex1 == Revise.relocatable!(:(foo(x) = ($(Expr(:meta, :inline)); 1)))
+        @test Revise.get_signature(ex1) == Revise.relocatable!(:(foo(x)))
+        ex = :(@propagate_inbounds @inline @donothing foo(x) = 1)
+        ex0, ex1 = Revise.relocatable!.(Revise.macexpand(ReviseTestPrivate, ex))
+        @test ex0 == Revise.relocatable!(:(@propagate_inbounds @inline foo(x) = 1))
+        @test ex1 == Revise.relocatable!(:(foo(x) = 1))
+        @test Revise.get_signature(ex1) == Revise.relocatable!(:(foo(x)))
     end
 
     @testset "Line numbers" begin

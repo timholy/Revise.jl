@@ -3,7 +3,6 @@
 using Core: MethodInstance
 using Base: MethodList
 
-const ExLike = Union{Expr,RelocatableExpr}
 const poppable_macro = (Symbol("@inline"), Symbol("@noinline"), Symbol("@propagate_inbounds"), Symbol("@eval"))
 
 """
