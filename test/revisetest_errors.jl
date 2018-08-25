@@ -13,6 +13,11 @@ module Internal
 mult2(x) = error("mult2")
 mult3(x) = 3*x
 
+"""
+This has a docstring
+"""
+unchanged(x) = x
+
 end  # Internal
 
 end

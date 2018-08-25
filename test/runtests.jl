@@ -226,7 +226,14 @@ k(x) = 4
         fl1 = joinpath(@__DIR__, "revisetest.jl")
         fl2 = joinpath(@__DIR__, "revisetest_revised.jl")
         fl3 = joinpath(@__DIR__, "revisetest_errors.jl")
-        include(fl1)  # So the modules are defined
+
+        # Copy the files to a temporary file. This is to ensure that file name doesn't change
+        # in docstring macros and backtraces.
+        tmpfile = joinpath(tempdir(), randstring(10))*".jl"
+        push!(to_remove, tmpfile)
+
+        cp(fl1, tmpfile)
+        include(tmpfile)  # So the modules are defined
         # test the "mistakes"
         @test ReviseTest.cube(2) == 16
         @test ReviseTest.Internal.mult3(2) == 8
@@ -234,10 +241,11 @@ k(x) = 4
         # One method will be deleted, for log testing we need to grab it while we still have it
         delmeth = first(methods(ReviseTest.Internal.mult4))
 
-        oldmd = Revise.parse_source(fl1, Main)
+        oldmd = Revise.parse_source(tmpfile, Main)
         Revise.instantiate_sigs!(oldmd)
 
-        newmd = Revise.parse_source(fl2, Main)
+        cp(fl2, tmpfile; force=true)
+        newmd = Revise.parse_source(tmpfile, Main)
         revmd = Revise.eval_revised(newmd, oldmd)
         @test ReviseTest.cube(2) == 8
         @test ReviseTest.Internal.mult3(2) == 6
@@ -268,7 +276,7 @@ k(x) = 4
         @test revmd[ReviseTest].sigtmap[Tuple{typeof(ReviseTest.fourth),Any}] == def
 
         dvs = collect(revmd[ReviseTest.Internal].defmap)
-        @test length(dvs) == 2
+        @test length(dvs) == 4
         (def, val) = dvs[1]
         @test isequal(def,  Revise.relocatable!(:(mult2(x) = 2*x)))
         @test val == (DataType[Tuple{typeof(ReviseTest.Internal.mult2),Any}], 2)  # 2 because it shifted down 2 lines and was not evaled
@@ -293,19 +301,21 @@ k(x) = 4
             return nothing
         end
         logs = filter(r->r.level==Debug && r.group=="Action", rlogger.logs)
-        @test length(logs) == 5
+        @test length(logs) == 6
         cmpdiff(logs[1], "Eval"; deltainfo=(ReviseTest, Revise.relocatable!(:(cube(x) = x^3))))
         cmpdiff(logs[2], "Eval"; deltainfo=(ReviseTest, Revise.relocatable!(:(fourth(x) = x^4))))
         cmpdiff(logs[3], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.mult2),Any}], 13, 0 => 2))
         cmpdiff(logs[4], "Eval"; deltainfo=(ReviseTest.Internal, Revise.relocatable!(:(mult3(x) = 3*x))))
-        cmpdiff(logs[5], "DeleteMethod"; deltainfo=(Tuple{typeof(ReviseTest.Internal.mult4),Any}, MethodSummary(delmeth)))
+        cmpdiff(logs[5], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.unchanged),Any}], 19, 0 => 1))
+        cmpdiff(logs[6], "DeleteMethod"; deltainfo=(Tuple{typeof(ReviseTest.Internal.mult4),Any}, MethodSummary(delmeth)))
         @test length(Revise.actions(rlogger)) == 4  # by default LineOffset is skipped
-        @test length(Revise.actions(rlogger; line=true)) == 5
+        @test length(Revise.actions(rlogger; line=true)) == 6
         @test length(Revise.diffs(rlogger)) == 2
         empty!(rlogger.logs)
 
         # Backtraces
-        newmd = Revise.parse_source(fl3, Main)
+        cp(fl3, tmpfile; force=true)
+        newmd = Revise.parse_source(tmpfile, Main)
         revmd = Revise.eval_revised(newmd, revmd)
         try
             ReviseTest.cube(2)
@@ -313,7 +323,7 @@ k(x) = 4
         catch err
             @test isa(err, ErrorException) && err.msg == "cube"
             bt = throwing_function(stacktrace(catch_backtrace()))
-            @test bt.func == :cube && bt.file == Symbol(fl3) && bt.line == 7
+            @test bt.func == :cube && bt.file == Symbol(tmpfile) && bt.line == 7
         end
         try
             ReviseTest.Internal.mult2(2)
@@ -321,7 +331,7 @@ k(x) = 4
         catch err
             @test isa(err, ErrorException) && err.msg == "mult2"
             bt = throwing_function(stacktrace(catch_backtrace()))
-            @test bt.func == :mult2 && bt.file == Symbol(fl3) && bt.line == 13
+            @test bt.func == :mult2 && bt.file == Symbol(tmpfile) && bt.line == 13
         end
 
         logs = filter(r->r.level==Debug && r.group=="Action", rlogger.logs)
@@ -372,7 +382,7 @@ k(x) = 4
         @test str == ":(@inbounds x[2])"
         fm = Revise.parse_source(joinpath(@__DIR__, "revisetest.jl"), Main)
         Revise.instantiate_sigs!(fm)
-        @test string(fm) == "OrderedCollections.OrderedDict(Main=>FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest=>FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal=>FMMaps(<3 expressions>, <3 signatures>))"
+        @test string(fm) == "OrderedCollections.OrderedDict(Main=>FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest=>FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal=>FMMaps(<5 expressions>, <4 signatures>))"
         fmmr = fm[ReviseTest]
         @test string(fmmr) == "FMMaps(<2 expressions>, <2 signatures>)"
         io = IOBuffer()
