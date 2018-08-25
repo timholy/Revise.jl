@@ -747,6 +747,17 @@ end
         pop!(LOAD_PATH)
     end
 
+    @testset "Undef in docstrings" begin
+        fn = Base.find_source_file("abstractset.jl")   # has lots of examples of """str""" func1, func2
+        oldmd = Revise.parse_source(fn, Base)
+        newmd = Revise.parse_source(fn, Base)
+        odict = oldmd[Base].defmap
+        ndict = newmd[Base].defmap
+        for (k, v) in odict
+            @test haskey(ndict, k)
+        end
+    end
+
     @testset "Line numbers" begin
         # issue #27
         testdir = randtmp()
