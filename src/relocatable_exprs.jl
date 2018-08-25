@@ -107,6 +107,10 @@ function skip_to_nonline(args, i)
             i += 1
         elseif isa(ex, LineNumberNode)
             i += 1
+        elseif isa(ex, Pair) && (ex::Pair).first == :linenumber     # used in the doc system
+            i += 1
+        elseif isa(ex, Base.RefValue) && !isdefined(ex, :x)         # also in the doc system
+            i += 1
         else
             return i
         end
