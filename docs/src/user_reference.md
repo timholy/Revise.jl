@@ -9,7 +9,19 @@ prevent it from watching specific packages.
 revise
 Revise.track
 includet
+```
+
+### Revise logs (debugging Revise)
+
+```@docs
 Revise.debug_logger
+Revise.actions
+Revise.diffs
+```
+
+### Prevent Revise from watching specific packages
+
+```@docs
 Revise.dont_watch_pkgs
 Revise.silence
 ```

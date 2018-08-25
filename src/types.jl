@@ -132,17 +132,3 @@ end
 function Base.showerror(io::IO, ex::GitRepoException)
     print(io, "no repository at ", ex.filename, " to track stdlibs you must build Julia from source")
 end
-
-"""
-    MethodSummary(method)
-
-Create a portable summary of a method. In particular, a MethodSummary can be saved to a JLD2 file.
-"""
-struct MethodSummary
-    name::Symbol
-    modulename::Symbol
-    file::Symbol
-    line::Int32
-    sig::Type
-end
-MethodSummary(m::Method) = MethodSummary(m.name, nameof(m.module), m.file, m.line, m.sig)

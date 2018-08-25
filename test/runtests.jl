@@ -6,8 +6,8 @@ using Test
 using Pkg, Unicode, Distributed, InteractiveUtils, REPL
 import LibGit2
 using OrderedCollections: OrderedSet
-using Test: collect_test_logs, TestLogger
-using Base.CoreLogging: Debug, global_logger
+using Test: collect_test_logs
+using Base.CoreLogging: Debug,Info
 
 include("common.jl")
 
@@ -220,18 +220,18 @@ k(x) = 4
     end
 
     @testset "Comparison and line numbering" begin
+        # We'll also use these tests to try out the logging system
+        rlogger = Revise.debug_logger()
+
         fl1 = joinpath(@__DIR__, "revisetest.jl")
         fl2 = joinpath(@__DIR__, "revisetest_revised.jl")
         fl3 = joinpath(@__DIR__, "revisetest_errors.jl")
-        # Also test logging
-        rlogger = TestLogger(min_level=Debug)
-        stdlogger = global_logger(rlogger)
         include(fl1)  # So the modules are defined
         # test the "mistakes"
         @test ReviseTest.cube(2) == 16
         @test ReviseTest.Internal.mult3(2) == 8
         @test ReviseTest.Internal.mult4(2) == -2
-        # Construct the Diff from the deletion while we still have the method
+        # One method will be deleted, for log testing we need to grab it while we still have it
         delmeth = first(methods(ReviseTest.Internal.mult4))
 
         oldmd = Revise.parse_source(fl1, Main)
@@ -292,13 +292,16 @@ k(x) = 4
             end
             return nothing
         end
-        logs = filter(r->r.level==Debug && r._module==Revise && r.group=="Action", rlogger.logs)
+        logs = filter(r->r.level==Debug && r.group=="Action", rlogger.logs)
         @test length(logs) == 5
         cmpdiff(logs[1], "Eval"; deltainfo=(ReviseTest, Revise.relocatable!(:(cube(x) = x^3))))
         cmpdiff(logs[2], "Eval"; deltainfo=(ReviseTest, Revise.relocatable!(:(fourth(x) = x^4))))
         cmpdiff(logs[3], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.mult2),Any}], 13, 0 => 2))
         cmpdiff(logs[4], "Eval"; deltainfo=(ReviseTest.Internal, Revise.relocatable!(:(mult3(x) = 3*x))))
         cmpdiff(logs[5], "DeleteMethod"; deltainfo=(Tuple{typeof(ReviseTest.Internal.mult4),Any}, MethodSummary(delmeth)))
+        @test length(Revise.actions(rlogger)) == 4  # by default LineOffset is skipped
+        @test length(Revise.actions(rlogger; line=true)) == 5
+        @test length(Revise.diffs(rlogger)) == 2
         empty!(rlogger.logs)
 
         # Backtraces
@@ -321,11 +324,13 @@ k(x) = 4
             @test bt.func == :mult2 && bt.file == Symbol(fl3) && bt.line == 13
         end
 
-        logs = filter(r->r.level==Debug && r._module==Revise && r.group=="Action", rlogger.logs)
+        logs = filter(r->r.level==Debug && r.group=="Action", rlogger.logs)
         @test length(logs) == 2
         cmpdiff(logs[1], "Eval"; deltainfo=(ReviseTest, Revise.relocatable!(:(cube(x) = error("cube")))))
         cmpdiff(logs[2], "Eval"; deltainfo=(ReviseTest.Internal, Revise.relocatable!(:(mult2(x) = error("mult2")))))
-        global_logger(stdlogger)
+
+        # Turn off future logging
+        Revise.debug_logger(; min_level=Info)
 
         # Gensymmed symbols
         rex1 = Revise.relocatable!(macroexpand(Main, :(t = @elapsed(foo(x)))))

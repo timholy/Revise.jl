@@ -166,7 +166,9 @@ module is "parented" by `mod`. Source-code expressions are added to
 function parse_module!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
     newname = _module_name(ex)
     if mod != Base.__toplevel__ && !isdefined(mod, newname)
-        @debug "parse_module" _group="Parsing" activemodule=fullname(mod) newmodule=fullname(newname)
+        with_logger(_debug_logger) do
+            @debug "parse_module" _group="Parsing" activemodule=fullname(mod) newmodule
+        end
         try
             Core.eval(mod, ex) # support creating new submodules
         catch
