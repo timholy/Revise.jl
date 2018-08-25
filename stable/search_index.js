@@ -205,7 +205,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Debugging Revise",
     "title": "Turning on logging",
     "category": "section",
-    "text": "Currently, the best way to turn on logging is within a running Julia session:julia> rlogger = Revise.debug_logger()\nTest.TestLogger(Test.LogRecord[], Debug, false, nothing)Hold on to rlogger; you\'re going to use it at the end to retrieve the logs.note: Note\nThis replaces the global logger; in rare circumstances this may have consequences for other code.Now carry out the series of julia commands and code edits that reproduces the problem."
+    "text": "Currently, the best way to turn on logging is within a running Julia session:julia> rlogger = Revise.debug_logger()\nRevise.ReviseLogger(Revise.LogRecord[], Debug)You\'ll use rlogger at the end to retrieve the logs.Now carry out the series of julia commands and code edits that reproduces the problem."
 },
 
 {
@@ -213,7 +213,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Debugging Revise",
     "title": "Capturing the logs and submitting them with your bug report",
     "category": "section",
-    "text": "Once all the revisions have been triggered and the mistake has been reproduced, it\'s time to capture the logs:julia> logs = filter(r->r.level==Debug && r._module==Revise, rlogger.logs);You can either let these print to the console and copy/paste the text output into the issue, or if they are extensive you can save logs to a file (e.g., in JLD2 format) and upload the file somewhere.See also A complete debugging demo below."
+    "text": "Once all the revisions have been triggered and the mistake has been reproduced, it\'s time to capture the logs. To capture all the logs, usejulia> logs = filter(r->r.level==Debug, rlogger.logs);You can capture just the log events that recorded a difference between two versions of the same file withjulia> log = Revise.diffs(rlogger)or just the changes that Revise made to running code withjulia> logs = Revise.actions(rlogger)You can either let these print to the console and copy/paste the text output into the issue, or if they are extensive you can save logs to a file (e.g., in JLD2 format) and upload the file somewhere.See also A complete debugging demo below."
 },
 
 {
@@ -221,7 +221,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Debugging Revise",
     "title": "The structure of the logs",
     "category": "section",
-    "text": "For those who want to do a little investigating on their own, it may be helpful to know that Revise\'s core decisions are captured in the group called \"Action,\" and they come in three flavors:log entries with message \"Eval\" signify a call to eval; for these events, keyword :deltainfo has value (mod, expr) where mod is the module of evaluation and expr is a Revise.RelocatableExpr containing the expression that was evaluated.\nlog entries with message \"DeleteMethod\" signify a method deletion; for these events, keyword :deltainfo has value (sigt, methsummary) where sigt is the signature of the method that Revise intended to delete and methsummary is a MethodSummary of the method that Revise actually found to delete.\nlog entries with message \"LineOffset\" correspond to updates to Revise\'s own internal estimates of how far a given method has become displaced from the line number it occupied when it was last evaluated. For these events, :deltainfo has value (sigt, newlineno, oldoffset=>newoffset).If you\'re debugging mistakes in method creation/deletion, the \"LineOffset\" events may be distracting; you can remove them by additionally filtering on r.message ∈ (\"Eval\", \"DeleteMethod\").Note that Revise records the time of each revision, which can sometimes be useful in determining which revisions occur in conjunction with which user actions. If you want to make use of this, it can be handy to capture the start time with tstart = time() before commencing on a session.See Revise.debug_logger for information on groups besides \"Action.\""
+    "text": "For those who want to do a little investigating on their own, it may be helpful to know that Revise\'s core decisions are captured in the group called \"Action,\" and they come in three flavors:log entries with message \"Eval\" signify a call to eval; for these events, keyword :deltainfo has value (mod, expr) where mod is the module of evaluation and expr is a Revise.RelocatableExpr containing the expression that was evaluated.\nlog entries with message \"DeleteMethod\" signify a method deletion; for these events, keyword :deltainfo has value (sigt, methsummary) where sigt is the signature of the method that Revise intended to delete and methsummary is a MethodSummary of the method that Revise actually found to delete.\nlog entries with message \"LineOffset\" correspond to updates to Revise\'s own internal estimates of how far a given method has become displaced from the line number it occupied when it was last evaluated. For these events, :deltainfo has value (sigt, newlineno, oldoffset=>newoffset).If you\'re debugging mistakes in method creation/deletion, the \"LineOffset\" events may be distracting; by default Revise.actions excludes these events.Note that Revise records the time of each revision, which can sometimes be useful in determining which revisions occur in conjunction with which user actions. If you want to make use of this, it can be handy to capture the start time with tstart = time() before commencing on a session.See Revise.debug_logger for information on groups besides \"Action.\" One part"
 },
 
 {
@@ -229,7 +229,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Debugging Revise",
     "title": "A complete debugging demo",
     "category": "section",
-    "text": "From within Revise\'s test/ directory, try the following:julia> rlogger = Revise.debug_logger();\n\nshell> cp revisetest.jl /tmp/\n\njulia> includet(\"/tmp/revisetest.jl\")\n\njulia> ReviseTest.cube(3)\n81\n\nshell> cp revisetest_revised.jl /tmp/revisetest.jl\n\njulia> ReviseTest.cube(3)\n27\n\njulia> rlogger.logs\n8-element Array{Test.LogRecord,1}:\n Test.LogRecord(Debug, \"Diff\", Revise, \"Parsing\", :Revise_1dfe9141, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 212, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol,Symbol},NamedTuple{(:activemodule, :newexprs, :oldexprs),Tuple{Tuple{Symbol},Set{Revise.RelocatableExpr},Set{Revise.RelocatableExpr}}}}(:activemodule=>(:Main,),:newexprs=>Set(Revise.RelocatableExpr[]),:oldexprs=>Set(Revise.RelocatableExpr[])))\n Test.LogRecord(Debug, \"Diff\", Revise, \"Parsing\", :Revise_1dfe9142, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 212, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol,Symbol},NamedTuple{(:activemodule, :newexprs, :oldexprs),Tuple{Tuple{Symbol,Symbol},Set{Revise.RelocatableExpr},Set{Revise.RelocatableExpr}}}}(:activemodule=>(:Main, :ReviseTest),:newexprs=>Set(Revise.RelocatableExpr[:(fourth(x) = begin\n          x ^ 4\n      end), :(cube(x) = begin\n          x ^ 3\n      end)]),:oldexprs=>Set(Revise.RelocatableExpr[:(cube(x) = begin\n          x ^ 4\n      end)])))\n Test.LogRecord(Debug, \"Eval\", Revise, \"Action\", :Revise_443cc0b6, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 267, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Module,Revise.RelocatableExpr}}}}(:time=>1.53487e9,:deltainfo=>(Main.ReviseTest, :(cube(x) = begin\n          x ^ 3\n      end))))\n Test.LogRecord(Debug, \"Eval\", Revise, \"Action\", :Revise_443cc0b7, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 267, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Module,Revise.RelocatableExpr}}}}(:time=>1.53487e9,:deltainfo=>(Main.ReviseTest, :(fourth(x) = begin\n          x ^ 4\n      end))))\n Test.LogRecord(Debug, \"Diff\", Revise, \"Parsing\", :Revise_1dfe9143, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 212, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol,Symbol},NamedTuple{(:activemodule, :newexprs, :oldexprs),Tuple{Tuple{Symbol,Symbol,Symbol},Set{Revise.RelocatableExpr},Set{Revise.RelocatableExpr}}}}(:activemodule=>(:Main, :ReviseTest, :Internal),:newexprs=>Set(Revise.RelocatableExpr[:(mult3(x) = begin\n          3x\n      end)]),:oldexprs=>Set(Revise.RelocatableExpr[:(mult4(x) = begin\n          -x\n      end), :(mult3(x) = begin\n          4x\n      end)])))\n Test.LogRecord(Debug, \"LineOffset\", Revise, \"Action\", :Revise_3e9f6659, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 227, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Array{Any,1},Int64,Pair{Int64,Int64}}}}}(:time=>1.53487e9,:deltainfo=>(Any[Tuple{typeof(mult2),Any}], 13, 0=>2)))\n Test.LogRecord(Debug, \"Eval\", Revise, \"Action\", :Revise_443cc0b8, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 267, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{Module,Revise.RelocatableExpr}}}}(:time=>1.53487e9,:deltainfo=>(Main.ReviseTest.Internal, :(mult3(x) = begin\n          3x\n      end))))\n Test.LogRecord(Debug, \"DeleteMethod\", Revise, \"Action\", :Revise_04f4de6f, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 249, Base.Iterators.Pairs{Symbol,Any,Tuple{Symbol,Symbol},NamedTuple{(:time, :deltainfo),Tuple{Float64,Tuple{DataType,MethodSummary}}}}(:time=>1.53487e9,:deltainfo=>(Tuple{typeof(mult4),Any}, MethodSummary(:mult4, :Internal, Symbol(\"/tmp/revisetest.jl\"), 13, Tuple{typeof(mult4),Any}))))In addition to the \"Action\" items, you can see other entries that record the \"Diff\"s encountered by Revise during revision.In rare cases it might be helpful to independently record the sequence of edits to the file. You can make copies cp editedfile.jl > /tmp/version1.jl, edit code, cp editedfile.jl > /tmp/version2.jl, etc. diff version1.jl version2.jl can be used to capture a compact summary of the changes and pasted into the bug report."
+    "text": "From within Revise\'s test/ directory, try the following:julia> rlogger = Revise.debug_logger();\n\nshell> cp revisetest.jl /tmp/\n\njulia> includet(\"/tmp/revisetest.jl\")\n\njulia> ReviseTest.cube(3)\n81\n\nshell> cp revisetest_revised.jl /tmp/revisetest.jl\n\njulia> ReviseTest.cube(3)\n27\n\njulia> rlogger.logs\n8-element Array{Revise.LogRecord,1}:\n Revise.LogRecord(Debug, Diff, Parsing, Revise_1dfe9141, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 214, (activemodule=(:Main,), newexprs=Set(Revise.RelocatableExpr[]), oldexprs=Set(Revise.RelocatableExpr[])))\n Revise.LogRecord(Debug, Diff, Parsing, Revise_1dfe9142, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 214, (activemodule=(:Main, :ReviseTest), newexprs=Set(Revise.RelocatableExpr[:(fourth(x) = begin\n          x ^ 4\n      end), :(cube(x) = begin\n          x ^ 3\n      end)]), oldexprs=Set(Revise.RelocatableExpr[:(cube(x) = begin\n          x ^ 4\n      end)])))\n Revise.LogRecord(Debug, Eval, Action, Revise_443cc0b6, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 270, (time=1.535105837129072e9, deltainfo=(Main.ReviseTest, :(cube(x) = begin\n          x ^ 3\n      end))))\n Revise.LogRecord(Debug, Eval, Action, Revise_443cc0b7, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 270, (time=1.535105837152789e9, deltainfo=(Main.ReviseTest, :(fourth(x) = begin\n          x ^ 4\n      end))))\n Revise.LogRecord(Debug, Diff, Parsing, Revise_1dfe9143, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 214, (activemodule=(:Main, :ReviseTest, :Internal), newexprs=Set(Revise.RelocatableExpr[:(mult3(x) = begin\n          3x\n      end)]), oldexprs=Set(Revise.RelocatableExpr[:(mult4(x) = begin\n          -x\n      end), :(mult3(x) = begin\n          4x\n      end)])))\n Revise.LogRecord(Debug, LineOffset, Action, Revise_3e9f6659, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 229, (time=1.535105837187501e9, deltainfo=(Any[Tuple{typeof(mult2),Any}], 13, 0 => 2)))\n Revise.LogRecord(Debug, Eval, Action, Revise_443cc0b8, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 270, (time=1.535105837214e9, deltainfo=(Main.ReviseTest.Internal, :(mult3(x) = begin\n          3x\n      end))))\n Revise.LogRecord(Debug, DeleteMethod, Action, Revise_04f4de6f, \"/home/tim/.julia/dev/Revise/src/Revise.jl\", 251, (time=1.535105837214255e9, deltainfo=(Tuple{typeof(Main.ReviseTest.Internal.mult4),Any}, MethodSummary(:mult4, :Internal, Symbol(\"/tmp/revisetest.jl\"), 13, Tuple{typeof(Main.ReviseTest.Internal.mult4),Any}))))In addition to the \"Action\" items, you can see other entries that record the \"Diff\"s encountered by Revise during revision.In rare cases it might be helpful to independently record the sequence of edits to the file. You can make copies cp editedfile.jl > /tmp/version1.jl, edit code, cp editedfile.jl > /tmp/version2.jl, etc. diff version1.jl version2.jl can be used to capture a compact summary of the changes and pasted into the bug report."
 },
 
 {
@@ -329,11 +329,43 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "user_reference.html#User-reference-1",
+    "page": "User reference",
+    "title": "User reference",
+    "category": "section",
+    "text": "There are really only three functions that a user would be expected to call manually: revise, includet, and Revise.track. Other user-level constructs might apply if you want to debug Revise or prevent it from watching specific packages.revise\nRevise.track\nincludet"
+},
+
+{
     "location": "user_reference.html#Revise.debug_logger",
     "page": "User reference",
     "title": "Revise.debug_logger",
     "category": "function",
-    "text": "logger = Revise.debug_logger()\n\nTurn on debug logging and return the logger object. logger.logs contains a list of the logged events. The items in this list are of type Test.LogRecord, with the following relevant fields:\n\ngroup: the event category. Revise currently uses the following groups:\n\"Action\": a change was implemented, of type described in the message field.\n\"Parsing\": a \"significant\" event in parsing. For these, examine the message field for more information.\n\"Watching\": an indication that Revise determined that a particular file needed to be examined for possible code changes. This is typically done on the basis of mtime, the modification time of the file, and does not necessarily indicate that there were any changes.\nmessage: a string containing more information. Some examples:\nFor entries in the \"Action\" group, message can be \"Eval\" when modifying old methods or defining new ones, \"DeleteMethod\" when deleting a method, and \"LineOffset\" to indicate that the line offset for a method was updated (the last only affects the printing of stacktraces upon error, it does not change how code runs)\nItems with group \"Parsing\" and message \"Diff\" contain sets :newexprs and :oldexprs that contain the expression unique to post- or pre-revision, respectively.\nkwargs: a pairs list of any other data. This is usually specific to particular group/message combinations.\n\nNote that the logs may also contain information from sources other than Revise.\n\n\n\n\n\n"
+    "text": "logger = Revise.debug_logger(; min_level=Debug)\n\nTurn on debug logging (if min_level is set to Debug or better) and return the logger object. logger.logs contains a list of the logged events. The items in this list are of type Revise.LogRecord, with the following relevant fields:\n\ngroup: the event category. Revise currently uses the following groups:\n\"Action\": a change was implemented, of type described in the message field.\n\"Parsing\": a \"significant\" event in parsing. For these, examine the message field for more information.\n\"Watching\": an indication that Revise determined that a particular file needed to be examined for possible code changes. This is typically done on the basis of mtime, the modification time of the file, and does not necessarily indicate that there were any changes.\nmessage: a string containing more information. Some examples:\nFor entries in the \"Action\" group, message can be \"Eval\" when modifying old methods or defining new ones, \"DeleteMethod\" when deleting a method, and \"LineOffset\" to indicate that the line offset for a method was updated (the last only affects the printing of stacktraces upon error, it does not change how code runs)\nItems with group \"Parsing\" and message \"Diff\" contain sets :newexprs and :oldexprs that contain the expression unique to post- or pre-revision, respectively.\nkwargs: a pairs list of any other data. This is usually specific to particular group/message combinations.\n\nSee also Revise.actions and Revise.diffs.\n\n\n\n\n\n"
+},
+
+{
+    "location": "user_reference.html#Revise.actions",
+    "page": "User reference",
+    "title": "Revise.actions",
+    "category": "function",
+    "text": "actions(logger; line=false)\n\nReturn a vector of all log events in the \"Action\" group. \"LineOffset\" events are returned only if line=true; by default the returned items are the events that modified methods in your session.\n\n\n\n\n\n"
+},
+
+{
+    "location": "user_reference.html#Revise.diffs",
+    "page": "User reference",
+    "title": "Revise.diffs",
+    "category": "function",
+    "text": "diffs(logger)\n\nReturn a vector of all log events that encode a (non-empty) diff between two versions of a file.\n\n\n\n\n\n"
+},
+
+{
+    "location": "user_reference.html#Revise-logs-(debugging-Revise)-1",
+    "page": "User reference",
+    "title": "Revise logs (debugging Revise)",
+    "category": "section",
+    "text": "Revise.debug_logger\nRevise.actions\nRevise.diffs"
 },
 
 {
@@ -353,11 +385,11 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#User-reference-1",
+    "location": "user_reference.html#Prevent-Revise-from-watching-specific-packages-1",
     "page": "User reference",
-    "title": "User reference",
+    "title": "Prevent Revise from watching specific packages",
     "category": "section",
-    "text": "There are really only three functions that a user would be expected to call manually: revise, includet, and Revise.track. Other user-level constructs might apply if you want to debug Revise or prevent it from watching specific packages.revise\nRevise.track\nincludet\nRevise.debug_logger\nRevise.dont_watch_pkgs\nRevise.silence"
+    "text": "Revise.dont_watch_pkgs\nRevise.silence"
 },
 
 {
