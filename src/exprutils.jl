@@ -75,7 +75,7 @@ julia> Revise.get_signature(quote
 """
 function get_signature(ex::E) where E <: ExLike
     if ex.head == :macrocall
-        error("macros must be handled externally")
+        error("macros must be handled externally, got $ex")
     end
     if is_trivial_block_wrapper(ex)
         return get_signature(ex.args[end])
