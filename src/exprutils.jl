@@ -91,6 +91,29 @@ function get_signature(ex::E) where E <: ExLike
     nothing
 end
 
+@noinline sigwarn(mod, sigtexs, def) = @warn "error processing module $mod signature expressions $sigtexs from $def"
+@noinline sigwarn(mod, sigtexs, ::Nothing) = @warn "error processing module $mod signature expressions $sigtexs"
+
+function sigex2sigts(mod::Module, sig::ExLike, def=nothing)
+    # Generate the signature-types
+    local sigtexs
+    try
+        sigtexs = sig_type_exprs(sig)
+    catch err
+        sigwarn(mod, sig, def)
+        rethrow(err)
+    end
+    local sigts
+    try
+        sigts = Any[Core.eval(mod, s) for s in sigtexs]
+    catch err
+        sigwarn(mod, sigtexs, def)
+        rethrow(err)
+    end
+    return sigts
+end
+
+
 """
     callex = get_callexpr(sigex::ExLike)
 

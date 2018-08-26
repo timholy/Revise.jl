@@ -319,10 +319,10 @@ k(x) = 4
         @test length(logs) == 6
         cmpdiff(logs[1], "Eval"; deltainfo=(ReviseTest, Revise.relocatable!(:(cube(x) = x^3))))
         cmpdiff(logs[2], "Eval"; deltainfo=(ReviseTest, Revise.relocatable!(:(fourth(x) = x^4))))
-        cmpdiff(logs[3], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.mult2),Any}], 13, 0 => 2))
-        cmpdiff(logs[4], "Eval"; deltainfo=(ReviseTest.Internal, Revise.relocatable!(:(mult3(x) = 3*x))))
-        cmpdiff(logs[5], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.unchanged),Any}], 19, 0 => 1))
-        cmpdiff(logs[6], "DeleteMethod"; deltainfo=(Tuple{typeof(ReviseTest.Internal.mult4),Any}, MethodSummary(delmeth)))
+        cmpdiff(logs[3], "DeleteMethod"; deltainfo=(Tuple{typeof(ReviseTest.Internal.mult4),Any}, MethodSummary(delmeth)))
+        cmpdiff(logs[4], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.mult2),Any}], 13, 0 => 2))
+        cmpdiff(logs[5], "Eval"; deltainfo=(ReviseTest.Internal, Revise.relocatable!(:(mult3(x) = 3*x))))
+        cmpdiff(logs[6], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.unchanged),Any}], 19, 0 => 1))
         @test length(Revise.actions(rlogger)) == 4  # by default LineOffset is skipped
         @test length(Revise.actions(rlogger; line=true)) == 6
         @test length(Revise.diffs(rlogger)) == 2
@@ -1061,6 +1061,16 @@ hasmacro3(@nospecialize(x::Int), y::Float64) = x
 hasdestructure1(x, (count, name)) = name^count
 hasdestructure2(x, (count, name)::Tuple{Int,Any}) = name^count
 
+struct A end
+struct B end
+
+checkunion(a::Union{Nothing, A}) = 1
+
+methgensym(::Vector{<:Integer}) = 1
+
+mapf(fs, x) = (fs[1](x), mapf(Base.tail(fs), x)...)
+mapf(::Tuple{}, x) = ()
+
 end
 """)
         end
@@ -1084,6 +1094,10 @@ end
         @test MethDel.dfltargs(Int8(2)) == 3.0f0
         @test MethDel.dfltargs(Int8(2), 5) == 8.0f0
         @test MethDel.dfltargs(Int8(2), 5, -17.0f0) == -10.0f0
+        @test MethDel.checkunion(nothing) == 1
+        @test MethDel.methgensym([1]) == 1
+        @test_throws MethodError MethDel.methgensym([1.0])
+        @test MethDel.mapf((x->x+1, x->x+0.1), 3) == (4, 3.1)
         sleep(0.1)  # ensure watching is set up
         open(joinpath(dn, "MethDel.jl"), "w") do io
             println(io, """
@@ -1093,6 +1107,17 @@ g(x::Array{T,N}, y::T) where N where T = 2
 h(x::Array{T}, y::T) where T = g(x, y)
 k(::Int; goodchoice=-1) = goodchoice
 dfltargs(x::Int8, yz::Tuple{Int,Float32}=(0,1.0f0)) = x+yz[1]+yz[2]
+
+struct A end
+struct B end
+
+checkunion(a::Union{Nothing, B}) = 2
+
+methgensym(::Vector{<:Real}) = 1
+
+mapf(fs::F, x) where F = (fs[1](x), mapf(Base.tail(fs), x)...)
+mapf(::Tuple{}, x) = ()
+
 end
 """)
         end
@@ -1118,6 +1143,12 @@ end
         @test MethDel.dfltargs(Int8(2), (5,-17.0f0)) == -10.0f0
         @test_throws MethodError MethDel.dfltargs(Int8(2), 5) == 8.0f0
         @test_throws MethodError MethDel.dfltargs(Int8(2), 5, -17.0f0) == -10.0f0
+        @test MethDel.checkunion(nothing) == 2
+        @test MethDel.methgensym([1]) == 1
+        @test MethDel.methgensym([1.0]) == 1
+        @test length(methods(MethDel.methgensym)) == 1
+        @test MethDel.mapf((x->x+1, x->x+0.1), 3) == (4, 3.1)
+        @test length(methods(MethDel.mapf)) == 2
 
         Base.delete_method(first(methods(Base.revisefoo)))
     end

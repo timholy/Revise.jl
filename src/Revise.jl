@@ -212,6 +212,28 @@ function eval_revised!(fmmrep::FMMaps, mod::Module,
     # Update to the state of fmmnew, preventing any unnecessary evaluation
     with_logger(_debug_logger) do
         @debug "Diff" _group="Parsing" activemodule=fullname(mod) newexprs=setdiff(keys(fmmnew.defmap), keys(fmmref.defmap)) oldexprs=setdiff(keys(fmmref.defmap), keys(fmmnew.defmap))
+        # Delete any methods missing in fmmnew
+        # Because we haven't yet evaled and gotten signature types, let's do this "from scratch" using method signatures.
+        # (It might be more efficient to eval first and delete later, but this proves to be safer.)
+        oldsigs, newsigs = filter_signatures(mod, keys(fmmref.defmap)), filter_signatures(mod, keys(fmmnew.defmap))
+        for sig in oldsigs
+            sig ∈ newsigs && continue
+            for sigt in sigex2sigts(mod, sig)
+                m = get_method(sigt)
+                if isa(m, Method)
+                    Base.delete_method(m)
+                    @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sigt, MethodSummary(m))
+                else
+                    mths = Base._methods_by_ftype(sigt, -1, typemax(UInt))
+                    io = IOBuffer()
+                    println(io, "Extracted method table:")
+                    println(io, mths)
+                    info = String(take!(io))
+                    @warn "Revise failed to find any methods for signature $sigt\n  Perhaps it was already deleted.\n$info"
+                end
+            end
+        end
+        # Eval any expressions unique to fmmnew
         for (def,val) in fmmnew.defmap
             @assert def != nothing
             defref = getkey(fmmref.defmap, def, nothing)
@@ -234,25 +256,27 @@ function eval_revised!(fmmrep::FMMaps, mod::Module,
                 eval_and_insert!(fmmrep, mod, def=>val)
             end
         end
-        # Delete any methods missing in fmmnew
-        for (sigt,_) in fmmref.sigtmap
-            if !haskey(fmmrep.sigtmap, sigt)
-                m = get_method(sigt)
-                if isa(m, Method)
-                    Base.delete_method(m)
-                    @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sigt, MethodSummary(m))
-                else
-                    mths = Base._methods_by_ftype(sigt, -1, typemax(UInt))
-                    io = IOBuffer()
-                    println(io, "Extracted method table:")
-                    println(io, mths)
-                    info = String(take!(io))
-                    @warn "Revise failed to find any methods for signature $sigt\n  Perhaps it was already deleted.\n$info"
-                end
-            end
-        end
     end
     return fmmrep
+end
+
+function filter_signatures(mod::Module, defs)
+    sigs = Set{Expr}()
+    for def in defs
+        while is_trivial_block_wrapper(def)
+            def = def.args[end]
+        end
+        def isa ExLike || continue
+        if def.head == :macrocall
+            _, def = macexpand(mod, convert(Expr, def))
+            def isa ExLike || continue
+        end
+        def.head == :function || def.head == :(=) || continue
+        sig = get_signature(def)
+        sig isa ExLike || continue
+        push!(sigs, convert(Expr, sig))
+    end
+    return sigs
 end
 
 eval_revised_dummy!(mod::Module, fmmnew::FMMaps, fmmref::FMMaps) =
@@ -413,21 +437,7 @@ function instantiate_sigs!(fmm::FMMaps, mod::Module)
 end
 
 function instantiate_sigs!(fmm::FMMaps, def::RelocatableExpr, sig::RelocatableExpr, mod::Module)
-    # Generate the signature-types
-    local sigtexs
-    try
-        sigtexs = sig_type_exprs(mod, sig)
-    catch err
-        sigwarn(mod, sig, def)
-        rethrow(err)
-    end
-    local sigts
-    try
-        sigts = Any[Core.eval(mod, s) for s in sigtexs]
-    catch err
-        sigwarn(mod, sigtexs, def)
-        rethrow(err)
-    end
+    sigts = sigex2sigts(mod, sig, def)
     # Insert into the maps
     fmm.defmap[def] = (sigts, 0)
     for sigt in sigts
@@ -435,7 +445,6 @@ function instantiate_sigs!(fmm::FMMaps, def::RelocatableExpr, sig::RelocatableEx
     end
     return def
 end
-@noinline sigwarn(mod, sigtexs, def) = @warn "error processing module $mod signature expressions $sigtexs from $def"
 
 """
     revise()
