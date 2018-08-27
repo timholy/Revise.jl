@@ -199,7 +199,7 @@ k(x) = 4
         i = ReviseTestPrivate.Inner(3)
         m = @which i("hello")
         @test Core.eval(ReviseTestPrivate, sigexs[1]) == m.sig
-        def = :((::Type{Inner})(::Dict) = 17)
+        def = :(Inner(::Dict) = 17)
         sig = Revise.get_signature(def)
         sigexs = Revise.sig_type_exprs(sig)
         Core.eval(ReviseTestPrivate, def)
