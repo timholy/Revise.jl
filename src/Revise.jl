@@ -592,7 +592,7 @@ Return the RelocatableExpr defining `method`.
 The source-file defining `method` must be tracked.
 If it is in Base, this will execute `track(Base)` if necessary.
 """
-function get_def(method::Method)
+function get_def(method::Method; modified_files=revision_queue)
     filename = String(method.file)
     yield()   # magic bug fix for the OSX test failures. TODO: figure out why this works (prob. Julia bug)
     startswith(filename, "REPL") && error("methods defined at the REPL are not yet supported")
@@ -623,7 +623,7 @@ function get_def(method::Method)
     filename isa AbstractString || return nothing
     if !haskey(fileinfos, filename)
         @info "tracking $recipemod"
-        track(recipemod)
+        track(recipemod; modified_files=modified_files)
     end
     fi = fileinfos[filename]
     maybe_parse_from_cache!(fi, filename)

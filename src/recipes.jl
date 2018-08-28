@@ -6,7 +6,7 @@
 Track updates to the code in Julia's `base` directory, `base/compiler`, or one of its
 standard libraries.
 """
-function track(mod::Module)
+function track(mod::Module; modified_files=revision_queue)
     if mod == Base
         # Test whether we know where to find the files
         if !isdir(joinpath(juliadir, "base"))
@@ -25,18 +25,18 @@ function track(mod::Module)
                 with_logger(_debug_logger) do
                     @debug "Recipe for Base" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
                 end
-                push!(revision_queue, filename)
+                push!(modified_files, filename)
             end
         end
         # Add the files to the watch list
         init_watching(files)
     elseif mod == Core.Compiler
         compilerdir = joinpath(juliadir, "base", "compiler")
-        track_subdir_from_git(Core.Compiler, compilerdir)
+        track_subdir_from_git(Core.Compiler, compilerdir; modified_files=modified_files)
     elseif nameof(mod) ∈ stdlib_names
         stdlibdir = joinpath(juliadir, "stdlib")
         libdir = joinpath(stdlibdir, String(nameof(mod)), "src")
-        track_subdir_from_git(mod, normpath(libdir))
+        track_subdir_from_git(mod, normpath(libdir); modified_files=modified_files)
     else
         error("no Revise.track recipe for module ", mod)
     end
@@ -60,7 +60,7 @@ function fixpath(filename; badpath=basebuilddir, goodpath=juliadir)
 end
 
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
-function track_subdir_from_git(mod::Module, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit)
+function track_subdir_from_git(mod::Module, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue)
     # diff against files at the same commit used to build Julia
     repo, repo_path = git_repo(subdir)
     if repo == nothing
@@ -84,7 +84,7 @@ function track_subdir_from_git(mod::Module, subdir::AbstractString; commit=Base.
             rethrow(err)
         end
         if src != read(fullpath, String)
-            push!(revision_queue, fullpath)
+            push!(modified_files, fullpath)
         end
         fmod = get(juliaf2m, fullpath, Core.Compiler)  # Core.Compiler is not cached
         fi = FileInfo(fmod)
