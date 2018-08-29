@@ -221,6 +221,9 @@ k(x) = 4
         @test Revise.relocatable!(Revise.funcdef_expr(ex)) == Revise.relocatable!(
             :(getindex(A::Array, i1::Int, i2::Int, I::Int...) = (@_inline_meta; arrayref($(Expr(:boundscheck)), A, i1, i2, I...)))
             )
+
+        # empty keywords (issue #171)
+        @test Revise.sig_type_exprs(:(ekwrds(x::Int;))) == [:(Tuple{Core.Typeof(ekwrds), Int})]
     end
 
     @testset "Comparison and line numbering" begin

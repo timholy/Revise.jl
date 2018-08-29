@@ -200,6 +200,7 @@ julia> Revise.argtypeexpr(Revise.get_callexpr(sigex).args[2:end]...)
 ```
 """
 function argtypeexpr(ex::ExLike, rest...)
+    isempty(ex.args) && return argtypeexpr(rest...)  # issue #171
     # Handle @nospecialize(x)
     a = ex.args[1]
     if ex.head == :macrocall && length(ex.args) >= 3 && (a == Symbol("@nospecialize") ||
