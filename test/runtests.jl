@@ -368,7 +368,7 @@ k(x) = 4
         @test hash(rex1) == hash(rex3)
     end
 
-    @testset "Macros" begin
+    @testset "Macro parsing" begin
         # issues Revise#148, Rebugger#3
         fm = Revise.FileModules(PlottingDummy)
         Revise.parse_expr!(fm, :(@recipe function f(pd::PlotDummy) -55 end), Symbol("dummyfile.jl"), PlottingDummy)
@@ -852,6 +852,64 @@ end
         @test ex0 == Revise.relocatable!(:(@propagate_inbounds @inline foo(x) = 1))
         @test ex1 == Revise.relocatable!(:(foo(x) = 1))
         @test Revise.get_signature(ex1) == Revise.relocatable!(:(foo(x)))
+    end
+
+    @testset "Revising macros" begin
+        # issue #174
+        testdir = randtmp()
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "MacroRevision", "src")
+        mkpath(dn)
+        open(joinpath(dn, "MacroRevision.jl"), "w") do io
+            println(io, """
+            module MacroRevision
+            macro change(foodef)
+                foodef.args[2].args[2] = 1
+                esc(foodef)
+            end
+            @change foo(x) = 0
+            end
+            """)
+        end
+        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        @eval using MacroRevision
+        @test MacroRevision.foo("hello") == 1
+
+        sleep(0.1)
+        open(joinpath(dn, "MacroRevision.jl"), "w") do io
+            println(io, """
+            module MacroRevision
+            macro change(foodef)
+                foodef.args[2].args[2] = 2
+                esc(foodef)
+            end
+            @change foo(x) = 0
+            end
+            """)
+        end
+        yry()
+        @test MacroRevision.foo("hello") == 1
+        revise(MacroRevision)
+        @test MacroRevision.foo("hello") == 2
+
+        sleep(0.1)
+        open(joinpath(dn, "MacroRevision.jl"), "w") do io
+            println(io, """
+            module MacroRevision
+            macro change(foodef)
+                foodef.args[2].args[2] = 3
+                esc(foodef)
+            end
+            @change foo(x) = 0
+            end
+            """)
+        end
+        yry()
+        @test MacroRevision.foo("hello") == 2
+        revise(MacroRevision)
+        @test MacroRevision.foo("hello") == 3
     end
 
     @testset "Line numbers" begin

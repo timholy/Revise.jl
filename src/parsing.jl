@@ -127,8 +127,10 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         # Any expression that *doesn't* define line numbers, new
         # modules, or include new files must be "real code."
         # Handle macros
-        ex0 = ex
+        exorig = ex0 = ex
         if ex isa Expr && ex.head == :macrocall
+            # To get the signature, we have to expand any unrecognized macro because
+            # the macro may change the signature
             ex0, ex = macexpand(mod, ex)
         end
         ex isa Expr || return fm
@@ -138,7 +140,9 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         end
         # Add any method definitions to the cache
         sig = get_signature(convert(RelocatableExpr, ex))
-        rex = convert(RelocatableExpr, ex0)
+        # However, we have to store the original unexpanded expression if
+        # `revise(mod)` can be expected to work (issue #174).
+        rex = convert(RelocatableExpr, exorig)
         if isa(sig, ExLike)
             fm[mod].defmap[rex] = sig  # we can't safely `eval` the types because they may not yet exist
         else
