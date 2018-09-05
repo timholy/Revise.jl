@@ -56,6 +56,7 @@ const tracking_Main_includes = Ref(false)
 
 include("relocatable_exprs.jl")
 include("types.jl")
+include("utils.jl")
 include("parsing.jl")
 include("exprutils.jl")
 include("pkgs.jl")
@@ -79,29 +80,21 @@ const watched_files = Dict{String,WatchList}()
 """
     Revise.revision_queue
 
-Global variable, `revision_queue` holds the names of files that we need to revise, meaning
+Global variable, `revision_queue` holds `(pkgdata,filename)` pairs that we need to revise, meaning
 that these files have changed since we last processed a revision.
 This list gets populated by callbacks that watch directories for updates.
 """
-const revision_queue = Set{String}()
+const revision_queue = Set{Tuple{PkgData,String}}()
 
 """
-    Revise.fileinfos
+    Revise.pkgdatas
 
-`fileinfos` is the core information that tracks the relationship between source code
+`pkgdatas` is the core information that tracks the relationship between source code
 and julia objects, and allows re-evaluation of code in the proper module scope.
-It is a dictionary indexed by absolute paths of files;
-`fileinfos[filename]` returns a value of type [`Revise.FileInfo`](@ref).
+It is a dictionary indexed by PkgId:
+`pkgdatas[id]` returns a value of type [`Revise.PkgData`](@ref).
 """
-const fileinfos = Dict{String,FileInfo}()
-
-"""
-    Revise.module2files
-
-`module2files` holds the list of filenames used to define a particular
-module. This is only used by `revise(MyModule)` to "refresh" all the definitions in a module.
-"""
-const module2files = Dict{Symbol,Vector{String}}()
+const pkgdatas = Dict{PkgId,PkgData}()
 
 """
     Revise.included_files
@@ -173,11 +166,6 @@ const dont_watch_pkgs = Set{Symbol}()
 const silence_pkgs = Set{Symbol}()
 const depsdir = joinpath(dirname(@__DIR__), "deps")
 const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
-
-function use_compiled_modules()
-    return Base.JLOptions().use_compiled_modules != 0
-end
-
 
 
 """
@@ -326,38 +314,50 @@ eval_and_insert_all_dummy!(mod::Module, defmap::DefMap) =
 
 """
     Revise.init_watching(files)
+    Revise.init_watching(pkgdata::PkgData, files)
 
 For every filename in `files`, monitor the filesystem for updates. When the file is
 updated, either [`revise_dir_queued`](@ref) or [`revise_file_queued`](@ref) will
 be called.
+
+Use the `pkgdata` version if the files are supplied using relative paths.
 """
-function init_watching(files)
+function init_watching(pkgdata::PkgData, files)
     udirs = Set{String}()
     for file in files
         dir, basename = splitdir(file)
-        haskey(watched_files, dir) || (watched_files[dir] = WatchList())
-        push!(watched_files[dir], basename)
+        dirfull = joinpath(pkgdata.path, dir)
+        haskey(watched_files, dirfull) || (watched_files[dirfull] = WatchList())
+        push!(watched_files[dirfull], basename)
         if watching_files[]
-            @async revise_file_queued(file)
+            @async revise_file_queued(pkgdata, file)
         else
             push!(udirs, dir)
         end
     end
     for dir in udirs
-        updatetime!(watched_files[dir])
-        @async revise_dir_queued(dir)
+        dirfull = joinpath(pkgdata.path, dir)
+        updatetime!(watched_files[dirfull])
+        if !watching_files[]
+            @async revise_dir_queued(pkgdata, dir)
+        end
     end
     return nothing
 end
+init_watching(files) = init_watching(PkgId(Main), files)
 
 """
-    revise_dir_queued(dirname)
+    revise_dir_queued(pkgdata::PkgData, dirname)
 
 Wait for one or more of the files registered in `Revise.watched_files[dirname]` to be
 modified, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
 This is generally called within an `@async`.
 """
-@noinline function revise_dir_queued(dirname)
+@noinline function revise_dir_queued(pkgdata::PkgData, dirname)
+    dirname0 = dirname
+    if !isabspath(dirname)
+        dirname = joinpath(pkgdata.path, dirname)
+    end
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
         if !isfile(dirname)
@@ -369,21 +369,25 @@ This is generally called within an `@async`.
     end
     latestfiles = watch_files_via_dir(dirname)  # will block here until file(s) change
     for file in latestfiles
-        push!(revision_queue, file)
+        push!(revision_queue, (pkgdata, joinpath(dirname0, file)))
     end
-    @async revise_dir_queued(dirname)
+    @async revise_dir_queued(pkgdata, dirname0)
 end
 
 # See #66.
 """
-    revise_file_queued(filename)
+    revise_file_queued(pkgdata::PkgData, filename)
 
 Wait for modifications to `filename`, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
 This is generally called within an `@async`.
 
 This is used only on platforms (like BSD) which cannot use [`revise_dir_queued`](@ref).
 """
-function revise_file_queued(file)
+function revise_file_queued(pkgdata::PkgData, file)
+    file0 = file
+    if !isabspath(file)
+        file = joinpath(pkgdata.path, file)
+    end
     if !isfile(file)
         sleep(0.1)  # in case git has done a delete/replace cycle
         if !isfile(file)
@@ -395,32 +399,39 @@ function revise_file_queued(file)
     end
 
     wait_changed(file)  # will block here until the file changes
-    push!(revision_queue, file)
-    @async revise_file_queued(file)
+    # Check to see if we're still watching this file
+    dirfull, basename = splitdir(file)
+    if haskey(watched_files, dirfull)
+        push!(revision_queue, (pkgdata, file0))
+        @async revise_file_queued(pkgdata, file0)
+    end
+    return nothing
 end
 
 """
-    Revise.revise_file_now(file)
+    Revise.revise_file_now(pkgdata::PkgData, file)
 
 Process revisions to `file`. This parses `file` and computes an expression-level diff
 between the current state of the file and its most recently evaluated state.
 It then deletes any removed methods and re-evaluates any changed expressions.
 
-`file` must be a key in [`Revise.fileinfos`](@ref)
+`id` must be a key in [`Revise.pkgdatas`](@ref), and `file` a key in
+`Revise.pkgdatas[id].fileinfos`.
 """
-function revise_file_now(file)
-    if !haskey(fileinfos, file)
-        println("Revise is currently tracking the following files: ", keys(fileinfos))
+function revise_file_now(pkgdata::PkgData, file)
+    pkgdict = pkgdata.fileinfos
+    if !haskey(pkgdict, file)
+        println("Revise is currently tracking the following files in $(pkgdata.id): ", keys(pkgdict))
         error(file, " is not currently being tracked.")
     end
-    fi = fileinfos[file]
-    maybe_parse_from_cache!(fi, file)
+    maybe_parse_from_cache!(pkgdata, file)
+    fi = pkgdict[file]
     fmref = fi.fm
     topmod = first(keys(fi.fm))
-    fmnew = parse_source(file, topmod)
+    fmnew = parse_source(joinpath(pkgdata.path, file), topmod)
     if fmnew != nothing
         fmrep = eval_revised(fmnew, fmref)
-        fileinfos[file] = FileInfo(fmrep, fi)
+        pkgdict[file] = FileInfo(fmrep, fi)
     end
     nothing
 end
@@ -459,8 +470,8 @@ end
 """
 function revise()
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
-    for file in revision_queue
-        revise_file_now(file)
+    for (pkgdata, file) in revision_queue
+        revise_file_now(pkgdata, file)
     end
     empty!(revision_queue)
     tracking_Main_includes[] && queue_includes(Main)
@@ -470,16 +481,22 @@ end
 # This variant avoids unhandled task failures
 function revise(backend::REPL.REPLBackend)
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
-    for file in revision_queue
+    for (pkgdata, file) in revision_queue
         try
-            revise_file_now(file)
+            revise_file_now(pkgdata, file)
         catch err
             put!(backend.response_channel, (err, catch_backtrace()))
         end
     end
     empty!(revision_queue)
-    tracking_Main_includes[] && queue_includes(Main)
-    nothing
+    if tracking_Main_includes[]
+        try
+            queue_includes(Main)
+        catch err
+            put!(backend.response_channel, (err, catch_backtrace()))
+        end
+    end
+    return nothing
 end
 
 """
@@ -489,8 +506,11 @@ Reevaluate every definition in `mod`, whether it was changed or not. This is use
 to propagate an updated macro definition, or to force recompiling generated functions.
 """
 function revise(mod::Module)
-    for file in module2files[Symbol(mod)]
-        for (mod,fmm) in fileinfos[file].fm
+    mod == Main && error("cannot revise(Main)")
+    id = PkgId(mod)
+    pkgdict = pkgdatas[id].fileinfos
+    for (file, fi) in pkgdict
+        for (mod,fmm) in fi.fm
             for def in keys(fmm.defmap)
                 Core.eval(mod, convert(Expr, def))
             end
@@ -513,9 +533,14 @@ function track(mod::Module, file::AbstractString)
     fm = parse_source(file, mod)
     if fm != nothing
         instantiate_sigs!(fm)
-        fileinfos[file] = FileInfo(fm)
+        id = PkgId(mod)
+        if !haskey(pkgdatas, id)
+            pkgdatas[id] = PkgData(id, pathof(mod))
+        end
+        pkgdata = pkgdatas[id]
+        pkgdata.fileinfos[file] = FileInfo(fm)
+        init_watching(pkgdata, (file,))
     end
-    init_watching((file,))
 end
 
 track(file::AbstractString) = track(Main, file)
@@ -608,93 +633,58 @@ The source-file defining `method` must be tracked.
 If it is in Base, this will execute `track(Base)` if necessary.
 """
 function get_def(method::Method; modified_files=revision_queue)
-    filename = String(method.file)
     yield()   # magic bug fix for the OSX test failures. TODO: figure out why this works (prob. Julia bug)
+    filename = fixpath(String(method.file))
     startswith(filename, "REPL") && error("methods defined at the REPL are not yet supported")
-    # First we check for whether `filename` is consistent with the module.
-    # If not, most likely this is a method that was defined via a macro defined in a different module.
-    # E.g., https://github.com/timholy/Rebugger.jl/issues/3
-    modfiles = get(module2files, nameof(method.module), nothing)
-    if modfiles != nothing && filename ∉ modfiles
-        # Try to find the actual file
-        for file in modfiles
-            fi = fileinfos[file]
-            maybe_parse_from_cache!(fi, file)
-            haskey(fi.fm, method.module) || continue
-            map = fi.fm[method.module].sigtmap
-            def = get(map, method.sig, nothing)
-            def == nothing || return copy(def)
-        end
-    end
-    recipemod = method.module
-    if !haskey(fileinfos, filename)
-        ret = find_file(filename, recipemod)
-        if ret == nothing
-            @warn "file $filename is not tracked by Revise"
+    id = PkgId(method.module)
+    # Methods from Base or the stdlibs may require that we start tracking
+    if !haskey(pkgdatas, id)
+        recipemod = method.module
+        if id.name == "Base"
+            recipemod = Base
+        elseif id.name == "Core"
+            recipemod = Core.Compiler
+        elseif Symbol(id.name) ∈ stdlib_names
+        else
+            @warn "$id not found, not able to track"
             return nothing
         end
-        filename, recipemod = ret
-    end
-    filename isa AbstractString || return nothing
-    if !haskey(fileinfos, filename)
         @info "tracking $recipemod"
         track(recipemod; modified_files=modified_files)
+        if !haskey(pkgdatas, id)
+            @warn "despite tracking $recipemod, the module for $method was not found"
+            return nothing
+        end
     end
-    fi = fileinfos[filename]
-    maybe_parse_from_cache!(fi, filename)
-    map = fi.fm[method.module].sigtmap
-    haskey(map, method.sig) && return copy(map[method.sig])
+    pkgdata = pkgdatas[id]
+    if isabspath(filename) && startswith(filename, pkgdata.path)
+        filename = relpath_safe(filename, pkgdata.path)
+    elseif startswith(filename, "compiler")
+        # Core.Compiler's pkgid includes "compiler/" in the path
+        filename = relpath(filename, "compiler")
+    end
+    if haskey(pkgdata.fileinfos, filename)
+        def = get_def(method, pkgdata, filename)
+        def !== nothing && return def
+    end
+    # Perhaps this is a method that was defined via a macro defined in a different module.
+    # E.g., https://github.com/timholy/Rebugger.jl/issues/3
+    # Try to find the actual file in the same package/module
+    for file in keys(pkgdata.fileinfos)
+        def = get_def(method, pkgdata, file)
+        def !== nothing && return def
+    end
     @warn "$(method.sig) was not found, perhaps it was generated by code"
-    nothing
-end
-
-function find_file(filename, mod)
-    # For files not in fileinfos, see if we can identify their origin in Base or the stdlibs
-    handledmods = (Base, Core.Compiler)
-    newmod = parentmodule(mod)
-    while mod ∉ handledmods && newmod != mod
-        mod = newmod
-        newmod = parentmodule(mod)
-    end
-    if mod ∈ handledmods
-        basefile = Base.find_source_file(filename)  # check base
-        basefile isa AbstractString && return fixpath(realpath(basefile)), mod
-    elseif occursin("stdlib", filename)
-        return fixpath(realpath(filename)), mod
-    end
     return nothing
 end
 
-function printf_maxsize(f::Function, io::IO, args...; maxchars::Integer=500, maxlines::Integer=20)
-    # This is dumb but certain to work
-    iotmp = IOBuffer()
-    for a in args
-        print(iotmp, a)
-    end
-    print(iotmp, '\n')
-    seek(iotmp, 0)
-    str = read(iotmp, String)
-    if length(str) > maxchars
-        str = first(str, (maxchars+1)÷2) * "…" * last(str, maxchars - (maxchars+1)÷2)
-    end
-    lines = split(str, '\n')
-    if length(lines) <= maxlines
-        for line in lines
-            f(io, line)
-        end
-        return
-    end
-    half = (maxlines+1) ÷ 2
-    for i = 1:half
-        f(io, lines[i])
-    end
-    maxlines > 1 && f(io, ⋮)
-    for i = length(lines) - (maxlines-half) + 1:length(lines)
-        f(io, lines[i])
-    end
+function get_def(method, pkgdata, filename)
+    maybe_parse_from_cache!(pkgdata, filename)
+    fi = pkgdata.fileinfos[filename]
+    map = fi.fm[method.module].sigtmap
+    haskey(map, method.sig) && return copy(map[method.sig])
+    return nothing
 end
-println_maxsize(args...; kwargs...) = println_maxsize(stdout, args...; kwargs...)
-println_maxsize(io::IO, args...; kwargs...) = printf_maxsize(println, stdout, args...; kwargs...)
 
 function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)
     if ex.head == :line
@@ -719,18 +709,23 @@ function update_stacktrace_lineno!(trace)
     for i = 1:length(trace)
         t, n = trace[i]
         if t.linfo isa Core.MethodInstance
-            sigt = t.linfo.def.sig
+            m = t.linfo.def
+            sigt = m.sig
             file = String(t.file)
-            if haskey(fileinfos, file)
-                fm = fileinfos[file].fm
-                for (mod, fmm) in fm
-                    if haskey(fmm.sigtmap, sigt)
-                        def = fmm.sigtmap[sigt]
-                        lineoffset = fmm.defmap[def][2]
-                        if lineoffset != 0
-                            t = StackTraces.StackFrame(t.func, t.file, t.line+lineoffset, t.linfo, t.from_c, t.inlined, t.pointer)
-                            trace[i] = (t, n)
-                            break
+            id = PkgId(m.module)
+            if haskey(pkgdatas, id)
+                pkgdict = pkgdatas[id].fileinfos
+                if haskey(pkgdict, file)
+                    fm = pkgdict[file].fm
+                    for (mod, fmm) in fm
+                        if haskey(fmm.sigtmap, sigt)
+                            def = fmm.sigtmap[sigt]
+                            lineoffset = fmm.defmap[def][2]
+                            if lineoffset != 0
+                                t = StackTraces.StackFrame(t.func, t.file, t.line+lineoffset, t.linfo, t.from_c, t.inlined, t.pointer)
+                                trace[i] = (t, n)
+                                break
+                            end
                         end
                     end
                 end
@@ -739,22 +734,6 @@ function update_stacktrace_lineno!(trace)
     end
     return trace
 end
-
-function macroreplace!(ex::Expr, filename)
-    for i = 1:length(ex.args)
-        ex.args[i] = macroreplace!(ex.args[i], filename)
-    end
-    if ex.head == :macrocall
-        m = ex.args[1]
-        if m == Symbol("@__FILE__")
-            return String(filename)
-        elseif m == Symbol("@__DIR__")
-            return dirname(String(filename))
-        end
-    end
-    return ex
-end
-macroreplace!(s, filename) = s
 
 @noinline function run_backend(backend)
     while true
@@ -823,7 +802,6 @@ function async_steal_repl_backend()
 end
 
 function __init__()
-    # Base.register_root_module(Base.__toplevel__)
     if isfile(silencefile[])
         pkgs = readlines(silencefile[])
         for pkg in pkgs
@@ -861,18 +839,6 @@ function __init__()
     # Correct line numbers for code moving around
     Base.update_stackframes_callback[] = update_stacktrace_lineno!
 end
-
-## WatchList utilities
-function systime()
-    tv = Libc.TimeVal()
-    tv.sec + tv.usec/10^6
-end
-function updatetime!(wl::WatchList)
-    wl.timestamp = systime()
-end
-Base.push!(wl::WatchList, filename) = push!(wl.trackedfiles, filename)
-WatchList() = WatchList(systime(), Set{String}())
-Base.in(file, wl::WatchList) = in(file, wl.trackedfiles)
 
 include("precompile.jl")
 _precompile_()

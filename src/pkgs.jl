@@ -1,6 +1,6 @@
 using Base: PkgId
 
-# A near-copy of `base/loading.jl`. However, this retains the full module path to the file.
+# A near-copy of the same method in `base/loading.jl`. However, this retains the full module path to the file.
 function parse_cache_header(f::IO)
     modules = Vector{Pair{PkgId, UInt64}}()
     while true
@@ -54,7 +54,7 @@ function parse_cache_header(cachefile::String)
 end
 
 """
-    parse_pkg_files(modsym)
+    parse_pkg_files(id::PkgId)
 
 This function gets called by `watch_package` and runs when a package is first loaded.
 Its job is to organize the files and expressions defining the module so that later we can
@@ -74,12 +74,16 @@ function parse_pkg_files(id::PkgId)
             for (pkgid, buildid) in provides
                 if pkgid.uuid === uuid && pkgid.name == id.name
                     # found the right cache file
+                    if !haskey(pkgdatas, id)
+                        pkgdatas[id] = PkgData(id)
+                    end
+                    pkgdata = pkgdatas[id]
                     for (mod, fname, _) in mods_files_mtimes
+                        fname = relpath_safe(fname, pkgdata.path)
                         # For precompiled packages, we can read the source later (whenever we need it)
                         # from the *.ji cachefile.
-                        fileinfos[fname] = FileInfo(mod, path)
+                        pkgdata.fileinfos[fname] = FileInfo(mod, path)
                         push!(files, fname)
-                        module2files[modsym] = files
                     end
                     return files
                 end
@@ -89,9 +93,8 @@ function parse_pkg_files(id::PkgId)
     # Non-precompiled package(s). Here we rely on the `include` callbacks to have
     # already populated `included_files`; all we have to do is collect the relevant
     # files.
-    queue_includes!(files, id.name)
-    module2files[modsym] = files
-    files
+    queue_includes!(files, id)
+    return files
 end
 
 # The main trick here is that since `using` is recursive, `included_files`
@@ -104,16 +107,22 @@ end
 #     we can't use the module-of-evaluation to find it. Here we hope that the
 #     top-level filename follows convention and matches the module. TODO?: it's
 #     possible that this needs to be supplemented with parsing.
-function queue_includes!(files, modstring)
+function queue_includes!(files, id::PkgId)
+    modstring = id.name
     delids = Int[]
+    if !haskey(pkgdatas, id)
+        pkgdatas[id] = PkgData(id)
+    end
+    pkgdata = pkgdatas[id]
     for i = 1:length(included_files)
         mod, fname = included_files[i]
         modname = String(Symbol(mod))
         if startswith(modname, modstring) || endswith(fname, modstring*".jl")
             fm = parse_source(fname, mod)
             instantiate_sigs!(fm)
+            fname = relpath_safe(fname, pkgdata.path)
             if fm != nothing
-                fileinfos[fname] = FileInfo(fm)
+                pkgdata.fileinfos[fname] = FileInfo(fm)
             end
             push!(files, fname)
             push!(delids, i)
@@ -124,8 +133,9 @@ function queue_includes!(files, modstring)
 end
 
 function queue_includes(mod::Module)
-    files = queue_includes!(String[], String(Symbol(mod)))
-    init_watching(files)
+    id = PkgId(mod)
+    files = queue_includes!(String[], id)
+    init_watching(pkgdatas[id], files)
 end
 
 # A near-duplicate of some of the functionality of queue_includes!
@@ -145,21 +155,24 @@ function remove_from_included_files(modsym::Symbol)
     end
 end
 
-function read_from_cache(fi::FileInfo, file::AbstractString)
+function read_from_cache(pkgdata::PkgData, file::AbstractString)
+    fi = pkgdata.fileinfos[file]
+    filep = joinpath(pkgdata.path, file)
     if fi.cachefile == basesrccache
         # Get the original path
-        filec = get(cache_file_key, file, file)
+        filec = get(cache_file_key, filep, filep)
         return open(basesrccache) do io
             Base._read_dependency_src(io, filec)
         end
     end
-    Base.read_dependency_src(fi.cachefile, file)
+    Base.read_dependency_src(fi.cachefile, filep)
 end
 
-function maybe_parse_from_cache!(fi::FileInfo, file::AbstractString)
+function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
+    fi = pkgdata.fileinfos[file]
     if isempty(fi.fm)
         # Source was never parsed, get it from the precompile cache
-        src = read_from_cache(fi, file)
+        src = read_from_cache(pkgdata, file)
         topmod = first(keys(fi.fm))
         if parse_source!(fi.fm, src, Symbol(file), 1, topmod) === nothing
             @error "failed to parse cache file source text for $file"
@@ -174,13 +187,13 @@ function watch_files_via_dir(dirname)
     latestfiles = String[]
     wf = watched_files[dirname]
     for file in wf.trackedfiles
-        path = joinpath(dirname, file)
-        if mtime(path) + 1 >= floor(wf.timestamp) # OSX rounds mtime up, see #22
-            push!(latestfiles, path)
+        fullpath = joinpath(dirname, file)
+        if mtime(fullpath) + 1 >= floor(wf.timestamp) # OSX rounds mtime up, see #22
+            push!(latestfiles, file)
         end
     end
     updatetime!(wf)
-    latestfiles
+    return latestfiles
 end
 
 """
@@ -207,6 +220,5 @@ end
         return nothing
     end
     files = parse_pkg_files(id)
-    init_watching(files)
-    nothing
+    init_watching(pkgdatas[id], files)
 end

@@ -560,6 +560,7 @@ using_macro_$(fbase)() = @some_macro_$(fbase)()
 end
 """)  # just for fun we skipped the whitespace
             end
+            sleep(0.1)
             yry()
             @eval @test $(fn1)() == -1
             @eval @test $(fn2)() == 2
@@ -610,12 +611,14 @@ end
             @eval @test $(fn4)() == -4
             @eval @test $(fn5)() == -5
             @eval @test $(fn6)() == -6
-            # Check module2files
-            files = [joinpath(dn, modname*".jl"), joinpath(dn, "file2.jl"),
-                     joinpath(dn, "subdir", "file3.jl"),
-                     joinpath(dn, "subdir", "file4.jl"),
-                     joinpath(dn, "file5.jl")]
-            @test Revise.module2files[Symbol(modname)] == files
+            # Check that the list of files is complete
+            pkgdata = Revise.pkgdatas[Base.PkgId(modname)]
+            for file = [joinpath("src", modname*".jl"), joinpath("src", "file2.jl"),
+                        joinpath("src", "subdir", "file3.jl"),
+                        joinpath("src", "subdir", "file4.jl"),
+                        joinpath("src", "file5.jl")]
+                @test haskey(pkgdata.fileinfos, file)
+            end
         end
         # Remove the precompiled file
         rm_precompile("PC")
@@ -692,8 +695,8 @@ end
         end
         yry()
         @test li_f() == -1
-
         rm_precompile("LoopInclude")
+
         pop!(LOAD_PATH)
     end
 
@@ -1301,17 +1304,16 @@ end
         ex = Revise.get_def(m)
         @test ex isa Revise.RelocatableExpr
         @test isequal(ex, Revise.relocatable!(:(f(v::AbstractVector{<:Integer}) = 3)))
+
+        rm_precompile("GetDef")
     end
 
     @testset "Pkg exclusion" begin
         push!(Revise.dont_watch_pkgs, :Example)
         push!(Revise.silence_pkgs, :Example)
         @eval import Example
-        for k in keys(Revise.fileinfos)
-            if occursin("Example", k)
-                error("Should not track files in Example")
-            end
-        end
+        id = Base.PkgId(Example)
+        @test !haskey(Revise.pkgdatas, id)
         # Ensure that silencing works
         sfile = Revise.silencefile[]  # remember the original
         try
@@ -1503,6 +1505,9 @@ end
                 LibGit2.commit(repo, "New file test"; author=test_sig, committer=test_sig)
             end
             @eval using $(Symbol(modname))
+            mod = @eval $(Symbol(modname))
+            # id = Base.PkgId(mod)
+            id = Base.PkgId(Main)
             extrajl = joinpath(randdir, "src", "extra.jl")
             open(extrajl, "w") do io
                 println(io, """
@@ -1518,11 +1523,10 @@ end
             end
             repo = LibGit2.GitRepo(randdir)
             LibGit2.add!(repo, joinpath("src", "extra.jl"))
-            thismod = Base.root_module(Base.PkgId(modname))
             logs, _ = Test.collect_test_logs() do
-                Revise.track_subdir_from_git(thismod, joinpath(randdir, "src"); commit="HEAD")
+                Revise.track_subdir_from_git(id, joinpath(randdir, "src"); commit="HEAD")
             end
-            @test haskey(Revise.fileinfos, mainjl)
+            @test haskey(Revise.pkgdatas[id].fileinfos, mainjl)
             @test startswith(logs[1].message, "skipping src/extra.jl")
             rm_precompile("ModuleWithNewFile")
             pop!(LOAD_PATH)
@@ -1532,8 +1536,10 @@ end
     @testset "Recipes" begin
         # Tracking Base
         Revise.track(Base)
-        @test any(k->endswith(k, "number.jl"), keys(Revise.fileinfos))
-        @test length(filter(k->endswith(k, "file.jl"), keys(Revise.fileinfos))) == 2
+        id = Base.PkgId(Base)
+        pkgdata = Revise.pkgdatas[id]
+        @test any(k->endswith(k, "number.jl"), keys(pkgdata.fileinfos))
+        @test length(filter(k->endswith(k, "file.jl"), keys(pkgdata.fileinfos))) == 2
         m = @which show([1,2,3])
         @test Revise.get_def(m) isa Revise.RelocatableExpr
 
@@ -1542,13 +1548,17 @@ end
         if repo != nothing
             # Tracking Core.Compiler
             Revise.track(Core.Compiler)
-            @test any(k->endswith(k, "compiler.jl"), keys(Revise.fileinfos))
+            id = Base.PkgId(Core.Compiler)
+            pkgdata = Revise.pkgdatas[id]
+            @test any(k->endswith(k, "compiler.jl"), keys(pkgdata.fileinfos))
             m = first(methods(Core.Compiler.typeinf_code))
             @test Revise.get_def(m) isa Revise.RelocatableExpr
 
             # Tracking stdlibs
             Revise.track(Unicode)
-            @test any(k->endswith(k, "Unicode.jl"), keys(Revise.fileinfos))
+            id = Base.PkgId(Unicode)
+            pkgdata = Revise.pkgdatas[id]
+            @test any(k->endswith(k, "Unicode.jl"), keys(pkgdata.fileinfos))
             @test Revise.get_def(first(methods(Unicode.isassigned))) isa Revise.RelocatableExpr
 
             # Test that we skip over files that don't end in ".jl"
@@ -1589,12 +1599,17 @@ GC.gc(); GC.gc(); GC.gc()   # work-around for https://github.com/JuliaLang/julia
 
 # Now do a large-scale real-world test, in an attempt to prevent issues like #155
 if Sys.islinux()
+    function pkgid(name)
+        project = Base.active_project()
+        uuid = Base.project_deps_get(project, name)
+        return Base.PkgId(uuid, name)
+    end
     @testset "Plots" begin
-        if !haskey(Revise.module2files, :Plots)
-            n = length(Revise.fileinfos)
+        idplots = pkgid("Plots")
+        if idplots.uuid !== nothing && !haskey(Revise.pkgdatas, idplots)
             @eval using Plots
             yry()
-            @test length(Revise.fileinfos) > n+100  # issue #155
+            @test haskey(Revise.pkgdatas, Base.PkgId(Plots.JSON))  # issue #155
         end
         # https://github.com/timholy/Rebugger.jl/issues/3
         m = which(Plots.histogram, Tuple{Vector{Float64}})
@@ -1603,9 +1618,10 @@ if Sys.islinux()
 
         # Tests for "module hygiene"
         @test !isdefined(Main, :JSON)  # internal to Plots
-        file = first(filter(name->endswith(name, "JSON.jl"), keys(Revise.fileinfos)))
-        fi = Revise.fileinfos[file]
-        Revise.maybe_parse_from_cache!(fi, file)
+        id = Base.PkgId(Plots.JSON)
+        pkgdata = Revise.pkgdatas[id]
+        file = joinpath("src", "JSON.jl")
+        Revise.maybe_parse_from_cache!(pkgdata, file)
         @test !isdefined(Main, :JSON)  # internal to Plots
     end
 end

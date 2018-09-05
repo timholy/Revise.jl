@@ -8,7 +8,7 @@ should be tracked.
 
 Fields:
 - `timestamp`: mtime of last update
-- `trackedfiles`: Set of filenames
+- `trackedfiles`: Set of filenames, generally expressed as a relative path
 """
 mutable struct WatchList
     timestamp::Float64         # unix time of last revision
@@ -45,7 +45,8 @@ const SigtMap = IdDict{Any,RelocatableExpr}   # sigt=>def
 """
     FMMaps
 
-`source=>sigtypes` and `sigtypes=>source` mappings for a particular file/module combination.
+`defmap` (`source=>sigtypes`) and `sigtmap` (`sigtypes=>source`) mappings for a
+particular file/module combination.
 See the documentation page [How Revise works](@ref) for more information.
 """
 struct FMMaps
@@ -124,6 +125,28 @@ Initialze an empty FileInfo for a file that is `include`d into `mod`.
 FileInfo(mod::Module, cachefile::AbstractString="") = FileInfo(FileModules(mod), cachefile)
 
 FileInfo(fm::FileModules, fi::FileInfo) = FileInfo(fm, fi.cachefile)
+
+"""
+    PkgData(id, path, fileinfos::Dict{String,FileInfo})
+
+A structure holding the data required to handle a particular package.
+`path` is the top-level directory defining the package,
+`fileinfos` holds the [`FileInfo`](@ref) for each file defining the package,
+and `watchtasks` stores associations between directories (or files) and the task
+currently watching them for changes.
+
+For the `PkgData` associated with `Main` (e.g., for files loaded with [`includet`](@ref)),
+the corresponding `path` entry will be empty.
+"""
+mutable struct PkgData
+    id::PkgId
+    path::String
+    fileinfos::Dict{String,FileInfo}
+end
+
+PkgData(id::PkgId, path) = PkgData(id, path, Dict{String,FileInfo}())
+PkgData(id::PkgId, ::Nothing) = PkgData(id, "")
+PkgData(id::PkgId) = PkgData(id, normpath(basepath(id)))
 
 struct GitRepoException <: Exception
     filename::String
