@@ -416,7 +416,7 @@ function instantiate_sigs!(fmm::FMMaps, def::RelocatableExpr, sig::RelocatableEx
     # Generate the signature-types
     local sigtexs
     try
-        sigtexs = sig_type_exprs(sig)
+        sigtexs = sig_type_exprs(mod, sig)
     catch err
         sigwarn(mod, sig, def)
         rethrow(err)
