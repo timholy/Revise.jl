@@ -213,7 +213,15 @@ var documenterSearchIndex = {"docs": [
     "page": "Debugging Revise",
     "title": "Capturing the logs and submitting them with your bug report",
     "category": "section",
-    "text": "Once all the revisions have been triggered and the mistake has been reproduced, it\'s time to capture the logs. To capture all the logs, usejulia> logs = filter(r->r.level==Debug, rlogger.logs);You can capture just the log events that recorded a difference between two versions of the same file withjulia> log = Revise.diffs(rlogger)or just the changes that Revise made to running code withjulia> logs = Revise.actions(rlogger)You can either let these print to the console and copy/paste the text output into the issue, or if they are extensive you can save logs to a file (e.g., in JLD2 format) and upload the file somewhere.See also A complete debugging demo below."
+    "text": "Once all the revisions have been triggered and the mistake has been reproduced, it\'s time to capture the logs. To capture all the logs, usejulia> using Base.CoreLogging: Debug\n\njulia> logs = filter(r->r.level==Debug, rlogger.logs);You can capture just the log events that recorded a difference between two versions of the same file withjulia> log = Revise.diffs(rlogger)or just the changes that Revise made to running code withjulia> logs = Revise.actions(rlogger)You can either let these print to the console and copy/paste the text output into the issue, or if they are extensive you can save logs to a file:open(\"/tmp/revise.logs\", \"w\") do io\n    for log in logs\n        println(io, log)\n    end\nendThen you can upload the logs somewhere (e.g., https://gist.github.com/) and link the url in your bug report. To assist in the resolution of the bug, please also specify additional relevant information such as the name of the function that was misbehaving after revision and/or any error messages that your received.See also A complete debugging demo below."
+},
+
+{
+    "location": "debugging.html#Logging-by-default-1",
+    "page": "Debugging Revise",
+    "title": "Logging by default",
+    "category": "section",
+    "text": "If you suspect a bug in Revise but have difficulty isolating it, you can include the lines    # Turn on logging\n    Revise.debug_logger()within the Revise block of your ~/.julia/config/startup.jl file. This will ensure that you always log Revise\'s actions. Then carry out your normal Julia development. If a Revise-related problem arises, executing these linesrlogger = Revise.debug_logger()\nusing Base.CoreLogging: Debug\nlogs = filter(r->r.level==Debug, rlogger.logs)\nopen(\"/tmp/revise.logs\", \"w\") do io\n    for log in logs\n        println(io, log)\n    end\nendwithin the same session will generate the /tmp/revise.logs file that you can submit with your bug report. (What makes this possible is that a second call to Revise.debug_logger() returns the same logger object created by the first call–it is not necessary to hold on to rlogger.)"
 },
 
 {
