@@ -36,6 +36,10 @@ end
 macro donothing(ex)
     esc(ex)
 end
+
+macro addint(ex)
+    :($(esc(ex))::$(esc(Int)))
+end
 end
 
 function private_module()
@@ -224,6 +228,10 @@ k(x) = 4
 
         # empty keywords (issue #171)
         @test Revise.sig_type_exprs(:(ekwrds(x::Int;))) == [:(Tuple{Core.Typeof(ekwrds), Int})]
+
+        # arg-modifying macros (issue #176)
+        sigexs = Revise.sig_type_exprs(ReviseTestPrivate, :(foo(x::String, @addint(y))))
+        @test sigexs == [:(Tuple{Core.Typeof(foo), String, $Int})]
     end
 
     @testset "Comparison and line numbering" begin

@@ -240,6 +240,7 @@ function eval_revised!(fmmrep::FMMaps, mod::Module,
                 m = get_method(sigt)
                 if isa(m, Method)
                     Base.delete_method(m)
+                    @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sigt, MethodSummary(m))
                 else
                     mths = Base._methods_by_ftype(sigt, -1, typemax(UInt))
                     io = IOBuffer()
@@ -248,7 +249,6 @@ function eval_revised!(fmmrep::FMMaps, mod::Module,
                     info = String(take!(io))
                     @warn "Revise failed to find any methods for signature $sigt\n  Perhaps it was already deleted.\n$info"
                 end
-                @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sigt, MethodSummary(m))
             end
         end
     end
@@ -416,7 +416,7 @@ function instantiate_sigs!(fmm::FMMaps, def::RelocatableExpr, sig::RelocatableEx
     # Generate the signature-types
     local sigtexs
     try
-        sigtexs = sig_type_exprs(sig)
+        sigtexs = sig_type_exprs(mod, sig)
     catch err
         sigwarn(mod, sig, def)
         rethrow(err)
