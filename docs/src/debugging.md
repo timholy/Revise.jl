@@ -29,6 +29,8 @@ it's time to capture the logs.
 To capture all the logs, use
 
 ```julia
+julia> using Base.CoreLogging: Debug
+
 julia> logs = filter(r->r.level==Debug, rlogger.logs);
 ```
 
@@ -46,10 +48,51 @@ julia> logs = Revise.actions(rlogger)
 ```
 
 You can either let these print to the console and copy/paste the text output into the
-issue, or if they are extensive you can save `logs` to a file (e.g., in JLD2 format)
-and upload the file somewhere.
+issue, or if they are extensive you can save `logs` to a file:
+
+```julia
+open("/tmp/revise.logs", "w") do io
+    for log in logs
+        println(io, log)
+    end
+end
+```
+
+Then you can upload the logs somewhere (e.g., https://gist.github.com/) and link the url in your bug report.
+To assist in the resolution of the bug, please also specify additional relevant information such as the name of the function that was misbehaving after revision and/or any error messages that your received.
 
 See also [A complete debugging demo](@ref) below.
+
+## Logging by default
+
+If you suspect a bug in Revise but have difficulty isolating it, you can include the lines
+
+```julia
+    # Turn on logging
+    Revise.debug_logger()
+```
+
+within the `Revise` block of your `~/.julia/config/startup.jl` file.
+This will ensure that you always log Revise's actions.
+Then carry out your normal Julia development.
+If a Revise-related problem arises, executing these lines
+
+```julia
+rlogger = Revise.debug_logger()
+using Base.CoreLogging: Debug
+logs = filter(r->r.level==Debug, rlogger.logs)
+open("/tmp/revise.logs", "w") do io
+    for log in logs
+        println(io, log)
+    end
+end
+```
+
+within the same session will generate the `/tmp/revise.logs` file that
+you can submit with your bug report.
+(What makes this possible is that a second call to `Revise.debug_logger()` returns
+the same logger object created by the first call--it is not necessary to hold
+on to `rlogger`.)
 
 ## The structure of the logs
 
