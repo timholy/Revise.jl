@@ -352,7 +352,7 @@ Wait for one or more of the files registered in `Revise.watched_files[dirname]` 
 modified, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
 This is generally called within an `@async`.
 """
-function revise_dir_queued(dirname)
+@noinline function revise_dir_queued(dirname)
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
         if !isfile(dirname)
@@ -749,6 +749,23 @@ function macroreplace!(ex::Expr, filename)
 end
 macroreplace!(s, filename) = s
 
+@noinline function run_backend(backend)
+    while true
+        tls = task_local_storage()
+        tls[:SOURCE_PATH] = nothing
+        ast, show_value = take!(backend.repl_channel)
+        if show_value == -1
+            # exit flag
+            break
+        end
+        # Process revisions
+        revise(backend)
+        # Now eval the input
+        REPL.eval_user_input(ast, backend)
+    end
+    nothing
+end
+
 """
     steal_repl_backend(backend = Base.active_repl_backend)
 
@@ -762,21 +779,7 @@ function steal_repl_backend(backend = Base.active_repl_backend)
         fetch(backend.backend_task)
         # restart a new backend that differs only by processing the
         # revision queue before evaluating each user input
-        backend.backend_task = @async begin
-            while true
-                tls = task_local_storage()
-                tls[:SOURCE_PATH] = nothing
-                ast, show_value = take!(backend.repl_channel)
-                if show_value == -1
-                    # exit flag
-                    break
-                end
-                # Process revisions
-                revise(backend)
-                # Now eval the input
-                REPL.eval_user_input(ast, backend)
-            end
-        end
+        backend.backend_task = @async run_backend(backend)
     end
     nothing
 end
@@ -861,5 +864,8 @@ end
 Base.push!(wl::WatchList, filename) = push!(wl.trackedfiles, filename)
 WatchList() = WatchList(systime(), Set{String}())
 Base.in(file, wl::WatchList) = in(file, wl.trackedfiles)
+
+include("precompile.jl")
+_precompile_()
 
 end # module

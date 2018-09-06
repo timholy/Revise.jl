@@ -197,7 +197,7 @@ function watch_package(id::PkgId)
     @async _watch_package(id)
 end
 
-function _watch_package(id::PkgId)
+@noinline function _watch_package(id::PkgId)
     modsym = Symbol(id.name)
     if modsym ∈ dont_watch_pkgs
         if modsym ∉ silence_pkgs
@@ -208,4 +208,5 @@ function _watch_package(id::PkgId)
     end
     files = parse_pkg_files(id)
     init_watching(files)
+    nothing
 end
