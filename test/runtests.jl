@@ -230,8 +230,8 @@ k(x) = 4
         @test Revise.sig_type_exprs(:(ekwrds(x::Int;))) == [:(Tuple{Core.Typeof(ekwrds), Int})]
 
         # arg-modifying macros (issue #176)
-        sigexs = Revise.sig_type_exprs(ReviseTestPrivate, :(foo(x::String, @addint(y))))
-        @test sigexs == [:(Tuple{Core.Typeof(foo), String, $Int})]
+        sigexs = Revise.sig_type_exprs(ReviseTestPrivate, :(foo(x::String, @addint(y), @addint(z))))
+        @test sigexs == [:(Tuple{Core.Typeof(foo), String, $Int, $Int})]
     end
 
     @testset "Comparison and line numbering" begin

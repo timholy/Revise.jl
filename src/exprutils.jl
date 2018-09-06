@@ -238,7 +238,8 @@ function argtypeexpr(mod::Module, ex::ExLike, rest...)
     end
     # Handle other macros (e.g., #176)
     if ex.head == :macrocall
-        return (argtypeexpr(mod, macroexpand(mod, ex), argtypeexpr(mod, rest...)...))
+        exex = macroexpand(mod, ex)
+        return argtypeexpr(mod, exex, rest...)
     end
     if ex.head == :...
         # Handle varargs (those expressed with dots rather than Vararg{T,N})
