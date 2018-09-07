@@ -600,6 +600,8 @@ end
         end
         yry()
         @test Mysupermodule.Mymodule.func() == 2
+        rm_precompile("Mymodule")
+        rm_precompile("Mysupermodule")
 
         # Test files paths that can't be statically parsed
         dn = joinpath(testdir, "LoopInclude", "src")
@@ -636,6 +638,7 @@ end
         yry()
         @test li_f() == -1
 
+        rm_precompile("LoopInclude")
         pop!(LOAD_PATH)
     end
 
@@ -692,6 +695,7 @@ end
         yry()
         @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 2)
         rm_precompile("ModFILE")
+        pop!(LOAD_PATH)
     end
 
     # issue #8
@@ -758,7 +762,7 @@ end
         @test ModDocstring.f() == 3
         ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Hello! "
-
+        rm_precompile("ModDocstring")
         pop!(LOAD_PATH)
     end
 
@@ -860,6 +864,7 @@ end
         @test ex0 == Revise.relocatable!(:(@propagate_inbounds @inline foo(x) = 1))
         @test ex1 == Revise.relocatable!(:(foo(x) = 1))
         @test Revise.get_signature(ex1) == Revise.relocatable!(:(foo(x)))
+        pop!(LOAD_PATH)
     end
 
     @testset "Revising macros" begin
@@ -918,6 +923,8 @@ end
         @test MacroRevision.foo("hello") == 2
         revise(MacroRevision)
         @test MacroRevision.foo("hello") == 3
+        rm_precompile("MacroRevision")
+        pop!(LOAD_PATH)
     end
 
     @testset "Line numbers" begin
@@ -993,6 +1000,8 @@ foo(y::Int) = y-51
             @test endswith(string(m.file), "incl.jl")
             @test m.line ∈ lines
         end
+        rm_precompile("LineNumberMod")
+        pop!(LOAD_PATH)
     end
 
     # Issue #43
@@ -1027,6 +1036,8 @@ end
         yry()
         @test Submodules.f() == 1
         @test Submodules.Sub.g() == 2
+        rm_precompile("Submodules")
+        pop!(LOAD_PATH)
     end
 
     @testset "Method deletion" begin
@@ -1175,6 +1186,7 @@ end
         finally
             Revise.silencefile[] = sfile
         end
+        pop!(LOAD_PATH)
     end
 
     @testset "Manual track" begin
@@ -1308,6 +1320,8 @@ end
             @test_throws RemoteException remotecall_fetch(ReviseDistributed.g, p, 1)
         end
         rmprocs(allworkers[2:3]...; waitfor=10)
+        rm_precompile("ReviseDistributed")
+        pop!(LOAD_PATH)
     end
 
     @testset "Git" begin
@@ -1371,6 +1385,8 @@ end
             end
             @test haskey(Revise.fileinfos, mainjl)
             @test startswith(logs[1].message, "skipping src/extra.jl")
+            rm_precompile("ModuleWithNewFile")
+            pop!(LOAD_PATH)
         end
     end
 
