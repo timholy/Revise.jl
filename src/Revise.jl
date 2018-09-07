@@ -786,6 +786,20 @@ function steal_repl_backend(backend = Base.active_repl_backend)
     nothing
 end
 
+function wait_steal_repl_backend()
+    iter = 0
+    # wait for active_repl_backend to exist
+    while !isdefined(Base, :active_repl_backend) && iter < 20
+        sleep(0.05)
+        iter += 1
+    end
+    if isdefined(Base, :active_repl_backend)
+        steal_repl_backend(Base.active_repl_backend)
+    else
+        @warn "REPL initialization failed, Revise is not in automatic mode. Call `revise()` manually."
+    end
+end
+
 """
     Revise.async_steal_repl_backend()
 
@@ -797,19 +811,7 @@ function async_steal_repl_backend()
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
         atreplinit() do repl
-            @async begin
-                iter = 0
-                # wait for active_repl_backend to exist
-                while !isdefined(Base, :active_repl_backend) && iter < 20
-                    sleep(0.05)
-                    iter += 1
-                end
-                if isdefined(Base, :active_repl_backend)
-                    steal_repl_backend(Base.active_repl_backend)
-                else
-                    @warn "REPL initialization failed, Revise is not in automatic mode. Call `revise()` manually."
-                end
-            end
+            @async wait_steal_repl_backend()
         end
     end
     return nothing
