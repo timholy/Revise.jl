@@ -59,7 +59,7 @@ end
 
 function compare_sigs(ex)
     sig = Revise.get_signature(ex)
-    typex = Revise.sig_type_exprs(sig)
+    typex = sig_type_exprs(sig)
     compare_sigs(ex, typex)
 end
 
@@ -67,6 +67,8 @@ module PlottingDummy
 using RecipesBase
 struct PlotDummy end
 end
+
+sig_type_exprs(ex) = Revise.sig_type_exprs(Main, ex)   # just for testing purposes
 
 @testset "Revise" begin
 
@@ -185,27 +187,27 @@ k(x) = 4
         compare_sigs(:(function foo(x, (count, name)) return 1 end))
 
         # Return type annotations
-        @test Revise.sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)::Union{Type,Nothing})) ==
-              Revise.sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)))
+        @test sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)::Union{Type,Nothing})) ==
+              sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)))
         def = quote
             function +(x::Bool, y::T)::promote_type(Bool,T) where T<:AbstractFloat
                 return ifelse(x, oneunit(y) + y, y)
             end
         end
         sig = Revise.get_signature(Revise.funcdef_expr(def))
-        @test Revise.sig_type_exprs(sig) == [:(Tuple{Core.Typeof(+), Bool, T} where T<:AbstractFloat)]
+        @test sig_type_exprs(sig) == [:(Tuple{Core.Typeof(+), Bool, T} where T<:AbstractFloat)]
 
         # Overloading call
         def = :((i::Inner)(::String) = i.x)
         sig = Revise.get_signature(def)
-        sigexs = Revise.sig_type_exprs(sig)
+        sigexs = sig_type_exprs(sig)
         Core.eval(ReviseTestPrivate, def)
         i = ReviseTestPrivate.Inner(3)
         m = @which i("hello")
         @test Core.eval(ReviseTestPrivate, sigexs[1]) == m.sig
         def = :((::Type{Inner})(::Dict) = 17)
         sig = Revise.get_signature(def)
-        sigexs = Revise.sig_type_exprs(sig)
+        sigexs = sig_type_exprs(sig)
         Core.eval(ReviseTestPrivate, def)
         m = @which ReviseTestPrivate.Inner(Dict("a"=>1))
         @test Core.eval(ReviseTestPrivate, sigexs[1]) == m.sig
@@ -227,7 +229,7 @@ k(x) = 4
             )
 
         # empty keywords (issue #171)
-        @test Revise.sig_type_exprs(:(ekwrds(x::Int;))) == [:(Tuple{Core.Typeof(ekwrds), Int})]
+        @test sig_type_exprs(:(ekwrds(x::Int;))) == [:(Tuple{Core.Typeof(ekwrds), Int})]
 
         # arg-modifying macros (issue #176)
         sigexs = Revise.sig_type_exprs(ReviseTestPrivate, :(foo(x::String, @addint(y), @addint(z))))

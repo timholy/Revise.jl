@@ -183,7 +183,6 @@ function sig_type_exprs(mod::Module, sigex::Expr, wheres...)
     return reverse!(typexs)  # method table is organized in increasing # of args
 end
 sig_type_exprs(mod::Module, sigex::RelocatableExpr) = sig_type_exprs(mod, convert(Expr, sigex))
-sig_type_exprs(ex::ExLike) = sig_type_exprs(Main, ex)
 
 function _sig_type_exprs(mod::Module, ex, @nospecialize(wheres))
     fex = ex.args[1]
