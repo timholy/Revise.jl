@@ -59,7 +59,7 @@ end
 
 function compare_sigs(ex)
     sig = Revise.get_signature(ex)
-    typex = Revise.sig_type_exprs(sig)
+    typex = sig_type_exprs(sig)
     compare_sigs(ex, typex)
 end
 
@@ -67,6 +67,8 @@ module PlottingDummy
 using RecipesBase
 struct PlotDummy end
 end
+
+sig_type_exprs(ex) = Revise.sig_type_exprs(Main, ex)   # just for testing purposes
 
 @testset "Revise" begin
 
@@ -185,27 +187,27 @@ k(x) = 4
         compare_sigs(:(function foo(x, (count, name)) return 1 end))
 
         # Return type annotations
-        @test Revise.sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)::Union{Type,Nothing})) ==
-              Revise.sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)))
+        @test sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)::Union{Type,Nothing})) ==
+              sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)))
         def = quote
             function +(x::Bool, y::T)::promote_type(Bool,T) where T<:AbstractFloat
                 return ifelse(x, oneunit(y) + y, y)
             end
         end
         sig = Revise.get_signature(Revise.funcdef_expr(def))
-        @test Revise.sig_type_exprs(sig) == [:(Tuple{Core.Typeof(+), Bool, T} where T<:AbstractFloat)]
+        @test sig_type_exprs(sig) == [:(Tuple{Core.Typeof(+), Bool, T} where T<:AbstractFloat)]
 
         # Overloading call
         def = :((i::Inner)(::String) = i.x)
         sig = Revise.get_signature(def)
-        sigexs = Revise.sig_type_exprs(sig)
+        sigexs = sig_type_exprs(sig)
         Core.eval(ReviseTestPrivate, def)
         i = ReviseTestPrivate.Inner(3)
         m = @which i("hello")
         @test Core.eval(ReviseTestPrivate, sigexs[1]) == m.sig
         def = :((::Type{Inner})(::Dict) = 17)
         sig = Revise.get_signature(def)
-        sigexs = Revise.sig_type_exprs(sig)
+        sigexs = sig_type_exprs(sig)
         Core.eval(ReviseTestPrivate, def)
         m = @which ReviseTestPrivate.Inner(Dict("a"=>1))
         @test Core.eval(ReviseTestPrivate, sigexs[1]) == m.sig
@@ -227,7 +229,7 @@ k(x) = 4
             )
 
         # empty keywords (issue #171)
-        @test Revise.sig_type_exprs(:(ekwrds(x::Int;))) == [:(Tuple{Core.Typeof(ekwrds), Int})]
+        @test sig_type_exprs(:(ekwrds(x::Int;))) == [:(Tuple{Core.Typeof(ekwrds), Int})]
 
         # arg-modifying macros (issue #176)
         sigexs = Revise.sig_type_exprs(ReviseTestPrivate, :(foo(x::String, @addint(y), @addint(z))))
@@ -600,6 +602,8 @@ end
         end
         yry()
         @test Mysupermodule.Mymodule.func() == 2
+        rm_precompile("Mymodule")
+        rm_precompile("Mysupermodule")
 
         # Test files paths that can't be statically parsed
         dn = joinpath(testdir, "LoopInclude", "src")
@@ -636,6 +640,7 @@ end
         yry()
         @test li_f() == -1
 
+        rm_precompile("LoopInclude")
         pop!(LOAD_PATH)
     end
 
@@ -692,6 +697,7 @@ end
         yry()
         @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 2)
         rm_precompile("ModFILE")
+        pop!(LOAD_PATH)
     end
 
     # issue #8
@@ -758,7 +764,7 @@ end
         @test ModDocstring.f() == 3
         ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Hello! "
-
+        rm_precompile("ModDocstring")
         pop!(LOAD_PATH)
     end
 
@@ -860,6 +866,7 @@ end
         @test ex0 == Revise.relocatable!(:(@propagate_inbounds @inline foo(x) = 1))
         @test ex1 == Revise.relocatable!(:(foo(x) = 1))
         @test Revise.get_signature(ex1) == Revise.relocatable!(:(foo(x)))
+        pop!(LOAD_PATH)
     end
 
     @testset "Revising macros" begin
@@ -918,6 +925,64 @@ end
         @test MacroRevision.foo("hello") == 2
         revise(MacroRevision)
         @test MacroRevision.foo("hello") == 3
+        rm_precompile("MacroRevision")
+        pop!(LOAD_PATH)
+    end
+
+    @testset "More arg-modifying macros" begin
+        # issue #183
+        testdir = randtmp()
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "ArgModMacros", "src")
+        mkpath(dn)
+        open(joinpath(dn, "ArgModMacros.jl"), "w") do io
+            println(io, """
+            module ArgModMacros
+
+            using EponymTuples
+
+            const revision = Ref(0)
+
+            function hyper_loglikelihood(@eponymargs(μ, σ, LΩ), @eponymargs(w̃s, α̃s, β̃s))
+                revision[] = 1
+                loglikelihood_normal(@eponymtuple(μ, σ, LΩ), vcat(w̃s, α̃s, β̃s))
+            end
+
+            loglikelihood_normal(@eponymargs(μ, σ, LΩ), stuff) = stuff
+
+            end
+            """)
+        end
+        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        @eval using ArgModMacros
+        @test ArgModMacros.hyper_loglikelihood((μ=1, σ=2, LΩ=3), (w̃s=4, α̃s=5, β̃s=6)) == [4,5,6]
+        @test ArgModMacros.revision[] == 1
+        sleep(0.1)
+        open(joinpath(dn, "ArgModMacros.jl"), "w") do io
+            println(io, """
+            module ArgModMacros
+
+            using EponymTuples
+
+            const revision = Ref(0)
+
+            function hyper_loglikelihood(@eponymargs(μ, σ, LΩ), @eponymargs(w̃s, α̃s, β̃s))
+                revision[] = 2
+                loglikelihood_normal(@eponymtuple(μ, σ, LΩ), vcat(w̃s, α̃s, β̃s))
+            end
+
+            loglikelihood_normal(@eponymargs(μ, σ, LΩ), stuff) = stuff
+
+            end
+            """)
+        end
+        yry()
+        @test ArgModMacros.hyper_loglikelihood((μ=1, σ=2, LΩ=3), (w̃s=4, α̃s=5, β̃s=6)) == [4,5,6]
+        @test ArgModMacros.revision[] == 2
+        rm_precompile("ArgModMacros")
+        pop!(LOAD_PATH)
     end
 
     @testset "Line numbers" begin
@@ -993,6 +1058,8 @@ foo(y::Int) = y-51
             @test endswith(string(m.file), "incl.jl")
             @test m.line ∈ lines
         end
+        rm_precompile("LineNumberMod")
+        pop!(LOAD_PATH)
     end
 
     # Issue #43
@@ -1027,6 +1094,8 @@ end
         yry()
         @test Submodules.f() == 1
         @test Submodules.Sub.g() == 2
+        rm_precompile("Submodules")
+        pop!(LOAD_PATH)
     end
 
     @testset "Method deletion" begin
@@ -1175,6 +1244,7 @@ end
         finally
             Revise.silencefile[] = sfile
         end
+        pop!(LOAD_PATH)
     end
 
     @testset "Manual track" begin
@@ -1308,6 +1378,8 @@ end
             @test_throws RemoteException remotecall_fetch(ReviseDistributed.g, p, 1)
         end
         rmprocs(allworkers[2:3]...; waitfor=10)
+        rm_precompile("ReviseDistributed")
+        pop!(LOAD_PATH)
     end
 
     @testset "Git" begin
@@ -1371,6 +1443,8 @@ end
             end
             @test haskey(Revise.fileinfos, mainjl)
             @test startswith(logs[1].message, "skipping src/extra.jl")
+            rm_precompile("ModuleWithNewFile")
+            pop!(LOAD_PATH)
         end
     end
 
