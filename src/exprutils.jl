@@ -98,7 +98,7 @@ function sigex2sigts(mod::Module, sig::ExLike, def=nothing)
     # Generate the signature-types
     local sigtexs
     try
-        sigtexs = sig_type_exprs(sig)
+        sigtexs = sig_type_exprs(mod, sig)
     catch err
         sigwarn(mod, sig, def)
         rethrow(err)

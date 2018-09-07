@@ -927,6 +927,62 @@ end
         pop!(LOAD_PATH)
     end
 
+    @testset "More arg-modifying macros" begin
+        # issue #183
+        testdir = randtmp()
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "ArgModMacros", "src")
+        mkpath(dn)
+        open(joinpath(dn, "ArgModMacros.jl"), "w") do io
+            println(io, """
+            module ArgModMacros
+
+            using EponymTuples
+
+            const revision = Ref(0)
+
+            function hyper_loglikelihood(@eponymargs(μ, σ, LΩ), @eponymargs(w̃s, α̃s, β̃s))
+                revision[] = 1
+                loglikelihood_normal(@eponymtuple(μ, σ, LΩ), vcat(w̃s, α̃s, β̃s))
+            end
+
+            loglikelihood_normal(@eponymargs(μ, σ, LΩ), stuff) = stuff
+
+            end
+            """)
+        end
+        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        @eval using ArgModMacros
+        @test ArgModMacros.hyper_loglikelihood((μ=1, σ=2, LΩ=3), (w̃s=4, α̃s=5, β̃s=6)) == [4,5,6]
+        @test ArgModMacros.revision[] == 1
+        sleep(0.1)
+        open(joinpath(dn, "ArgModMacros.jl"), "w") do io
+            println(io, """
+            module ArgModMacros
+
+            using EponymTuples
+
+            const revision = Ref(0)
+
+            function hyper_loglikelihood(@eponymargs(μ, σ, LΩ), @eponymargs(w̃s, α̃s, β̃s))
+                revision[] = 2
+                loglikelihood_normal(@eponymtuple(μ, σ, LΩ), vcat(w̃s, α̃s, β̃s))
+            end
+
+            loglikelihood_normal(@eponymargs(μ, σ, LΩ), stuff) = stuff
+
+            end
+            """)
+        end
+        yry()
+        @test ArgModMacros.hyper_loglikelihood((μ=1, σ=2, LΩ=3), (w̃s=4, α̃s=5, β̃s=6)) == [4,5,6]
+        @test ArgModMacros.revision[] == 2
+        rm_precompile("ArgModMacros")
+        pop!(LOAD_PATH)
+    end
+
     @testset "Line numbers" begin
         # issue #27
         testdir = randtmp()
