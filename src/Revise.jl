@@ -645,14 +645,15 @@ end
 
 function find_file(filename, mod)
     # For files not in fileinfos, see if we can identify their origin in Base or the stdlibs
+    handledmods = (Base, Core.Compiler)
     newmod = parentmodule(mod)
-    while mod != Base && newmod != mod
+    while mod ∉ handledmods && newmod != mod
         mod = newmod
         newmod = parentmodule(mod)
     end
-    if mod == Base
+    if mod ∈ handledmods
         basefile = Base.find_source_file(filename)  # check base
-        basefile isa AbstractString && return fixpath(realpath(basefile)), Base
+        basefile isa AbstractString && return fixpath(realpath(basefile)), mod
     elseif occursin("stdlib", filename)
         return fixpath(realpath(filename)), mod
     end
