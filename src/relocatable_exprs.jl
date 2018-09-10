@@ -36,6 +36,7 @@ Base.convert(::Type{RelocatableExpr}, ex::Expr) = relocatable!(ex)
 function relocatable!(ex::Expr)
     return RelocatableExpr(ex.head, relocatable!(ex.args))
 end
+relocatable!(ex::RelocatableExpr) = ex
 
 function relocatable!(args::Vector{Any})
     for (i, a) in enumerate(args)

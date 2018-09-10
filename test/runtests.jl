@@ -293,7 +293,7 @@ k(x) = 4
         @test revmd[ReviseTest].sigtmap[Tuple{typeof(ReviseTest.fourth),Any}] == def
 
         dvs = collect(revmd[ReviseTest.Internal].defmap)
-        @test length(dvs) == 4
+        @test length(dvs) == 5
         (def, val) = dvs[1]
         @test isequal(def,  Revise.relocatable!(:(mult2(x) = 2*x)))
         @test val == (DataType[Tuple{typeof(ReviseTest.Internal.mult2),Any}], 2)  # 2 because it shifted down 2 lines and was not evaled
@@ -318,15 +318,16 @@ k(x) = 4
             return nothing
         end
         logs = filter(r->r.level==Debug && r.group=="Action", rlogger.logs)
-        @test length(logs) == 6
+        @test length(logs) == 7
         cmpdiff(logs[1], "Eval"; deltainfo=(ReviseTest, Revise.relocatable!(:(cube(x) = x^3))))
         cmpdiff(logs[2], "Eval"; deltainfo=(ReviseTest, Revise.relocatable!(:(fourth(x) = x^4))))
         cmpdiff(logs[3], "DeleteMethod"; deltainfo=(Tuple{typeof(ReviseTest.Internal.mult4),Any}, MethodSummary(delmeth)))
         cmpdiff(logs[4], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.mult2),Any}], 13, 0 => 2))
         cmpdiff(logs[5], "Eval"; deltainfo=(ReviseTest.Internal, Revise.relocatable!(:(mult3(x) = 3*x))))
         cmpdiff(logs[6], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.unchanged),Any}], 19, 0 => 1))
+        cmpdiff(logs[7], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.unchanged2),Any}], 21, 0 => 1))
         @test length(Revise.actions(rlogger)) == 4  # by default LineOffset is skipped
-        @test length(Revise.actions(rlogger; line=true)) == 6
+        @test length(Revise.actions(rlogger; line=true)) == 7
         @test length(Revise.diffs(rlogger)) == 2
         empty!(rlogger.logs)
 
@@ -399,7 +400,7 @@ k(x) = 4
         @test str == ":(@inbounds x[2])"
         fm = Revise.parse_source(joinpath(@__DIR__, "revisetest.jl"), Main)
         Revise.instantiate_sigs!(fm)
-        @test string(fm) == "OrderedCollections.OrderedDict(Main=>FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest=>FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal=>FMMaps(<5 expressions>, <4 signatures>))"
+        @test string(fm) == "OrderedCollections.OrderedDict(Main=>FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest=>FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal=>FMMaps(<6 expressions>, <5 signatures>))"
         fmmr = fm[ReviseTest]
         @test string(fmmr) == "FMMaps(<2 expressions>, <2 signatures>)"
         io = IOBuffer()
