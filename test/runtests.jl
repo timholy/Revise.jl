@@ -1462,6 +1462,8 @@ end
             # Tracking Core.Compiler
             Revise.track(Core.Compiler)
             @test any(k->endswith(k, "compiler.jl"), keys(Revise.fileinfos))
+            m = first(methods(Core.Compiler.typeinf_code))
+            @test Revise.get_def(m) isa Revise.RelocatableExpr
 
             # Tracking stdlibs
             Revise.track(Unicode)
