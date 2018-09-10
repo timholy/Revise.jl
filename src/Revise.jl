@@ -218,6 +218,7 @@ function eval_revised!(fmmrep::FMMaps, mod::Module,
         oldsigs, newsigs = filter_signatures(mod, keys(fmmref.defmap)), filter_signatures(mod, keys(fmmnew.defmap))
         for sig in oldsigs
             sig ∈ newsigs && continue
+            @debug "DiffSig" _group="Parsing" activemodule=fullname(mod) missingsig=sig newsigs=newsigs
             for sigt in sigex2sigts(mod, sig)
                 m = get_method(sigt)
                 if isa(m, Method)
@@ -261,7 +262,7 @@ function eval_revised!(fmmrep::FMMaps, mod::Module,
 end
 
 function filter_signatures(mod::Module, defs)
-    sigs = Set{Expr}()
+    sigs = Set{RelocatableExpr}()
     for def in defs
         while is_trivial_block_wrapper(def)
             def = def.args[end]
@@ -274,7 +275,7 @@ function filter_signatures(mod::Module, defs)
         def.head == :function || def.head == :(=) || continue
         sig = get_signature(def)
         sig isa ExLike || continue
-        push!(sigs, convert(Expr, sig))
+        push!(sigs, relocatable!(sig))
     end
     return sigs
 end

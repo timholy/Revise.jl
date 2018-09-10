@@ -17,6 +17,8 @@ This has a docstring
 """
 unchanged(x) = x
 
+unchanged2(@nospecialize(x)) = x
+
 end  # Internal
 
 end  # ReviseTest
