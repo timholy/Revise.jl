@@ -6,12 +6,21 @@ If you like Revise, you can ensure that every Julia session uses it by
 adding the following to your `.julia/config/startup.jl` file:
 
 ```julia
+atreplinit() do repl
+    try
+        @eval using Revise
+        @async Revise.wait_steal_repl_backend()
+    catch
+    end
+end
+```
+
+If you want Revise to launch automatically within IJulia, then you should also create a `.julia/config/startup_ijulia.jl` file with the contents
+
+```julia
 try
     @eval using Revise
-    # Turn on Revise's automatic-evaluation behavior
-    Revise.async_steal_repl_backend()
-catch err
-    @warn "Could not load Revise."
+catch
 end
 ```
 
