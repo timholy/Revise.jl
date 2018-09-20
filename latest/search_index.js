@@ -85,7 +85,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Configuration",
     "title": "Using Revise by default",
     "category": "section",
-    "text": "If you like Revise, you can ensure that every Julia session uses it by adding the following to your .julia/config/startup.jl file:try\n    @eval using Revise\n    # Turn on Revise\'s automatic-evaluation behavior\n    Revise.async_steal_repl_backend()\ncatch err\n    @warn \"Could not load Revise.\"\nend"
+    "text": "If you like Revise, you can ensure that every Julia session uses it by adding the following to your .julia/config/startup.jl file:atreplinit() do repl\n    try\n        @eval using Revise\n        @async Revise.wait_steal_repl_backend()\n    catch\n    end\nendIf you want Revise to launch automatically within IJulia, then you should also create a .julia/config/startup_ijulia.jl file with the contentstry\n    @eval using Revise\ncatch\nend"
 },
 
 {
