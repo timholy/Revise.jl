@@ -119,7 +119,7 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         # Split into two expressions, a module definition followed by
         # `"docstring" newmodule`
         newmod = parse_module!(fm, ex.args[nargs_docexpr], file, mod)
-        ex.args[nargs_docexpr] = Symbol(newmod)
+        ex.args[nargs_docexpr] = nameexpr(fullname(newmod)...)
         fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
     elseif ex.head == :call && ex.args[1] == :include
         # skip include statements
@@ -169,6 +169,9 @@ const nargs_docexpr = 4
 isdocexpr(ex) = ex.head == :macrocall && ex.args[1] == GlobalRef(Core, Symbol("@doc")) &&
            length(ex.args) >= nargs_docexpr
 
+nameexpr(name::Symbol) = name
+nameexpr(name, name2) = Expr(:., name, QuoteNode(name2))
+nameexpr(name, name2, names...) = nameexpr(nameexpr(name, name2), names...)
 
 """
     newmod = parse_module!(fm::FileModules, ex::Expr, file, mod::Module)
