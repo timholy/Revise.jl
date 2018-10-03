@@ -40,6 +40,17 @@ end
 macro addint(ex)
     :($(esc(ex))::$(esc(Int)))
 end
+
+# The following two submodules are for testing #199
+module A
+f(x::Int) = 1
+end
+
+module B
+f(x::Int) = 1
+module Core end
+end
+
 end
 
 function private_module()
@@ -186,6 +197,8 @@ k(x) = 4
         # Destructured args
         compare_sigs(:(function foo(x, (count, name)) return 1 end))
 
+        Typeof = Core.Typeof
+
         # Return type annotations
         @test sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)::Union{Type,Nothing})) ==
               sig_type_exprs(:(typeinfo_eltype(typeinfo::Type)))
@@ -195,7 +208,7 @@ k(x) = 4
             end
         end
         sig = Revise.get_signature(Revise.funcdef_expr(def))
-        @test sig_type_exprs(sig) == [:(Tuple{Core.Typeof(+), Bool, T} where T<:AbstractFloat)]
+        @test sig_type_exprs(sig) == [:(Tuple{$Typeof(+), Bool, T} where T<:AbstractFloat)]
 
         # Overloading call
         def = :((i::Inner)(::String) = i.x)
@@ -229,11 +242,17 @@ k(x) = 4
             )
 
         # empty keywords (issue #171)
-        @test sig_type_exprs(:(ekwrds(x::Int;))) == [:(Tuple{Core.Typeof(ekwrds), Int})]
+        @test sig_type_exprs(:(ekwrds(x::Int;))) == [:(Tuple{$Typeof(ekwrds), Int})]
 
         # arg-modifying macros (issue #176)
         sigexs = Revise.sig_type_exprs(ReviseTestPrivate, :(foo(x::String, @addint(y), @addint(z))))
-        @test sigexs == [:(Tuple{Core.Typeof(foo), String, $Int, $Int})]
+        @test sigexs == [:(Tuple{$Typeof(foo), String, $Int, $Int})]
+
+        # modules with submodules named `Core` (issue #199)
+        @test Core.eval(ReviseTestPrivate.A, Revise.sig_type_exprs(ReviseTestPrivate.A, :(f(x::Int)))[1]) ==
+            Tuple{typeof(ReviseTestPrivate.A.f),Int}
+        @test Core.eval(ReviseTestPrivate.B, Revise.sig_type_exprs(ReviseTestPrivate.B, :(f(x::Int)))[1]) ==
+            Tuple{typeof(ReviseTestPrivate.B.f),Int}
     end
 
     @testset "Comparison and line numbering" begin
