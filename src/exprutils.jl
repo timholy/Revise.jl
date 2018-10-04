@@ -185,11 +185,12 @@ end
 sig_type_exprs(mod::Module, sigex::RelocatableExpr) = sig_type_exprs(mod, convert(Expr, sigex))
 
 function _sig_type_exprs(mod::Module, ex, @nospecialize(wheres))
+    Typeof = Core.Typeof
     fex = ex.args[1]
     if isa(fex, Expr) && fex.head == :(::)
         fexTex = fex.args[end]
     else
-        fexTex = :(Core.Typeof($fex))
+        fexTex = :($Typeof($fex))
     end
     sigex = Expr(:curly, :Tuple, fexTex, argtypeexpr(mod, ex.args[2:end]...)...)
     for w in wheres
@@ -294,4 +295,3 @@ function firstlineno(rex::ExLike)
     end
     return nothing
 end
-
