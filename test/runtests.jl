@@ -1539,5 +1539,12 @@ if Sys.islinux()
         m = which(Plots.histogram, Tuple{Vector{Float64}})
         def = Revise.get_def(m)
         @test def isa Revise.RelocatableExpr
+
+        # Tests for "module hygiene"
+        @test !isdefined(Main, :JSON)  # internal to Plots
+        file = first(filter(name->endswith(name, "JSON.jl"), keys(Revise.fileinfos)))
+        fi = Revise.fileinfos[file]
+        Revise.maybe_parse_from_cache!(fi, file)
+        @test !isdefined(Main, :JSON)  # internal to Plots
     end
 end
