@@ -114,13 +114,36 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         return fm
     elseif ex.head == :module
         parse_module!(fm, ex, file, mod)
-    elseif isdocexpr(ex) && isa(ex.args[nargs_docexpr], Expr) && ex.args[nargs_docexpr].head == :module
-        # Module with a docstring (issue #8)
-        # Split into two expressions, a module definition followed by
-        # `"docstring" newmodule`
-        newmod = parse_module!(fm, ex.args[nargs_docexpr], file, mod)
-        ex.args[nargs_docexpr] = Symbol(newmod)
-        fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
+    elseif isdocexpr(ex) && isa(ex.args[nargs_docexpr], Expr)
+        exex = ex.args[nargs_docexpr]
+        while is_trivial_block_wrapper(exex)
+            exex = exex.args[end]
+        end
+        if exex.head == :module
+            # Module with a docstring (issue #8)
+            # Split into two expressions, a module definition followed by
+            # `"docstring" newmodule`
+            newmod = parse_module!(fm, ex.args[nargs_docexpr], file, mod)
+            ex.args[nargs_docexpr] = Symbol(newmod)
+            fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
+        elseif exex.head == :function || exex.head == :(=)
+            # Separate the function definition from the expression defining the docstring
+            excp = copy(ex)
+            parse_expr!(fm, exex, file, mod)
+            if length(excp.args[nargs_docexpr].args) > 1
+                excp.args[nargs_docexpr].args[2] = nothing  # make a fake body
+            end
+            mex = macroexpand(mod, excp)
+            while is_trivial_block_wrapper(mex)
+                mex = mex.args[end]
+            end
+            @assert mex.head == :block
+            dex = mex.args[end]
+            @assert dex.args[1] == Base.Docs.doc!
+            fm[mod].defmap[convert(RelocatableExpr, dex)] = nothing
+        else
+            fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
+        end
     elseif ex.head == :call && ex.args[1] == :include
         # skip include statements
     else
