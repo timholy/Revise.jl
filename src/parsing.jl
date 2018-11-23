@@ -179,21 +179,35 @@ module is "parented" by `mod`. Source-code expressions are added to
 """
 function parse_module!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
     newname = _module_name(ex)
-    if mod != Base.__toplevel__ && !isdefined(mod, newname)
-        with_logger(_debug_logger) do
-            @debug "parse_module" _group="Parsing" activemodule=fullname(mod) newmodule
-        end
-        try
-            Core.eval(mod, ex) # support creating new submodules
-        catch
-            @warn "Error evaluating expression in $mod:\n$ex"
-            rethrow()
+    if isdefined(mod, newname)
+        newmod = getfield(mod, newname)
+    else
+        id = Base.identify_package(mod, String(newname))
+        if id === nothing
+            newmod = eval_module_expr(mod, ex, newname)
+        else
+            newmod = Base.root_module(id)
+            if !isa(newmod, Module)
+                newmod = eval_module_expr(mod, ex, newname)
+            end
         end
     end
-    newmod = mod == Base.__toplevel__ ? Base.root_module(mod, newname) : getfield(mod, newname)
     fm[newmod] = FMMaps()
     parse_source!(fm, ex.args[3], file, newmod)  # recurse into the body of the module
     newmod
+end
+
+function eval_module_expr(mod, ex, newname)
+    with_logger(_debug_logger) do
+        @debug "parse_module" _group="Parsing" activemodule=fullname(mod) newname
+    end
+    try
+        Core.eval(mod, ex) # support creating new submodules
+    catch
+        @warn "Error evaluating expression in $mod:\n$ex"
+        rethrow()
+    end
+    return getfield(mod, newname)
 end
 
 _module_name(ex::Expr) = ex.args[2]
