@@ -1262,6 +1262,34 @@ end
         Base.delete_method(first(methods(Base.revisefoo)))
     end
 
+    @testset "get_def" begin
+        testdir = randtmp()
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "GetDef", "src")
+        mkpath(dn)
+        open(joinpath(dn, "GetDef.jl"), "w") do io
+            println(io, """
+            module GetDef
+
+            f(x) = 1
+            f(v::AbstractVector) = 2
+            f(v::AbstractVector{<:Integer}) = 3
+
+            end
+            """)
+        end
+        @eval using GetDef
+        @test GetDef.f(1.0) == 1
+        @test GetDef.f([1.0]) == 2
+        @test GetDef.f([1]) == 3
+        m = @which GetDef.f([1])
+        ex = Revise.get_def(m)
+        @test ex isa Revise.RelocatableExpr
+        @test isequal(ex, Revise.relocatable!(:(f(v::AbstractVector{<:Integer}) = 3)))
+    end
+
     @testset "Pkg exclusion" begin
         push!(Revise.dont_watch_pkgs, :Example)
         push!(Revise.silence_pkgs, :Example)

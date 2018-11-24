@@ -247,6 +247,7 @@ function eval_revised!(fmmrep::FMMaps, mod::Module,
                     lineoffset = (isa(lnref, Integer) && isa(lnnew, Integer)) ? lnnew-lnref : 0
                     fmmrep.defmap[defref] = (sigtref, lineoffset)
                     for sigt in sigtref
+                        # sigt = sigt2methsig(sigt)
                         fmmrep.sigtmap[sigt] = defref
                     end
                     oldoffset != lineoffset && @debug "LineOffset" _group="Action" time=time() deltainfo=(sigtref, lnnew, oldoffset=>lineoffset)
@@ -296,11 +297,14 @@ function eval_and_insert!(fmm::FMMaps, mod::Module, pr::Pair)
         if val isa RelocatableExpr
             instantiate_sigs!(fmm, def, val, mod)
         else
-            fmm.defmap[def] = val
             if val !== nothing
-                for sigt in val[1]
+                sigts = Any[sigt2methsig(sigt) for sigt in val[1]]
+                fmm.defmap[def] = (sigts, val[2])
+                for sigt in sigts
                     fmm.sigtmap[sigt] = def
                 end
+            else
+                fmm.defmap[def] = val
             end
         end
     catch err
@@ -439,6 +443,7 @@ end
 
 function instantiate_sigs!(fmm::FMMaps, def::RelocatableExpr, sig::RelocatableExpr, mod::Module)
     sigts = sigex2sigts(mod, sig, def)
+    sigts = Any[sigt2methsig(sigt) for sigt in sigts]
     # Insert into the maps
     fmm.defmap[def] = (sigts, 0)
     for sigt in sigts
