@@ -16,7 +16,7 @@ and/or edit the source code; typically, the changes will be incorporated
 into the very next command you issue from the REPL.
 This can save you the overhead of restarting, loading packages, and waiting for code to JIT-compile.
 
-See the documentation:
+See the [documentation](https://timholy.github.io/Revise.jl/stable):
 
 [![](https://img.shields.io/badge/docs-stable-blue.svg)](https://timholy.github.io/Revise.jl/stable)
 [![](https://img.shields.io/badge/docs-latest-blue.svg)](https://timholy.github.io/Revise.jl/latest)
