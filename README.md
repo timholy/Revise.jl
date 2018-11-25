@@ -1,3 +1,5 @@
+![splash](images/logo.png)
+
 # Revise
 
 **NOTE: this page is for Julia 0.7.0-alpha and higher. For Julia 0.6 [see this branch](https://github.com/timholy/Revise.jl/tree/v0.6)**
