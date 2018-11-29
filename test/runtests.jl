@@ -410,6 +410,26 @@ k(x) = 4
         fm = Revise.FileModules(ReviseTestPrivate)
         Revise.parse_expr!(fm, :(@changeto1 function f(x) -55 end), Symbol("dummyfile.jl"), ReviseTestPrivate)
         @test isempty(fm[ReviseTestPrivate].defmap)
+
+        # ensure that @doc doesn't trigger macro expansion in the body
+        ex = quote
+            """
+            Some docstring
+            """
+            function foo(x)
+                if x < 0
+                    @warn "$x is negative"
+                end
+                return x
+            end
+        end
+        mod = private_module()
+        fm = Revise.FileModules(mod)
+        Revise.parse_expr!(fm, ex, Symbol("dummyfile.jl"), mod)
+        fmm = fm[mod]
+        rex, sig = first(fmm.defmap)
+        @test occursin("@warn", string(rex))
+
     end
 
     @testset "Display" begin
