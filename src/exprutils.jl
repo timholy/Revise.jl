@@ -113,6 +113,18 @@ function sigex2sigts(mod::Module, sig::ExLike, def=nothing)
     return sigts
 end
 
+"""
+    methsig = sigt2methsig(sig)
+
+For a signature `sig`, try to return the signature `methsig` of a currently-defined method.
+"""
+function sigt2methsig(sig)
+    ret = Base._methods_by_ftype(sig, -1, typemax(UInt))
+    isempty(ret) && return sig
+    methsig = ret[end][3].sig  # the last method returned is the least-specific that matches, and thus most likely to be type-equal
+    @assert sig <: methsig && methsig <: sig
+    return methsig
+end
 
 """
     callex = get_callexpr(sigex::ExLike)
