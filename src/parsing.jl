@@ -119,14 +119,14 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         while is_trivial_block_wrapper(exex)
             exex = exex.args[end]
         end
-        if exex.head == :module
+        if isa(exex, Expr) && exex.head == :module
             # Module with a docstring (issue #8)
             # Split into two expressions, a module definition followed by
             # `"docstring" newmodule`
             newmod = parse_module!(fm, ex.args[nargs_docexpr], file, mod)
             ex.args[nargs_docexpr] = Symbol(newmod)
             fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
-        elseif exex.head == :function || exex.head == :(=)
+        elseif isa(exex, Expr) && (exex.head == :function || exex.head == :(=) || exex.head == :macrocall)
             # Separate the function definition from the expression defining the docstring
             excp = copy(ex)
             parse_expr!(fm, exex, file, mod)
