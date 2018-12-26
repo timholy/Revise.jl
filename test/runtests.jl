@@ -430,6 +430,19 @@ k(x) = 4
         rex, sig = first(fmm.defmap)
         @test occursin("@warn", string(rex))
 
+        # test that combination of docstring and performance annotations doesn't skip signatures
+        ex = quote
+            """
+            An @inlined function with a docstring
+            """
+            @inline foo(x::Float16) = 1
+        end
+        mod = private_module()
+        fm = Revise.FileModules(mod)
+        Revise.parse_expr!(fm, ex, Symbol("dummyfile.jl"), mod)
+        Core.eval(mod, :(foo(x::Float16) = 2))
+        Revise.instantiate_sigs!(fm)
+        @test haskey(fm[mod].sigtmap, Tuple{typeof(getfield(mod, :foo)), Float16})
     end
 
     @testset "Display" begin
