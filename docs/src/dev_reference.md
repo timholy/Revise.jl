@@ -99,6 +99,7 @@ Revise.funcdef_expr
 Revise.get_signature
 Revise.get_callexpr
 Revise.sig_type_exprs
+Revise.sigt2methsig
 Revise.argtypeexpr
 ```
 

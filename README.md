@@ -17,7 +17,7 @@ This can save you the overhead of restarting Julia, loading packages, and waitin
 See the [documentation](https://timholy.github.io/Revise.jl/stable):
 
 [![](https://img.shields.io/badge/docs-stable-blue.svg)](https://timholy.github.io/Revise.jl/stable)
-[![](https://img.shields.io/badge/docs-latest-blue.svg)](https://timholy.github.io/Revise.jl/latest)
+[![](https://img.shields.io/badge/docs-latest-blue.svg)](https://timholy.github.io/Revise.jl/dev)
 
 In particular, most users will probably want to alter their `.julia/config/startup.jl` file
 to run Revise automatically, as described in the "Configuration" section of the documentation.
