@@ -148,7 +148,6 @@ function get_callexpr(sigex::ExLike)
 end
 
 """
-    typexs = sig_type_exprs(sigex::Expr)
     typexs = sig_type_exprs(mod::Module, sigex::Expr)
 
 From a function signature-expression `sigex` (see [`get_signature`](@ref)), generate a list
@@ -162,18 +161,18 @@ The `mod` argument must be supplied if `sigex` has macrocalls in the arguments.
 # Examples
 
 ```jldoctest; setup=:(using Revise)
-julia> Revise.sig_type_exprs(:(foo(x::Int, y::String)))
+julia> Revise.sig_type_exprs(Main, :(foo(x::Int, y::String)))
 1-element Array{Expr,1}:
- :(Tuple{Core.Typeof(foo), Int, String})
+ :(Tuple{(Core.Typeof)(foo), Int, String})
 
-julia> Revise.sig_type_exprs(:(foo(x::Int, y::String="hello")))
+julia> Revise.sig_type_exprs(Main, :(foo(x::Int, y::String="hello")))
 2-element Array{Expr,1}:
- :(Tuple{Core.Typeof(foo), Int})
- :(Tuple{Core.Typeof(foo), Int, String})
+ :(Tuple{(Core.Typeof)(foo), Int})
+ :(Tuple{(Core.Typeof)(foo), Int, String})
 
-julia> Revise.sig_type_exprs(:(foo(x::AbstractVector{T}, y) where T))
+julia> Revise.sig_type_exprs(Main, :(foo(x::AbstractVector{T}, y) where T))
 1-element Array{Expr,1}:
- :(Tuple{Core.Typeof(foo), AbstractVector{T}, Any} where T)
+ :(Tuple{(Core.Typeof)(foo), AbstractVector{T}, Any} where T)
 ```
 """
 function sig_type_exprs(mod::Module, sigex::Expr, wheres...)
@@ -273,7 +272,7 @@ function argtypeexpr(mod::Module, ex::ExLike, rest...)
 end
 argtypeexpr(mod::Module, s::Symbol, rest...) = (:Any, argtypeexpr(mod, rest...)...)
 argtypeexpr(mod::Module) = ()
-argtypeexpr(ex::ExLike, rest...) = argtypeexpr(Main, ex, rest...)
+argtypeexpr(ex::Union{Symbol,ExLike}, rest...) = argtypeexpr(Main, ex, rest...)
 
 
 function has_default_args(sigex::Expr)
