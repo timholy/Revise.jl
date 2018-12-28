@@ -1,11 +1,8 @@
-function basepath(id::PkgId)
-    id.name ∈ ("Main", "Base", "Core") && return ""
-    loc = Base.locate_package(id)
-    loc === nothing && return ""
-    return dirname(dirname(loc))
-end
-
 relpath_safe(path, startpath) = isempty(startpath) ? path : relpath(path, startpath)
+
+function iswritable(file::AbstractString)  # note this trashes the Base definition, but we don't need it
+    return uperm(stat(file)) & 0x02 != 0x00
+end
 
 function use_compiled_modules()
     return Base.JLOptions().use_compiled_modules != 0

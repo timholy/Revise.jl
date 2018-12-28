@@ -81,6 +81,9 @@ end
 
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
 function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue)
+    if !haskey(pkgdatas, id)
+        pkgdatas[id] = PkgData(id)
+    end
     pkgdata = pkgdatas[id]
     # diff against files at the same commit used to build Julia
     repo, repo_path = git_repo(subdir)

@@ -1526,6 +1526,7 @@ end
             logs, _ = Test.collect_test_logs() do
                 Revise.track_subdir_from_git(id, joinpath(randdir, "src"); commit="HEAD")
             end
+            yry()
             @test haskey(Revise.pkgdatas[id].fileinfos, mainjl)
             @test startswith(logs[1].message, "skipping src/extra.jl")
             rm_precompile("ModuleWithNewFile")
@@ -1570,6 +1571,64 @@ end
             @test_throws Revise.GitRepoException Revise.track(Unicode)
             @warn "skipping Core.Compiler and stdlibs tests due to lack of git repo"
         end
+    end
+
+    @testset "Switching free/dev" begin
+        function make_a2d(path, val, mode="r")
+            # Create a new "read-only package" (which mimics how Pkg works when you `add` a package)
+            pkgpath = joinpath(path, "A2D")
+            srcpath = joinpath(pkgpath, "src")
+            mkpath(srcpath)
+            filepath = joinpath(srcpath, "A2D.jl")
+            LibGit2.with(LibGit2.init(pkgpath)) do repo
+                open(filepath, "w") do io
+                    println(io, """
+                    module A2D
+                    f() = $val
+                    end
+                    """)
+                end
+                LibGit2.add!(repo, filepath)
+                test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
+                LibGit2.commit(repo, "New file test"; author=test_sig, committer=test_sig)
+            end
+            chmod(filepath, mode=="r" ? 0o100444 : 0o100644)
+            return pkgpath
+        end
+        # Create a new package depot
+        depot = randtmp()
+        mkpath(depot)
+        old_depots = copy(DEPOT_PATH)
+        empty!(DEPOT_PATH)
+        push!(DEPOT_PATH, depot)
+        # Pkg.instantiate()
+        ropkgpath = make_a2d(depot, 1)
+        Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)  # like pkg> dev $pkgpath; Pkg.develop(pkgpath) doesn't work
+        @eval using A2D
+        @test A2D.f() == 1
+        for dir in keys(Revise.watched_files)
+            @test !startswith(dir, ropkgpath)
+        end
+        devpath = joinpath(depot, "dev")
+        mkpath(devpath)
+        mfile = Revise.manifest_file()
+        @async Revise.watch_manifest(mfile)
+        sleep(2.1)
+        pkgdevpath = make_a2d(devpath, 2, "w")
+        Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $pkgdevpath"; do_rethrow=true)
+        yry()
+        @test A2D.f() == 2
+        Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)
+        sleep(2.1)
+        yry()
+        @test A2D.f() == 1
+        for dir in keys(Revise.watched_files)
+            @test !startswith(dir, ropkgpath)
+        end
+
+        empty!(DEPOT_PATH)
+        append!(DEPOT_PATH, old_depots)
+        push!(to_remove, depot)
     end
 
     @testset "Cleanup" begin

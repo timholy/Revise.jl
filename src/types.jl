@@ -127,7 +127,7 @@ FileInfo(mod::Module, cachefile::AbstractString="") = FileInfo(FileModules(mod),
 FileInfo(fm::FileModules, fi::FileInfo) = FileInfo(fm, fi.cachefile)
 
 """
-    PkgData(id, path, fileinfos::Dict{String,FileInfo})
+    PkgData(id, path, fileinfos::Dict{String,FileInfo}, [watchtasks::Vector{Pair{String,Task}}])
 
 A structure holding the data required to handle a particular package.
 `path` is the top-level directory defining the package,
@@ -142,8 +142,10 @@ mutable struct PkgData
     id::PkgId
     path::String
     fileinfos::Dict{String,FileInfo}
+    watchtasks::Vector{Pair{String,Task}}
 end
 
+PkgData(id::PkgId, path, fileinfos) = PkgData(id, path, fileinfos, Pair{String,Task}[])
 PkgData(id::PkgId, path) = PkgData(id, path, Dict{String,FileInfo}())
 PkgData(id::PkgId, ::Nothing) = PkgData(id, "")
 PkgData(id::PkgId) = PkgData(id, normpath(basepath(id)))

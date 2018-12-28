@@ -41,6 +41,15 @@ julia> Example.f()
 π = 3.1415926535897...
 ```
 
+Revise updates its internal paths when you change versions of a package. For example:
+
+```julia
+(v1.0) pkg> free Example   # switch to the released version of Example
+
+julia> Example.f()
+ERROR: UndefVarError: f not defined
+```
+
 Revise is not tied to any particular editor.
 (The [EDITOR or JULIA_EDITOR](https://docs.julialang.org/en/latest/stdlib/InteractiveUtils/#InteractiveUtils.edit-Tuple{AbstractString,Integer}) environment variables can be used to specify your preference.)
 

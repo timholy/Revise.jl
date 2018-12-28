@@ -330,7 +330,7 @@ function init_watching(pkgdata::PkgData, files)
         haskey(watched_files, dirfull) || (watched_files[dirfull] = WatchList())
         push!(watched_files[dirfull], basename)
         if watching_files[]
-            @async revise_file_queued(pkgdata, file)
+            push!(pkgdata.watchtasks, file=>@async revise_file_queued(pkgdata, file))
         else
             push!(udirs, dir)
         end
@@ -339,7 +339,7 @@ function init_watching(pkgdata::PkgData, files)
         dirfull = joinpath(pkgdata.path, dir)
         updatetime!(watched_files[dirfull])
         if !watching_files[]
-            @async revise_dir_queued(pkgdata, dir)
+            push!(pkgdata.watchtasks, dir=>@async revise_dir_queued(pkgdata, dir))
         end
     end
     return nothing
@@ -403,7 +403,7 @@ function revise_file_queued(pkgdata::PkgData, file)
     dirfull, basename = splitdir(file)
     if haskey(watched_files, dirfull)
         push!(revision_queue, (pkgdata, file0))
-        @async revise_file_queued(pkgdata, file0)
+        push!(pkgdata.watchtasks, file0=>@async revise_file_queued(pkgdata, file0))
     end
     return nothing
 end
@@ -838,6 +838,15 @@ function __init__()
     end
     # Correct line numbers for code moving around
     Base.update_stackframes_callback[] = update_stacktrace_lineno!
+
+    # Watch the manifest file for changes
+    mfile = manifest_file()
+    if mfile === nothing
+        @warn "no Manifest.toml file found, static paths used"
+    else
+        @async watch_manifest(mfile)
+    end
+    return nothing
 end
 
 include("precompile.jl")

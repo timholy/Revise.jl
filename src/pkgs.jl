@@ -135,7 +135,10 @@ end
 function queue_includes(mod::Module)
     id = PkgId(mod)
     files = queue_includes!(String[], id)
-    init_watching(pkgdatas[id], files)
+    pkgdata = pkgdatas[id]
+    if has_writable_paths(pkgdata)
+        init_watching(pkgdata, files)
+    end
 end
 
 # A near-duplicate of some of the functionality of queue_includes!
@@ -185,14 +188,17 @@ end
 function watch_files_via_dir(dirname)
     wait_changed(dirname)  # this will block until there is a modification
     latestfiles = String[]
-    wf = watched_files[dirname]
-    for file in wf.trackedfiles
-        fullpath = joinpath(dirname, file)
-        if mtime(fullpath) + 1 >= floor(wf.timestamp) # OSX rounds mtime up, see #22
-            push!(latestfiles, file)
+    # Check to see if we're still watching this directory
+    if haskey(watched_files, dirname)
+        wf = watched_files[dirname]
+        for file in wf.trackedfiles
+            fullpath = joinpath(dirname, file)
+            if mtime(fullpath) + 1 >= floor(wf.timestamp) # OSX rounds mtime up, see #22
+                push!(latestfiles, file)
+            end
         end
+        updatetime!(wf)
     end
-    updatetime!(wf)
     return latestfiles
 end
 
@@ -220,5 +226,130 @@ end
         return nothing
     end
     files = parse_pkg_files(id)
-    init_watching(pkgdatas[id], files)
+    pkgdata = pkgdatas[id]
+    if has_writable_paths(pkgdata)
+        init_watching(pkgdata, files)
+    end
+end
+
+function has_writable_paths(pkgdata::PkgData)
+    haswritable = false
+    for file in keys(pkgdata.fileinfos)
+        haswritable |= iswritable(joinpath(pkgdata.path, file))
+    end
+    return haswritable
+end
+
+## Working with Pkg and code-loading
+
+# Much of this is adapted from base/loading.jl
+
+function basepath(id::PkgId)
+    id.name ∈ ("Main", "Base", "Core") && return ""
+    loc = Base.locate_package(id)
+    loc === nothing && return ""
+    return dirname(dirname(loc))
+end
+
+function manifest_file(project_file)
+    if project_file isa String
+        mfile = Base.project_file_manifest_path(project_file)
+        if mfile isa String
+            return mfile
+        end
+    end
+    return nothing
+end
+manifest_file() = manifest_file(Base.active_project())
+
+function manifest_paths!(pkgpaths::Dict, manifest_file::String)
+    open(manifest_file) do io
+        uuid = name = path = hash = id = nothing
+        for line in eachline(io)
+            if (m = match(Base.re_section_capture, line)) != nothing
+                name = String(m.captures[1])
+                path = hash = nothing
+            elseif (m = match(Base.re_uuid_to_string, line)) != nothing
+                uuid = UUID(m.captures[1])
+                name === nothing && error("name not set for $uuid")
+                id = PkgId(uuid, name)
+                # UUID is last, so time to store
+                if path !== nothing
+                    pkgpaths[id] = path
+                elseif hash !== nothing
+                    path = find_from_hash(name, uuid, hash)
+                    path === nothing && error("no path found for $id and hash $hash")
+                    pkgpaths[id] = path
+                end
+                uuid = name = path = hash = id = nothing
+            elseif (m = match(Base.re_path_to_string, line)) != nothing
+                path = String(m.captures[1])
+                path = normpath(abspath(dirname(manifest_file), path))
+            elseif (m = match(Base.re_hash_to_string, line)) != nothing
+                hash = Base.SHA1(m.captures[1])
+            end
+        end
+    end
+    return pkgpaths
+end
+
+manifest_paths(manifest_file::String) =
+    manifest_paths!(Dict{PkgId,String}(), manifest_file)
+
+function find_from_hash(name, uuid, hash)
+    for slug in (Base.version_slug(uuid, hash, 4), Base.version_slug(uuid, hash))
+        for depot in DEPOT_PATH
+            path = abspath(depot, "packages", name, slug)
+            if ispath(path)
+                return path
+            end
+        end
+    end
+    return nothing
+end
+
+function watch_manifest(mfile)
+    wait_changed(mfile)
+    try
+        with_logger(_debug_logger) do
+            @debug "Pkg" _group="manifest_update" manifest_file=mfile
+            isfile(mfile) || return nothing
+            pkgdirs = manifest_paths(mfile)
+            for (id, pkgdir) in pkgdirs
+                if haskey(pkgdatas, id)
+                    pkgdata = pkgdatas[id]
+                    if pkgdir != pkgdata.path
+                        ## The package directory has changed
+                        @debug "Pkg" _group="pathswitch" oldpath=pkgdata.path newpath=pkgdir
+                        # Stop all associated watching tasks
+                        for (dir, t) in pkgdata.watchtasks
+                            @debug "Pkg" _group="unwatch" dir=dir
+                            delete!(watched_files, joinpath(pkgdata.path, dir))
+                            # Note: if the file is revised, the task(s) will run one more time.
+                            # However, because we've removed the directory from the watch list this will be a no-op,
+                            # and then the tasks will be dropped.
+                        end
+                        empty!(pkgdata.watchtasks)
+                        # Revise code as needed
+                        files = String[]
+                        for file in keys(pkgdata.fileinfos)
+                            maybe_parse_from_cache!(pkgdata, file)
+                            push!(revision_queue, (pkgdata, file))
+                            push!(files, file)
+                        end
+                        # Update the directory
+                        pkgdata.path = pkgdir
+                        # Restart watching, if applicable
+                        if has_writable_paths(pkgdata)
+                            init_watching(pkgdata, files)
+                        end
+                    end
+                end
+            end
+        end
+    catch err
+        put!(Base.active_repl_backend.response_channel, (err, catch_backtrace()))
+    end
+    @async watch_manifest(mfile)
+    return nothing
 end
