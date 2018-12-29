@@ -1,7 +1,7 @@
 var documenterSearchIndex = {"docs": [
 
 {
-    "location": "index.html#",
+    "location": "#",
     "page": "Home",
     "title": "Home",
     "category": "page",
@@ -9,7 +9,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "index.html#Introduction-to-Revise-1",
+    "location": "#Introduction-to-Revise-1",
     "page": "Home",
     "title": "Introduction to Revise",
     "category": "section",
@@ -17,23 +17,23 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "index.html#Installation-1",
+    "location": "#Installation-1",
     "page": "Home",
     "title": "Installation",
     "category": "section",
-    "text": "You can obtain Revise using Julia\'s Pkg REPL-mode (hitting ] as the first character of the command prompt):(v0.7) pkg> add Reviseor with using Pkg; Pkg.add(\"Revise\")."
+    "text": "You can obtain Revise using Julia\'s Pkg REPL-mode (hitting ] as the first character of the command prompt):(v1.0) pkg> add Reviseor with using Pkg; Pkg.add(\"Revise\")."
 },
 
 {
-    "location": "index.html#Usage-example-1",
+    "location": "#Usage-example-1",
     "page": "Home",
     "title": "Usage example",
     "category": "section",
-    "text": "(v0.7) pkg> dev Example\n[...output related to installation...]\n\njulia> using Revise        # importantly, this must come before `using Example`\n\njulia> using Example\n\njulia> hello(\"world\")\n\"Hello, world\"\n\njulia> Example.f()\nERROR: UndefVarError: f not defined\n\njulia> edit(hello)   # opens Example.jl in the editor you have configured\n\n# Now, add a function `f() = π` and save the file\n\njulia> Example.f()\nπ = 3.1415926535897...Revise is not tied to any particular editor. (The EDITOR or JULIA_EDITOR environment variables can be used to specify your preference.)See Using Revise by default if you want Revise to be available every time you start julia."
+    "text": "(v1.0) pkg> dev Example\n[...output related to installation...]\n\njulia> using Revise        # importantly, this must come before `using Example`\n\njulia> using Example\n\njulia> hello(\"world\")\n\"Hello, world\"\n\njulia> Example.f()\nERROR: UndefVarError: f not defined\n\njulia> edit(hello)   # opens Example.jl in the editor you have configured\n\n# Now, add a function `f() = π` and save the file\n\njulia> Example.f()\nπ = 3.1415926535897...Revise updates its internal paths when you change versions of a package. For example:(v1.0) pkg> free Example   # switch to the released version of Example\n\njulia> Example.f()\nERROR: UndefVarError: f not definedRevise is not tied to any particular editor. (The EDITOR or JULIA_EDITOR environment variables can be used to specify your preference.)See Using Revise by default if you want Revise to be available every time you start julia."
 },
 
 {
-    "location": "index.html#What-Revise-can-track-1",
+    "location": "#What-Revise-can-track-1",
     "page": "Home",
     "title": "What Revise can track",
     "category": "section",
@@ -41,7 +41,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "index.html#Secrets-of-Revise-\"wizards\"-1",
+    "location": "#Secrets-of-Revise-\"wizards\"-1",
     "page": "Home",
     "title": "Secrets of Revise \"wizards\"",
     "category": "section",
@@ -49,7 +49,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "index.html#What-else-do-I-need-to-know?-1",
+    "location": "#What-else-do-I-need-to-know?-1",
     "page": "Home",
     "title": "What else do I need to know?",
     "category": "section",
@@ -57,7 +57,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "index.html#If-Revise-doesn\'t-work-as-expected-1",
+    "location": "#If-Revise-doesn\'t-work-as-expected-1",
     "page": "Home",
     "title": "If Revise doesn\'t work as expected",
     "category": "section",
@@ -65,7 +65,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "config.html#",
+    "location": "config/#",
     "page": "Configuration",
     "title": "Configuration",
     "category": "page",
@@ -73,7 +73,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "config.html#Configuration-1",
+    "location": "config/#Configuration-1",
     "page": "Configuration",
     "title": "Configuration",
     "category": "section",
@@ -81,7 +81,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "config.html#Using-Revise-by-default-1",
+    "location": "config/#Using-Revise-by-default-1",
     "page": "Configuration",
     "title": "Using Revise by default",
     "category": "section",
@@ -89,7 +89,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "config.html#System-configuration-1",
+    "location": "config/#System-configuration-1",
     "page": "Configuration",
     "title": "System configuration",
     "category": "section",
@@ -97,7 +97,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "config.html#Configuration-options-1",
+    "location": "config/#Configuration-options-1",
     "page": "Configuration",
     "title": "Configuration options",
     "category": "section",
@@ -105,7 +105,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "config.html#Manual-revision:-JULIA_REVISE-1",
+    "location": "config/#Manual-revision:-JULIA_REVISE-1",
     "page": "Configuration",
     "title": "Manual revision: JULIA_REVISE",
     "category": "section",
@@ -113,7 +113,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "config.html#Polling-and-NFS-mounted-code-directories:-JULIA_REVISE_POLL-1",
+    "location": "config/#Polling-and-NFS-mounted-code-directories:-JULIA_REVISE_POLL-1",
     "page": "Configuration",
     "title": "Polling and NFS-mounted code directories: JULIA_REVISE_POLL",
     "category": "section",
@@ -121,7 +121,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "config.html#User-scripts:-JULIA_REVISE_INCLUDE-1",
+    "location": "config/#User-scripts:-JULIA_REVISE_INCLUDE-1",
     "page": "Configuration",
     "title": "User scripts: JULIA_REVISE_INCLUDE",
     "category": "section",
@@ -129,7 +129,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "config.html#Fixing-a-broken-or-partially-working-installation-1",
+    "location": "config/#Fixing-a-broken-or-partially-working-installation-1",
     "page": "Configuration",
     "title": "Fixing a broken or partially-working installation",
     "category": "section",
@@ -137,7 +137,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "limitations.html#",
+    "location": "limitations/#",
     "page": "Limitations",
     "title": "Limitations",
     "category": "page",
@@ -145,7 +145,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "limitations.html#Limitations-1",
+    "location": "limitations/#Limitations-1",
     "page": "Limitations",
     "title": "Limitations",
     "category": "section",
@@ -153,7 +153,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "limitations.html#Method-deletion-1",
+    "location": "limitations/#Method-deletion-1",
     "page": "Limitations",
     "title": "Method deletion",
     "category": "section",
@@ -161,7 +161,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "limitations.html#Macros-and-generated-functions-1",
+    "location": "limitations/#Macros-and-generated-functions-1",
     "page": "Limitations",
     "title": "Macros and generated functions",
     "category": "section",
@@ -169,7 +169,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "limitations.html#Distributed-computing-(multiple-workers)-1",
+    "location": "limitations/#Distributed-computing-(multiple-workers)-1",
     "page": "Limitations",
     "title": "Distributed computing (multiple workers)",
     "category": "section",
@@ -177,7 +177,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "limitations.html#Changes-that-Revise-cannot-handle-1",
+    "location": "limitations/#Changes-that-Revise-cannot-handle-1",
     "page": "Limitations",
     "title": "Changes that Revise cannot handle",
     "category": "section",
@@ -185,7 +185,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "debugging.html#",
+    "location": "debugging/#",
     "page": "Debugging Revise",
     "title": "Debugging Revise",
     "category": "page",
@@ -193,7 +193,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "debugging.html#Debugging-Revise-1",
+    "location": "debugging/#Debugging-Revise-1",
     "page": "Debugging Revise",
     "title": "Debugging Revise",
     "category": "section",
@@ -201,7 +201,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "debugging.html#Turning-on-logging-1",
+    "location": "debugging/#Turning-on-logging-1",
     "page": "Debugging Revise",
     "title": "Turning on logging",
     "category": "section",
@@ -209,7 +209,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "debugging.html#Capturing-the-logs-and-submitting-them-with-your-bug-report-1",
+    "location": "debugging/#Capturing-the-logs-and-submitting-them-with-your-bug-report-1",
     "page": "Debugging Revise",
     "title": "Capturing the logs and submitting them with your bug report",
     "category": "section",
@@ -217,7 +217,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "debugging.html#Logging-by-default-1",
+    "location": "debugging/#Logging-by-default-1",
     "page": "Debugging Revise",
     "title": "Logging by default",
     "category": "section",
@@ -225,7 +225,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "debugging.html#The-structure-of-the-logs-1",
+    "location": "debugging/#The-structure-of-the-logs-1",
     "page": "Debugging Revise",
     "title": "The structure of the logs",
     "category": "section",
@@ -233,7 +233,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "debugging.html#A-complete-debugging-demo-1",
+    "location": "debugging/#A-complete-debugging-demo-1",
     "page": "Debugging Revise",
     "title": "A complete debugging demo",
     "category": "section",
@@ -241,7 +241,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "internals.html#",
+    "location": "internals/#",
     "page": "How Revise works",
     "title": "How Revise works",
     "category": "page",
@@ -249,7 +249,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "internals.html#How-Revise-works-1",
+    "location": "internals/#How-Revise-works-1",
     "page": "How Revise works",
     "title": "How Revise works",
     "category": "section",
@@ -257,7 +257,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "internals.html#The-structure-of-Revise\'s-internal-representation-1",
+    "location": "internals/#The-structure-of-Revise\'s-internal-representation-1",
     "page": "How Revise works",
     "title": "The structure of Revise\'s internal representation",
     "category": "section",
@@ -265,7 +265,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "internals.html#Terminology-1",
+    "location": "internals/#Terminology-1",
     "page": "How Revise works",
     "title": "Terminology",
     "category": "section",
@@ -273,7 +273,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "internals.html#Core-data-structures-and-representations-1",
+    "location": "internals/#Core-data-structures-and-representations-1",
     "page": "How Revise works",
     "title": "Core data structures and representations",
     "category": "section",
@@ -281,7 +281,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "internals.html#An-example-1",
+    "location": "internals/#An-example-1",
     "page": "How Revise works",
     "title": "An example",
     "category": "section",
@@ -289,7 +289,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "internals.html#Revisions-and-computing-diffs-1",
+    "location": "internals/#Revisions-and-computing-diffs-1",
     "page": "How Revise works",
     "title": "Revisions and computing diffs",
     "category": "section",
@@ -297,7 +297,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "internals.html#Internal-API-1",
+    "location": "internals/#Internal-API-1",
     "page": "How Revise works",
     "title": "Internal API",
     "category": "section",
@@ -305,7 +305,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#",
+    "location": "user_reference/#",
     "page": "User reference",
     "title": "User reference",
     "category": "page",
@@ -313,7 +313,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#Revise.revise",
+    "location": "user_reference/#Revise.revise",
     "page": "User reference",
     "title": "Revise.revise",
     "category": "function",
@@ -321,7 +321,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#Revise.track",
+    "location": "user_reference/#Revise.track",
     "page": "User reference",
     "title": "Revise.track",
     "category": "function",
@@ -329,7 +329,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#Revise.includet",
+    "location": "user_reference/#Revise.includet",
     "page": "User reference",
     "title": "Revise.includet",
     "category": "function",
@@ -337,7 +337,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#User-reference-1",
+    "location": "user_reference/#User-reference-1",
     "page": "User reference",
     "title": "User reference",
     "category": "section",
@@ -345,7 +345,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#Revise.debug_logger",
+    "location": "user_reference/#Revise.debug_logger",
     "page": "User reference",
     "title": "Revise.debug_logger",
     "category": "function",
@@ -353,7 +353,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#Revise.actions",
+    "location": "user_reference/#Revise.actions",
     "page": "User reference",
     "title": "Revise.actions",
     "category": "function",
@@ -361,7 +361,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#Revise.diffs",
+    "location": "user_reference/#Revise.diffs",
     "page": "User reference",
     "title": "Revise.diffs",
     "category": "function",
@@ -369,7 +369,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#Revise-logs-(debugging-Revise)-1",
+    "location": "user_reference/#Revise-logs-(debugging-Revise)-1",
     "page": "User reference",
     "title": "Revise logs (debugging Revise)",
     "category": "section",
@@ -377,7 +377,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#Revise.dont_watch_pkgs",
+    "location": "user_reference/#Revise.dont_watch_pkgs",
     "page": "User reference",
     "title": "Revise.dont_watch_pkgs",
     "category": "constant",
@@ -385,7 +385,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#Revise.silence",
+    "location": "user_reference/#Revise.silence",
     "page": "User reference",
     "title": "Revise.silence",
     "category": "function",
@@ -393,7 +393,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "user_reference.html#Prevent-Revise-from-watching-specific-packages-1",
+    "location": "user_reference/#Prevent-Revise-from-watching-specific-packages-1",
     "page": "User reference",
     "title": "Prevent Revise from watching specific packages",
     "category": "section",
@@ -401,7 +401,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#",
+    "location": "dev_reference/#",
     "page": "Developer reference",
     "title": "Developer reference",
     "category": "page",
@@ -409,7 +409,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Developer-reference-1",
+    "location": "dev_reference/#Developer-reference-1",
     "page": "Developer reference",
     "title": "Developer reference",
     "category": "section",
@@ -417,7 +417,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Internal-global-variables-1",
+    "location": "dev_reference/#Internal-global-variables-1",
     "page": "Developer reference",
     "title": "Internal global variables",
     "category": "section",
@@ -425,7 +425,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.watching_files",
+    "location": "dev_reference/#Revise.watching_files",
     "page": "Developer reference",
     "title": "Revise.watching_files",
     "category": "constant",
@@ -433,7 +433,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.polling_files",
+    "location": "dev_reference/#Revise.polling_files",
     "page": "Developer reference",
     "title": "Revise.polling_files",
     "category": "constant",
@@ -441,7 +441,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.tracking_Main_includes",
+    "location": "dev_reference/#Revise.tracking_Main_includes",
     "page": "Developer reference",
     "title": "Revise.tracking_Main_includes",
     "category": "constant",
@@ -449,7 +449,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Configuration-related-variables-1",
+    "location": "dev_reference/#Configuration-related-variables-1",
     "page": "Developer reference",
     "title": "Configuration-related variables",
     "category": "section",
@@ -457,7 +457,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.juliadir",
+    "location": "dev_reference/#Revise.juliadir",
     "page": "Developer reference",
     "title": "Revise.juliadir",
     "category": "constant",
@@ -465,7 +465,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.basesrccache",
+    "location": "dev_reference/#Revise.basesrccache",
     "page": "Developer reference",
     "title": "Revise.basesrccache",
     "category": "constant",
@@ -473,7 +473,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.basebuilddir",
+    "location": "dev_reference/#Revise.basebuilddir",
     "page": "Developer reference",
     "title": "Revise.basebuilddir",
     "category": "constant",
@@ -481,7 +481,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Path-related-variables-1",
+    "location": "dev_reference/#Path-related-variables-1",
     "page": "Developer reference",
     "title": "Path-related variables",
     "category": "section",
@@ -489,7 +489,15 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.watched_files",
+    "location": "dev_reference/#Revise.pkgdatas",
+    "page": "Developer reference",
+    "title": "Revise.pkgdatas",
+    "category": "constant",
+    "text": "Revise.pkgdatas\n\npkgdatas is the core information that tracks the relationship between source code and julia objects, and allows re-evaluation of code in the proper module scope. It is a dictionary indexed by PkgId: pkgdatas[id] returns a value of type Revise.PkgData.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Revise.watched_files",
     "page": "Developer reference",
     "title": "Revise.watched_files",
     "category": "constant",
@@ -497,15 +505,15 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.revision_queue",
+    "location": "dev_reference/#Revise.revision_queue",
     "page": "Developer reference",
     "title": "Revise.revision_queue",
     "category": "constant",
-    "text": "Revise.revision_queue\n\nGlobal variable, revision_queue holds the names of files that we need to revise, meaning that these files have changed since we last processed a revision. This list gets populated by callbacks that watch directories for updates.\n\n\n\n\n\n"
+    "text": "Revise.revision_queue\n\nGlobal variable, revision_queue holds (pkgdata,filename) pairs that we need to revise, meaning that these files have changed since we last processed a revision. This list gets populated by callbacks that watch directories for updates.\n\n\n\n\n\n"
 },
 
 {
-    "location": "dev_reference.html#Revise.included_files",
+    "location": "dev_reference/#Revise.included_files",
     "page": "Developer reference",
     "title": "Revise.included_files",
     "category": "constant",
@@ -513,31 +521,15 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.fileinfos",
-    "page": "Developer reference",
-    "title": "Revise.fileinfos",
-    "category": "constant",
-    "text": "Revise.fileinfos\n\nfileinfos is the core information that tracks the relationship between source code and julia objects, and allows re-evaluation of code in the proper module scope. It is a dictionary indexed by absolute paths of files; fileinfos[filename] returns a value of type Revise.FileInfo.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference.html#Revise.module2files",
-    "page": "Developer reference",
-    "title": "Revise.module2files",
-    "category": "constant",
-    "text": "Revise.module2files\n\nmodule2files holds the list of filenames used to define a particular module. This is only used by revise(MyModule) to \"refresh\" all the definitions in a module.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference.html#Internal-state-management-1",
+    "location": "dev_reference/#Internal-state-management-1",
     "page": "Developer reference",
     "title": "Internal state management",
     "category": "section",
-    "text": "Revise.watched_files\nRevise.revision_queue\nRevise.included_files\nRevise.fileinfos\nRevise.module2files"
+    "text": "Revise.pkgdatas\nRevise.watched_files\nRevise.revision_queue\nRevise.included_files"
 },
 
 {
-    "location": "dev_reference.html#Revise.RelocatableExpr",
+    "location": "dev_reference/#Revise.RelocatableExpr",
     "page": "Developer reference",
     "title": "Revise.RelocatableExpr",
     "category": "type",
@@ -545,7 +537,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.DefMap",
+    "location": "dev_reference/#Revise.DefMap",
     "page": "Developer reference",
     "title": "Revise.DefMap",
     "category": "type",
@@ -553,7 +545,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.SigtMap",
+    "location": "dev_reference/#Revise.SigtMap",
     "page": "Developer reference",
     "title": "Revise.SigtMap",
     "category": "type",
@@ -561,15 +553,15 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.FMMaps",
+    "location": "dev_reference/#Revise.FMMaps",
     "page": "Developer reference",
     "title": "Revise.FMMaps",
     "category": "type",
-    "text": "FMMaps\n\nsource=>sigtypes and sigtypes=>source mappings for a particular file/module combination. See the documentation page How Revise works for more information.\n\n\n\n\n\n"
+    "text": "FMMaps\n\ndefmap (source=>sigtypes) and sigtmap (sigtypes=>source) mappings for a particular file/module combination. See the documentation page How Revise works for more information.\n\n\n\n\n\n"
 },
 
 {
-    "location": "dev_reference.html#Revise.FileModules",
+    "location": "dev_reference/#Revise.FileModules",
     "page": "Developer reference",
     "title": "Revise.FileModules",
     "category": "type",
@@ -577,7 +569,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.FileInfo",
+    "location": "dev_reference/#Revise.FileInfo",
     "page": "Developer reference",
     "title": "Revise.FileInfo",
     "category": "type",
@@ -585,15 +577,23 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.WatchList",
+    "location": "dev_reference/#Revise.PkgData",
     "page": "Developer reference",
-    "title": "Revise.WatchList",
+    "title": "Revise.PkgData",
     "category": "type",
-    "text": "Revise.WatchList\n\nA struct for holding files that live inside a directory. Some platforms (OSX) have trouble watching too many files. So we watch parent directories, and keep track of which files in them should be tracked.\n\nFields:\n\ntimestamp: mtime of last update\ntrackedfiles: Set of filenames\n\n\n\n\n\n"
+    "text": "PkgData(id, path, fileinfos::Dict{String,FileInfo}, [watchtasks::Vector{Pair{String,Task}}])\n\nA structure holding the data required to handle a particular package. path is the top-level directory defining the package, fileinfos holds the FileInfo for each file defining the package, and watchtasks stores associations between directories (or files) and the task currently watching them for changes.\n\nFor the PkgData associated with Main (e.g., for files loaded with includet), the corresponding path entry will be empty.\n\n\n\n\n\n"
 },
 
 {
-    "location": "dev_reference.html#Revise.MethodSummary",
+    "location": "dev_reference/#Revise.WatchList",
+    "page": "Developer reference",
+    "title": "Revise.WatchList",
+    "category": "type",
+    "text": "Revise.WatchList\n\nA struct for holding files that live inside a directory. Some platforms (OSX) have trouble watching too many files. So we watch parent directories, and keep track of which files in them should be tracked.\n\nFields:\n\ntimestamp: mtime of last update\ntrackedfiles: Set of filenames, generally expressed as a relative path\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Revise.MethodSummary",
     "page": "Developer reference",
     "title": "Revise.MethodSummary",
     "category": "type",
@@ -601,15 +601,15 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Types-1",
+    "location": "dev_reference/#Types-1",
     "page": "Developer reference",
     "title": "Types",
     "category": "section",
-    "text": "Revise.RelocatableExpr\nRevise.DefMap\nRevise.SigtMap\nRevise.FMMaps\nRevise.FileModules\nRevise.FileInfo\nRevise.WatchList\nMethodSummary"
+    "text": "Revise.RelocatableExpr\nRevise.DefMap\nRevise.SigtMap\nRevise.FMMaps\nRevise.FileModules\nRevise.FileInfo\nRevise.PkgData\nRevise.WatchList\nMethodSummary"
 },
 
 {
-    "location": "dev_reference.html#Function-reference-1",
+    "location": "dev_reference/#Function-reference-1",
     "page": "Developer reference",
     "title": "Function reference",
     "category": "section",
@@ -617,7 +617,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.async_steal_repl_backend",
+    "location": "dev_reference/#Revise.async_steal_repl_backend",
     "page": "Developer reference",
     "title": "Revise.async_steal_repl_backend",
     "category": "function",
@@ -625,7 +625,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.steal_repl_backend",
+    "location": "dev_reference/#Revise.steal_repl_backend",
     "page": "Developer reference",
     "title": "Revise.steal_repl_backend",
     "category": "function",
@@ -633,7 +633,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Functions-called-during-initialization-of-Revise-1",
+    "location": "dev_reference/#Functions-called-during-initialization-of-Revise-1",
     "page": "Developer reference",
     "title": "Functions called during initialization of Revise",
     "category": "section",
@@ -641,7 +641,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.watch_package",
+    "location": "dev_reference/#Revise.watch_package",
     "page": "Developer reference",
     "title": "Revise.watch_package",
     "category": "function",
@@ -649,23 +649,23 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.parse_pkg_files",
+    "location": "dev_reference/#Revise.parse_pkg_files",
     "page": "Developer reference",
     "title": "Revise.parse_pkg_files",
     "category": "function",
-    "text": "parse_pkg_files(modsym)\n\nThis function gets called by watch_package and runs when a package is first loaded. Its job is to organize the files and expressions defining the module so that later we can detect and process revisions.\n\n\n\n\n\n"
+    "text": "parse_pkg_files(id::PkgId)\n\nThis function gets called by watch_package and runs when a package is first loaded. Its job is to organize the files and expressions defining the module so that later we can detect and process revisions.\n\n\n\n\n\n"
 },
 
 {
-    "location": "dev_reference.html#Revise.init_watching",
+    "location": "dev_reference/#Revise.init_watching",
     "page": "Developer reference",
     "title": "Revise.init_watching",
     "category": "function",
-    "text": "Revise.init_watching(files)\n\nFor every filename in files, monitor the filesystem for updates. When the file is updated, either revise_dir_queued or revise_file_queued will be called.\n\n\n\n\n\n"
+    "text": "Revise.init_watching(files)\nRevise.init_watching(pkgdata::PkgData, files)\n\nFor every filename in files, monitor the filesystem for updates. When the file is updated, either revise_dir_queued or revise_file_queued will be called.\n\nUse the pkgdata version if the files are supplied using relative paths.\n\n\n\n\n\n"
 },
 
 {
-    "location": "dev_reference.html#Functions-called-when-you-load-a-new-package-1",
+    "location": "dev_reference/#Functions-called-when-you-load-a-new-package-1",
     "page": "Developer reference",
     "title": "Functions called when you load a new package",
     "category": "section",
@@ -673,23 +673,23 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.revise_dir_queued",
+    "location": "dev_reference/#Revise.revise_dir_queued",
     "page": "Developer reference",
     "title": "Revise.revise_dir_queued",
     "category": "function",
-    "text": "revise_dir_queued(dirname)\n\nWait for one or more of the files registered in Revise.watched_files[dirname] to be modified, and then queue the corresponding files on Revise.revision_queue. This is generally called within an @async.\n\n\n\n\n\n"
+    "text": "revise_dir_queued(pkgdata::PkgData, dirname)\n\nWait for one or more of the files registered in Revise.watched_files[dirname] to be modified, and then queue the corresponding files on Revise.revision_queue. This is generally called within an @async.\n\n\n\n\n\n"
 },
 
 {
-    "location": "dev_reference.html#Revise.revise_file_queued",
+    "location": "dev_reference/#Revise.revise_file_queued",
     "page": "Developer reference",
     "title": "Revise.revise_file_queued",
     "category": "function",
-    "text": "revise_file_queued(filename)\n\nWait for modifications to filename, and then queue the corresponding files on Revise.revision_queue. This is generally called within an @async.\n\nThis is used only on platforms (like BSD) which cannot use revise_dir_queued.\n\n\n\n\n\n"
+    "text": "revise_file_queued(pkgdata::PkgData, filename)\n\nWait for modifications to filename, and then queue the corresponding files on Revise.revision_queue. This is generally called within an @async.\n\nThis is used only on platforms (like BSD) which cannot use revise_dir_queued.\n\n\n\n\n\n"
 },
 
 {
-    "location": "dev_reference.html#Monitoring-for-changes-1",
+    "location": "dev_reference/#Monitoring-for-changes-1",
     "page": "Developer reference",
     "title": "Monitoring for changes",
     "category": "section",
@@ -697,15 +697,15 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.revise_file_now",
+    "location": "dev_reference/#Revise.revise_file_now",
     "page": "Developer reference",
     "title": "Revise.revise_file_now",
     "category": "function",
-    "text": "Revise.revise_file_now(file)\n\nProcess revisions to file. This parses file and computes an expression-level diff between the current state of the file and its most recently evaluated state. It then deletes any removed methods and re-evaluates any changed expressions.\n\nfile must be a key in Revise.fileinfos\n\n\n\n\n\n"
+    "text": "Revise.revise_file_now(pkgdata::PkgData, file)\n\nProcess revisions to file. This parses file and computes an expression-level diff between the current state of the file and its most recently evaluated state. It then deletes any removed methods and re-evaluates any changed expressions.\n\nid must be a key in Revise.pkgdatas, and file a key in Revise.pkgdatas[id].fileinfos.\n\n\n\n\n\n"
 },
 
 {
-    "location": "dev_reference.html#Revise.eval_revised",
+    "location": "dev_reference/#Revise.eval_revised",
     "page": "Developer reference",
     "title": "Revise.eval_revised",
     "category": "function",
@@ -713,7 +713,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Evaluating-changes-(revising)-and-computing-diffs-1",
+    "location": "dev_reference/#Evaluating-changes-(revising)-and-computing-diffs-1",
     "page": "Developer reference",
     "title": "Evaluating changes (revising) and computing diffs",
     "category": "section",
@@ -721,7 +721,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.get_method",
+    "location": "dev_reference/#Revise.get_method",
     "page": "Developer reference",
     "title": "Revise.get_method",
     "category": "function",
@@ -729,7 +729,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.get_def",
+    "location": "dev_reference/#Revise.get_def",
     "page": "Developer reference",
     "title": "Revise.get_def",
     "category": "function",
@@ -737,7 +737,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Interchange-between-methods-and-signatures-1",
+    "location": "dev_reference/#Interchange-between-methods-and-signatures-1",
     "page": "Developer reference",
     "title": "Interchange between methods and signatures",
     "category": "section",
@@ -745,7 +745,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.parse_source",
+    "location": "dev_reference/#Revise.parse_source",
     "page": "Developer reference",
     "title": "Revise.parse_source",
     "category": "function",
@@ -753,7 +753,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.parse_source!",
+    "location": "dev_reference/#Revise.parse_source!",
     "page": "Developer reference",
     "title": "Revise.parse_source!",
     "category": "function",
@@ -761,7 +761,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.parse_expr!",
+    "location": "dev_reference/#Revise.parse_expr!",
     "page": "Developer reference",
     "title": "Revise.parse_expr!",
     "category": "function",
@@ -769,7 +769,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.parse_module!",
+    "location": "dev_reference/#Revise.parse_module!",
     "page": "Developer reference",
     "title": "Revise.parse_module!",
     "category": "function",
@@ -777,7 +777,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.funcdef_expr",
+    "location": "dev_reference/#Revise.funcdef_expr",
     "page": "Developer reference",
     "title": "Revise.funcdef_expr",
     "category": "function",
@@ -785,7 +785,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.get_signature",
+    "location": "dev_reference/#Revise.get_signature",
     "page": "Developer reference",
     "title": "Revise.get_signature",
     "category": "function",
@@ -793,7 +793,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.get_callexpr",
+    "location": "dev_reference/#Revise.get_callexpr",
     "page": "Developer reference",
     "title": "Revise.get_callexpr",
     "category": "function",
@@ -801,15 +801,23 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.sig_type_exprs",
+    "location": "dev_reference/#Revise.sig_type_exprs",
     "page": "Developer reference",
     "title": "Revise.sig_type_exprs",
     "category": "function",
-    "text": "typexs = sig_type_exprs(sigex::Expr)\ntypexs = sig_type_exprs(mod::Module, sigex::Expr)\n\nFrom a function signature-expression sigex (see get_signature), generate a list typexs of concrete signature type expressions. This list will have length 1 unless sigex has default arguments, in which case it will produce one type signature per valid number of supplied arguments.\n\nThese type-expressions can be evaluated in the appropriate module to obtain a Tuple-type. The mod argument must be supplied if sigex has macrocalls in the arguments.\n\nExamples\n\njulia> Revise.sig_type_exprs(:(foo(x::Int, y::String)))\n1-element Array{Expr,1}:\n :(Tuple{Core.Typeof(foo), Int, String})\n\njulia> Revise.sig_type_exprs(:(foo(x::Int, y::String=\"hello\")))\n2-element Array{Expr,1}:\n :(Tuple{Core.Typeof(foo), Int})\n :(Tuple{Core.Typeof(foo), Int, String})\n\njulia> Revise.sig_type_exprs(:(foo(x::AbstractVector{T}, y) where T))\n1-element Array{Expr,1}:\n :(Tuple{Core.Typeof(foo), AbstractVector{T}, Any} where T)\n\n\n\n\n\n"
+    "text": "typexs = sig_type_exprs(mod::Module, sigex::Expr)\n\nFrom a function signature-expression sigex (see get_signature), generate a list typexs of concrete signature type expressions. This list will have length 1 unless sigex has default arguments, in which case it will produce one type signature per valid number of supplied arguments.\n\nThese type-expressions can be evaluated in the appropriate module to obtain a Tuple-type. The mod argument must be supplied if sigex has macrocalls in the arguments.\n\nExamples\n\njulia> Revise.sig_type_exprs(Main, :(foo(x::Int, y::String)))\n1-element Array{Expr,1}:\n :(Tuple{(Core.Typeof)(foo), Int, String})\n\njulia> Revise.sig_type_exprs(Main, :(foo(x::Int, y::String=\"hello\")))\n2-element Array{Expr,1}:\n :(Tuple{(Core.Typeof)(foo), Int})\n :(Tuple{(Core.Typeof)(foo), Int, String})\n\njulia> Revise.sig_type_exprs(Main, :(foo(x::AbstractVector{T}, y) where T))\n1-element Array{Expr,1}:\n :(Tuple{(Core.Typeof)(foo), AbstractVector{T}, Any} where T)\n\n\n\n\n\n"
 },
 
 {
-    "location": "dev_reference.html#Revise.argtypeexpr",
+    "location": "dev_reference/#Revise.sigt2methsig",
+    "page": "Developer reference",
+    "title": "Revise.sigt2methsig",
+    "category": "function",
+    "text": "methsig = sigt2methsig(sig)\n\nFor a signature sig, try to return the signature methsig of a currently-defined method.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Revise.argtypeexpr",
     "page": "Developer reference",
     "title": "Revise.argtypeexpr",
     "category": "function",
@@ -817,15 +825,15 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Parsing-source-code-1",
+    "location": "dev_reference/#Parsing-source-code-1",
     "page": "Developer reference",
     "title": "Parsing source code",
     "category": "section",
-    "text": "Revise.parse_source\nRevise.parse_source!\nRevise.parse_expr!\nRevise.parse_module!\nRevise.funcdef_expr\nRevise.get_signature\nRevise.get_callexpr\nRevise.sig_type_exprs\nRevise.argtypeexpr"
+    "text": "Revise.parse_source\nRevise.parse_source!\nRevise.parse_expr!\nRevise.parse_module!\nRevise.funcdef_expr\nRevise.get_signature\nRevise.get_callexpr\nRevise.sig_type_exprs\nRevise.sigt2methsig\nRevise.argtypeexpr"
 },
 
 {
-    "location": "dev_reference.html#Revise.git_source",
+    "location": "dev_reference/#Revise.git_source",
     "page": "Developer reference",
     "title": "Revise.git_source",
     "category": "function",
@@ -833,7 +841,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.git_files",
+    "location": "dev_reference/#Revise.git_files",
     "page": "Developer reference",
     "title": "Revise.git_files",
     "category": "function",
@@ -841,7 +849,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Revise.git_repo",
+    "location": "dev_reference/#Revise.git_repo",
     "page": "Developer reference",
     "title": "Revise.git_repo",
     "category": "function",
@@ -849,7 +857,7 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference.html#Git-integration-1",
+    "location": "dev_reference/#Git-integration-1",
     "page": "Developer reference",
     "title": "Git integration",
     "category": "section",
