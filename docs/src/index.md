@@ -12,7 +12,7 @@ This can save you the overhead of restarting, loading packages, and waiting for 
 You can obtain Revise using Julia's Pkg REPL-mode (hitting `]` as the first character of the command prompt):
 
 ```julia
-(v0.7) pkg> add Revise
+(v1.0) pkg> add Revise
 ```
 
 or with `using Pkg; Pkg.add("Revise")`.
@@ -20,7 +20,7 @@ or with `using Pkg; Pkg.add("Revise")`.
 ## Usage example
 
 ```julia
-(v0.7) pkg> dev Example
+(v1.0) pkg> dev Example
 [...output related to installation...]
 
 julia> using Revise        # importantly, this must come before `using Example`
@@ -39,6 +39,15 @@ julia> edit(hello)   # opens Example.jl in the editor you have configured
 
 julia> Example.f()
 π = 3.1415926535897...
+```
+
+Revise updates its internal paths when you change versions of a package. For example:
+
+```julia
+(v1.0) pkg> free Example   # switch to the released version of Example
+
+julia> Example.f()
+ERROR: UndefVarError: f not defined
 ```
 
 Revise is not tied to any particular editor.

@@ -23,11 +23,10 @@ Revise.basebuilddir
 ### Internal state management
 
 ```@docs
+Revise.pkgdatas
 Revise.watched_files
 Revise.revision_queue
 Revise.included_files
-Revise.fileinfos
-Revise.module2files
 ```
 
 ## Types
@@ -39,6 +38,7 @@ Revise.SigtMap
 Revise.FMMaps
 Revise.FileModules
 Revise.FileInfo
+Revise.PkgData
 Revise.WatchList
 MethodSummary
 ```

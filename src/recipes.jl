@@ -7,9 +7,11 @@ Track updates to the code in Julia's `base` directory, `base/compiler`, or one o
 standard libraries.
 """
 function track(mod::Module; modified_files=revision_queue)
+    id = PkgId(mod)
     if mod == Base
         # Test whether we know where to find the files
-        if !isdir(joinpath(juliadir, "base"))
+        basedir = fixpath(joinpath(juliadir, "base"))
+        if !isdir(basedir)
             @error "unable to find path containing Julia's base/ folder, tracking is not possible"
         end
         # Determine when the basesrccache was built
@@ -17,50 +19,72 @@ function track(mod::Module; modified_files=revision_queue)
         # Initialize expression-tracking for files, and
         # note any modified since Base was built
         files = String[]
+        if !haskey(pkgdatas, id)
+            pkgdatas[id] = PkgData(id, basedir)
+        end
+        pkgdata = pkgdatas[id]
         for (submod, filename) in Base._included_files
-            filename = fixpath(filename)
-            push!(fileinfos, filename=>FileInfo(submod, basesrccache))
-            push!(files, filename)
+            ffilename = fixpath(filename)
+            rpath = relpath(ffilename, basedir)
+            pkgdata.fileinfos[rpath] = FileInfo(submod, basesrccache)
+            push!(files, ffilename)
             if mtime(filename) > mtcache
                 with_logger(_debug_logger) do
                     @debug "Recipe for Base" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
                 end
-                push!(modified_files, filename)
+                push!(modified_files, (pkgdata, ffilename))
             end
         end
         # Add the files to the watch list
-        init_watching(files)
+        init_watching(pkgdata, files)
     elseif mod == Core.Compiler
-        compilerdir = joinpath(juliadir, "base", "compiler")
-        track_subdir_from_git(Core.Compiler, compilerdir; modified_files=modified_files)
+        compilerdir = normpath(joinpath(juliadir, "base", "compiler"))
+        if !haskey(pkgdatas, id)
+            pkgdatas[id] = PkgData(id, compilerdir)
+        end
+        track_subdir_from_git(id, compilerdir; modified_files=modified_files)
     elseif nameof(mod) ∈ stdlib_names
         stdlibdir = joinpath(juliadir, "stdlib")
-        libdir = joinpath(stdlibdir, String(nameof(mod)), "src")
-        track_subdir_from_git(mod, normpath(libdir); modified_files=modified_files)
+        libdir = normpath(joinpath(stdlibdir, String(nameof(mod)), "src"))
+        if !haskey(pkgdatas, id)
+            pkgdatas[id] = PkgData(id, libdir)
+        end
+        track_subdir_from_git(id, libdir; modified_files=modified_files)
     else
         error("no Revise.track recipe for module ", mod)
     end
-    nothing
+    return nothing
 end
 
 # Fix paths to files that define Julia (base and stdlibs)
 function fixpath(filename; badpath=basebuilddir, goodpath=juliadir)
-    isfile(filename) && return filename
+    startswith(filename, badpath) || return normpath(filename)
     filec = filename
-    startswith(filename, badpath) || error(filename, " does not start with ", badpath)
     relfilename = relpath(filename, badpath)
-    for strippath in (joinpath("usr", "share", "julia"),)
+    relfilename0 = relfilename
+    for strippath in (#joinpath("usr", "share", "julia", "stdlib", "v$(VERSION.major).$(VERSION.minor)"),
+                      joinpath("usr", "share", "julia"),)
         if startswith(relfilename, strippath)
             relfilename = relpath(relfilename, strippath)
+            if occursin("stdlib", relfilename0) && !occursin("stdlib", relfilename)
+                relfilename = joinpath("stdlib", relfilename)
+            end
         end
     end
-    filename = normpath(joinpath(goodpath, relfilename))
-    cache_file_key[filename] = filec
-    return filename
+    ffilename = normpath(joinpath(goodpath, relfilename))
+    if (isfile(filename) & !isfile(ffilename))
+        ffilename = normpath(filename)
+    end
+    cache_file_key[ffilename] = filec
+    return ffilename
 end
 
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
-function track_subdir_from_git(mod::Module, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue)
+function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue)
+    if !haskey(pkgdatas, id)
+        pkgdatas[id] = PkgData(id)
+    end
+    pkgdata = pkgdatas[id]
     # diff against files at the same commit used to build Julia
     repo, repo_path = git_repo(subdir)
     if repo == nothing
@@ -73,6 +97,7 @@ function track_subdir_from_git(mod::Module, subdir::AbstractString; commit=Base.
     wfiles = String[]  # files to watch
     for file in files
         fullpath = joinpath(repo_path, file)
+        rpath = relpath_safe(fullpath, pkgdata.path)  # this might undo the above, except for Core.Compiler
         local src
         try
             src = git_source(file, tree)
@@ -84,7 +109,7 @@ function track_subdir_from_git(mod::Module, subdir::AbstractString; commit=Base.
             rethrow(err)
         end
         if src != read(fullpath, String)
-            push!(modified_files, fullpath)
+            push!(modified_files, (pkgdata, rpath))
         end
         fmod = get(juliaf2m, fullpath, Core.Compiler)  # Core.Compiler is not cached
         fi = FileInfo(fmod)
@@ -93,10 +118,13 @@ function track_subdir_from_git(mod::Module, subdir::AbstractString; commit=Base.
         else
             instantiate_sigs!(fi.fm)
         end
-        fileinfos[fullpath] = fi
-        push!(wfiles, fullpath)
+        pkgdata.fileinfos[rpath] = fi
+        push!(wfiles, rpath)
     end
-    init_watching(wfiles)
+    if !isempty(pkgdata.fileinfos)
+        pkgdatas[id] = pkgdata
+        init_watching(pkgdata, wfiles)
+    end
     return nothing
 end
 
