@@ -1466,11 +1466,11 @@ end
     end
 
     @testset "Git" begin
-        if haskey(ENV, "CI")   # if we're doing CI testing (Travis, Appveyor, etc.)
-            # First do a full git checkout of a package (we'll use Revise itself)
-            @warn "checking out a development copy of Revise for testing purposes"
-            pkg = Pkg.develop("Revise")
-        end
+        # if haskey(ENV, "CI")   # if we're doing CI testing (Travis, Appveyor, etc.)
+        #     # First do a full git checkout of a package (we'll use Revise itself)
+        #     @warn "checking out a development copy of Revise for testing purposes"
+        #     pkg = Pkg.develop("Revise")
+        # end
         loc = Base.find_package("Revise")
         if occursin("dev", loc)
             repo, path = Revise.git_repo(loc)
