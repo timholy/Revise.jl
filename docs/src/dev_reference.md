@@ -40,6 +40,7 @@ Revise.FileModules
 Revise.FileInfo
 Revise.PkgData
 Revise.WatchList
+Revise.Rescheduler
 MethodSummary
 ```
 

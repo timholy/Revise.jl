@@ -127,13 +127,11 @@ FileInfo(mod::Module, cachefile::AbstractString="") = FileInfo(FileModules(mod),
 FileInfo(fm::FileModules, fi::FileInfo) = FileInfo(fm, fi.cachefile)
 
 """
-    PkgData(id, path, fileinfos::Dict{String,FileInfo}, [watchtasks::Vector{Pair{String,Task}}])
+    PkgData(id, path, fileinfos::Dict{String,FileInfo})
 
 A structure holding the data required to handle a particular package.
 `path` is the top-level directory defining the package,
-`fileinfos` holds the [`FileInfo`](@ref) for each file defining the package,
-and `watchtasks` stores associations between directories (or files) and the task
-currently watching them for changes.
+and `fileinfos` holds the [`FileInfo`](@ref) for each file defining the package.
 
 For the `PkgData` associated with `Main` (e.g., for files loaded with [`includet`](@ref)),
 the corresponding `path` entry will be empty.
@@ -142,10 +140,8 @@ mutable struct PkgData
     id::PkgId
     path::String
     fileinfos::Dict{String,FileInfo}
-    watchtasks::Vector{Pair{String,Task}}
 end
 
-PkgData(id::PkgId, path, fileinfos) = PkgData(id, path, fileinfos, Pair{String,Task}[])
 PkgData(id::PkgId, path) = PkgData(id, path, Dict{String,FileInfo}())
 PkgData(id::PkgId, ::Nothing) = PkgData(id, "")
 PkgData(id::PkgId) = PkgData(id, normpath(basepath(id)))
@@ -156,4 +152,40 @@ end
 
 function Base.showerror(io::IO, ex::GitRepoException)
     print(io, "no repository at ", ex.filename, " to track stdlibs you must build Julia from source")
+end
+
+"""
+    Rescheduler(f, args)
+
+To facilitate precompilation and reduce latency, we replace
+
+```julia
+function watch_manifest(mfile)
+    wait_changed(mfile)
+    # stuff
+    @async watch_manifest(mfile)
+end
+
+@async watch_manifest(mfile)
+```
+
+with a rescheduling type:
+
+```julia
+fresched = Rescheduler(watch_manifest, (mfile,))
+schedule(Task(fresched))
+```
+
+where now `watch_manifest(mfile)` should return `true` if the task
+should be rescheduled after completion, and `false` otherwise.
+"""
+struct Rescheduler{F,A}
+    f::F
+    args::A
+end
+
+function (thunk::Rescheduler{F,A})() where {F,A}
+    if thunk.f(thunk.args...)::Bool
+        schedule(Task(thunk))
+    end
 end

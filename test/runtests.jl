@@ -1620,7 +1620,7 @@ end
         devpath = joinpath(depot, "dev")
         mkpath(devpath)
         mfile = Revise.manifest_file()
-        @async Revise.watch_manifest(mfile)
+        schedule(Task(Revise.Rescheduler(Revise.watch_manifest, (mfile,))))
         sleep(2.1)
         pkgdevpath = make_a2d(devpath, 2, "w")
         Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $pkgdevpath"; do_rethrow=true)
