@@ -443,6 +443,14 @@ k(x) = 4
         Core.eval(mod, :(foo(x::Float16) = 2))
         Revise.instantiate_sigs!(fm)
         @test haskey(fm[mod].sigtmap, Tuple{typeof(getfield(mod, :foo)), Float16})
+
+        # issue #208
+        fm = Revise.FileModules(Main)
+        Revise.parse_expr!(fm, :(@warn "Something wrong"), Symbol("dummy.jl"), Main)
+        defmap = fm[Main].defmap
+        @test length(defmap) == 1
+        ex, sigs = first(defmap)
+        @test ex == Revise.relocatable!(:(@warn "Something wrong"))
     end
 
     @testset "Display" begin
