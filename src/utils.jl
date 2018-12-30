@@ -1,5 +1,15 @@
 relpath_safe(path, startpath) = isempty(startpath) ? path : relpath(path, startpath)
 
+function Base.relpath(filename, pkgdata::PkgData)
+    if isabspath(filename) && startswith(filename, pkgdata.path)
+        filename = relpath_safe(filename, pkgdata.path)
+    elseif startswith(filename, "compiler")
+        # Core.Compiler's pkgid includes "compiler/" in the path
+        filename = relpath(filename, "compiler")
+    end
+    return filename
+end
+
 function iswritable(file::AbstractString)  # note this trashes the Base definition, but we don't need it
     return uperm(stat(file)) & 0x02 != 0x00
 end

@@ -636,33 +636,10 @@ function get_def(method::Method; modified_files=revision_queue)
     yield()   # magic bug fix for the OSX test failures. TODO: figure out why this works (prob. Julia bug)
     filename = fixpath(String(method.file))
     startswith(filename, "REPL") && error("methods defined at the REPL are not yet supported")
-    id = PkgId(method.module)
-    # Methods from Base or the stdlibs may require that we start tracking
-    if !haskey(pkgdatas, id)
-        recipemod = method.module
-        if id.name == "Base"
-            recipemod = Base
-        elseif id.name == "Core"
-            recipemod = Core.Compiler
-        elseif Symbol(id.name) ∈ stdlib_names
-        else
-            @warn "$id not found, not able to track"
-            return nothing
-        end
-        @info "tracking $recipemod"
-        track(recipemod; modified_files=modified_files)
-        if !haskey(pkgdatas, id)
-            @warn "despite tracking $recipemod, the module for $method was not found"
-            return nothing
-        end
-    end
+    id = get_tracked_id(method.module; modified_files=modified_files)
+    id === nothing && return nothing
     pkgdata = pkgdatas[id]
-    if isabspath(filename) && startswith(filename, pkgdata.path)
-        filename = relpath_safe(filename, pkgdata.path)
-    elseif startswith(filename, "compiler")
-        # Core.Compiler's pkgid includes "compiler/" in the path
-        filename = relpath(filename, "compiler")
-    end
+    filename = relpath(filename, pkgdata)
     if haskey(pkgdata.fileinfos, filename)
         def = get_def(method, pkgdata, filename)
         def !== nothing && return def
@@ -684,6 +661,30 @@ function get_def(method, pkgdata, filename)
     map = fi.fm[method.module].sigtmap
     haskey(map, method.sig) && return copy(map[method.sig])
     return nothing
+end
+
+function get_tracked_id(mod::Module; modified_files=revision_queue)
+    id = PkgId(mod)
+    # Methods from Base or the stdlibs may require that we start tracking
+    if !haskey(pkgdatas, id)
+        recipemod = mod
+        if id.name == "Base"
+            recipemod = Base
+        elseif id.name == "Core"
+            recipemod = Core.Compiler
+        elseif Symbol(id.name) ∈ stdlib_names
+        else
+            @warn "$id not found, not able to track"
+            return nothing
+        end
+        @info "tracking $recipemod"
+        track(recipemod; modified_files=modified_files)
+        if !haskey(pkgdatas, id)
+            @warn "despite tracking $recipemod, $id was not found"
+            return nothing
+        end
+    end
+    return id
 end
 
 function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)

@@ -79,7 +79,7 @@ function parse_pkg_files(id::PkgId)
                     end
                     pkgdata = pkgdatas[id]
                     for (mod, fname, _) in mods_files_mtimes
-                        fname = relpath_safe(fname, pkgdata.path)
+                        fname = relpath(fname, pkgdata)
                         # For precompiled packages, we can read the source later (whenever we need it)
                         # from the *.ji cachefile.
                         pkgdata.fileinfos[fname] = FileInfo(mod, path)
@@ -120,7 +120,7 @@ function queue_includes!(files, id::PkgId)
         if startswith(modname, modstring) || endswith(fname, modstring*".jl")
             fm = parse_source(fname, mod)
             instantiate_sigs!(fm)
-            fname = relpath_safe(fname, pkgdata.path)
+            fname = relpath(fname, pkgdata)
             if fm != nothing
                 pkgdata.fileinfos[fname] = FileInfo(fm)
             end
