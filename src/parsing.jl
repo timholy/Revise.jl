@@ -152,9 +152,11 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         # Handle macros
         exorig = ex0 = ex
         if ex isa Expr && ex.head == :macrocall
-            # To get the signature, we have to expand any unrecognized macro because
-            # the macro may change the signature
-            ex0, ex = macexpand(mod, ex)
+            if ex.args[1] ∉ (Symbol("@warn"), Symbol("@info"), Symbol("@debug"), Symbol("@error"), Symbol("@logmsg"))  # issue #208
+                # To get the signature, we have to expand any unrecognized macro because
+                # the macro may change the signature
+                ex0, ex = macexpand(mod, ex)
+            end
         end
         ex isa Expr || return fm
         ex.head == :tuple && isempty(ex.args) && return fm
@@ -162,7 +164,7 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
             return parse_expr!(fm, ex, file, mod)
         end
         # Add any method definitions to the cache
-        sig = get_signature(convert(RelocatableExpr, ex))
+        sig = ex.head == :macrocall ? nothing : get_signature(convert(RelocatableExpr, ex))
         # However, we have to store the original unexpanded expression if
         # `revise(mod)` can be expected to work (issue #174).
         rex = convert(RelocatableExpr, exorig)
