@@ -97,7 +97,7 @@ function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GI
     wfiles = String[]  # files to watch
     for file in files
         fullpath = joinpath(repo_path, file)
-        rpath = relpath_safe(fullpath, pkgdata.path)  # this might undo the above, except for Core.Compiler
+        rpath = relpath(fullpath, pkgdata)  # this might undo the above, except for Core.Compiler
         local src
         try
             src = git_source(file, tree)
