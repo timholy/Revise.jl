@@ -581,7 +581,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.PkgData",
     "category": "type",
-    "text": "PkgData(id, path, fileinfos::Dict{String,FileInfo}, [watchtasks::Vector{Pair{String,Task}}])\n\nA structure holding the data required to handle a particular package. path is the top-level directory defining the package, fileinfos holds the FileInfo for each file defining the package, and watchtasks stores associations between directories (or files) and the task currently watching them for changes.\n\nFor the PkgData associated with Main (e.g., for files loaded with includet), the corresponding path entry will be empty.\n\n\n\n\n\n"
+    "text": "PkgData(id, path, fileinfos::Dict{String,FileInfo})\n\nA structure holding the data required to handle a particular package. path is the top-level directory defining the package, and fileinfos holds the FileInfo for each file defining the package.\n\nFor the PkgData associated with Main (e.g., for files loaded with includet), the corresponding path entry will be empty.\n\n\n\n\n\n"
 },
 
 {
@@ -590,6 +590,14 @@ var documenterSearchIndex = {"docs": [
     "title": "Revise.WatchList",
     "category": "type",
     "text": "Revise.WatchList\n\nA struct for holding files that live inside a directory. Some platforms (OSX) have trouble watching too many files. So we watch parent directories, and keep track of which files in them should be tracked.\n\nFields:\n\ntimestamp: mtime of last update\ntrackedfiles: Set of filenames, generally expressed as a relative path\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Revise.Rescheduler",
+    "page": "Developer reference",
+    "title": "Revise.Rescheduler",
+    "category": "type",
+    "text": "Rescheduler(f, args)\n\nTo facilitate precompilation and reduce latency, we replace\n\nfunction watch_manifest(mfile)\n    wait_changed(mfile)\n    # stuff\n    @async watch_manifest(mfile)\nend\n\n@async watch_manifest(mfile)\n\nwith a rescheduling type:\n\nfresched = Rescheduler(watch_manifest, (mfile,))\nschedule(Task(fresched))\n\nwhere now watch_manifest(mfile) should return true if the task should be rescheduled after completion, and false otherwise.\n\n\n\n\n\n"
 },
 
 {
@@ -605,7 +613,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Types",
     "category": "section",
-    "text": "Revise.RelocatableExpr\nRevise.DefMap\nRevise.SigtMap\nRevise.FMMaps\nRevise.FileModules\nRevise.FileInfo\nRevise.PkgData\nRevise.WatchList\nMethodSummary"
+    "text": "Revise.RelocatableExpr\nRevise.DefMap\nRevise.SigtMap\nRevise.FMMaps\nRevise.FileModules\nRevise.FileInfo\nRevise.PkgData\nRevise.WatchList\nRevise.Rescheduler\nMethodSummary"
 },
 
 {
@@ -677,7 +685,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.revise_dir_queued",
     "category": "function",
-    "text": "revise_dir_queued(pkgdata::PkgData, dirname)\n\nWait for one or more of the files registered in Revise.watched_files[dirname] to be modified, and then queue the corresponding files on Revise.revision_queue. This is generally called within an @async.\n\n\n\n\n\n"
+    "text": "revise_dir_queued(pkgdata::PkgData, dirname)\n\nWait for one or more of the files registered in Revise.watched_files[dirname] to be modified, and then queue the corresponding files on Revise.revision_queue. This is generally called via a Rescheduler.\n\n\n\n\n\n"
 },
 
 {
@@ -685,7 +693,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.revise_file_queued",
     "category": "function",
-    "text": "revise_file_queued(pkgdata::PkgData, filename)\n\nWait for modifications to filename, and then queue the corresponding files on Revise.revision_queue. This is generally called within an @async.\n\nThis is used only on platforms (like BSD) which cannot use revise_dir_queued.\n\n\n\n\n\n"
+    "text": "revise_file_queued(pkgdata::PkgData, filename)\n\nWait for modifications to filename, and then queue the corresponding files on Revise.revision_queue. This is generally called via a Rescheduler.\n\nThis is used only on platforms (like BSD) which cannot use revise_dir_queued.\n\n\n\n\n\n"
 },
 
 {
