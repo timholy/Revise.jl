@@ -330,7 +330,8 @@ function init_watching(pkgdata::PkgData, files)
         haskey(watched_files, dirfull) || (watched_files[dirfull] = WatchList())
         push!(watched_files[dirfull], basename)
         if watching_files[]
-            push!(pkgdata.watchtasks, file=>@async revise_file_queued(pkgdata, file))
+            fwatcher = Rescheduler(revise_file_queued, (pkgdata, file))
+            schedule(Task(fwatcher))
         else
             push!(udirs, dir)
         end
@@ -339,7 +340,8 @@ function init_watching(pkgdata::PkgData, files)
         dirfull = joinpath(pkgdata.path, dir)
         updatetime!(watched_files[dirfull])
         if !watching_files[]
-            push!(pkgdata.watchtasks, dir=>@async revise_dir_queued(pkgdata, dir))
+            dwatcher = Rescheduler(revise_dir_queued, (pkgdata, dir))
+            schedule(Task(dwatcher))
         end
     end
     return nothing
@@ -351,7 +353,7 @@ init_watching(files) = init_watching(PkgId(Main), files)
 
 Wait for one or more of the files registered in `Revise.watched_files[dirname]` to be
 modified, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
-This is generally called within an `@async`.
+This is generally called via a [`Rescheduler`](@ref).
 """
 @noinline function revise_dir_queued(pkgdata::PkgData, dirname)
     dirname0 = dirname
@@ -364,14 +366,14 @@ This is generally called within an `@async`.
             with_logger(SimpleLogger(stderr)) do
                 @warn "$dirname is not an existing directory, Revise is not watching"
             end
-            return nothing
+            return false
         end
     end
-    latestfiles = watch_files_via_dir(dirname)  # will block here until file(s) change
+    latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
     for file in latestfiles
         push!(revision_queue, (pkgdata, joinpath(dirname0, file)))
     end
-    @async revise_dir_queued(pkgdata, dirname0)
+    return stillwatching
 end
 
 # See #66.
@@ -379,7 +381,7 @@ end
     revise_file_queued(pkgdata::PkgData, filename)
 
 Wait for modifications to `filename`, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
-This is generally called within an `@async`.
+This is generally called via a [`Rescheduler`](@ref).
 
 This is used only on platforms (like BSD) which cannot use [`revise_dir_queued`](@ref).
 """
@@ -394,7 +396,7 @@ function revise_file_queued(pkgdata::PkgData, file)
             with_logger(SimpleLogger(stderr)) do
                 @error "$file is not an existing file, Revise is not watching"
             end
-            return nothing
+            return false
         end
     end
 
@@ -403,9 +405,9 @@ function revise_file_queued(pkgdata::PkgData, file)
     dirfull, basename = splitdir(file)
     if haskey(watched_files, dirfull)
         push!(revision_queue, (pkgdata, file0))
-        push!(pkgdata.watchtasks, file0=>@async revise_file_queued(pkgdata, file0))
+        return true
     end
-    return nothing
+    return false
 end
 
 """
@@ -815,18 +817,12 @@ function __init__()
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
         if isdefined(Base, :active_repl_backend)
-            steal_repl_backend(Base.active_repl_backend)
+            steal_repl_backend(Base.active_repl_backend::REPL.REPLBackend)
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
         end
         if isdefined(Main, :Atom)
-            for x in ["eval", "evalall", "evalrepl"]
-                old = Main.Atom.handlers[x]
-                Main.Atom.handle(x) do data
-                    revise()
-                    old(data)
-                end
-            end
+            setup_atom(getfield(Main, :Atom)::Module)
         end
     end
     polling = get(ENV, "JULIA_REVISE_POLL", "0")
@@ -845,7 +841,20 @@ function __init__()
     if mfile === nothing
         @warn "no Manifest.toml file found, static paths used"
     else
-        @async watch_manifest(mfile)
+        wmthunk = Rescheduler(watch_manifest, (mfile,))
+        schedule(Task(wmthunk))
+    end
+    return nothing
+end
+
+function setup_atom(atommod::Module)::Nothing
+    handlers = getfield(atommod, :handlers)
+    for x in ["eval", "evalall", "evalrepl"]
+        old = handlers[x]
+        Main.Atom.handle(x) do data
+            revise()
+            old(data)
+        end
     end
     return nothing
 end

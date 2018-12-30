@@ -175,13 +175,13 @@ julia> Revise.sig_type_exprs(Main, :(foo(x::AbstractVector{T}, y) where T))
  :(Tuple{(Core.Typeof)(foo), AbstractVector{T}, Any} where T)
 ```
 """
-function sig_type_exprs(mod::Module, sigex::Expr, wheres...)
+function sig_type_exprs(mod::Module, sigex::Expr, @nospecialize(wheres))
     if sigex.head == :(::)
         # return type annotation
         sigex = sigex.args[1]
     end
     if sigex.head == :where
-        return sig_type_exprs(mod, sigex.args[1], sigex.args[2:end], wheres...)
+        return sig_type_exprs(mod, sigex.args[1], (sigex.args[2:end], wheres...))
     end
     typexs = Expr[_sig_type_exprs(mod, sigex, wheres)]
     # If the method has default arguments, generate one type signature
@@ -193,6 +193,7 @@ function sig_type_exprs(mod::Module, sigex::Expr, wheres...)
     end
     return reverse!(typexs)  # method table is organized in increasing # of args
 end
+sig_type_exprs(mod::Module, sigex::Expr) = sig_type_exprs(mod, sigex, ())
 sig_type_exprs(mod::Module, sigex::RelocatableExpr) = sig_type_exprs(mod, convert(Expr, sigex))
 
 function _sig_type_exprs(mod::Module, ex, @nospecialize(wheres))
@@ -236,7 +237,7 @@ julia> Revise.argtypeexpr(Revise.get_callexpr(sigex).args[2:end]...)
 (:(Vector{T}), :Integer, :Any, :String)
 ```
 """
-function argtypeexpr(mod::Module, ex::ExLike, rest...)
+function argtypeexpr(mod::Module, ex::ExLike, @nospecialize(rest...))
     isempty(ex.args) && return argtypeexpr(mod, rest...)  # issue #171
     # Handle @nospecialize(x)
     a = ex.args[1]

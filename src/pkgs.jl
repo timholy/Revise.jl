@@ -189,7 +189,8 @@ function watch_files_via_dir(dirname)
     wait_changed(dirname)  # this will block until there is a modification
     latestfiles = String[]
     # Check to see if we're still watching this directory
-    if haskey(watched_files, dirname)
+    stillwatching = haskey(watched_files, dirname)
+    if stillwatching
         wf = watched_files[dirname]
         for file in wf.trackedfiles
             fullpath = joinpath(dirname, file)
@@ -199,7 +200,7 @@ function watch_files_via_dir(dirname)
         end
         updatetime!(wf)
     end
-    return latestfiles
+    return latestfiles, stillwatching
 end
 
 """
@@ -322,14 +323,13 @@ function watch_manifest(mfile)
                         ## The package directory has changed
                         @debug "Pkg" _group="pathswitch" oldpath=pkgdata.path newpath=pkgdir
                         # Stop all associated watching tasks
-                        for (dir, t) in pkgdata.watchtasks
+                        for dir in unique_dirs(keys(pkgdata.fileinfos))
                             @debug "Pkg" _group="unwatch" dir=dir
                             delete!(watched_files, joinpath(pkgdata.path, dir))
                             # Note: if the file is revised, the task(s) will run one more time.
                             # However, because we've removed the directory from the watch list this will be a no-op,
                             # and then the tasks will be dropped.
                         end
-                        empty!(pkgdata.watchtasks)
                         # Revise code as needed
                         files = String[]
                         for file in keys(pkgdata.fileinfos)
@@ -350,6 +350,5 @@ function watch_manifest(mfile)
     catch err
         put!(Base.active_repl_backend.response_channel, (err, catch_backtrace()))
     end
-    @async watch_manifest(mfile)
-    return nothing
+    return true
 end

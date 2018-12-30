@@ -14,6 +14,15 @@ function iswritable(file::AbstractString)  # note this trashes the Base definiti
     return uperm(stat(file)) & 0x02 != 0x00
 end
 
+function unique_dirs(iter)
+    udirs = Set{String}()
+    for file in iter
+        dir, basename = splitdir(file)
+        push!(udirs, dir)
+    end
+    return udirs
+end
+
 function use_compiled_modules()
     return Base.JLOptions().use_compiled_modules != 0
 end
