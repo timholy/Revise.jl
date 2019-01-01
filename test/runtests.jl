@@ -1594,32 +1594,36 @@ end
             srcpath = joinpath(pkgpath, "src")
             mkpath(srcpath)
             filepath = joinpath(srcpath, "A2D.jl")
-            LibGit2.with(LibGit2.init(pkgpath)) do repo
-                open(filepath, "w") do io
-                    println(io, """
-                    module A2D
-                    f() = $val
-                    end
-                    """)
-                end
-                LibGit2.add!(repo, filepath)
-                test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
-                LibGit2.commit(repo, "New file test"; author=test_sig, committer=test_sig)
+            open(filepath, "w") do io
+                println(io, """
+                        module A2D
+                        f() = $val
+                        end
+                        """)
             end
             chmod(filepath, mode=="r" ? 0o100444 : 0o100644)
             return pkgpath
         end
         # Create a new package depot
-        depot = randtmp()
-        mkpath(depot)
+        depot = mktempdir()
         old_depots = copy(DEPOT_PATH)
         empty!(DEPOT_PATH)
         push!(DEPOT_PATH, depot)
-        # Pkg.instantiate()
+        # Skip cloning the General registry since that is slow and unnecessary
+        registries = Pkg.Types.DEFAULT_REGISTRIES
+        old_registries = copy(registries)
+        empty!(registries)
+        # Ensure we start fresh with no dependencies
+        old_project = Base.ACTIVE_PROJECT[]
+        Base.ACTIVE_PROJECT[] = joinpath(depot, "environments", "v$(VERSION.major).$(VERSION.minor)", "Project.toml")
+        mkpath(dirname(Base.ACTIVE_PROJECT[]))
+        open(Base.ACTIVE_PROJECT[], "w") do io
+            println(io, "[deps]")
+        end
         ropkgpath = make_a2d(depot, 1)
-        Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)  # like pkg> dev $pkgpath; Pkg.develop(pkgpath) doesn't work
+        Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)  # like pkg> dev $pkgpath; unfortunately, Pkg.develop(pkgpath) doesn't work
         @eval using A2D
-        @test A2D.f() == 1
+        @test Base.invokelatest(A2D.f) == 1
         for dir in keys(Revise.watched_files)
             @test !startswith(dir, ropkgpath)
         end
@@ -1631,19 +1635,27 @@ end
         pkgdevpath = make_a2d(devpath, 2, "w")
         Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $pkgdevpath"; do_rethrow=true)
         yry()
-        @test A2D.f() == 2
+        @test Base.invokelatest(A2D.f) == 2
         Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)
         sleep(2.1)
         yry()
-        @test A2D.f() == 1
+        @test Base.invokelatest(A2D.f) == 1
         for dir in keys(Revise.watched_files)
             @test !startswith(dir, ropkgpath)
         end
 
+        # Restore internal Pkg data
         empty!(DEPOT_PATH)
         append!(DEPOT_PATH, old_depots)
+        for pr in old_registries
+            push!(registries, pr)
+        end
+        Base.ACTIVE_PROJECT[] = old_project
+
         push!(to_remove, depot)
     end
+
+    GC.gc(); GC.gc()
 
     @testset "Cleanup" begin
         logs, _ = Test.collect_test_logs() do
@@ -1666,6 +1678,7 @@ end
             rm(warnfile)
         end
     end
+
 end
 
 GC.gc(); GC.gc(); GC.gc()   # work-around for https://github.com/JuliaLang/julia/issues/28306
