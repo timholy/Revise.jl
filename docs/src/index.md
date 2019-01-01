@@ -63,10 +63,10 @@ Revise is fairly ambitious: if all is working you should be able to track change
 - any package that you load with `import` or `using`
 - any script you load with [`includet`](@ref)
 - any file defining `Base` julia itself (with `Revise.track(Base)`)
-- any file defining `Core.Compiler` (with `Revise.track(Core.Compiler)`)
 - any of Julia's standard libraries (with, e.g., `using Unicode; Revise.track(Unicode)`)
+- any file defining `Core.Compiler` (with `Revise.track(Core.Compiler)`)
 
-The last two require that you clone Julia and build it yourself from source.
+The last one requires that you clone Julia and build it yourself from source.
 
 ## Secrets of Revise "wizards"
 

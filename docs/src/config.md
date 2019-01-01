@@ -157,11 +157,11 @@ Here are some possible test warnings and errors, and steps you might take to fix
     and the directory containing the running Julia's `base/`;
   + what you attempted when trying to fix the problem;
   + if possible, your best understanding of why this failed to fix it.
-- `skipping Core.Compiler and stdlibs tests due to lack of git repo`: this likely indicates
+- `skipping Core.Compiler tests due to lack of git repo`: this likely indicates
   that you downloaded a Julia binary rather than building Julia from source.
-  While Revise should be able to access the code in `Base`,
-  at the current time it is not possible for Revise to access julia's stdlibs unless
-  you clone Julia's repository and build it from source.
+  While Revise should be able to access the code in `Base` and standard libraries,
+  at the current time it is not possible for Revise to access julia's Core.Compiler module
+  unless you clone Julia's repository and build it from source.
 - `skipping git tests because Revise is not under development`: this warning should be
   harmless. Revise has built-in functionality for extracting source code using `git`,
   and it uses itself (i.e., its own git repository) for testing purposes.

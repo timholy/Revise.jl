@@ -7,12 +7,24 @@ Track updates to the code in Julia's `base` directory, `base/compiler`, or one o
 standard libraries.
 """
 function track(mod::Module; modified_files=revision_queue)
+    inpath(path, dirs) = all(dir->occursin(dir, path), dirs)
     id = PkgId(mod)
-    if mod == Base
+    isbase = mod == Base
+    isstdlib = !isbase && nameof(mod) ∈ stdlib_names
+    if isbase || isstdlib
         # Test whether we know where to find the files
-        basedir = fixpath(joinpath(juliadir, "base"))
-        if !isdir(basedir)
-            @error "unable to find path containing Julia's base/ folder, tracking is not possible"
+        if isbase
+            srcdir = fixpath(joinpath(juliadir, "base"))
+            dirs = ["base"]
+        else
+            srcdir = fixpath(joinpath(juliadir, "stdlib", "v$(VERSION.major).$(VERSION.minor)", String(nameof(mod))))
+            if !isdir(srcdir)
+                srcdir = fixpath(joinpath(juliadir, "stdlib", String(nameof(mod))))
+            end
+            dirs = ["stdlib", String(nameof(mod))]
+        end
+        if !isdir(srcdir)
+            @error "unable to find path containing source for $mod, tracking is not possible"
         end
         # Determine when the basesrccache was built
         mtcache = mtime(basesrccache)
@@ -20,19 +32,25 @@ function track(mod::Module; modified_files=revision_queue)
         # note any modified since Base was built
         files = String[]
         if !haskey(pkgdatas, id)
-            pkgdatas[id] = PkgData(id, basedir)
+            pkgdatas[id] = PkgData(id, srcdir)
         end
         pkgdata = pkgdatas[id]
         for (submod, filename) in Base._included_files
             ffilename = fixpath(filename)
-            rpath = relpath(ffilename, basedir)
+            inpath(ffilename, dirs) || continue
+            keypath = ffilename[1:last(findfirst(dirs[end], ffilename))]
+            rpath = relpath(ffilename, keypath)
             pkgdata.fileinfos[rpath] = FileInfo(submod, basesrccache)
+            fullpath = joinpath(pkgdata.path, rpath)
+            if fullpath != filename
+                cache_file_key[fullpath] = filename
+            end
             push!(files, ffilename)
-            if mtime(filename) > mtcache
+            if mtime(ffilename) > mtcache
                 with_logger(_debug_logger) do
-                    @debug "Recipe for Base" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
+                    @debug "Recipe for Base/StdLib" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
                 end
-                push!(modified_files, (pkgdata, ffilename))
+                push!(modified_files, (pkgdata, rpath))
             end
         end
         # Add the files to the watch list
@@ -43,13 +61,6 @@ function track(mod::Module; modified_files=revision_queue)
             pkgdatas[id] = PkgData(id, compilerdir)
         end
         track_subdir_from_git(id, compilerdir; modified_files=modified_files)
-    elseif nameof(mod) ∈ stdlib_names
-        stdlibdir = joinpath(juliadir, "stdlib")
-        libdir = normpath(joinpath(stdlibdir, String(nameof(mod)), "src"))
-        if !haskey(pkgdatas, id)
-            pkgdatas[id] = PkgData(id, libdir)
-        end
-        track_subdir_from_git(id, libdir; modified_files=modified_files)
     else
         error("no Revise.track recipe for module ", mod)
     end
@@ -75,7 +86,6 @@ function fixpath(filename; badpath=basebuilddir, goodpath=juliadir)
     if (isfile(filename) & !isfile(ffilename))
         ffilename = normpath(filename)
     end
-    cache_file_key[ffilename] = filec
     return ffilename
 end
 

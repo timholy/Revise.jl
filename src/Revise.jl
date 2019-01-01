@@ -110,7 +110,7 @@ const included_files = Tuple{Module,String}[]  # (module, filename)
 
 Full path to the running Julia's cache of source code defining `Base`.
 """
-const basesrccache = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache")
+const basesrccache = normpath(joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache"))
 
 """
     Revise.basebuilddir
@@ -149,7 +149,7 @@ const juliadir = begin
             end
         end
     end
-    jldir
+    normpath(jldir)
 end
 const cache_file_key = Dict{String,String}() # corrected=>uncorrected filenames
 
