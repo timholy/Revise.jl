@@ -110,7 +110,7 @@ const included_files = Tuple{Module,String}[]  # (module, filename)
 
 Full path to the running Julia's cache of source code defining `Base`.
 """
-const basesrccache = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache")
+const basesrccache = normpath(joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache"))
 
 """
     Revise.basebuilddir
@@ -149,7 +149,7 @@ const juliadir = begin
             end
         end
     end
-    jldir
+    normpath(jldir)
 end
 const cache_file_key = Dict{String,String}() # corrected=>uncorrected filenames
 
@@ -258,7 +258,10 @@ function filter_signatures(mod::Module, defs)
         end
         def isa ExLike || continue
         if def.head == :macrocall
-            _, def = macexpand(mod, convert(Expr, def))
+            try
+                _, def = macexpand(mod, convert(Expr, def))
+            catch
+            end
             def isa ExLike || continue
         end
         def.head == :function || def.head == :(=) || continue

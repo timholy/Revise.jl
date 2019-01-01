@@ -1548,9 +1548,16 @@ end
         id = Base.PkgId(Base)
         pkgdata = Revise.pkgdatas[id]
         @test any(k->endswith(k, "number.jl"), keys(pkgdata.fileinfos))
-        @test length(filter(k->endswith(k, "file.jl"), keys(pkgdata.fileinfos))) == 2
+        @test length(filter(k->endswith(k, "file.jl"), keys(pkgdata.fileinfos))) == 1
         m = @which show([1,2,3])
         @test Revise.get_def(m) isa Revise.RelocatableExpr
+
+        # Tracking stdlibs
+        Revise.track(Unicode)
+        id = Base.PkgId(Unicode)
+        pkgdata = Revise.pkgdatas[id]
+        @test any(k->endswith(k, "Unicode.jl"), keys(pkgdata.fileinfos))
+        @test Revise.get_def(first(methods(Unicode.isassigned))) isa Revise.RelocatableExpr
 
         # Determine whether a git repo is available. Travis & Appveyor do not have this.
         repo, path = Revise.git_repo(Revise.juliadir)
@@ -1563,21 +1570,14 @@ end
             m = first(methods(Core.Compiler.typeinf_code))
             @test Revise.get_def(m) isa Revise.RelocatableExpr
 
-            # Tracking stdlibs
-            Revise.track(Unicode)
-            id = Base.PkgId(Unicode)
-            pkgdata = Revise.pkgdatas[id]
-            @test any(k->endswith(k, "Unicode.jl"), keys(pkgdata.fileinfos))
-            @test Revise.get_def(first(methods(Unicode.isassigned))) isa Revise.RelocatableExpr
-
             # Test that we skip over files that don't end in ".jl"
             logs, _ = Test.collect_test_logs() do
                 Revise.track(REPL)
             end
             @test isempty(logs)
         else
-            @test_throws Revise.GitRepoException Revise.track(Unicode)
-            @warn "skipping Core.Compiler and stdlibs tests due to lack of git repo"
+            @test_throws Revise.GitRepoException Revise.track(Core.Compiler)
+            @warn "skipping Core.Compiler tests due to lack of git repo"
         end
     end
 
