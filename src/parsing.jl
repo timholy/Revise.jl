@@ -127,20 +127,28 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
             ex.args[nargs_docexpr] = Symbol(newmod)
             fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
         elseif isa(exex, Expr) && (exex.head == :function || exex.head == :(=) || exex.head == :macrocall)
-            # Separate the function definition from the expression defining the docstring
-            excp = copy(ex)
-            parse_expr!(fm, exex, file, mod)
-            if length(excp.args[nargs_docexpr].args) > 1
-                excp.args[nargs_docexpr].args[2] = nothing  # make a fake body
+            # Generate the doc expressions
+            local mex
+            try
+                mex = macroexpand(mod, ex)
+            catch
+                return nothing
             end
-            mex = macroexpand(mod, excp)
             while is_trivial_block_wrapper(mex)
                 mex = mex.args[end]
             end
             @assert mex.head == :block
-            dex = mex.args[end]
-            @assert dex.args[1] == Base.Docs.doc!
-            fm[mod].defmap[convert(RelocatableExpr, dex)] = nothing
+            if mex.args[1] isa Expr && (mex.args[1].head == :(=) || mex.args[1].head == :function)
+                # Separate the function definition from the expression
+                # defining the docstring
+                parse_expr!(fm, exex, file, mod)
+                mex.args[1] = nothing
+            end
+            for arg in mex.args
+                arg isa ExLike || continue
+                is_linenumber(arg) && continue
+                fm[mod].defmap[convert(RelocatableExpr, arg)] = nothing
+            end
         else
             fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
         end
@@ -155,7 +163,10 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
             if ex.args[1] ∉ (Symbol("@warn"), Symbol("@info"), Symbol("@debug"), Symbol("@error"), Symbol("@logmsg"))  # issue #208
                 # To get the signature, we have to expand any unrecognized macro because
                 # the macro may change the signature
-                ex0, ex = macexpand(mod, ex)
+                try
+                    ex0, ex = macexpand(mod, ex)
+                catch
+                end
             end
         end
         ex isa Expr || return fm

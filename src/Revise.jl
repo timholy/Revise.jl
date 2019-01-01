@@ -258,7 +258,10 @@ function filter_signatures(mod::Module, defs)
         end
         def isa ExLike || continue
         if def.head == :macrocall
-            _, def = macexpand(mod, convert(Expr, def))
+            try
+                _, def = macexpand(mod, convert(Expr, def))
+            catch
+            end
             def isa ExLike || continue
         end
         def.head == :function || def.head == :(=) || continue
