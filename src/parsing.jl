@@ -137,7 +137,10 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
             while is_trivial_block_wrapper(mex)
                 mex = mex.args[end]
             end
-            @assert mex.head == :block
+            if mex.head != :block
+                @warn "expected block expression got $mex from $ex"
+                return nothing
+            end
             if mex.args[1] isa Expr && (mex.args[1].head == :(=) || mex.args[1].head == :function)
                 # Separate the function definition from the expression
                 # defining the docstring

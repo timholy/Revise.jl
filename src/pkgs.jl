@@ -176,8 +176,10 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
     if isempty(fi.fm)
         # Source was never parsed, get it from the precompile cache
         src = read_from_cache(pkgdata, file)
+        filep = joinpath(pkgdata.path, file)
+        filec = get(cache_file_key, filep, filep)
         topmod = first(keys(fi.fm))
-        if parse_source!(fi.fm, src, Symbol(joinpath(pkgdata.path, file)), 1, topmod) === nothing
+        if parse_source!(fi.fm, src, Symbol(filec), 1, topmod) === nothing
             @error "failed to parse cache file source text for $file"
         end
         instantiate_sigs!(fi.fm)

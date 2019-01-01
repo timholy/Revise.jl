@@ -17,9 +17,14 @@ function track(mod::Module; modified_files=revision_queue)
             srcdir = fixpath(joinpath(juliadir, "base"))
             dirs = ["base"]
         else
-            srcdir = fixpath(joinpath(juliadir, "stdlib", "v$(VERSION.major).$(VERSION.minor)", String(nameof(mod))))
+            stdlibv = joinpath("stdlib", "v$(VERSION.major).$(VERSION.minor)", String(nameof(mod)))
+            srcdir = fixpath(joinpath(juliadir, stdlibv))
             if !isdir(srcdir)
                 srcdir = fixpath(joinpath(juliadir, "stdlib", String(nameof(mod))))
+            end
+            if !isdir(srcdir)
+                # This can happen for Pkg, since it's developed out-of-tree
+                srcdir = joinpath(juliadir, "usr", "share", "julia", stdlibv)
             end
             dirs = ["stdlib", String(nameof(mod))]
         end
@@ -44,6 +49,7 @@ function track(mod::Module; modified_files=revision_queue)
             fullpath = joinpath(pkgdata.path, rpath)
             if fullpath != filename
                 cache_file_key[fullpath] = filename
+                src_file_key[filename] = fullpath
             end
             push!(files, ffilename)
             if mtime(ffilename) > mtcache

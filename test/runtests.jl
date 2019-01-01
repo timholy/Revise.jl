@@ -1559,6 +1559,12 @@ end
         @test any(k->endswith(k, "Unicode.jl"), keys(pkgdata.fileinfos))
         @test Revise.get_def(first(methods(Unicode.isassigned))) isa Revise.RelocatableExpr
 
+        # Submodule of Pkg (note that package is developed outside the
+        # Julia repo, this tests new cases)
+        id = Revise.get_tracked_id(Pkg.Types)
+        pkgdata = Revise.pkgdatas[id]
+        @test Revise.get_def(first(methods(Pkg.API.add))) isa Revise.RelocatableExpr
+
         # Determine whether a git repo is available. Travis & Appveyor do not have this.
         repo, path = Revise.git_repo(Revise.juliadir)
         if repo != nothing
