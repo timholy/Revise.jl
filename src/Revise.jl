@@ -152,6 +152,7 @@ const juliadir = begin
     normpath(jldir)
 end
 const cache_file_key = Dict{String,String}() # corrected=>uncorrected filenames
+const src_file_key   = Dict{String,String}() # uncorrected=>corrected filenames
 
 """
     Revise.dont_watch_pkgs
@@ -432,8 +433,9 @@ function revise_file_now(pkgdata::PkgData, file)
     maybe_parse_from_cache!(pkgdata, file)
     fi = pkgdict[file]
     fmref = fi.fm
+    filep = normpath(joinpath(pkgdata.path, file))
     topmod = first(keys(fi.fm))
-    fmnew = parse_source(joinpath(pkgdata.path, file), topmod)
+    fmnew = parse_source(filep, topmod)
     if fmnew != nothing
         fmrep = eval_revised(fmnew, fmref)
         pkgdict[file] = FileInfo(fmrep, fi)
@@ -663,7 +665,9 @@ end
 function get_def(method, pkgdata, filename)
     maybe_parse_from_cache!(pkgdata, filename)
     fi = pkgdata.fileinfos[filename]
-    map = fi.fm[method.module].sigtmap
+    fmm = get(fi.fm, method.module, nothing)
+    fmm === nothing && return nothing
+    map = fmm.sigtmap
     haskey(map, method.sig) && return copy(map[method.sig])
     return nothing
 end
@@ -678,6 +682,12 @@ function get_tracked_id(mod::Module; modified_files=revision_queue)
         elseif id.name == "Core"
             recipemod = Core.Compiler
         elseif Symbol(id.name) ∈ stdlib_names
+            prevmod = recipemod
+            while String(nameof(recipemod)) != id.name
+                recipemod = parentmodule(recipemod)
+                recipemod == prevmod && break
+                prevmod = recipemod
+            end
         else
             @warn "$id not found, not able to track"
             return nothing
