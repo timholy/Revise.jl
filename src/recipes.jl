@@ -51,7 +51,7 @@ function track(mod::Module; modified_files=revision_queue)
                 cache_file_key[fullpath] = filename
                 src_file_key[filename] = fullpath
             end
-            push!(files, ffilename)
+            push!(files, rpath)
             if mtime(ffilename) > mtcache
                 with_logger(_debug_logger) do
                     @debug "Recipe for Base/StdLib" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
