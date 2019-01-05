@@ -3,7 +3,10 @@
 using Core: MethodInstance
 using Base: MethodList
 
-const poppable_macro = (Symbol("@inline"), Symbol("@noinline"), Symbol("@propagate_inbounds"), Symbol("@eval"))
+const poppable_macro = (Symbol("@inline"), Symbol("@noinline"), Symbol("@propagate_inbounds"), Symbol("@eval"), Symbol("@pure"))
+
+is_poppable_macro(ex) = ex ∈ poppable_macro ||
+    (ex isa Expr && ex.head == :. && ex.args[1] == :Base && ex.args[2].value ∈ poppable_macro)
 
 """
     exf = funcdef_expr(ex)
@@ -29,7 +32,7 @@ function funcdef_expr(ex)
     if ex.head == :macrocall
         if ex.args[1] isa GlobalRef && ex.args[1].name == Symbol("@doc")
             return funcdef_expr(ex.args[end])
-        elseif ex.args[1] ∈ poppable_macro
+        elseif is_poppable_macro(ex.args[1])
             return funcdef_expr(ex.args[end])
         else
             io = IOBuffer()

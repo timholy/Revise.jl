@@ -229,7 +229,9 @@ k(x) = 4
         refex =  Revise.relocatable!(:(function foo(x) x^2 end))
         for ex in (:(@inline function foo(x) x^2 end),
                    :(@noinline function foo(x) x^2 end),
-                   :(@propagate_inbounds function foo(x) x^2 end))
+                   :(@propagate_inbounds function foo(x) x^2 end),
+                   :(Base.@propagate_inbounds function foo(x) x^2 end),
+                   :(Base.@pure function foo(x) x^2 end))
             @test Revise.get_signature(Revise.funcdef_expr(ex)) == :(foo(x))
             @test Revise.relocatable!(Revise.funcdef_expr(ex)) == refex
         end

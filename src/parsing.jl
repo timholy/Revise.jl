@@ -193,7 +193,7 @@ end
 
 function macexpand(mod::Module, ex::Expr)
     ex0 = ex
-    if ex.args[1] ∈ poppable_macro
+    if is_poppable_macro(ex.args[1])
         ex = ex.args[end]
         if ex isa Expr && ex.head == :macrocall
             ex0.args[end], ex = macexpand(mod, ex)
