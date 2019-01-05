@@ -487,6 +487,58 @@ k(x) = 4
         haskey(fm[mod].sigtmap, Tuple{Type{InnerC2{T}},Float64} where T)
     end
 
+    @testset "Evaled-code (for loops)" begin
+        mod = private_module()
+        fm = Revise.FileModules(mod)
+        ivar(sym) = Expr(:$, sym)  # build quoted variable for interpolation
+        qT, qT1, qT2, qf, qv = ivar.((:T, :T1, :T2, :f, :v))
+        ex = quote
+            struct Surface
+                surf
+            end
+            for T in (Float32, Float64)
+                @eval foo1(::$qT) = 1
+            end
+            for T1 in (Float32, Float64), T2 in (Int8,)
+                @eval foo2(::$qT1, ::$qT2) = 2
+            end
+            for f in (:length, :size)
+                @eval Base.$qf(surf::Surface, args...) = $qf(surf.surf, args...)
+            end
+            for (T, v) in Dict(Float32=>4, Float64=>8)
+                @eval nbytes(::Type{$qT}) = $qv
+            end
+            for x in (1, 1.1)
+                @eval typestring(::$(Expr(:$, :(typeof(x))))) = $(Expr(:$, :(string(typeof(x)))))
+            end
+        end
+        Core.eval(mod, ex)
+        foo1 = getfield(mod, :foo1)
+        foo2 = getfield(mod, :foo2)
+        nbytes = getfield(mod, :nbytes)
+        typestring = getfield(mod, :typestring)
+        @test foo1(1.0) == 1
+        @test_throws MethodError foo1(1)
+        @test foo2(1.0, Int8(3)) == 2
+        @test_throws MethodError foo2(1.0, 3)
+        @test nbytes(Float32) == 4
+        @test_throws MethodError nbytes(Int)
+        @test typestring(1) == string(Int)
+        @test_throws MethodError typestring(1.0f0)
+        Revise.parse_expr!(fm, ex, :noname, mod)
+        Revise.instantiate_sigs!(fm)
+        for T in (Float32, Float64)
+            @test haskey(fm[mod].sigtmap, Tuple{typeof(foo1),T})
+            @test haskey(fm[mod].sigtmap, Tuple{typeof(foo2),T,Int8})
+            @test haskey(fm[mod].sigtmap, Tuple{typeof(nbytes),Type{T}})
+        end
+        @test haskey(fm[mod].sigtmap, Tuple{typeof(typestring),Int})
+        s = Core.eval(mod, :(Surface([1,2])))
+        @test length(s) == 2
+        m = @which length(s)
+        @test haskey(fm[mod].sigtmap, m.sig)
+    end
+
     @testset "Display" begin
         io = IOBuffer()
         show(io, Revise.relocatable!(:(@inbounds x[2])))

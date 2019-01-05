@@ -310,3 +310,37 @@ function firstlineno(rex::ExLike)
     end
     return nothing
 end
+
+function interpolate(mod::Module, ex::Expr, varnames, varvals)
+    if ex.head == :$
+        idx = findfirst(isequal(ex.args[1]), varnames)
+        if idx === nothing
+            s = substitute(ex, varnames, varvals)
+            return Core.eval(mod, s.args[end])
+        end
+        return varvals[idx]
+    end
+    exout = Expr(ex.head)
+    exout.args = [interpolate(mod, a, varnames, varvals) for a in ex.args]
+    return exout
+end
+
+interpolate(mod::Module, q::QuoteNode, varnames, varvals) = QuoteNode(interpolate(mod, q.value, varnames, varvals))
+interpolate(mod::Module, @nospecialize(arg), varnames, varvals) = arg
+
+function substitute(ex::Expr, varnames, varvals)
+    # like interpolate but without the :$
+    exout = Expr(ex.head)
+    exout.args = [substitute(a, varnames, varvals) for a in ex.args]
+    return exout
+end
+
+substitute(q::QuoteNode, varnames, varvals) = QuoteNode(substitute(q.value, varnames, varvals))
+
+function substitute(sym::Symbol, varnames, varvals)
+    idx = findfirst(isequal(sym), varnames)
+    idx === nothing && return sym
+    return varvals[idx]
+end
+
+substitute(@nospecialize(arg), varnames, varvals) = arg

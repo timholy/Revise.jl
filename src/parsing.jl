@@ -133,6 +133,43 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
     elseif ex.head == :call && ex.args[1] == :include
         # skip include statements
+    elseif ex.head == :for
+        # handle simple loops that eval generated code
+        loopvars, body = ex.args
+        while is_trivial_block_wrapper(body)
+            body = body.args[end]
+        end
+        # Extract the @eval body
+        if isexpr(body, :macrocall) && body.args[1] == Symbol("@eval")
+            try
+                ebody = Expr(:block)
+                ebody.args = body.args[2:end]
+                if isexpr(loopvars, :(=)) && isexpr(loopvars.args[1], :tuple)
+                    # handle destructuring, i.e., :(for (k, v) in iter body end)
+                    varnames = map(Symbol, loopvars.args[1].args)
+                    iter = Core.eval(mod, loopvars.args[2])
+                    for vals in iter
+                        tex = interpolate(mod, ebody, varnames, vals)
+                        parse_expr!(fm, tex, file, mod)
+                    end
+                else
+                    # :(for T in iter body end) or :(for T1 in iter1, T2 in iter2 body end)
+                    loopvars = loopvars.head == :(=) ? [loopvars] : loopvars.args
+                    varnames = [lex.args[1] for lex in loopvars]
+                    varvals  = Any[Core.eval(mod, lex.args[2]) for lex in loopvars]
+                    for vals in Iterators.product(varvals...)
+                        tex = interpolate(mod, ebody, varnames, vals)
+                        parse_expr!(fm, tex, file, mod)
+                    end
+                end
+            catch
+                # @warn "parsing failure on $ex, punting on these expressions"
+                fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
+            end
+        else
+            # This is a loop we don't understand, so store it wholesale without extracting signatures
+            fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
+        end
     else
         # Any expression that *doesn't* define line numbers, new
         # modules, or include new files must be "real code."
