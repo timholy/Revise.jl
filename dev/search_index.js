@@ -29,7 +29,15 @@ var documenterSearchIndex = {"docs": [
     "page": "Home",
     "title": "Usage example",
     "category": "section",
-    "text": "(v1.0) pkg> dev Example\n[...output related to installation...]\n\njulia> using Revise        # importantly, this must come before `using Example`\n\njulia> using Example\n\njulia> hello(\"world\")\n\"Hello, world\"\n\njulia> Example.f()\nERROR: UndefVarError: f not defined\n\njulia> edit(hello)   # opens Example.jl in the editor you have configured\n\n# Now, add a function `f() = π` and save the file\n\njulia> Example.f()\nπ = 3.1415926535897...Revise updates its internal paths when you change versions of a package. For example:(v1.0) pkg> free Example   # switch to the released version of Example\n\njulia> Example.f()\nERROR: UndefVarError: f not definedRevise is not tied to any particular editor. (The EDITOR or JULIA_EDITOR environment variables can be used to specify your preference.)See Using Revise by default if you want Revise to be available every time you start julia."
+    "text": "(v1.0) pkg> dev Example\n[...output related to installation...]\n\njulia> using Revise        # importantly, this must come before `using Example`\n\njulia> using Example\n\njulia> hello(\"world\")\n\"Hello, world\"Now we\'re going to test that the Example module lacks a function named f:julia> Example.f()\nERROR: UndefVarError: f not definedBut we really want f, so let\'s add it. You can either navigate to the source code (at .julia/dev/Example/src/Example.jl) in an editor manually, or you can use Julia to open it for you:julia> edit(hello)   # opens Example.jl in the editor you have configuredNow, add a function f() = π and save the file. Go back to the REPL (the same REPL, don\'t restart Julia) and try this:julia> Example.f()\nπ = 3.1415926535897...Now suppose we realize we\'ve made a horrible mistake: that f method will ruin everything. No problem, just delete f in your editor, save the file, and you\'re back to this:julia> Example.f()\nERROR: UndefVarError: f not definedall without restarting Julia."
+},
+
+{
+    "location": "#Other-key-features-of-Revise-1",
+    "page": "Home",
+    "title": "Other key features of Revise",
+    "category": "section",
+    "text": "Revise updates its internal paths when you change versions of a package. To try this yourself, first re-insert that definition of f in the dev version of Example and save the file. Now try toggling back and forth between the dev and released versions of Example:(v1.0) pkg> free Example   # switch to the released version of Example\n\njulia> Example.f()\nERROR: UndefVarError: f not defined\n\n(v1.0) pkg> dev Example\n\njulia> Example.f()\nπ = 3.1415926535897...Revise is not tied to any particular editor. (The EDITOR or JULIA_EDITOR environment variables can be used to specify your preference for which editor gets launched by Julia\'s edit function.)If you don\'t want to have to remember to say using Revise each time you start Julia, see Using Revise by default."
 },
 
 {
