@@ -111,50 +111,16 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
     end
     macroreplace!(ex, String(file))
     if ex.head == :line
-        return fm
+        # skip line statements
     elseif ex.head == :module
         parse_module!(fm, ex, file, mod)
-    elseif isdocexpr(ex) && isa(ex.args[nargs_docexpr], Expr)
-        exex = ex.args[nargs_docexpr]
-        while is_trivial_block_wrapper(exex)
-            exex = exex.args[end]
-        end
-        if isa(exex, Expr) && exex.head == :module
-            # Module with a docstring (issue #8)
-            # Split into two expressions, a module definition followed by
-            # `"docstring" newmodule`
-            newmod = parse_module!(fm, ex.args[nargs_docexpr], file, mod)
-            ex.args[nargs_docexpr] = Symbol(newmod)
-            fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
-        elseif isa(exex, Expr) && (exex.head == :function || exex.head == :(=) || exex.head == :macrocall)
-            # Generate the doc expressions
-            local mex
-            try
-                mex = macroexpand(mod, ex)
-            catch
-                return nothing
-            end
-            while is_trivial_block_wrapper(mex)
-                mex = mex.args[end]
-            end
-            if mex.head != :block
-                @warn "expected block expression got $mex from $ex"
-                return nothing
-            end
-            if mex.args[1] isa Expr && (mex.args[1].head == :(=) || mex.args[1].head == :function)
-                # Separate the function definition from the expression
-                # defining the docstring
-                parse_expr!(fm, exex, file, mod)
-                mex.args[1] = nothing
-            end
-            for arg in mex.args
-                arg isa ExLike || continue
-                is_linenumber(arg) && continue
-                fm[mod].defmap[convert(RelocatableExpr, arg)] = nothing
-            end
-        else
-            fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
-        end
+    elseif isdocexpr(ex)
+        mac, source, meta, dex = ex.args
+        dex isa Expr && parse_expr!(fm, dex, file, mod)
+        # Store a non-defining doc expression (update the docstring if it gets modified,
+        # but we don't want to evaluate the object when we do so)
+        drex = convert(RelocatableExpr, Expr(:macrocall, mac, source, meta, dex, false))
+        fm[mod].defmap[drex] = nothing
     elseif ex.head == :call && ex.args[1] == :include
         # skip include statements
     else
