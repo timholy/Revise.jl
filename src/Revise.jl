@@ -3,6 +3,7 @@ module Revise
 using FileWatching, REPL, Distributed, UUIDs
 import LibGit2
 using Base: PkgId
+using Base.Meta: isexpr
 
 using OrderedCollections: OrderedDict
 

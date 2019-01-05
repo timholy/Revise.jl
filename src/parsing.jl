@@ -162,7 +162,7 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         # modules, or include new files must be "real code."
         # Handle macros
         exorig = ex0 = ex
-        if ex isa Expr && ex.head == :macrocall
+        if isexpr(ex, :macrocall)
             if ex.args[1] ∉ (Symbol("@warn"), Symbol("@info"), Symbol("@debug"), Symbol("@error"), Symbol("@logmsg"))  # issue #208
                 # To get the signature, we have to expand any unrecognized macro because
                 # the macro may change the signature
@@ -195,7 +195,7 @@ function macexpand(mod::Module, ex::Expr)
     ex0 = ex
     if is_poppable_macro(ex.args[1])
         ex = ex.args[end]
-        if ex isa Expr && ex.head == :macrocall
+        if isexpr(ex, :macrocall)
             ex0.args[end], ex = macexpand(mod, ex)
         end
     else

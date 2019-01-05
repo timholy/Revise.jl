@@ -202,7 +202,7 @@ sig_type_exprs(mod::Module, sigex::RelocatableExpr) = sig_type_exprs(mod, conver
 function _sig_type_exprs(mod::Module, ex, @nospecialize(wheres))
     Typeof = Core.Typeof
     fex = ex.args[1]
-    if isa(fex, Expr) && fex.head == :(::)
+    if isexpr(fex, :(::))
         fexTex = fex.args[end]
     else
         fexTex = :($Typeof($fex))
@@ -281,7 +281,7 @@ argtypeexpr(ex::Union{Symbol,ExLike}, rest...) = argtypeexpr(Main, ex, rest...)
 
 function has_default_args(sigex::Expr)
     a = sigex.args[end]
-    return isa(a, Expr) && a.head == :kw
+    return isexpr(a, :kw)
 end
 
 function is_trivial_block_wrapper(ex::ExLike)
@@ -294,7 +294,7 @@ end
 is_trivial_block_wrapper(@nospecialize arg) = false
 
 function is_linenumber(@nospecialize stmt)
-    isa(stmt, LineNumberNode) || (isa(stmt, ExLike) && (stmt.head == :line))
+    isa(stmt, LineNumberNode) || (isa(stmt, ExLike) && stmt.head == :line)
 end
 
 function firstlineno(rex::ExLike)
