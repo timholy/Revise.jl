@@ -6,7 +6,7 @@ using Base: MethodList
 const poppable_macro = (Symbol("@inline"), Symbol("@noinline"), Symbol("@propagate_inbounds"), Symbol("@eval"), Symbol("@pure"))
 
 is_poppable_macro(ex) = ex ∈ poppable_macro ||
-    ex.head == :. && ex.args[1] == :Base && ex.args[2].value ∈ poppable_macro
+    (ex isa Expr && ex.head == :. && ex.args[1] == :Base && ex.args[2].value ∈ poppable_macro)
 
 """
     exf = funcdef_expr(ex)
