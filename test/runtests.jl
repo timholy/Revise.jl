@@ -455,6 +455,38 @@ k(x) = 4
         @test ex == Revise.relocatable!(:(@warn "Something wrong"))
     end
 
+    @testset "Inner constructors" begin
+        mod = private_module()
+        fm = Revise.FileModules(mod)
+        ex = quote
+            struct InnerC{T<:Integer}
+                x::T
+
+                function InnerC{T}(x::Float64) where T
+                    return new{T}(round(T, 2*x))
+                end
+            end
+
+            """
+            A docstring
+            """
+            struct InnerC2{T<:Integer}
+                x::T
+
+                function InnerC2{T}(x::Float64; kwarg1=0) where T
+                    return new{T}(round(T, 2*x))
+                end
+            end
+        end
+        Core.eval(mod, ex)
+        Revise.parse_expr!(fm, ex, :noname, mod)
+        Revise.instantiate_sigs!(fm)
+        InnerC = getfield(mod, :InnerC)
+        haskey(fm[mod].sigtmap, Tuple{Type{InnerC{T}},Float64} where T)
+        InnerC2 = getfield(mod, :InnerC2)
+        haskey(fm[mod].sigtmap, Tuple{Type{InnerC2{T}},Float64} where T)
+    end
+
     @testset "Display" begin
         io = IOBuffer()
         show(io, Revise.relocatable!(:(@inbounds x[2])))
@@ -1303,6 +1335,20 @@ end
             f(v::AbstractVector) = 2
             f(v::AbstractVector{<:Integer}) = 3
 
+            macro blockify(ex)
+                return esc(Expr(:block, ex))
+            end
+
+            \"\"\"
+            A docstring
+            \"\"\"
+            @blockify struct Foo{T<:Integer}
+                x::T
+
+                function Foo{T}(x::Real) where T
+                    new{T}(round(T, x))
+                end
+            end
             end
             """)
         end
@@ -1314,6 +1360,9 @@ end
         ex = Revise.get_def(m)
         @test ex isa Revise.RelocatableExpr
         @test isequal(ex, Revise.relocatable!(:(f(v::AbstractVector{<:Integer}) = 3)))
+        m = @which GetDef.Foo{Int16}(3.2)
+        ex = Revise.get_def(m)
+        @test ex isa Revise.RelocatableExpr
 
         rm_precompile("GetDef")
     end

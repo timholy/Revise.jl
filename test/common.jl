@@ -13,3 +13,7 @@ end
 else
     yry() = (sleep(0.1); revise(); sleep(0.1))
 end
+
+macro blockify(ex)
+    return esc(Expr(:block, ex))
+end

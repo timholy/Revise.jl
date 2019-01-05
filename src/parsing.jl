@@ -121,6 +121,16 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         # but we don't want to evaluate the object when we do so)
         drex = convert(RelocatableExpr, Expr(:macrocall, mac, source, meta, dex, false))
         fm[mod].defmap[drex] = nothing
+    elseif ex.head == :struct
+        # Extract methods from inner constructors
+        body = ex.args[end]
+        for a in body.args
+            if isa(a, Expr) && (a.head == :function || a.head == :(=))
+                ra = convert(RelocatableExpr, a)
+                fm[mod].defmap[ra] = get_signature(ra)
+            end
+        end
+        fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
     elseif ex.head == :call && ex.args[1] == :include
         # skip include statements
     else
