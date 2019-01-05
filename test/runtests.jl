@@ -1419,6 +1419,42 @@ end
         rm_precompile("GetDef")
     end
 
+    @testset "get_def all of Base" begin
+        failures = Method[]
+        failures_hash = Method[]
+        successes = Method[]
+        errors = Method[]
+        baseid = Base.PkgId(Base)
+        for name in names(Base; all=true, imported=true)
+            isdefined(Base, name) || continue  # guard against exported but undefined names (e.g., :active_repl when no REPL exists)
+            f = getfield(Base, name)
+            if isa(f, Base.Callable)
+                mths = methods(f)
+                for m in mths
+                    Base.PkgId(m.module) == baseid || continue
+                    local def
+                    try
+                        def = Revise.get_def(m; shouldwarn=false)
+                    catch
+                        push!(errors, m)
+                        continue
+                    end
+                    if def === nothing
+                        if startswith(string(name), '#')
+                            push!(failures_hash, m)
+                        else
+                            push!(failures, m)
+                        end
+                    else
+                        push!(successes, m)
+                    end
+                end
+            end
+        end
+        @test length(errors) == 0
+        @test length(successes) > 4*(length(failures) + length(failures_hash))
+    end
+
     @testset "Pkg exclusion" begin
         push!(Revise.dont_watch_pkgs, :Example)
         push!(Revise.silence_pkgs, :Example)
