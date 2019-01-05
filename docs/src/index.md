@@ -29,32 +29,65 @@ julia> using Example
 
 julia> hello("world")
 "Hello, world"
+```
 
+Now we're going to test that the `Example` module lacks a function named `f`:
+
+```julia
 julia> Example.f()
 ERROR: UndefVarError: f not defined
+```
 
+But we really want `f`, so let's add it.
+You can either navigate to the source code (at `.julia/dev/Example/src/Example.jl`)
+in an editor manually, or you can use Julia to open it for you:
+
+```julia
 julia> edit(hello)   # opens Example.jl in the editor you have configured
+```
 
-# Now, add a function `f() = π` and save the file
+Now, add a function `f() = π` and save the file.
+Go back to the REPL (the *same* REPL, don't restart Julia) and try this:
 
+```julia
 julia> Example.f()
 π = 3.1415926535897...
 ```
 
-Revise updates its internal paths when you change versions of a package. For example:
+Now suppose we realize we've made a horrible mistake: that `f` method will ruin everything.
+No problem, just delete `f` in your editor, save the file, and you're back to this:
+
+```julia
+julia> Example.f()
+ERROR: UndefVarError: f not defined
+```
+
+all without restarting Julia.
+
+## Other key features of Revise
+
+Revise updates its internal paths when you change versions of a package.
+To try this yourself, first re-insert that definition of `f` in the `dev` version of
+`Example` and save the file.
+Now try toggling back and forth between the `dev` and released versions of `Example`:
 
 ```julia
 (v1.0) pkg> free Example   # switch to the released version of Example
 
 julia> Example.f()
 ERROR: UndefVarError: f not defined
+
+(v1.0) pkg> dev Example
+
+julia> Example.f()
+π = 3.1415926535897...
 ```
 
 Revise is not tied to any particular editor.
-(The [EDITOR or JULIA_EDITOR](https://docs.julialang.org/en/latest/stdlib/InteractiveUtils/#InteractiveUtils.edit-Tuple{AbstractString,Integer}) environment variables can be used to specify your preference.)
+(The [EDITOR or JULIA_EDITOR](https://docs.julialang.org/en/latest/stdlib/InteractiveUtils/#InteractiveUtils.edit-Tuple{AbstractString,Integer}) environment variables can be used to specify your preference for which editor gets launched by Julia's `edit` function.)
 
-See [Using Revise by default](@ref) if you want Revise to be available every time you
-start julia.
+If you don't want to have to remember to say `using Revise` each time you start
+Julia, see [Using Revise by default](@ref).
 
 ## What Revise can track
 
