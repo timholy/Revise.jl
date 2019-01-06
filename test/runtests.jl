@@ -706,6 +706,39 @@ end
         yry()
         @test li_f() == -1
         rm_precompile("LoopInclude")
+        # Multiple packages in the same directory (issue #228)
+        open(joinpath(testdir, "A228.jl"), "w") do io
+            println(io, """
+                        module A228
+                        using B228
+                        export f228
+                        f228(x) = 3 * g228(x)
+                        end
+                        """)
+        end
+        open(joinpath(testdir, "B228.jl"), "w") do io
+            println(io, """
+                        module B228
+                        export g228
+                        g228(x) = 4x + 2
+                        end
+                        """)
+        end
+        using A228
+        @test f228(3) == 42
+        sleep(2.1)
+        open(joinpath(testdir, "B228.jl"), "w") do io
+            println(io, """
+                        module B228
+                        export g228
+                        g228(x) = 4x + 1
+                        end
+                        """)
+        end
+        yry()
+        @test f228(3) == 39
+        rm_precompile("A228")
+        rm_precompile("B228")
 
         pop!(LOAD_PATH)
     end

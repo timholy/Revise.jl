@@ -375,7 +375,10 @@ This is generally called via a [`Rescheduler`](@ref).
     end
     latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
     for file in latestfiles
-        push!(revision_queue, (pkgdata, joinpath(dirname0, file)))
+        key = joinpath(dirname0, file)
+        if haskey(pkgdata.fileinfos, key)  # issue #228
+            push!(revision_queue, (pkgdata, key))
+        end
     end
     return stillwatching
 end
