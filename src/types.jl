@@ -52,8 +52,9 @@ See the documentation page [How Revise works](@ref) for more information.
 struct FMMaps
     defmap::DefMap
     sigtmap::SigtMap
+    includes::Vector{String}
 end
-FMMaps() = FMMaps(DefMap(), SigtMap())
+FMMaps() = FMMaps(DefMap(), SigtMap(), String[])
 
 Base.isempty(fmm::FMMaps) = isempty(fmm.defmap)
 

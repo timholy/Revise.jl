@@ -837,7 +837,7 @@ end
         end
         yry()
         @test NewFile.f() == 1
-        @test_broken NewFile.g() == 2
+        @test NewFile.g() == 2
         rm_precompile("NewFile")
 
         # https://discourse.julialang.org/t/revise-with-requires/19347

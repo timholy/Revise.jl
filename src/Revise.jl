@@ -170,20 +170,30 @@ const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests d
 
 
 """
-    fmrep = eval_revised(fmnew::FileModules, fmref::FileModules)
+    fmrep = eval_revised(fmnew::FileModules, fmref::FileModules; dir::AbstractString="")
 
 Implement the changes from `fmref` to `fmnew`, returning a replacement [`FileModules`](@ref)
 `fmrep`.
+`dir` is needed only if `fmmnew.includes` has new entries compared to `fmref.includes`
+(this is triggered by adding new `include` statements to a source file).
 """
-function eval_revised(fmnew::FileModules, fmref::FileModules)
+function eval_revised(fmnew::FileModules, fmref::FileModules; dir::AbstractString="")
     fmrep = FileModules(first(keys(fmref)))  # replacement for fmref
     for (mod, fmmnew) in fmnew
         fmrep[mod] = fmm = FMMaps()
         if haskey(fmref, mod)
-            eval_revised!(fmm, mod, fmmnew, fmref[mod])
+            fmmref = fmref[mod]
+            eval_revised!(fmm, mod, fmmnew, fmmref)
             for p in workers()
                 p == myid() && continue
-                remotecall(eval_revised_dummy!, p, mod, fmmnew, fmref[mod])
+                remotecall(eval_revised_dummy!, p, mod, fmmnew, fmmref)
+            end
+            for file in fmmnew.includes
+                if file ∉ fmmref.includes
+                    filep = joinpath(dir, file)
+                    Base.include(mod, filep)
+                    add_file(mod, filep)
+                end
             end
         else  # a new submodule (see #43)
             eval_and_insert_all!(fmm, mod, fmmnew.defmap)
@@ -445,7 +455,8 @@ function revise_file_now(pkgdata::PkgData, file)
     topmod = first(keys(fi.fm))
     fmnew = parse_source(filep, topmod)
     if fmnew != nothing
-        fmrep = eval_revised(fmnew, fmref)
+        dir, basename = splitdir(filep)
+        fmrep = eval_revised(fmnew, fmref; dir=dir)
         pkgdict[file] = FileInfo(fmrep, fi)
     end
     nothing

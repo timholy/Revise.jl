@@ -155,8 +155,17 @@ function parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)
         else
             fm[mod].defmap[convert(RelocatableExpr, ex)] = nothing
         end
-    elseif ex.head == :call && ex.args[1] == :include
-        # skip include statements
+    elseif ex.head == :call && ex.args[1] == :include && length(ex.args) == 2
+        # keep track of include statements so we can later test for new files (issue #107)
+        newfile = ex.args[2]
+        if newfile isa Expr || newfile isa Symbol
+            try
+                newfile = Core.eval(mod, newfile)  # a `joinpath` expr or a filename encoded as a variable
+            catch
+                return fm
+            end
+        end
+        push!(fm[mod].includes, newfile)
     else
         # Any expression that *doesn't* define line numbers, new
         # modules, or include new files must be "real code."
