@@ -799,6 +799,87 @@ end
         pop!(LOAD_PATH)
     end
 
+    @testset "New files & Requires.jl" begin
+        # Issue #107
+        testdir = randtmp()
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "NewFile", "src")
+        mkpath(dn)
+        open(joinpath(dn, "NewFile.jl"), "w") do io
+            println(io, """
+                module NewFile
+
+                f() = 1
+
+                end
+                """)
+        end
+        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        @eval using NewFile
+        @test NewFile.f() == 1
+        @test_throws UndefVarError NewFile.g()
+        sleep(0.1)
+        open(joinpath(dn, "g.jl"), "w") do io
+            println(io, "g() = 2")
+        end
+        open(joinpath(dn, "NewFile.jl"), "w") do io
+            println(io, """
+                module NewFile
+
+                include("g.jl")
+
+                f() = 1
+
+                end
+                """)
+        end
+        yry()
+        @test NewFile.f() == 1
+        @test_broken NewFile.g() == 2
+        rm_precompile("NewFile")
+
+        # https://discourse.julialang.org/t/revise-with-requires/19347
+        dn = joinpath(testdir, "TrackRequires", "src")
+        mkpath(dn)
+        open(joinpath(dn, "TrackRequires.jl"), "w") do io
+            println(io, """
+            module TrackRequires
+
+            using Requires
+
+            function __init__()
+                @require EndpointRanges="340492b5-2a47-5f55-813d-aca7ddf97656" begin
+                    export testfunc
+                    include("testfile.jl")
+                    @require Revise="295af30f-e4ad-537b-8983-00126c2a3abe" begin
+                        import .Revise
+                        # Revise.add_file(TrackRequires, "src/testfile.jl")
+                    end
+                end
+            end
+
+            end # module
+            """)
+        end
+        open(joinpath(dn, "testfile.jl"), "w") do io
+            println(io, "testfunc() = 1")
+        end
+        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        @eval using TrackRequires
+        @test_throws UndefVarError TrackRequires.testfunc()
+        @eval using EndpointRanges  # to trigger Requires
+        sleep(0.1)
+        @test TrackRequires.testfunc() == 1
+        open(joinpath(dn, "testfile.jl"), "w") do io
+            println(io, "testfunc() = 2")
+        end
+        yry()
+        @test_broken TrackRequires.testfunc() == 2
+        rm_precompile("TrackRequires")
+    end
+
     # issue #8
     @testset "Module docstring" begin
         testdir = randtmp()

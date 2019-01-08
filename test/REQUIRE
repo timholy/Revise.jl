@@ -3,3 +3,5 @@ RecipesBase
 Plots
 EponymTuples
 JSON
+Requires
+EndpointRanges # dummy package for triggering Requires
