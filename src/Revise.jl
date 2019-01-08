@@ -327,19 +327,24 @@ be called.
 Use the `pkgdata` version if the files are supplied using relative paths.
 """
 function init_watching(pkgdata::PkgData, files)
-    udirs = Set{String}()
+    udirs = Set{String}() # list of *new* directories we need to start watching (if watched_files[] == false)
     for file in files
         dir, basename = splitdir(file)
         dirfull = joinpath(pkgdata.path, dir)
-        haskey(watched_files, dirfull) || (watched_files[dirfull] = WatchList())
+        if !haskey(watched_files, dirfull)
+            # Add new directory to list of watches
+            watched_files[dirfull] = WatchList()
+            watching_files[] || push!(udirs, dir)
+        end
+        # Add the file to the watch list
         push!(watched_files[dirfull], basename)
+        # If we're watching individual files, start the task
         if watching_files[]
             fwatcher = Rescheduler(revise_file_queued, (pkgdata, file))
             schedule(Task(fwatcher))
-        else
-            push!(udirs, dir)
         end
     end
+    # If we're watching directories, start the tasks
     for dir in udirs
         dirfull = joinpath(pkgdata.path, dir)
         updatetime!(watched_files[dirfull])
