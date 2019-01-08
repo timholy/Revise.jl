@@ -855,7 +855,7 @@ end
                     include("testfile.jl")
                     @require Revise="295af30f-e4ad-537b-8983-00126c2a3abe" begin
                         import .Revise
-                        # Revise.add_file(TrackRequires, "src/testfile.jl")
+                        Revise.add_file(TrackRequires, "src/testfile.jl")
                     end
                 end
             end
@@ -869,6 +869,7 @@ end
         sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
         @eval using TrackRequires
         @test_throws UndefVarError TrackRequires.testfunc()
+        sleep(0.1)
         @eval using EndpointRanges  # to trigger Requires
         sleep(0.1)
         @test TrackRequires.testfunc() == 1
@@ -876,7 +877,7 @@ end
             println(io, "testfunc() = 2")
         end
         yry()
-        @test_broken TrackRequires.testfunc() == 2
+        @test TrackRequires.testfunc() == 2
         rm_precompile("TrackRequires")
     end
 

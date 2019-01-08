@@ -27,6 +27,7 @@ Revise.pkgdatas
 Revise.watched_files
 Revise.revision_queue
 Revise.included_files
+Revise.add_file!
 ```
 
 ## Types

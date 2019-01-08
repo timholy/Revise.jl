@@ -168,7 +168,11 @@ function read_from_cache(pkgdata::PkgData, file::AbstractString)
             Base._read_dependency_src(io, filec)
         end
     end
-    Base.read_dependency_src(fi.cachefile, filep)
+    try
+        return Base.read_dependency_src(fi.cachefile, filep)
+    catch
+        return nothing
+    end
 end
 
 function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)

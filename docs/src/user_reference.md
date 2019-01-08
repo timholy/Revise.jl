@@ -9,6 +9,7 @@ prevent it from watching specific packages.
 revise
 Revise.track
 includet
+Revise.add_file
 ```
 
 ### Revise logs (debugging Revise)

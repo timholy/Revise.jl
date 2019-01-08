@@ -121,9 +121,10 @@ all without restarting your Julia session.
 
 ## What else do I need to know?
 
-Except in cases of problems (see below), that's it!
+Generally, that's it!
 Revise is a tool that runs in the background, and when all is well it should be
 essentially invisible, except that you don't have to restart Julia so often.
+In rare circumstances there are cases where [Advanced usage](@ref) is necessary.
 
 Revise can also be used as a "library" by developers who want to add other new capabilities
 to Julia; the sections [How Revise works](@ref) and [Developer reference](@ref) are

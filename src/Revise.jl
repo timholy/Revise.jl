@@ -577,6 +577,54 @@ try fixing it with something like `push!(LOAD_PATH, "/path/to/my/private/repos")
 includet(file::AbstractString) = (Base.include(Main, file); track(Main, file))
 
 """
+    add_file!(pkgdata, mod::Module, file::AbstractString)
+
+Add a new tracked file to `pkgdata`. `mod` is the active module that `file` should be
+included into.
+"""
+function add_file!(pkgdata, mod::Module, file::AbstractString)
+    file0 = file
+    file = isabspath(file) ? relpath(file, pkgdata.path) : file # here we insist on a relative path, so use the Base method directly
+    pkgdata.fileinfos[file] = fi = FileInfo(mod)
+    # Since this file may not be in the .ji cache, parse it now (because it might change later,
+    # and then it would be too late to try to parse the original state to look for diffs)
+    ffile = normpath(joinpath(pkgdata.path, file))
+    if parse_source!(fi.fm, read(ffile, String), Symbol(ffile), 1, mod) === nothing
+        delete!(pkgdata.fileinfos, file)
+        @error "failed to parse cache file source text for $file0"
+    end
+    instantiate_sigs!(fi.fm)
+    # Add to watch list
+    init_watching(pkgdata, (ffile,))
+    return nothing
+end
+
+"""
+    Revise.add_file(mod::Module, file::AbstractString)
+
+Start tracking a new file `file` as part of the package that defines module `mod`.
+"""
+function add_file(mod::Module, file::AbstractString)
+    id = PkgId(mod)
+    pkgdata = pkgdatas[id]
+    return add_file!(pkgdata, mod, file)
+end
+
+"""
+    Revise.add_file(id::PkgId, file::AbstractString)
+
+Start tracking a new file `file` as part of package `id`. This file can only be included
+into the top-level module defining the package---for a more flexible alternative,
+see the `add_file(mod::Module, file)` method.
+"""
+function add_file(id::PkgId, file::AbstractString)
+    pkgdata = pkgdata[id]
+    topfile = Base.locate_package(id)
+    fi = pkgdata.fileinfos[relpath(pkdata, topfile)]
+    return add_file!(pkgdata, first(keys(fi)), file)
+end
+
+"""
     Revise.silence(pkg)
 
 Silence warnings about not tracking changes to package `pkg`.
