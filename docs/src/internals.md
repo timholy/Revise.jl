@@ -23,13 +23,29 @@ To decrease the amount of re-JITting
 required, Revise avoids reloading entire modules; instead, it takes care
 to `eval` only the *changes* in your package(s), much as you would if you were
 doing it manually.
+
 Importantly, changes are detected in a manner that is independent of the specific
 line numbers in your code, so that you don't have to re-evaluate just
 because code moves around within the same file.
 (One unfortunate side effect is that line numbers may become inaccurate in backtraces,
 but Revise takes pains to correct these, see below.)
 
-To accomplish this, Revise uses the following overall strategy:
+Conceptually, Revise is just [`diff` and `patch`](https://linuxacademy.com/blog/linux/introduction-using-diff-and-patch/)
+for a running Julia session. Schematically, Revise's inner loop looks like this:
+
+```julia
+for def in setdiff(oldexprs, newexprs)
+    # `def` is an expression that defines a method.
+    # It was in `oldexprs`, but is no longer present in `newexprs`--delete the method.
+    delete_method_corresponding_to_defexpr(mod, def)
+end
+for def in setdiff(newexprs, oldexprs)
+    # `def` is an expression for a new or modified method. Instantiate it.
+    Core.eval(mod, def)
+end
+```
+
+In somewhat greater detail, Revise uses the following overall strategy:
 
 - add callbacks to Base so that Revise gets notified when new
   packages are loaded or new files `include`d
@@ -50,6 +66,19 @@ To accomplish this, Revise uses the following overall strategy:
   created. `eval` the diff in the appropriate module(s).
 - replace the cached version of each source file with the new version, so that
   further changes are `diff`ed against the most recent update.
+
+## Revise's data management: the key internal variables
+
+Most of Revise's magic comes down to just three internal variables:
+
+- [`Revise.watched_files`](@ref): encodes information used by the filesystem (`FileWatching`)
+  to detect changes in source files.
+- [`Revise.revision_queue`](@ref): a list of "work to do," containing the files that have been
+  modified since the last code update.
+- [`Revise.pkgdatas`](@ref): the central repository of parsed code, used to "diff" for changes
+  and then "patch" the running session.
+
+Most of the rest of this page explains the representation used for `pkgdatas`.
 
 ## The structure of Revise's internal representation
 
