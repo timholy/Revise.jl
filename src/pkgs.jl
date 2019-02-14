@@ -350,7 +350,11 @@ function watch_manifest(mfile)
             end
         end
     catch err
-        put!(Base.active_repl_backend.response_channel, (err, catch_backtrace()))
+        @static if isdefined(Base, :catch_stack)
+            put!(Base.active_repl_backend.response_channel, (Base.catch_stack(), true))
+        else
+            put!(Base.active_repl_backend.response_channel, (err, catch_backtrace()))
+        end
     end
     return true
 end
