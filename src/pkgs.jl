@@ -350,7 +350,7 @@ function watch_manifest(mfile)
             end
         end
     catch err
-        @static if isdefined(Base, :catch_stack)
+        @static if VERSION >= v"1.2.0-DEV.253"
             put!(Base.active_repl_backend.response_channel, (Base.catch_stack(), true))
         else
             put!(Base.active_repl_backend.response_channel, (err, catch_backtrace()))
