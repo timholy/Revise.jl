@@ -495,7 +495,11 @@ function revise(backend::REPL.REPLBackend)
         try
             revise_file_now(pkgdata, file)
         catch err
-            put!(backend.response_channel, (err, catch_backtrace()))
+            @static if VERSION >= v"1.2.0-DEV.253"
+                put!(backend.response_channel, (Base.catch_stack(), true))
+            else
+                put!(backend.response_channel, (err, catch_backtrace()))
+            end
         end
     end
     empty!(revision_queue)
@@ -503,7 +507,11 @@ function revise(backend::REPL.REPLBackend)
         try
             queue_includes(Main)
         catch err
-            put!(backend.response_channel, (err, catch_backtrace()))
+            @static if VERSION >= v"1.2.0-DEV.253"
+                put!(backend.response_channel, (Base.catch_stack(), true))
+            else
+                put!(backend.response_channel, (err, catch_backtrace()))
+            end
         end
     end
     return nothing
