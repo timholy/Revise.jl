@@ -4,7 +4,8 @@ using FileWatching, REPL, Distributed, UUIDs
 import LibGit2
 using Base: PkgId
 
-using OrderedCollections: OrderedDict
+using OrderedCollections, CodeTracking
+using CodeTracking: PkgFiles, basedir, srcfiles
 
 export revise, includet, MethodSummary
 
@@ -330,7 +331,7 @@ function init_watching(pkgdata::PkgData, files)
     udirs = Set{String}()
     for file in files
         dir, basename = splitdir(file)
-        dirfull = joinpath(pkgdata.path, dir)
+        dirfull = joinpath(basedir(pkgdata), dir)
         haskey(watched_files, dirfull) || (watched_files[dirfull] = WatchList())
         push!(watched_files[dirfull], basename)
         if watching_files[]
@@ -341,7 +342,7 @@ function init_watching(pkgdata::PkgData, files)
         end
     end
     for dir in udirs
-        dirfull = joinpath(pkgdata.path, dir)
+        dirfull = joinpath(basedir(pkgdata), dir)
         updatetime!(watched_files[dirfull])
         if !watching_files[]
             dwatcher = Rescheduler(revise_dir_queued, (pkgdata, dir))
@@ -362,7 +363,7 @@ This is generally called via a [`Rescheduler`](@ref).
 @noinline function revise_dir_queued(pkgdata::PkgData, dirname)
     dirname0 = dirname
     if !isabspath(dirname)
-        dirname = joinpath(pkgdata.path, dirname)
+        dirname = joinpath(basedir(pkgdata), dirname)
     end
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
@@ -376,7 +377,7 @@ This is generally called via a [`Rescheduler`](@ref).
     latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
     for file in latestfiles
         key = joinpath(dirname0, file)
-        if haskey(pkgdata.fileinfos, key)  # issue #228
+        if hasfile(pkgdata, key)  # issue #228
             push!(revision_queue, (pkgdata, key))
         end
     end
@@ -395,7 +396,7 @@ This is used only on platforms (like BSD) which cannot use [`revise_dir_queued`]
 function revise_file_queued(pkgdata::PkgData, file)
     file0 = file
     if !isabspath(file)
-        file = joinpath(pkgdata.path, file)
+        file = joinpath(basedir(pkgdata), file)
     end
     if !isfile(file)
         sleep(0.1)  # in case git has done a delete/replace cycle
@@ -428,20 +429,20 @@ It then deletes any removed methods and re-evaluates any changed expressions.
 `Revise.pkgdatas[id].fileinfos`.
 """
 function revise_file_now(pkgdata::PkgData, file)
-    pkgdict = pkgdata.fileinfos
-    if !haskey(pkgdict, file)
+    i = fileindex(pkgdata, file)
+    if i === nothing
         println("Revise is currently tracking the following files in $(pkgdata.id): ", keys(pkgdict))
         error(file, " is not currently being tracked.")
     end
     maybe_parse_from_cache!(pkgdata, file)
-    fi = pkgdict[file]
+    fi = fileinfo(pkgdata, i)
     fmref = fi.fm
-    filep = normpath(joinpath(pkgdata.path, file))
+    filep = normpath(joinpath(basedir(pkgdata), file))
     topmod = first(keys(fi.fm))
     fmnew = parse_source(filep, topmod)
     if fmnew != nothing
         fmrep = eval_revised(fmnew, fmref)
-        pkgdict[file] = FileInfo(fmrep, fi)
+        pkgdata.fileinfos[i] = FileInfo(fmrep, fi)
     end
     nothing
 end
@@ -526,8 +527,9 @@ to propagate an updated macro definition, or to force recompiling generated func
 function revise(mod::Module)
     mod == Main && error("cannot revise(Main)")
     id = PkgId(mod)
-    pkgdict = pkgdatas[id].fileinfos
-    for (file, fi) in pkgdict
+    pkgdata = pkgdatas[id]
+    for (i, file) in enumerate(srcfiles(pkgdata))
+        fi = fileinfo(pkgdata, i)
         for (mod,fmm) in fi.fm
             for def in keys(fmm.defmap)
                 Core.eval(mod, convert(Expr, def))
@@ -556,7 +558,7 @@ function track(mod::Module, file::AbstractString)
             pkgdatas[id] = PkgData(id, pathof(mod))
         end
         pkgdata = pkgdatas[id]
-        pkgdata.fileinfos[file] = FileInfo(fm)
+        push!(pkgdata, file=>FileInfo(fm))
         init_watching(pkgdata, (file,))
     end
 end
@@ -658,14 +660,14 @@ function get_def(method::Method; modified_files=revision_queue)
     id === nothing && return nothing
     pkgdata = pkgdatas[id]
     filename = relpath(filename, pkgdata)
-    if haskey(pkgdata.fileinfos, filename)
+    if hasfile(pkgdata, filename)
         def = get_def(method, pkgdata, filename)
         def !== nothing && return def
     end
     # Perhaps this is a method that was defined via a macro defined in a different module.
     # E.g., https://github.com/timholy/Rebugger.jl/issues/3
     # Try to find the actual file in the same package/module
-    for file in keys(pkgdata.fileinfos)
+    for file in srcfiles(pkgdata)
         def = get_def(method, pkgdata, file)
         def !== nothing && return def
     end
@@ -675,7 +677,7 @@ end
 
 function get_def(method, pkgdata, filename)
     maybe_parse_from_cache!(pkgdata, filename)
-    fi = pkgdata.fileinfos[filename]
+    fi = fileinfo(pkgdata, filename)
     fmm = get(fi.fm, method.module, nothing)
     fmm === nothing && return nothing
     map = fmm.sigtmap
@@ -859,6 +861,9 @@ function __init__()
     end
     # Correct line numbers for code moving around
     Base.update_stackframes_callback[] = update_stacktrace_lineno!
+    # Populate CodeTracking data for dependencies
+    parse_pkg_files(PkgId(CodeTracking))
+    parse_pkg_files(PkgId(OrderedCollections))
 
     # Watch the manifest file for changes
     mfile = manifest_file()

@@ -1,8 +1,8 @@
 relpath_safe(path, startpath) = isempty(startpath) ? path : relpath(path, startpath)
 
 function Base.relpath(filename, pkgdata::PkgData)
-    if isabspath(filename) && startswith(filename, pkgdata.path)
-        filename = relpath_safe(filename, pkgdata.path)
+    if isabspath(filename) && startswith(filename, basedir(pkgdata))
+        filename = relpath_safe(filename, basedir(pkgdata))
     elseif startswith(filename, "compiler")
         # Core.Compiler's pkgid includes "compiler/" in the path
         filename = relpath(filename, "compiler")

@@ -35,7 +35,6 @@ function track(mod::Module; modified_files=revision_queue)
         mtcache = mtime(basesrccache)
         # Initialize expression-tracking for files, and
         # note any modified since Base was built
-        files = String[]
         if !haskey(pkgdatas, id)
             pkgdatas[id] = PkgData(id, srcdir)
         end
@@ -45,13 +44,12 @@ function track(mod::Module; modified_files=revision_queue)
             inpath(ffilename, dirs) || continue
             keypath = ffilename[1:last(findfirst(dirs[end], ffilename))]
             rpath = relpath(ffilename, keypath)
-            pkgdata.fileinfos[rpath] = FileInfo(submod, basesrccache)
-            fullpath = joinpath(pkgdata.path, rpath)
+            fullpath = joinpath(basedir(pkgdata), rpath)
             if fullpath != filename
                 cache_file_key[fullpath] = filename
                 src_file_key[filename] = fullpath
             end
-            push!(files, rpath)
+            push!(pkgdata, rpath=>FileInfo(submod, basesrccache))
             if mtime(ffilename) > mtcache
                 with_logger(_debug_logger) do
                     @debug "Recipe for Base/StdLib" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
@@ -60,7 +58,7 @@ function track(mod::Module; modified_files=revision_queue)
             end
         end
         # Add the files to the watch list
-        init_watching(pkgdata, files)
+        init_watching(pkgdata, srcfiles(pkgdata))
     elseif mod == Core.Compiler
         compilerdir = normpath(joinpath(juliadir, "base", "compiler"))
         if !haskey(pkgdatas, id)
@@ -110,7 +108,6 @@ function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GI
     tree = git_tree(repo, commit)
     files = Iterators.filter(file->startswith(file, prefix) && endswith(file, ".jl"), keys(tree))
     ccall((:giterr_clear, :libgit2), Cvoid, ())  # necessary to avoid errors like "the global/xdg file 'attributes' doesn't exist: No such file or directory"
-    wfiles = String[]  # files to watch
     for file in files
         fullpath = joinpath(repo_path, file)
         rpath = relpath(fullpath, pkgdata)  # this might undo the above, except for Core.Compiler
@@ -134,12 +131,11 @@ function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GI
         else
             instantiate_sigs!(fi.fm)
         end
-        pkgdata.fileinfos[rpath] = fi
-        push!(wfiles, rpath)
+        push!(pkgdata, rpath=>fi)
     end
     if !isempty(pkgdata.fileinfos)
         pkgdatas[id] = pkgdata
-        init_watching(pkgdata, wfiles)
+        init_watching(pkgdata, srcfiles(pkgdata))
     end
     return nothing
 end

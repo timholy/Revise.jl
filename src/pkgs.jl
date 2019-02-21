@@ -1,4 +1,5 @@
 using Base: PkgId
+using CodeTracking: basepath
 
 # A near-copy of the same method in `base/loading.jl`. However, this retains the full module path to the file.
 function parse_cache_header(f::IO)
@@ -61,7 +62,10 @@ Its job is to organize the files and expressions defining the module so that lat
 detect and process revisions.
 """
 function parse_pkg_files(id::PkgId)
-    files = String[]
+    if !haskey(pkgdatas, id)
+        pkgdatas[id] = PkgData(id)
+    end
+    pkgdata = pkgdatas[id]
     modsym = Symbol(id.name)
     if use_compiled_modules()
         # We probably got the top-level file from the precompile cache
@@ -74,18 +78,14 @@ function parse_pkg_files(id::PkgId)
             for (pkgid, buildid) in provides
                 if pkgid.uuid === uuid && pkgid.name == id.name
                     # found the right cache file
-                    if !haskey(pkgdatas, id)
-                        pkgdatas[id] = PkgData(id)
-                    end
-                    pkgdata = pkgdatas[id]
                     for (mod, fname, _) in mods_files_mtimes
                         fname = relpath(fname, pkgdata)
                         # For precompiled packages, we can read the source later (whenever we need it)
                         # from the *.ji cachefile.
-                        pkgdata.fileinfos[fname] = FileInfo(mod, path)
-                        push!(files, fname)
+                        push!(pkgdata, fname=>FileInfo(mod, path))
                     end
-                    return files
+                    CodeTracking._pkgfiles[id] = pkgdata.info
+                    return srcfiles(pkgdata)
                 end
             end
         end
@@ -93,8 +93,8 @@ function parse_pkg_files(id::PkgId)
     # Non-precompiled package(s). Here we rely on the `include` callbacks to have
     # already populated `included_files`; all we have to do is collect the relevant
     # files.
-    queue_includes!(files, id)
-    return files
+    queue_includes!(pkgdata, id)
+    return srcfiles(pkgdata)
 end
 
 # The main trick here is that since `using` is recursive, `included_files`
@@ -107,13 +107,9 @@ end
 #     we can't use the module-of-evaluation to find it. Here we hope that the
 #     top-level filename follows convention and matches the module. TODO?: it's
 #     possible that this needs to be supplemented with parsing.
-function queue_includes!(files, id::PkgId)
+function queue_includes!(pkgdata::PkgData, id::PkgId)
     modstring = id.name
     delids = Int[]
-    if !haskey(pkgdatas, id)
-        pkgdatas[id] = PkgData(id)
-    end
-    pkgdata = pkgdatas[id]
     for i = 1:length(included_files)
         mod, fname = included_files[i]
         modname = String(Symbol(mod))
@@ -122,20 +118,23 @@ function queue_includes!(files, id::PkgId)
             instantiate_sigs!(fm)
             fname = relpath(fname, pkgdata)
             if fm != nothing
-                pkgdata.fileinfos[fname] = FileInfo(fm)
+                push!(pkgdata, fname=>FileInfo(fm))
             end
-            push!(files, fname)
             push!(delids, i)
         end
     end
     deleteat!(included_files, delids)
-    return files
+    CodeTracking._pkgfiles[id] = pkgdata.info
+    return srcfiles(pkgdata)
 end
 
 function queue_includes(mod::Module)
     id = PkgId(mod)
-    files = queue_includes!(String[], id)
+    if !haskey(pkgdatas, id)
+        pkgdatas[id] = PkgData(id)
+    end
     pkgdata = pkgdatas[id]
+    files = queue_includes!(pkgdata, id)
     if has_writable_paths(pkgdata)
         init_watching(pkgdata, files)
     end
@@ -159,8 +158,8 @@ function remove_from_included_files(modsym::Symbol)
 end
 
 function read_from_cache(pkgdata::PkgData, file::AbstractString)
-    fi = pkgdata.fileinfos[file]
-    filep = joinpath(pkgdata.path, file)
+    fi = fileinfo(pkgdata, file)
+    filep = joinpath(basedir(pkgdata), file)
     if fi.cachefile == basesrccache
         # Get the original path
         filec = get(cache_file_key, filep, filep)
@@ -172,11 +171,11 @@ function read_from_cache(pkgdata::PkgData, file::AbstractString)
 end
 
 function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
-    fi = pkgdata.fileinfos[file]
+    fi = fileinfo(pkgdata, file)
     if isempty(fi.fm)
         # Source was never parsed, get it from the precompile cache
         src = read_from_cache(pkgdata, file)
-        filep = joinpath(pkgdata.path, file)
+        filep = joinpath(basedir(pkgdata), file)
         filec = get(cache_file_key, filep, filep)
         topmod = first(keys(fi.fm))
         if parse_source!(fi.fm, src, Symbol(filec), 1, topmod) === nothing
@@ -237,8 +236,8 @@ end
 
 function has_writable_paths(pkgdata::PkgData)
     haswritable = false
-    for file in keys(pkgdata.fileinfos)
-        haswritable |= iswritable(joinpath(pkgdata.path, file))
+    for file in srcfiles(pkgdata)
+        haswritable |= iswritable(joinpath(basedir(pkgdata), file))
     end
     return haswritable
 end
@@ -246,13 +245,6 @@ end
 ## Working with Pkg and code-loading
 
 # Much of this is adapted from base/loading.jl
-
-function basepath(id::PkgId)
-    id.name ∈ ("Main", "Base", "Core") && return ""
-    loc = Base.locate_package(id)
-    loc === nothing && return ""
-    return dirname(dirname(loc))
-end
 
 function manifest_file(project_file)
     if project_file isa String
@@ -321,26 +313,26 @@ function watch_manifest(mfile)
             for (id, pkgdir) in pkgdirs
                 if haskey(pkgdatas, id)
                     pkgdata = pkgdatas[id]
-                    if pkgdir != pkgdata.path
+                    if pkgdir != basedir(pkgdata)
                         ## The package directory has changed
-                        @debug "Pkg" _group="pathswitch" oldpath=pkgdata.path newpath=pkgdir
+                        @debug "Pkg" _group="pathswitch" oldpath=basedir(pkgdata) newpath=pkgdir
                         # Stop all associated watching tasks
-                        for dir in unique_dirs(keys(pkgdata.fileinfos))
+                        for dir in unique_dirs(srcfiles(pkgdata))
                             @debug "Pkg" _group="unwatch" dir=dir
-                            delete!(watched_files, joinpath(pkgdata.path, dir))
+                            delete!(watched_files, joinpath(basedir(pkgdata), dir))
                             # Note: if the file is revised, the task(s) will run one more time.
                             # However, because we've removed the directory from the watch list this will be a no-op,
                             # and then the tasks will be dropped.
                         end
                         # Revise code as needed
                         files = String[]
-                        for file in keys(pkgdata.fileinfos)
+                        for file in srcfiles(pkgdata)
                             maybe_parse_from_cache!(pkgdata, file)
                             push!(revision_queue, (pkgdata, file))
                             push!(files, file)
                         end
                         # Update the directory
-                        pkgdata.path = pkgdir
+                        pkgdata.info.basedir = pkgdir
                         # Restart watching, if applicable
                         if has_writable_paths(pkgdata)
                             init_watching(pkgdata, files)

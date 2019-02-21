@@ -627,7 +627,7 @@ end
                         joinpath("src", "subdir", "file3.jl"),
                         joinpath("src", "subdir", "file4.jl"),
                         joinpath("src", "file5.jl")]
-                @test haskey(pkgdata.fileinfos, file)
+                @test Revise.hasfile(pkgdata, file)
             end
         end
         # Remove the precompiled file
@@ -1570,7 +1570,7 @@ end
                 Revise.track_subdir_from_git(id, joinpath(randdir, "src"); commit="HEAD")
             end
             yry()
-            @test haskey(Revise.pkgdatas[id].fileinfos, mainjl)
+            @test Revise.hasfile(Revise.pkgdatas[id], mainjl)
             @test startswith(logs[1].message, "skipping src/extra.jl")
             rm_precompile("ModuleWithNewFile")
             pop!(LOAD_PATH)
@@ -1582,8 +1582,8 @@ end
         Revise.track(Base)
         id = Base.PkgId(Base)
         pkgdata = Revise.pkgdatas[id]
-        @test any(k->endswith(k, "number.jl"), keys(pkgdata.fileinfos))
-        @test length(filter(k->endswith(k, "file.jl"), keys(pkgdata.fileinfos))) == 1
+        @test any(k->endswith(k, "number.jl"), Revise.srcfiles(pkgdata))
+        @test length(filter(k->endswith(k, "file.jl"), Revise.srcfiles(pkgdata))) == 1
         m = @which show([1,2,3])
         @test Revise.get_def(m) isa Revise.RelocatableExpr
 
@@ -1591,7 +1591,7 @@ end
         Revise.track(Unicode)
         id = Base.PkgId(Unicode)
         pkgdata = Revise.pkgdatas[id]
-        @test any(k->endswith(k, "Unicode.jl"), keys(pkgdata.fileinfos))
+        @test any(k->endswith(k, "Unicode.jl"), Revise.srcfiles(pkgdata))
         @test Revise.get_def(first(methods(Unicode.isassigned))) isa Revise.RelocatableExpr
 
         # Submodule of Pkg (note that package is developed outside the
@@ -1607,7 +1607,7 @@ end
             Revise.track(Core.Compiler)
             id = Base.PkgId(Core.Compiler)
             pkgdata = Revise.pkgdatas[id]
-            @test any(k->endswith(k, "compiler.jl"), keys(pkgdata.fileinfos))
+            @test any(k->endswith(k, "compiler.jl"), Revise.srcfiles(pkgdata))
             m = first(methods(Core.Compiler.typeinf_code))
             @test Revise.get_def(m) isa Revise.RelocatableExpr
 

@@ -137,14 +137,40 @@ For the `PkgData` associated with `Main` (e.g., for files loaded with [`includet
 the corresponding `path` entry will be empty.
 """
 mutable struct PkgData
-    id::PkgId
-    path::String
-    fileinfos::Dict{String,FileInfo}
+    info::PkgFiles
+    fileinfos::Vector{FileInfo}
 end
 
-PkgData(id::PkgId, path) = PkgData(id, path, Dict{String,FileInfo}())
+PkgData(id::PkgId, path) = PkgData(PkgFiles(id, path), FileInfo[])
 PkgData(id::PkgId, ::Nothing) = PkgData(id, "")
 PkgData(id::PkgId) = PkgData(id, normpath(basepath(id)))
+
+# Abstraction interface for PkgData
+Base.PkgId(pkgdata::PkgData) = PkgId(pkgdata.info)
+CodeTracking.basedir(pkgdata::PkgData) = basedir(pkgdata.info)
+CodeTracking.srcfiles(pkgdata::PkgData) = srcfiles(pkgdata.info)
+
+function fileindex(info, file::AbstractString)
+    for (i, f) in enumerate(srcfiles(info))
+        f == file && return i
+    end
+    return nothing
+end
+
+hasfile(info, file) = fileindex(info, file) !== nothing
+
+function fileinfo(pkgdata::PkgData, file::AbstractString)
+    i = fileindex(pkgdata, file)
+    i === nothing && error("file ", file, " not found")
+    return pkgdata.fileinfos[i]
+end
+fileinfo(pkgdata::PkgData, i::Integer) = pkgdata.fileinfos[i]
+
+function Base.push!(pkgdata::PkgData, pr::Pair{<:AbstractString,FileInfo})
+    push!(srcfiles(pkgdata), pr.first)
+    push!(pkgdata.fileinfos, pr.second)
+    return pkgdata
+end
 
 struct GitRepoException <: Exception
     filename::String
