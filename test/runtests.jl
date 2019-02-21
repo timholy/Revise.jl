@@ -1,4 +1,4 @@
-using Revise
+using Revise, CodeTracking
 using Test
 
 @test isempty(detect_ambiguities(Revise, Base, Core))
@@ -541,13 +541,13 @@ end
             @eval @test $(fn5)() == 5
             @eval @test $(fn6)() == 6
             m = @eval first(methods($fn1))
-            ex = Revise.get_def(m)
+            ex = Revise.relocatable!(definition(m))
             @test ex == convert(Revise.RelocatableExpr, :( $fn1() = 1 ))
-            # Check that get_def returns copies
+            # Check that definition returns copies
             ex2 = deepcopy(ex)
             ex.args[end].args[end] = 2
-            @test Revise.get_def(m) == ex2
-            @test Revise.get_def(m) != ex
+            @test Revise.relocatable!(definition(m)) == ex2
+            @test Revise.relocatable!(definition(m)) != ex
             sleep(0.1)  # to ensure that the file watching has kicked in
             # Change the definition of function 1 (easiest to just rewrite the whole file)
             open(joinpath(dn, modname*".jl"), "w") do io
@@ -1344,7 +1344,7 @@ end
         @test GetDef.f([1.0]) == 2
         @test GetDef.f([1]) == 3
         m = @which GetDef.f([1])
-        ex = Revise.get_def(m)
+        ex = Revise.relocatable!(definition(m))
         @test ex isa Revise.RelocatableExpr
         @test isequal(ex, Revise.relocatable!(:(f(v::AbstractVector{<:Integer}) = 3)))
 
@@ -1585,20 +1585,20 @@ end
         @test any(k->endswith(k, "number.jl"), Revise.srcfiles(pkgdata))
         @test length(filter(k->endswith(k, "file.jl"), Revise.srcfiles(pkgdata))) == 1
         m = @which show([1,2,3])
-        @test Revise.get_def(m) isa Revise.RelocatableExpr
+        @test definition(m) isa Expr
 
         # Tracking stdlibs
         Revise.track(Unicode)
         id = Base.PkgId(Unicode)
         pkgdata = Revise.pkgdatas[id]
         @test any(k->endswith(k, "Unicode.jl"), Revise.srcfiles(pkgdata))
-        @test Revise.get_def(first(methods(Unicode.isassigned))) isa Revise.RelocatableExpr
+        @test definition(first(methods(Unicode.isassigned))) isa Expr
 
         # Submodule of Pkg (note that package is developed outside the
         # Julia repo, this tests new cases)
         id = Revise.get_tracked_id(Pkg.Types)
         pkgdata = Revise.pkgdatas[id]
-        @test Revise.get_def(first(methods(Pkg.API.add))) isa Revise.RelocatableExpr
+        @test definition(first(methods(Pkg.API.add))) isa Expr
 
         # Determine whether a git repo is available. Travis & Appveyor do not have this.
         repo, path = Revise.git_repo(Revise.juliadir)
@@ -1609,7 +1609,7 @@ end
             pkgdata = Revise.pkgdatas[id]
             @test any(k->endswith(k, "compiler.jl"), Revise.srcfiles(pkgdata))
             m = first(methods(Core.Compiler.typeinf_code))
-            @test Revise.get_def(m) isa Revise.RelocatableExpr
+            @test definition(m) isa Expr
 
             # Test that we skip over files that don't end in ".jl"
             logs, _ = Test.collect_test_logs() do
@@ -1734,8 +1734,8 @@ if Sys.islinux()
         end
         # https://github.com/timholy/Rebugger.jl/issues/3
         m = which(Plots.histogram, Tuple{Vector{Float64}})
-        def = Revise.get_def(m)
-        @test def isa Revise.RelocatableExpr
+        def = definition(m)
+        @test_broken def isa Expr
 
         # Tests for "module hygiene"
         @test !isdefined(Main, :JSON)  # internal to Plots
