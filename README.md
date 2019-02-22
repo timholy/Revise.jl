@@ -1,6 +1,4 @@
-![splash](images/logo.png)
-
-# Revise
+<div align="center"> <img src="images/logo.png" alt="Revise.jl" width="420"></img></div>
 
 **NOTE: this page is for Julia 0.7.0 and higher. For Julia 0.6 [see this branch](https://github.com/timholy/Revise.jl/tree/v0.6)**
 
