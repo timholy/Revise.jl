@@ -131,10 +131,10 @@ function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GI
         end
         fmod = get(juliaf2m, fullpath, Core.Compiler)  # Core.Compiler is not cached
         fi = FileInfo(fmod)
-        if parse_source!(fi.fm, src, Symbol(file), 1, fmod) === nothing
+        if parse_source!(fi.modexsigs, src, file, fmod) === nothing
             @warn "failed to parse Git source text for $file"
         else
-            instantiate_sigs!(fi.fm)
+            instantiate_sigs!(fi.modexsigs)
         end
         push!(pkgdata, rpath=>fi)
     end

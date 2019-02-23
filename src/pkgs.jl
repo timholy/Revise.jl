@@ -112,13 +112,16 @@ function queue_includes!(pkgdata::PkgData, id::PkgId)
     delids = Int[]
     for i = 1:length(included_files)
         mod, fname = included_files[i]
+        if mod == Base.__toplevel__
+            mod = Main
+        end
         modname = String(Symbol(mod))
         if startswith(modname, modstring) || endswith(fname, modstring*".jl")
-            fm = parse_source(fname, mod)
-            instantiate_sigs!(fm)
+            modexsigs = parse_source(fname, mod)
+            instantiate_sigs!(modexsigs)
             fname = relpath(fname, pkgdata)
-            if fm != nothing
-                push!(pkgdata, fname=>FileInfo(fm))
+            if modexsigs != nothing
+                push!(pkgdata, fname=>FileInfo(modexsigs))
             end
             push!(delids, i)
         end
@@ -172,16 +175,16 @@ end
 
 function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
     fi = fileinfo(pkgdata, file)
-    if isempty(fi.fm)
+    if isempty(fi.modexsigs)
         # Source was never parsed, get it from the precompile cache
         src = read_from_cache(pkgdata, file)
         filep = joinpath(basedir(pkgdata), file)
         filec = get(cache_file_key, filep, filep)
-        topmod = first(keys(fi.fm))
-        if parse_source!(fi.fm, src, Symbol(filec), 1, topmod) === nothing
+        topmod = first(keys(fi.modexsigs))
+        if parse_source!(fi.modexsigs, src, filec, topmod) === nothing
             @error "failed to parse cache file source text for $file"
         end
-        instantiate_sigs!(fi.fm)
+        instantiate_sigs!(fi.modexsigs)
     end
     return fi
 end

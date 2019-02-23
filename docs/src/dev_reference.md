@@ -36,7 +36,7 @@ Revise.RelocatableExpr
 Revise.DefMap
 Revise.SigtMap
 Revise.FMMaps
-Revise.FileModules
+Revise.ModuleExprsSigs
 Revise.FileInfo
 Revise.PkgData
 Revise.WatchList

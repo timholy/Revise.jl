@@ -6,86 +6,52 @@
 # would have a very negative effect on the quality of backtraces. So
 # we keep them, but introduce machinery to compare expressions without
 # concern for line numbers.
-#
-# To reduce the performance overhead of this package, we try to
-# achieve this goal with minimal copying of data.
 
 """
-A `RelocatableExpr` is exactly like an `Expr` except that comparisons
+A `RelocatableExpr` wraps an `Expr` to ensure that comparisons
 between `RelocatableExpr`s ignore line numbering information.
 This allows one to detect that two expressions are the same no matter
 where they appear in a file.
-
-You can use `convert(Expr, rex::RelocatableExpr)` to convert to an `Expr`
-and `convert(RelocatableExpr, ex::Expr)` for the converse. Beware that
-the latter operates in-place and is intended only for internal use.
 """
-mutable struct RelocatableExpr
-    head::Symbol
-    args::Vector{Any}
-
-    RelocatableExpr(head::Symbol, args::Vector{Any}) = new(head, args)
-    RelocatableExpr(head::Symbol, args...) = new(head, [args...])
+struct RelocatableExpr
+    ex::Expr
 end
 
 const ExLike = Union{Expr,RelocatableExpr}
 
-# Works in-place and hence is unsafe. Only for internal use.
-Base.convert(::Type{RelocatableExpr}, ex::Expr) = relocatable!(ex)
+Base.convert(::Type{RelocatableExpr}, ex::Expr) = RelocatableExpr(ex)
 
-function relocatable!(ex::Expr)
-    return RelocatableExpr(ex.head, relocatable!(ex.args))
-end
-relocatable!(ex::RelocatableExpr) = ex
+Base.convert(::Type{Expr}, rex::RelocatableExpr) = rex.ex
+Expr(rex::RelocatableExpr) = rex.ex
 
-function relocatable!(args::Vector{Any})
-    for (i, a) in enumerate(args)
-        if isa(a, Expr)
-            args[i] = relocatable!(a::Expr)
-        end   # do we need to worry about QuoteNodes?
-    end
-    args
-end
-
-function Base.convert(::Type{Expr}, rex::RelocatableExpr)
-    # This makes a copy. Used for `eval`, where we don't want to
-    # mutate the cached representation.
-    ex = Expr(rex.head)
-    ex.args = Any[a isa RelocatableExpr ? convert(Expr, a) : a for a in rex.args]
-    ex
-end
-
-function Base.copy(rex::RelocatableExpr)
-    crex = RelocatableExpr(rex.head)
-    crex.args = Any[a isa RelocatableExpr ? copy(a) : a for a in rex.args]
-    crex
-end
+Base.copy(rex::RelocatableExpr) = RelocatableExpr(copy(rex.ex))
 
 # Implement the required comparison functions. `hash` is needed for Dicts.
-function Base.:(==)(a::RelocatableExpr, b::RelocatableExpr)
+function Base.:(==)(ra::RelocatableExpr, rb::RelocatableExpr)
+    a, b = ra.ex, rb.ex
     a.head == b.head && isequal(LineSkippingIterator(a.args), LineSkippingIterator(b.args))
 end
 
 const hashrex_seed = UInt == UInt64 ? 0x7c4568b6e99c82d9 : 0xb9c82fd8
-Base.hash(x::RelocatableExpr, h::UInt) = hash(LineSkippingIterator(x.args),
-                                              hash(x.head, h + hashrex_seed))
+Base.hash(x::RelocatableExpr, h::UInt) = hash(LineSkippingIterator(x.ex.args),
+                                              hash(x.ex.head, h + hashrex_seed))
 
 function Base.show(io::IO, rex::RelocatableExpr)
-    rexf = striplines!(copy(rex))
-    show(io, convert(Expr, rexf))
+    show(io, striplines!(copy(rex.ex)))
 end
 
-function striplines!(rex::RelocatableExpr)
-    if rex.head == :macrocall
+function striplines!(ex::Expr)
+    if ex.head == :macrocall
         # for macros, the show method in Base assumes the line number is there,
         # so don't strip it
-        args3 = [a isa RelocatableExpr ? striplines!(a) : a for a in rex.args[3:end]]
-        return RelocatableExpr(rex.head, rex.args[1], nothing, args3...)
+        args3 = [a isa ExLike ? striplines!(a) : a for a in ex.args[3:end]]
+        return Expr(ex.head, ex.args[1], nothing, args3...)
     end
-    args = [a isa RelocatableExpr ? striplines!(a) : a for a in rex.args]
+    args = [a isa ExLike ? striplines!(a) : a for a in ex.args]
     fargs = collect(LineSkippingIterator(args))
-    return RelocatableExpr(rex.head, fargs...)
+    return Expr(ex.head, fargs...)
 end
+striplines!(rex::RelocatableExpr) = RelocatableExpr(striplines!(rex.ex))
 
 # We could just collect all the non-line statements to a Vector, but
 # doing things in-place will be more efficient.
@@ -106,7 +72,7 @@ function skip_to_nonline(args, i)
     while true
         i > length(args) && return i
         ex = args[i]
-        if isa(ex, RelocatableExpr) && (ex::RelocatableExpr).head == :line
+        if isa(ex, Expr) && ex.head == :line
             i += 1
         elseif isa(ex, LineNumberNode)
             i += 1
@@ -129,9 +95,7 @@ function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
         (reta == nothing || retb == nothing) && return false
         vala, ia = reta
         valb, ib = retb
-        if isa(vala, RelocatableExpr) && isa(valb, RelocatableExpr)
-            vala = vala::RelocatableExpr
-            valb = valb::RelocatableExpr
+        if isa(vala, Expr) && isa(valb, Expr)
             vala.head == valb.head || return false
             isequal(LineSkippingIterator(vala.args), LineSkippingIterator(valb.args)) || return false
         elseif isa(vala, Symbol) && isa(valb, Symbol)
@@ -149,14 +113,18 @@ const hashlsi_seed = UInt == UInt64 ? 0x533cb920dedccdae : 0x2667c89b
 function Base.hash(iter::LineSkippingIterator, h::UInt)
     h += hashlsi_seed
     for x in iter
-        if x isa Symbol
+        if x isa Expr
+            h += hash(LineSkippingIterator(x.args), hash(x.head, h + hashrex_seed))
+        elseif x isa Symbol
             xs = String(x)
             if startswith(xs, '#')  # all gensymmed symbols are treated as identical
                 h += hash("gensym", h)
-                continue
+            else
+                h += hash(x, h)
             end
+        else
+            h += hash(x, h)
         end
-        h += hash(x, h)
     end
     h
 end

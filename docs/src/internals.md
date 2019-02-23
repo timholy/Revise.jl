@@ -230,21 +230,21 @@ where here `def` is the expression defining `print_item`.
 
 When the file system notifies Revise that a file has been modified, Revise re-parses
 the file and assigns the expressions to the appropriate modules, creating a
-[`Revise.FileModules`](@ref) `fmnew`.
-It then compares `fmnew` against `fmref`, the reference object that is synchronized to
+[`Revise.ModuleExprsSigs`](@ref) `mexsnew`.
+It then compares `mexsnew` against `mexsref`, the reference object that is synchronized to
 code as it was `eval`ed.
 The following actions are taken:
 
-- if a `def` entry in `fmref` is equal to one `fmnew`, the expression is "unchanged"
-  except possibly for line number. The `lineoffset` in `fmref` is updated as needed.
-- if a `def` entry in `fmref` is not present in `fmnew`, that entry is deleted and
+- if a `def` entry in `mexsref` is equal to one `mexsnew`, the expression is "unchanged"
+  except possibly for line number. The `lineoffset` in `mexsref` is updated as needed.
+- if a `def` entry in `mexsref` is not present in `mexsnew`, that entry is deleted and
   any corresponding methods are also deleted.
-- if a `def` entry in `fmnew` is not present in `fmref`, it is `eval`ed and then added to
-  `fmref`.
+- if a `def` entry in `mexsnew` is not present in `mexsref`, it is `eval`ed and then added to
+  `mexsref`.
 
-Technically, a new `fmref` is generated every time to ensure that the expressions are
-ordered as in `fmnew`; however, conceptually this is better thought of as an updating of
-`fmref`, after which `fmnew` is discarded.
+Technically, a new `mexsref` is generated every time to ensure that the expressions are
+ordered as in `mexsnew`; however, conceptually this is better thought of as an updating of
+`mexsref`, after which `mexsnew` is discarded.
 
 ### Internal API
 
