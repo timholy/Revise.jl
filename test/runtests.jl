@@ -1735,7 +1735,7 @@ if Sys.islinux()
         # https://github.com/timholy/Rebugger.jl/issues/3
         m = which(Plots.histogram, Tuple{Vector{Float64}})
         def = Revise.get_def(m)
-        @test def isa Revise.RelocatableExpr
+        @test_broken def isa Revise.RelocatableExpr
 
         # Tests for "module hygiene"
         @test !isdefined(Main, :JSON)  # internal to Plots
