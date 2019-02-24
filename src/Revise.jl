@@ -491,19 +491,24 @@ end
 # This variant avoids unhandled task failures
 function revise(backend::REPL.REPLBackend)
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
+    processed = []
     for (pkgdata, file) in revision_queue
         try
             revise_file_now(pkgdata, file)
+            push!(processed, (pkgdata, file))
         catch err
             @static if VERSION >= v"1.2.0-DEV.253"
                 put!(backend.response_channel, (Base.catch_stack(), true))
             else
                 put!(backend.response_channel, (err, catch_backtrace()))
             end
+            break
         end
     end
-    empty!(revision_queue)
-    if tracking_Main_includes[]
+    for task in processed
+        delete!(revision_queue, task)
+    end
+    if tracking_Main_includes[] && isempty(revision_queue)
         try
             queue_includes(Main)
         catch err
