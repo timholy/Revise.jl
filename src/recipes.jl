@@ -44,7 +44,7 @@ function _track(id, modname; modified_files=revision_queue)
             pkgdatas[id] = PkgData(id, srcdir)
         end
         pkgdata = pkgdatas[id]
-        for (submod, filename) in Base._included_files
+        for (submod, filename) in Iterators.drop(Base._included_files, 1)  # stepping through sysimg.jl rebuilds Base, omit it
             ffilename = fixpath(filename)
             inpath(ffilename, dirs) || continue
             keypath = ffilename[1:last(findfirst(dirs[end], ffilename))]
