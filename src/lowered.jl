@@ -14,18 +14,19 @@ function add_docexpr!(docexprs::AbstractDict{Module,V}, mod::Module, ex) where V
     return docexprs
 end
 
+function lookup_callexpr(frame, stmt)
+    fargs = JuliaInterpreter.collect_args(frame, stmt)
+    return Expr(:call, fargs...)
+end
+
+# This defines the API needed to store signatures using methods_by_execution!
+# This default version is simple; there's a more involved one in Revise.jl that interacts
+# with CodeTracking.
 const MethodInfo = IdDict{Type,LineNumberNode}
 add_signature!(methodinfo::MethodInfo, sig, ln) = push!(methodinfo, sig=>ln)
 push_expr!(methodinfo::MethodInfo, mod::Module, ex::Expr) = methodinfo
 pop_expr!(methodinfo::MethodInfo) = methodinfo
 
-# function methods_by_execution(mod::Module, code::CodeInfo; define=true)
-#     methodinfo = MethodInfo()
-#     docexprs = Dict{Module,Vector{Expr}}()
-#     stack = JuliaStackFrame[]
-#     return methods_by_execution!(methodinfo, docexprs, stack, mod, code; define=define)
-# end
-#
 function methods_by_execution(mod::Module, ex::Expr; define=true)
     methodinfo = MethodInfo()
     docexprs = Dict{Module,Vector{Expr}}()
@@ -72,9 +73,13 @@ function methods_by_execution!(methodinfo, docexprs, stack, frame; define=true)
                     if !isa(bodycode, CodeInfo)
                         bodycode = @lookup(frame, bodycode)
                     end
-                    lnn = bodycode.linetable[1]
-                    for sig in signatures
-                        add_signature!(methodinfo, sig, lnn)
+                    if isa(bodycode, CodeInfo)
+                        lnn = bodycode.linetable[1]
+                        for sig in signatures
+                            add_signature!(methodinfo, sig, lnn)
+                        end
+                    else
+                        @warn "unhandled lambda expression"
                     end
                 end
             elseif stmt.head == :(=) && isa(stmt.args[1], Symbol)
@@ -112,7 +117,22 @@ function methods_by_execution!(methodinfo, docexprs, stack, frame; define=true)
                     pc = next_or_nothing(frame, pc)
                 else
                     # A :call Expr we don't want to intercept
-                    pc = _step_expr!(stack, frame, stmt, pc, true)
+                    try
+                        pc = _step_expr!(stack, frame, stmt, pc, true)
+                    catch
+                        # This can happen with functions defined in `let` blocks, e.g.,
+                        #     let trynames(names) = begin
+                        #         return root_path::AbstractString -> begin
+                        #             # stuff
+                        #         end
+                        #     end # trynames
+                        #         global projectfile_path = trynames(Base.project_names)
+                        #         global manifestfile_path = trynames(Base.manifest_names)
+                        #     end
+                        # as found in Pkg.Types.
+                        @warn "omitting call expression $(lookup_callexpr(frame, stmt))"
+                        pc = next_or_nothing(frame, pc)
+                    end
                 end
             else
                 # An Expr we don't want to intercept
