@@ -58,11 +58,6 @@ function private_module()
     Core.eval(ReviseTestPrivate, :(module $modname end))
 end
 
-module PlottingDummy
-using RecipesBase
-struct PlotDummy end
-end
-
 sig_type_exprs(ex) = Revise.sig_type_exprs(Main, ex)   # just for testing purposes
 
 const pair_op_string = string(Dict(1=>2))[7:end-2]     # accomodate changes in Dict printing w/ Julia version
@@ -1544,32 +1539,3 @@ end
 end
 
 GC.gc(); GC.gc(); GC.gc()   # work-around for https://github.com/JuliaLang/julia/issues/28306
-
-# Now do a large-scale real-world test, in an attempt to prevent issues like #155
-if Sys.islinux()
-    function pkgid(name)
-        project = Base.active_project()
-        uuid = Base.project_deps_get(project, name)
-        return Base.PkgId(uuid, name)
-    end
-    @testset "Plots" begin
-        idplots = pkgid("Plots")
-        if idplots.uuid !== nothing && !haskey(Revise.pkgdatas, idplots)
-            @eval using Plots
-            yry()
-            @test haskey(Revise.pkgdatas, Base.PkgId(Plots.JSON))  # issue #155
-        end
-        # https://github.com/timholy/Rebugger.jl/issues/3
-        m = which(Plots.histogram, Tuple{Vector{Float64}})
-        def = definition(m)
-        @test_broken def isa Expr
-
-        # Tests for "module hygiene"
-        @test !isdefined(Main, :JSON)  # internal to Plots
-        id = Base.PkgId(Plots.JSON)
-        pkgdata = Revise.pkgdatas[id]
-        file = joinpath("src", "JSON.jl")
-        Revise.maybe_parse_from_cache!(pkgdata, file)
-        @test !isdefined(Main, :JSON)  # internal to Plots
-    end
-end
