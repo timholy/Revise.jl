@@ -21,8 +21,8 @@ const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Any}}}
 Base.setindex!(ex_sigs::ExprsSigs, val, ex::Expr) = setindex!(ex_sigs, val, RelocatableExpr(ex))
 
 function Base.show(io::IO, exsigs::ExprsSigs)
-    limit = get(io, :limit, true)
-    if limit
+    compact = get(io, :compact, false)
+    if compact
         n = 0
         for (rex, sigs) in exsigs
             sigs === nothing && continue
@@ -30,11 +30,10 @@ function Base.show(io::IO, exsigs::ExprsSigs)
         end
         print(io, "ExprsSigs(<$(length(exsigs)) expressions>, <$n signatures>)")
     else
-        println(io, "ExprsSigs with the following expressions:")
+        print(io, "ExprsSigs with the following expressions: ")
         for def in keys(exsigs)
-            print(io, "  ")
+            print(io, "\n  ")
             Base.show_unquoted(io, def, 2)
-            print(io, '\n')
         end
     end
 end
@@ -162,11 +161,35 @@ function Base.push!(pkgdata::PkgData, pr::Pair{<:AbstractString,FileInfo})
 end
 
 function Base.show(io::IO, pkgdata::PkgData)
+    compact = get(io, :compact, false)
     print(io, "PkgData(")
-    show(io, pkgdata.info)
-    println(io, ')')
-    for (f, fi) in zip(pkgdata.info.files, pkgdata.fileinfos)
-        println(io, "  \"", f, "\": ", fi)
+    if compact
+        print(io, '"', pkgdata.info.basedir, "\", ")
+        nexs, nsigs, nparsed = 0, 0, 0
+        for fi in pkgdata.fileinfos
+            thisnexs, thisnsigs = 0, 0
+            for (mod, exsigs) in fi.modexsigs
+                for (rex, sigs) in exsigs
+                    thisnexs += 1
+                    sigs === nothing && continue
+                    thisnsigs += length(sigs)
+                end
+            end
+            nexs += thisnexs
+            nsigs += thisnsigs
+            if thisnexs > 0
+                nparsed += 1
+            end
+        end
+        print(io, nparsed, '/', length(pkgdata.fileinfos), " parsed files, ", nexs, " expressions, ", nsigs, " signatures)")
+    else
+        show(io, pkgdata.info.id)
+        println(io, ':')
+        for (f, fi) in zip(pkgdata.info.files, pkgdata.fileinfos)
+            print(io, "  \"", f, "\": ")
+            show(IOContext(io, :compact=>true), fi)
+            print('\n')
+        end
     end
 end
 

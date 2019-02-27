@@ -287,11 +287,12 @@ k(x) = 4
         Revise.instantiate_sigs!(mexs)
         @test string(mexs) == "OrderedCollections.OrderedDict($mod$(pair_op_string)ExprsSigs(<1 expressions>, <0 signatures>),$mod.ReviseTest$(pair_op_string)ExprsSigs(<2 expressions>, <2 signatures>),$mod.ReviseTest.Internal$(pair_op_string)ExprsSigs(<6 expressions>, <5 signatures>))"
         exs = mexs[getfield(mod, :ReviseTest)]
-        @test string(exs) == "ExprsSigs(<2 expressions>, <2 signatures>)"
         io = IOBuffer()
-        print(IOContext(io, :limit=>false), exs)
+        print(IOContext(io, :compact=>true), exs)
+        @test String(take!(io)) == "ExprsSigs(<2 expressions>, <2 signatures>)"
+        print(IOContext(io, :compact=>false), exs)
         str = String(take!(io))
-        @test str == "ExprsSigs with the following expressions:\n  :(square(x) = begin\n          x ^ 2\n      end)\n  :(cube(x) = begin\n          x ^ 4\n      end)\n"
+        @test str == "ExprsSigs with the following expressions: \n  :(square(x) = begin\n          x ^ 2\n      end)\n  :(cube(x) = begin\n          x ^ 4\n      end)"
     end
 
     @testset "File paths" begin
