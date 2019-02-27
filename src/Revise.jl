@@ -902,9 +902,13 @@ function __init__()
     end
     # Correct line numbers for code moving around
     Base.update_stackframes_callback[] = update_stacktrace_lineno!
-    # Populate CodeTracking data for dependencies
-    parse_pkg_files(PkgId(CodeTracking))
-    parse_pkg_files(PkgId(OrderedCollections))
+    # Populate CodeTracking data for dependencies and initialize watching
+    for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils)
+        id = PkgId(mod)
+        parse_pkg_files(id)
+        pkgdata = pkgdatas[id]
+        init_watching(pkgdata, srcfiles(pkgdata))
+    end
     # Set the lookup callbacks
     CodeTracking.method_lookup_callback[] = get_def
     CodeTracking.expressions_callback[] = get_expressions
