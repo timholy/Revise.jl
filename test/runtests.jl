@@ -1,4 +1,4 @@
-using Revise, CodeTracking
+using Revise, CodeTracking, JuliaInterpreter
 using Test
 
 @test isempty(detect_ambiguities(Revise, Base, Core))
@@ -114,6 +114,35 @@ g(x) = 2
 h{x) = 3  # error
 k(x) = 4
 """, "test", Main)
+    end
+
+    @testset "Signature extraction" begin
+        jidir = dirname(dirname(pathof(JuliaInterpreter)))
+        scriptfile = joinpath(jidir, "test", "toplevel_script.jl")
+        modex = :(module Toplevel include($scriptfile) end)
+        mod = eval(modex)
+        mexs = Revise.parse_source(scriptfile, mod)
+        Revise.instantiate_sigs!(mexs)
+        nms = names(mod; all=true)
+        modeval, modinclude = getfield(mod, :eval), getfield(mod, :include)
+        failed = []
+        n = 0
+        for fsym in nms
+            f = getfield(mod, fsym)
+            isa(f, Base.Callable) || continue
+            (f === modeval || f === modinclude) && continue
+            for m in methods(f)
+                # MyInt8 brings in lots of number & type machinery, which leads
+                # to wandering through Base files. At this point we just want
+                # to test whether we have the basics down, so for now avoid
+                # looking in any file other than the script
+                string(m.file) == scriptfile || continue
+                isa(definition(m), Expr) || push!(failed, m.sig)
+                n += 1
+            end
+        end
+        @test isempty(failed)
+        @test n > length(nms)/2
     end
 
     @testset "Comparison and line numbering" begin
@@ -1170,6 +1199,11 @@ end
         @test isequal(ex, Revise.RelocatableExpr(:(f(v::AbstractVector{<:Integer}) = 3)))
 
         rm_precompile("GetDef")
+
+        # This method identifies itself as originating from @irrational, defined in Base, but
+        # the module of the method is listed as Base.MathConstants.
+        m = @which Float32(π)
+        @test definition(m) isa Expr
     end
 
     @testset "Pkg exclusion" begin

@@ -54,6 +54,50 @@ function parse_cache_header(cachefile::String)
     end
 end
 
+function pkg_fileinfo(id::PkgId)
+    uuid, name = id.uuid, id.name
+    # Try to find the matching cache file
+    paths = Base.find_all_in_cache_path(id)
+    for path in paths
+        provides, includes_requires = parse_cache_header(path)
+        mods_files_mtimes, _ = includes_requires
+        for (pkgid, buildid) in provides
+            if pkgid.uuid === uuid && pkgid.name == name
+                return path, mods_files_mtimes
+            end
+        end
+    end
+    return nothing, nothing
+end
+
+"""
+    parentfile, included_files = modulefiles(mod::Module)
+
+Return the `parentfile` in which `mod` was defined, as well as a list of any
+other files that were `include`d to define `mod`. If this operation is unsuccessful,
+`(nothing, nothing)` is returned.
+
+All files are returned as absolute paths.
+"""
+function modulefiles(mod::Module)
+    function keypath(filename)
+        filename = fixpath(filename)
+        return get(src_file_key, filename, filename)
+    end
+    parentfile = String(first(methods(getfield(mod, :eval))).file)
+    id = PkgId(mod)
+    if id.name == "Base" || Symbol(id.name) ∈ stdlib_names
+        parentfile = normpath(Base.find_source_file(parentfile))
+        filedata = Base._included_files
+    else
+        use_compiled_modules() || return nothing, nothing   # FIXME: support non-precompiled packages
+        _, filedata = pkg_fileinfo(id)
+    end
+    filedata === nothing && return nothing, nothing
+    included_files = filter(mf->mf[1] == mod, filedata)
+    return keypath(parentfile), [keypath(mf[2]) for mf in included_files]
+end
+
 """
     parse_pkg_files(id::PkgId)
 
@@ -68,26 +112,16 @@ function parse_pkg_files(id::PkgId)
     pkgdata = pkgdatas[id]
     modsym = Symbol(id.name)
     if use_compiled_modules()
-        # We probably got the top-level file from the precompile cache
-        # Try to find the matching cache file
-        uuid = id.uuid
-        paths = Base.find_all_in_cache_path(id)
-        for path in paths
-            provides, includes_requires = parse_cache_header(path)
-            mods_files_mtimes, _ = includes_requires
-            for (pkgid, buildid) in provides
-                if pkgid.uuid === uuid && pkgid.name == id.name
-                    # found the right cache file
-                    for (mod, fname, _) in mods_files_mtimes
-                        fname = relpath(fname, pkgdata)
-                        # For precompiled packages, we can read the source later (whenever we need it)
-                        # from the *.ji cachefile.
-                        push!(pkgdata, fname=>FileInfo(mod, path))
-                    end
-                    CodeTracking._pkgfiles[id] = pkgdata.info
-                    return srcfiles(pkgdata)
-                end
+        cachefile, mods_files_mtimes = pkg_fileinfo(id)
+        if cachefile !== nothing
+            for (mod, fname, _) in mods_files_mtimes
+                fname = relpath(fname, pkgdata)
+                # For precompiled packages, we can read the source later (whenever we need it)
+                # from the *.ji cachefile.
+                push!(pkgdata, fname=>FileInfo(mod, cachefile))
             end
+            CodeTracking._pkgfiles[id] = pkgdata.info
+            return srcfiles(pkgdata)
         end
     end
     # Non-precompiled package(s). Here we rely on the `include` callbacks to have

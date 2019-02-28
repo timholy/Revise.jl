@@ -14,6 +14,7 @@ end
 
 function _track(id, modname; modified_files=revision_queue)
     inpath(path, dirs) = all(dir->occursin(dir, path), dirs)
+    haskey(pkgdatas, id) && return nothing  # already tracked
     isbase = modname == :Base
     isstdlib = !isbase && modname ∈ stdlib_names
     if isbase || isstdlib
