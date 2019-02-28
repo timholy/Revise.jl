@@ -1427,7 +1427,7 @@ end
             end
             yry()
             @test Revise.hasfile(Revise.pkgdatas[id], mainjl)
-            @test startswith(logs[1].message, "skipping src/extra.jl")
+            @test startswith(logs[end].message, "skipping src/extra.jl")
             rm_precompile("ModuleWithNewFile")
             pop!(LOAD_PATH)
         end
