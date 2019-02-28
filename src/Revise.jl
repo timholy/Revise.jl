@@ -7,7 +7,7 @@ using Base.Meta: isexpr
 using Core: CodeInfo
 
 using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
-using CodeTracking: basedir, srcfiles
+using CodeTracking: PkgFiles, basedir, srcfiles
 using JuliaInterpreter: whichtt, isdocexpr
 
 export revise, includet, MethodSummary
@@ -311,7 +311,7 @@ CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[])
 CodeTrackingMethodInfo(rex::RelocatableExpr) = CodeTrackingMethodInfo(rex.ex)
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, sig, ln)
-    push!(CodeTracking.method_info, sig=>(ln, methodinfo.exprstack[end]))
+    CodeTracking.method_info[sig] = (ln, methodinfo.exprstack[end])
     push!(methodinfo.allsigs, sig)
     return methodinfo
 end

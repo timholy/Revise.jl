@@ -1574,3 +1574,8 @@ end
 end
 
 GC.gc(); GC.gc(); GC.gc()   # work-around for https://github.com/JuliaLang/julia/issues/28306
+
+@testset "Base signatures" begin
+    # Using the extensive repository of code in Base as a testbed
+    include("sigtest.jl")
+end

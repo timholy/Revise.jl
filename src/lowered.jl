@@ -36,6 +36,7 @@ end
 
 function methods_by_execution!(methodinfo, docexprs, stack, mod::Module, ex::Expr; define=true)
     frame = prepare_thunk(mod, ex)
+    frame === nothing && return methodsinfo, docexprs
     return methods_by_execution!(methodinfo, docexprs, stack, frame; define=define)
 end
 
@@ -97,13 +98,13 @@ function methods_by_execution!(methodinfo, docexprs, stack, frame; define=true)
                     # an @eval or eval block: this may contain method definitions, so intercept it.
                     evalmod = @lookup(frame, stmt.args[2])
                     evalex = @lookup(frame, stmt.args[3])
-                    modexs, docexprs = split_expressions(evalmod, evalex; extract_docexprs=true)
-                    for (m, docexs) in docexprs
+                    thismodexs, thisdocexprs = split_expressions(evalmod, evalex; extract_docexprs=true)
+                    for (m, docexs) in thisdocexprs
                         for docex in docexs
                             add_docexpr!(docexprs, m, docex)
                         end
                     end
-                    for (newmod, newex) in modexs
+                    for (newmod, newex) in thismodexs
                         newframe = prepare_thunk(newmod, newex)
                         push_expr!(methodinfo, newmod, newex)
                         methods_by_execution!(methodinfo, docexprs, stack, newframe; define=define)
