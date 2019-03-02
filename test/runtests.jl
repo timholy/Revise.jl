@@ -81,6 +81,8 @@ end
 
 sig_type_exprs(ex) = Revise.sig_type_exprs(Main, ex)   # just for testing purposes
 
+const pair_op_string = string(Dict(1=>2))[7:end-2]     # accomodate changes in Dict printing w/ Julia version
+
 @testset "Revise" begin
 
     function collectexprs(ex::Revise.RelocatableExpr)
@@ -462,7 +464,7 @@ k(x) = 4
         @test str == ":(@inbounds x[2])"
         fm = Revise.parse_source(joinpath(@__DIR__, "revisetest.jl"), Main)
         Revise.instantiate_sigs!(fm)
-        @test string(fm) == "OrderedCollections.OrderedDict(Main=>FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest=>FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal=>FMMaps(<6 expressions>, <5 signatures>))"
+        @test string(fm) == "OrderedCollections.OrderedDict(Main$(pair_op_string)FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest$(pair_op_string)FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal$(pair_op_string)FMMaps(<6 expressions>, <5 signatures>))"
         fmmr = fm[ReviseTest]
         @test string(fmmr) == "FMMaps(<2 expressions>, <2 signatures>)"
         io = IOBuffer()
