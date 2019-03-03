@@ -7,29 +7,34 @@ Track updates to the code in Julia's `base` directory, `base/compiler`, or one o
 standard libraries.
 """
 function track(mod::Module; modified_files=revision_queue)
-    inpath(path, dirs) = all(dir->occursin(dir, path), dirs)
     id = PkgId(mod)
-    isbase = mod == Base
-    isstdlib = !isbase && nameof(mod) ∈ stdlib_names
+    modname = nameof(mod)
+    return _track(id, modname; modified_files=modified_files)
+end
+
+function _track(id, modname; modified_files=revision_queue)
+    inpath(path, dirs) = all(dir->occursin(dir, path), dirs)
+    isbase = modname == :Base
+    isstdlib = !isbase && modname ∈ stdlib_names
     if isbase || isstdlib
         # Test whether we know where to find the files
         if isbase
             srcdir = fixpath(joinpath(juliadir, "base"))
             dirs = ["base"]
         else
-            stdlibv = joinpath("stdlib", "v$(VERSION.major).$(VERSION.minor)", String(nameof(mod)))
+            stdlibv = joinpath("stdlib", "v$(VERSION.major).$(VERSION.minor)", String(modname))
             srcdir = fixpath(joinpath(juliadir, stdlibv))
             if !isdir(srcdir)
-                srcdir = fixpath(joinpath(juliadir, "stdlib", String(nameof(mod))))
+                srcdir = fixpath(joinpath(juliadir, "stdlib", String(modname)))
             end
             if !isdir(srcdir)
                 # This can happen for Pkg, since it's developed out-of-tree
                 srcdir = joinpath(juliadir, "usr", "share", "julia", stdlibv)
             end
-            dirs = ["stdlib", String(nameof(mod))]
+            dirs = ["stdlib", String(modname)]
         end
         if !isdir(srcdir)
-            @error "unable to find path containing source for $mod, tracking is not possible"
+            @error "unable to find path containing source for $modname, tracking is not possible"
         end
         # Determine when the basesrccache was built
         mtcache = mtime(basesrccache)
@@ -59,14 +64,14 @@ function track(mod::Module; modified_files=revision_queue)
         end
         # Add the files to the watch list
         init_watching(pkgdata, srcfiles(pkgdata))
-    elseif mod == Core.Compiler
+    elseif modname == :Compiler
         compilerdir = normpath(joinpath(juliadir, "base", "compiler"))
         if !haskey(pkgdatas, id)
             pkgdatas[id] = PkgData(id, compilerdir)
         end
         track_subdir_from_git(id, compilerdir; modified_files=modified_files)
     else
-        error("no Revise.track recipe for module ", mod)
+        error("no Revise.track recipe for module ", modname)
     end
     return nothing
 end

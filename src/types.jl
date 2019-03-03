@@ -71,6 +71,18 @@ function Base.show(io::IO, fmm::FMMaps)
     end
 end
 
+Base.iterate(fmm::FMMaps) = _returnval(iterate(fmm.defmap))
+Base.iterate(fmm::FMMaps, state) = _returnval(iterate(fmm.defmap, state))
+
+function _returnval(ret)
+    ret === nothing && return nothing
+    (rex, val), state = ret
+    if val !== nothing
+        val = val[1]
+    end
+    return (rex, val), state
+end
+
 """
     FileModules
 

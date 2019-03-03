@@ -691,34 +691,28 @@ function get_def(method, pkgdata, filename)
     return nothing
 end
 
-function get_tracked_id(mod::Module; modified_files=revision_queue)
-    id = PkgId(mod)
+function get_tracked_id(id::PkgId; modified_files=revision_queue)
     # Methods from Base or the stdlibs may require that we start tracking
     if !haskey(pkgdatas, id)
-        recipemod = mod
-        if id.name == "Base"
-            recipemod = Base
-        elseif id.name == "Core"
-            recipemod = Core.Compiler
-        elseif Symbol(id.name) ∈ stdlib_names
-            prevmod = recipemod
-            while String(nameof(recipemod)) != id.name
-                recipemod = parentmodule(recipemod)
-                recipemod == prevmod && break
-                prevmod = recipemod
-            end
-        else
-            @warn "$id not found, not able to track"
-            return nothing
-        end
-        @info "tracking $recipemod"
-        track(recipemod; modified_files=modified_files)
+        recipe = id.name === "Compiler" ? :Compiler : Symbol(id.name)
+        _track(id, recipe; modified_files=modified_files)
+        @info "tracking $recipe"
         if !haskey(pkgdatas, id)
-            @warn "despite tracking $recipemod, $id was not found"
+            @warn "despite tracking $recipe, $id was not found"
             return nothing
         end
     end
     return id
+end
+get_tracked_id(mod::Module; modified_files=revision_queue) =
+    get_tracked_id(PkgId(mod); modified_files=modified_files)
+
+function get_expressions(id::PkgId, filename)
+    get_tracked_id(id)
+    pkgdata = pkgdatas[id]
+    maybe_parse_from_cache!(pkgdata, filename)
+    fi = fileinfo(pkgdata, filename)
+    return fi.fm
 end
 
 function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)
@@ -870,8 +864,9 @@ function __init__()
     # Populate CodeTracking data for dependencies
     parse_pkg_files(PkgId(CodeTracking))
     parse_pkg_files(PkgId(OrderedCollections))
-    # Set the lookup callback
+    # Set the lookup callbacks
     CodeTracking.method_lookup_callback[] = get_def
+    CodeTracking.expressions_callback[] = get_expressions
 
     # Watch the manifest file for changes
     mfile = manifest_file()

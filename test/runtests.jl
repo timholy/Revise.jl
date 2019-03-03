@@ -550,6 +550,13 @@ end
             ex.args[end].args[end] = 2
             @test Revise.relocatable!(definition(m)) == ex2
             @test Revise.relocatable!(definition(m)) != ex
+            # CodeTracking methods
+            m3 = first(methods(eval(fn3)))
+            m3file = joinpath(dn, "subdir", "file3.jl")
+            @test whereis(m3) == (m3file, 1)
+            @test signatures_at(m3file, 1) == [m3.sig]
+            @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [m3.sig]
+
             sleep(0.1)  # to ensure that the file watching has kicked in
             # Change the definition of function 1 (easiest to just rewrite the whole file)
             open(joinpath(dn, modname*".jl"), "w") do io
