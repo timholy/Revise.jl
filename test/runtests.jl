@@ -1,4 +1,4 @@
-using Revise
+using Revise, CodeTracking
 using Test
 
 @test isempty(detect_ambiguities(Revise, Base, Core))
@@ -80,6 +80,8 @@ struct PlotDummy end
 end
 
 sig_type_exprs(ex) = Revise.sig_type_exprs(Main, ex)   # just for testing purposes
+
+const pair_op_string = string(Dict(1=>2))[7:end-2]     # accomodate changes in Dict printing w/ Julia version
 
 @testset "Revise" begin
 
@@ -462,7 +464,7 @@ k(x) = 4
         @test str == ":(@inbounds x[2])"
         fm = Revise.parse_source(joinpath(@__DIR__, "revisetest.jl"), Main)
         Revise.instantiate_sigs!(fm)
-        @test string(fm) == "OrderedCollections.OrderedDict(Main=>FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest=>FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal=>FMMaps(<6 expressions>, <5 signatures>))"
+        @test string(fm) == "OrderedCollections.OrderedDict(Main$(pair_op_string)FMMaps(<1 expressions>, <0 signatures>),Main.ReviseTest$(pair_op_string)FMMaps(<2 expressions>, <2 signatures>),Main.ReviseTest.Internal$(pair_op_string)FMMaps(<6 expressions>, <5 signatures>))"
         fmmr = fm[ReviseTest]
         @test string(fmmr) == "FMMaps(<2 expressions>, <2 signatures>)"
         io = IOBuffer()
@@ -541,13 +543,20 @@ end
             @eval @test $(fn5)() == 5
             @eval @test $(fn6)() == 6
             m = @eval first(methods($fn1))
-            ex = Revise.get_def(m)
+            ex = Revise.relocatable!(definition(m))
             @test ex == convert(Revise.RelocatableExpr, :( $fn1() = 1 ))
-            # Check that get_def returns copies
+            # Check that definition returns copies
             ex2 = deepcopy(ex)
             ex.args[end].args[end] = 2
-            @test Revise.get_def(m) == ex2
-            @test Revise.get_def(m) != ex
+            @test Revise.relocatable!(definition(m)) == ex2
+            @test Revise.relocatable!(definition(m)) != ex
+            # CodeTracking methods
+            m3 = first(methods(eval(fn3)))
+            m3file = joinpath(dn, "subdir", "file3.jl")
+            @test whereis(m3) == (m3file, 1)
+            @test signatures_at(m3file, 1) == [m3.sig]
+            @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [m3.sig]
+
             sleep(0.1)  # to ensure that the file watching has kicked in
             # Change the definition of function 1 (easiest to just rewrite the whole file)
             open(joinpath(dn, modname*".jl"), "w") do io
@@ -627,7 +636,7 @@ end
                         joinpath("src", "subdir", "file3.jl"),
                         joinpath("src", "subdir", "file4.jl"),
                         joinpath("src", "file5.jl")]
-                @test haskey(pkgdata.fileinfos, file)
+                @test Revise.hasfile(pkgdata, file)
             end
         end
         # Remove the precompiled file
@@ -1344,7 +1353,7 @@ end
         @test GetDef.f([1.0]) == 2
         @test GetDef.f([1]) == 3
         m = @which GetDef.f([1])
-        ex = Revise.get_def(m)
+        ex = Revise.relocatable!(definition(m))
         @test ex isa Revise.RelocatableExpr
         @test isequal(ex, Revise.relocatable!(:(f(v::AbstractVector{<:Integer}) = 3)))
 
@@ -1570,7 +1579,7 @@ end
                 Revise.track_subdir_from_git(id, joinpath(randdir, "src"); commit="HEAD")
             end
             yry()
-            @test haskey(Revise.pkgdatas[id].fileinfos, mainjl)
+            @test Revise.hasfile(Revise.pkgdatas[id], mainjl)
             @test startswith(logs[1].message, "skipping src/extra.jl")
             rm_precompile("ModuleWithNewFile")
             pop!(LOAD_PATH)
@@ -1582,23 +1591,23 @@ end
         Revise.track(Base)
         id = Base.PkgId(Base)
         pkgdata = Revise.pkgdatas[id]
-        @test any(k->endswith(k, "number.jl"), keys(pkgdata.fileinfos))
-        @test length(filter(k->endswith(k, "file.jl"), keys(pkgdata.fileinfos))) == 1
+        @test any(k->endswith(k, "number.jl"), Revise.srcfiles(pkgdata))
+        @test length(filter(k->endswith(k, "file.jl"), Revise.srcfiles(pkgdata))) == 1
         m = @which show([1,2,3])
-        @test Revise.get_def(m) isa Revise.RelocatableExpr
+        @test definition(m) isa Expr
 
         # Tracking stdlibs
         Revise.track(Unicode)
         id = Base.PkgId(Unicode)
         pkgdata = Revise.pkgdatas[id]
-        @test any(k->endswith(k, "Unicode.jl"), keys(pkgdata.fileinfos))
-        @test Revise.get_def(first(methods(Unicode.isassigned))) isa Revise.RelocatableExpr
+        @test any(k->endswith(k, "Unicode.jl"), Revise.srcfiles(pkgdata))
+        @test definition(first(methods(Unicode.isassigned))) isa Expr
 
         # Submodule of Pkg (note that package is developed outside the
         # Julia repo, this tests new cases)
         id = Revise.get_tracked_id(Pkg.Types)
         pkgdata = Revise.pkgdatas[id]
-        @test Revise.get_def(first(methods(Pkg.API.add))) isa Revise.RelocatableExpr
+        @test definition(first(methods(Pkg.API.add))) isa Expr
 
         # Determine whether a git repo is available. Travis & Appveyor do not have this.
         repo, path = Revise.git_repo(Revise.juliadir)
@@ -1607,9 +1616,9 @@ end
             Revise.track(Core.Compiler)
             id = Base.PkgId(Core.Compiler)
             pkgdata = Revise.pkgdatas[id]
-            @test any(k->endswith(k, "compiler.jl"), keys(pkgdata.fileinfos))
+            @test any(k->endswith(k, "compiler.jl"), Revise.srcfiles(pkgdata))
             m = first(methods(Core.Compiler.typeinf_code))
-            @test Revise.get_def(m) isa Revise.RelocatableExpr
+            @test definition(m) isa Expr
 
             # Test that we skip over files that don't end in ".jl"
             logs, _ = Test.collect_test_logs() do
@@ -1734,8 +1743,8 @@ if Sys.islinux()
         end
         # https://github.com/timholy/Rebugger.jl/issues/3
         m = which(Plots.histogram, Tuple{Vector{Float64}})
-        def = Revise.get_def(m)
-        @test def isa Revise.RelocatableExpr
+        def = definition(m)
+        @test_broken def isa Expr
 
         # Tests for "module hygiene"
         @test !isdefined(Main, :JSON)  # internal to Plots

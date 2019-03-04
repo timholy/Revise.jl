@@ -129,6 +129,12 @@ function sigt2methsig(sig)
     return methsig
 end
 
+function whichtt(tt)
+    m = ccall(:jl_gf_invoke_lookup, Any, (Any, UInt), tt, typemax(UInt))
+    m === nothing && return nothing
+    return m.func::Method
+end
+
 """
     callex = get_callexpr(sigex::ExLike)
 

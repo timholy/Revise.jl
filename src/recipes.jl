@@ -7,35 +7,39 @@ Track updates to the code in Julia's `base` directory, `base/compiler`, or one o
 standard libraries.
 """
 function track(mod::Module; modified_files=revision_queue)
-    inpath(path, dirs) = all(dir->occursin(dir, path), dirs)
     id = PkgId(mod)
-    isbase = mod == Base
-    isstdlib = !isbase && nameof(mod) ∈ stdlib_names
+    modname = nameof(mod)
+    return _track(id, modname; modified_files=modified_files)
+end
+
+function _track(id, modname; modified_files=revision_queue)
+    inpath(path, dirs) = all(dir->occursin(dir, path), dirs)
+    isbase = modname == :Base
+    isstdlib = !isbase && modname ∈ stdlib_names
     if isbase || isstdlib
         # Test whether we know where to find the files
         if isbase
             srcdir = fixpath(joinpath(juliadir, "base"))
             dirs = ["base"]
         else
-            stdlibv = joinpath("stdlib", "v$(VERSION.major).$(VERSION.minor)", String(nameof(mod)))
+            stdlibv = joinpath("stdlib", "v$(VERSION.major).$(VERSION.minor)", String(modname))
             srcdir = fixpath(joinpath(juliadir, stdlibv))
             if !isdir(srcdir)
-                srcdir = fixpath(joinpath(juliadir, "stdlib", String(nameof(mod))))
+                srcdir = fixpath(joinpath(juliadir, "stdlib", String(modname)))
             end
             if !isdir(srcdir)
                 # This can happen for Pkg, since it's developed out-of-tree
                 srcdir = joinpath(juliadir, "usr", "share", "julia", stdlibv)
             end
-            dirs = ["stdlib", String(nameof(mod))]
+            dirs = ["stdlib", String(modname)]
         end
         if !isdir(srcdir)
-            @error "unable to find path containing source for $mod, tracking is not possible"
+            @error "unable to find path containing source for $modname, tracking is not possible"
         end
         # Determine when the basesrccache was built
         mtcache = mtime(basesrccache)
         # Initialize expression-tracking for files, and
         # note any modified since Base was built
-        files = String[]
         if !haskey(pkgdatas, id)
             pkgdatas[id] = PkgData(id, srcdir)
         end
@@ -45,13 +49,12 @@ function track(mod::Module; modified_files=revision_queue)
             inpath(ffilename, dirs) || continue
             keypath = ffilename[1:last(findfirst(dirs[end], ffilename))]
             rpath = relpath(ffilename, keypath)
-            pkgdata.fileinfos[rpath] = FileInfo(submod, basesrccache)
-            fullpath = joinpath(pkgdata.path, rpath)
+            fullpath = joinpath(basedir(pkgdata), rpath)
             if fullpath != filename
                 cache_file_key[fullpath] = filename
                 src_file_key[filename] = fullpath
             end
-            push!(files, rpath)
+            push!(pkgdata, rpath=>FileInfo(submod, basesrccache))
             if mtime(ffilename) > mtcache
                 with_logger(_debug_logger) do
                     @debug "Recipe for Base/StdLib" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
@@ -60,15 +63,15 @@ function track(mod::Module; modified_files=revision_queue)
             end
         end
         # Add the files to the watch list
-        init_watching(pkgdata, files)
-    elseif mod == Core.Compiler
+        init_watching(pkgdata, srcfiles(pkgdata))
+    elseif modname == :Compiler
         compilerdir = normpath(joinpath(juliadir, "base", "compiler"))
         if !haskey(pkgdatas, id)
             pkgdatas[id] = PkgData(id, compilerdir)
         end
         track_subdir_from_git(id, compilerdir; modified_files=modified_files)
     else
-        error("no Revise.track recipe for module ", mod)
+        error("no Revise.track recipe for module ", modname)
     end
     return nothing
 end
@@ -110,7 +113,6 @@ function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GI
     tree = git_tree(repo, commit)
     files = Iterators.filter(file->startswith(file, prefix) && endswith(file, ".jl"), keys(tree))
     ccall((:giterr_clear, :libgit2), Cvoid, ())  # necessary to avoid errors like "the global/xdg file 'attributes' doesn't exist: No such file or directory"
-    wfiles = String[]  # files to watch
     for file in files
         fullpath = joinpath(repo_path, file)
         rpath = relpath(fullpath, pkgdata)  # this might undo the above, except for Core.Compiler
@@ -134,12 +136,11 @@ function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GI
         else
             instantiate_sigs!(fi.fm)
         end
-        pkgdata.fileinfos[rpath] = fi
-        push!(wfiles, rpath)
+        push!(pkgdata, rpath=>fi)
     end
     if !isempty(pkgdata.fileinfos)
         pkgdatas[id] = pkgdata
-        init_watching(pkgdata, wfiles)
+        init_watching(pkgdata, srcfiles(pkgdata))
     end
     return nothing
 end
