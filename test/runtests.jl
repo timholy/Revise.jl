@@ -1443,6 +1443,8 @@ end
         @test length(filter(k->endswith(k, "file.jl"), Revise.srcfiles(pkgdata))) == 1
         m = @which show([1,2,3])
         @test definition(m) isa Expr
+        m = @which redirect_stdout()
+        @test definition(m).head == :function
 
         # Tracking stdlibs
         Revise.track(Unicode)

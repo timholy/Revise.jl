@@ -105,6 +105,7 @@ function methods_by_execution!(methodinfo, docexprs, stack, frame; define=true)
                         end
                     end
                     for (newmod, newex) in thismodexs
+                        newex = unwrap(newex)
                         newframe = prepare_thunk(newmod, newex)
                         push_expr!(methodinfo, newmod, newex)
                         methods_by_execution!(methodinfo, docexprs, stack, newframe; define=define)
