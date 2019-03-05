@@ -1237,6 +1237,7 @@ revise_f(x) = 1
         end
         includet(srcfile)
         @test revise_f(10) == 1
+        @test length(signatures_at(srcfile, 1)) == 1
         sleep(0.1)
         open(srcfile, "w") do io
             print(io, """
