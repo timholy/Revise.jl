@@ -731,6 +731,7 @@ function get_tracked_id(id::PkgId; modified_files=revision_queue)
     # Methods from Base or the stdlibs may require that we start tracking
     if !haskey(pkgdatas, id)
         recipe = id.name === "Compiler" ? :Compiler : Symbol(id.name)
+        recipe == :Core && return nothing
         _track(id, recipe; modified_files=modified_files)
         @info "tracking $recipe"
         if !haskey(pkgdatas, id)
