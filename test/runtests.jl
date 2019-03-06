@@ -1186,6 +1186,40 @@ end
         @test m.sig.parameters[2] === Integer
     end
 
+    @testset "Revision errors" begin
+        testdir = randtmp()
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "RevisionErrors", "src")
+        mkpath(dn)
+        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
+            println(io, """
+            module RevisionErrors
+            f(x) = 1
+            end
+            """)
+        end
+        @eval using RevisionErrors
+        @test RevisionErrors.f(0) == 1
+        sleep(0.1)
+        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
+            println(io, """
+            module RevisionErrors
+            f{x) = 2
+            end
+            """)
+        end
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        rec = logs[1]
+        @test startswith(rec.message, "Failed to revise")
+        @test occursin("missing comma", rec.message)
+
+        rm_precompile("RevisionErrors")
+    end
+
     @testset "get_def" begin
         testdir = randtmp()
         mkdir(testdir)

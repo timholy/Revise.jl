@@ -500,51 +500,37 @@ function revise()
 
     # Do all the deletion first. This ensures that a method that moved from one file to another
     # won't get redefined first and deleted second.
+    revision_errors = []
+    finished = eltype(revision_queue)[]
     mexsnews = ModuleExprsSigs[]
     for (pkgdata, file) in revision_queue
-        push!(mexsnews, handle_deletions(pkgdata, file)[1])
+        try
+            push!(mexsnews, handle_deletions(pkgdata, file)[1])
+            push!(finished, (pkgdata, file))
+        catch err
+            push!(revision_errors, (basedir(pkgdata), file, err))
+        end
     end
     # Do the evaluation
-    for ((pkgdata, file), mexsnew) in zip(revision_queue, mexsnews)
+    for ((pkgdata, file), mexsnew) in zip(finished, mexsnews)
         i = fileindex(pkgdata, file)
         fi = fileinfo(pkgdata, i)
-        eval_new!(mexsnew, fi.modexsigs)
-        pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+        try
+            eval_new!(mexsnew, fi.modexsigs)
+            pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+        catch err
+            push!(revision_errors, (basedir(pkgdata), file, err))
+        end
     end
     empty!(revision_queue)
+    for (basedir, file, err) in revision_errors
+        fullpath = joinpath(basedir, file)
+        @warn "Failed to revise $fullpath: $err"
+    end
     tracking_Main_includes[] && queue_includes(Main)
     nothing
 end
-
-# This variant avoids unhandled task failures
-function revise(backend::REPL.REPLBackend)
-    revise()
-    # sleep(0.01)  # in case the file system isn't quite done writing out the new files
-    # for (pkgdata, file) in revision_queue
-    #     try
-    #         revise_file_now(pkgdata, file)
-    #     catch err
-    #         @static if VERSION >= v"1.2.0-DEV.253"
-    #             put!(backend.response_channel, (Base.catch_stack(), true))
-    #         else
-    #             put!(backend.response_channel, (err, catch_backtrace()))
-    #         end
-    #     end
-    # end
-    # empty!(revision_queue)
-    # if tracking_Main_includes[]
-    #     try
-    #         queue_includes(Main)
-    #     catch err
-    #         @static if VERSION >= v"1.2.0-DEV.253"
-    #             put!(backend.response_channel, (Base.catch_stack(), true))
-    #         else
-    #             put!(backend.response_channel, (err, catch_backtrace()))
-    #         end
-    #     end
-    # end
-    # return nothing
-end
+revise(backend::REPL.REPLBackend) = revise()
 
 """
     revise(mod::Module)
