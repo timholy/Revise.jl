@@ -215,22 +215,29 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
             # ex was deleted
             sigs === nothing && continue
             for sig in sigs
-                m = whichtt(sig)
-                if m === nothing
-                    @debug "FailedDeletion" _group="Action" time=time() deltainfo=(sig,)
-                    continue
-                end
-                @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
-                # Delete the corresponding methods
-                for p in workers()
-                    try  # guard against serialization errors if the type isn't defined on the worker
-                        remotecall(Core.eval, p, Main, :(delete_method_by_sig($sig)))
-                    catch
+                ret = Base._methods_by_ftype(sig, -1, typemax(UInt))
+                success = false
+                if !isempty(ret)
+                    m = ret[end][3]::Method   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
+                    methsig = m.sig
+                    if sig <: methsig && methsig <: sig
+                        @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
+                        # Delete the corresponding methods
+                        for p in workers()
+                            try  # guard against serialization errors if the type isn't defined on the worker
+                                remotecall(Core.eval, p, Main, :(delete_method_by_sig($sig)))
+                            catch
+                            end
+                        end
+                        Base.delete_method(m)
+                        # Remove the entries from CodeTracking data
+                        delete!(CodeTracking.method_info, sig)
+                        success = true
                     end
                 end
-                Base.delete_method(m)
-                # Remove the entries from CodeTracking data
-                delete!(CodeTracking.method_info, sig)
+                if !success
+                    @debug "FailedDeletion" _group="Action" time=time() deltainfo=(sig,)
+                end
             end
         end
     end
@@ -875,10 +882,13 @@ Revise itself does not need to be running on `p`.
 """
 function init_worker(p)
     remotecall(Core.eval, p, Main, quote
-        function whichtt(tt)
-            m = ccall(:jl_gf_invoke_lookup, Any, (Any, UInt), tt, typemax(UInt))
-            m === nothing && return nothing
-            return m.func::Method
+        function whichtt(sig)
+            ret = Base._methods_by_ftype(sig, -1, typemax(UInt))
+            isempty(ret) && return nothing
+            m = ret[end][3]::Method   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
+            methsig = m.sig
+            (sig <: methsig && methsig <: sig) || return nothing
+            return m
         end
         function delete_method_by_sig(sig)
             m = whichtt(sig)

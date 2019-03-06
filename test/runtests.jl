@@ -1169,6 +1169,21 @@ end
         @test length(methods(MethDel.mapf)) == 2
 
         Base.delete_method(first(methods(Base.revisefoo)))
+
+        # Test for specificity in deletion
+        ex1 = :(methspecificity(x::Int) = 1)
+        ex2 = :(methspecificity(x::Integer) = 2)
+        Core.eval(ReviseTestPrivate, ex1)
+        Core.eval(ReviseTestPrivate, ex2)
+        exsig1 = Revise.RelocatableExpr(ex1)=>[Tuple{typeof(ReviseTestPrivate.methspecificity),Int}]
+        exsig2 = Revise.RelocatableExpr(ex2)=>[Tuple{typeof(ReviseTestPrivate.methspecificity),Integer}]
+        f_old, f_new = Revise.ExprsSigs(exsig1, exsig2), Revise.ExprsSigs(exsig2)
+        Revise.delete_missing!(f_old, f_new)
+        m = @which ReviseTestPrivate.methspecificity(1)
+        @test m.sig.parameters[2] === Integer
+        Revise.delete_missing!(f_old, f_new)
+        m = @which ReviseTestPrivate.methspecificity(1)
+        @test m.sig.parameters[2] === Integer
     end
 
     @testset "get_def" begin
