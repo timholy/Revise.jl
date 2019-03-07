@@ -804,7 +804,7 @@ end
             break
         end
         # Process revisions
-        # revise(backend)
+        revise(backend)
         # Now eval the input
         REPL.eval_user_input(ast, backend)
     end
