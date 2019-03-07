@@ -1,12 +1,19 @@
 function _precompile_()
     ccall(:jl_generating_output, Cint, ()) == 1 || return nothing
 
-    # precompile(Tuple{typeof(watch_manifest), String})
+    precompile(Tuple{typeof(watch_manifest), String})
+    precompile(Tuple{Rescheduler{typeof(watch_manifest), String}})
+    precompile(Tuple{Rescheduler{typeof(revise_dir_queued),Tuple{PkgData,String}}})
+    precompile(Tuple{typeof(revise)})
+    precompile(Tuple{typeof(setindex!), ExprsSigs, Nothing, RelocatableExpr})
+    precompile(Tuple{typeof(setindex!), ExprsSigs, Vector{Any}, RelocatableExpr})
+    precompile(Tuple{typeof(setindex!), ModuleExprsSigs, ExprsSigs, Module})
+    precompile(Tuple{typeof(setindex!), Dict{PkgId,PkgData}, PkgData, PkgId})
+    precompile(Tuple{typeof(setindex!), Dict{String,WatchList}, WatchList, String})
     # precompile(Tuple{typeof(run_backend), REPL.REPLBackend})
     # precompile(Tuple{typeof(Revise._watch_package), Base.PkgId})
     # precompile(Tuple{typeof(Revise.watch_package), Base.PkgId})
     # precompile(Tuple{typeof(Revise.sig_type_exprs), Module, Expr})
-    # precompile(Tuple{Rescheduler{typeof(revise_dir_queued),Tuple{PkgData,String}}})
 
     # # Here are other methods that require >10ms for inference but which do
     # # not successfully precompile
