@@ -8,7 +8,7 @@ using Core: CodeInfo
 
 using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
 using CodeTracking: PkgFiles, basedir, srcfiles
-using JuliaInterpreter: whichtt, isdocexpr
+using JuliaInterpreter: whichtt, is_doc_expr
 
 export revise, includet, MethodSummary
 
@@ -337,7 +337,7 @@ end
 function instantiate_sigs!(modexsigs::ModuleExprsSigs)
     for (mod, exsigs) in modexsigs
         for rex in keys(exsigs)
-            isdocexpr(rex.ex) && continue
+            is_doc_expr(rex.ex) && continue
             sigs = eval_with_signatures(mod, rex.ex; define=false)
             exsigs[rex.ex] = sigs
         end
