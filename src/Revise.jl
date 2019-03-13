@@ -8,7 +8,7 @@ using Core: CodeInfo
 
 using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
 using CodeTracking: PkgFiles, basedir, srcfiles
-using JuliaInterpreter: whichtt, is_doc_expr
+using JuliaInterpreter: whichtt, is_doc_expr, finish_and_return!
 
 export revise, includet, MethodSummary
 
@@ -329,8 +329,7 @@ pop_expr!(methodinfo::CodeTrackingMethodInfo) = (pop!(methodinfo.exprstack); met
 function eval_with_signatures(mod, ex::Expr; define=true)
     methodinfo = CodeTrackingMethodInfo(ex)
     docexprs = Dict{Module,Vector{Expr}}()
-    stack = JuliaStackFrame[]
-    methods_by_execution!(methodinfo, docexprs, stack, mod, ex; define=define)
+    methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define)
     return methodinfo.allsigs
 end
 
