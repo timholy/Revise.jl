@@ -75,8 +75,13 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         for sig in signatures
                             add_signature!(methodinfo, sig, lnn)
                         end
+                    elseif isexpr(bodycode, :lambda)
+                        lnn = bodycode.args[end][1]
+                        for sig in signatures
+                            add_signature!(methodinfo, sig, lnn)
+                        end
                     else
-                        @warn "unhandled lambda expression"
+                        error("unhandled bodycode ", bodycode)
                     end
                 end
             elseif stmt.head == :(=) && isa(stmt.args[1], Symbol)

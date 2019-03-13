@@ -69,6 +69,23 @@ function in_module_or_core(T, mod::Module)
     return Tmod === mod || Tmod === Core
 end
 
+module Lowering end
+
+@testset ":lambda expressions" begin
+    ex = quote
+        mutable struct InnerC
+            x::Int
+            valid::Bool
+
+            function InnerC(x; notvalid::Bool=false)
+                return new(x, !notvalid)
+            end
+        end
+    end
+    sigs = Revise.eval_with_signatures(Lowering, ex)
+    @test length(sigs) == 2
+end
+
 basefiles = Set{String}()
 @time for (i, (mod, file)) in enumerate(Base._included_files)
     (isdefinedmod(mod) && mod != Base.__toplevel__) || continue
