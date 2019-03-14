@@ -1,8 +1,5 @@
 ## Analyzing lowered code
 
-using JuliaInterpreter: @lookup, moduleof, pc_expr, step_expr!, prepare_thunk, split_expressions
-using LoweredCodeUtils: next_or_nothing!, isanonymous_typedef, define_anonymous
-
 function add_docexpr!(docexprs::AbstractDict{Module,V}, mod::Module, ex) where V
     docexs = get(docexprs, mod, nothing)
     if docexs === nothing
@@ -17,6 +14,10 @@ function lookup_callexpr(frame, stmt)
     return Expr(:call, fargs...)
 end
 
+function assign_this!(frame, value)
+    frame.framedata.ssavalues[frame.pc] = value
+end
+
 # This defines the API needed to store signatures using methods_by_execution!
 # This default version is simple; there's a more involved one in Revise.jl that interacts
 # with CodeTracking.
@@ -28,12 +29,13 @@ pop_expr!(methodinfo::MethodInfo) = methodinfo
 function methods_by_execution(mod::Module, ex::Expr; define=true)
     methodinfo = MethodInfo()
     docexprs = Dict{Module,Vector{Expr}}()
-    return methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define)
+    value = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define)
+    return methodinfo, docexprs
 end
 
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr; define=true)
     frame = prepare_thunk(mod, ex)
-    frame === nothing && return methodsinfo, docexprs
+    frame === nothing && return nothing
     return methods_by_execution!(recurse, methodinfo, docexprs, frame; define=define)
 end
 
@@ -85,14 +87,21 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     end
                 end
             elseif stmt.head == :(=) && isa(stmt.args[1], Symbol)
-                # sym = stmt.args[1]
-                # if isconst(mod, sym)
+                if define
+                    pc = step_expr!(recurse, frame, stmt, true)
+                else
+                    # FIXME: Code that initializes a global, performs some operations that
+                    # depend on the value, and then mutates it will run into serious trouble here.
+                    # sym = stmt.args[1]
+                    # if isconst(mod, sym)
+                    rhs = stmt.args[2]
+                    val = isa(rhs, Expr) ? JuliaInterpreter.eval_rhs(recurse, frame, rhs) : @lookup(frame, rhs)
+                    assign_this!(frame, val)
                     pc = next_or_nothing!(frame)
-                # else
-                #     # FIXME: what about x = []? This will then wipe any current contents of x.
-                #     # Alternatively, something that changes later method definition does need to be redefined.
-                #     pc = step_expr!(recurse, frame, stmt, true)
-                # end
+                    # else
+                    #     pc = step_expr!(recurse, frame, stmt, true)
+                    # end
+                end
             elseif stmt.head == :call
                 f = @lookup(frame, stmt.args[1])
                 if f === Core.eval
@@ -105,16 +114,19 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             add_docexpr!(docexprs, m, docex)
                         end
                     end
+                    value = nothing
                     for (newmod, newex) in thismodexs
                         newex = unwrap(newex)
                         newframe = prepare_thunk(newmod, newex)
                         push_expr!(methodinfo, newmod, newex)
-                        methods_by_execution!(recurse, methodinfo, docexprs, newframe; define=define)
+                        value = methods_by_execution!(recurse, methodinfo, docexprs, newframe; define=define)
                         pop_expr!(methodinfo)
                     end
+                    assign_this!(frame, value)
                     pc = next_or_nothing!(frame)
-                elseif f === getfield(mod, :include) || f === Base.include || f === Core.include || f === Base.__precompile__
+                elseif f === getfield(mod, :include) || f === Base.include || f === Core.include
                     # Skip include calls, otherwise we load new code
+                    assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
                 elseif !define && f === Base.Docs.doc!
                     pc = next_or_nothing!(frame)
@@ -133,7 +145,9 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         #         global manifestfile_path = trynames(Base.manifest_names)
                         #     end
                         # as found in Pkg.Types.
-                        @warn "omitting call expression $(lookup_callexpr(frame, stmt))"
+                        badstmt = lookup_callexpr(frame, stmt)
+                        @warn "omitting call expression $badstmt in $(whereis(frame))"
+                        assign_this!(frame, nothing)
                         pc = next_or_nothing!(frame)
                     end
                 end
@@ -148,5 +162,5 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
         pc === nothing && break
         stmt = pc_expr(frame, pc)
     end
-    return methodinfo, docexprs
+    return get_return(frame)
 end
