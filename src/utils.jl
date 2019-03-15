@@ -39,7 +39,7 @@ function firstline(ex::Expr)
 end
 firstline(rex::RelocatableExpr) = firstline(rex.ex)
 
-newloc(methloc::LineNumberNode, ln, lno) = ln
+newloc(methloc::LineNumberNode, ln, lno) = fixpath(ln)
 
 # Return the only non-trivial expression in ex, or ex itself
 function unwrap(ex::Expr)

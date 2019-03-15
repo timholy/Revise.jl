@@ -320,7 +320,7 @@ CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[])
 CodeTrackingMethodInfo(rex::RelocatableExpr) = CodeTrackingMethodInfo(rex.ex)
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, sig, ln)
-    CodeTracking.method_info[sig] = (ln, methodinfo.exprstack[end])
+    CodeTracking.method_info[sig] = (fixpath(ln), methodinfo.exprstack[end])
     push!(methodinfo.allsigs, sig)
     return methodinfo
 end

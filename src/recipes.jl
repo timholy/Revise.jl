@@ -78,7 +78,7 @@ function _track(id, modname; modified_files=revision_queue)
 end
 
 # Fix paths to files that define Julia (base and stdlibs)
-function fixpath(filename; badpath=basebuilddir, goodpath=juliadir)
+function fixpath(filename::AbstractString; badpath=basebuilddir, goodpath=juliadir)
     startswith(filename, badpath) || return normpath(filename)
     filec = filename
     relfilename = relpath(filename, badpath)
@@ -98,6 +98,9 @@ function fixpath(filename; badpath=basebuilddir, goodpath=juliadir)
     end
     return ffilename
 end
+_fixpath(lnn; kwargs...) = LineNumberNode(lnn.line, Symbol(fixpath(String(lnn.file); kwargs...)))
+fixpath(lnn::LineNumberNode; kwargs...) = _fixpath(lnn; kwargs...)
+fixpath(lnn::Core.LineInfoNode; kwargs...) = _fixpath(lnn; kwargs...)
 
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
 function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue)

@@ -1500,7 +1500,9 @@ end
         id = Base.PkgId(Unicode)
         pkgdata = Revise.pkgdatas[id]
         @test any(k->endswith(k, "Unicode.jl"), Revise.srcfiles(pkgdata))
-        @test definition(first(methods(Unicode.isassigned))) isa Expr
+        m = first(methods(Unicode.isassigned))
+        @test definition(m) isa Expr
+        @test isfile(whereis(m)[1])
 
         # Submodule of Pkg (note that package is developed outside the
         # Julia repo, this tests new cases)
