@@ -683,7 +683,17 @@ This is a callback function used by `CodeTracking.jl`'s `definition`.
 function get_def(method::Method; modified_files=revision_queue)
     yield()   # magic bug fix for the OSX test failures. TODO: figure out why this works (prob. Julia bug)
     filename = fixpath(String(method.file))
-    startswith(filename, "REPL") && error("methods defined at the REPL are not yet supported")
+    if startswith(filename, "REPL[")
+        isdefined(Base, :active_repl) || return false
+        mexs = add_definitions_from_repl(filename)
+        hassig = false
+        for (mod, exs) in mexs
+            for sigs in values(exs)
+                hassig |= !isempty(sigs)
+            end
+        end
+        return hassig
+    end
     id = get_tracked_id(method.module; modified_files=modified_files)
     id === nothing && return false
     pkgdata = pkgdatas[id]
@@ -744,6 +754,30 @@ function get_expressions(id::PkgId, filename)
     maybe_parse_from_cache!(pkgdata, filename)
     fi = fileinfo(pkgdata, filename)
     return fi.modexsigs
+end
+
+function add_definitions_from_repl(filename)
+    hist_idx = parse(Int, filename[6:end-1])
+    hp = Base.active_repl.interface.modes[1].hist
+    src = hp.history[hp.start_idx+hist_idx]
+    id = PkgId(nothing, "@REPL")
+    pkgdata = pkgdatas[id]
+    tmpmexs = ModuleExprsSigs(Main)
+    parse_source!(tmpmexs, src, filename, Main)
+    instantiate_sigs!(tmpmexs)
+    # Copy the definitions to the @REPL pkgdata
+    mod_exprs_sigs = pkgdata.fileinfos[1].modexsigs
+    for (mod, tmpexs) in tmpmexs
+        exprs_sigs = get(mod_exprs_sigs, mod, nothing)
+        if exprs_sigs === nothing
+            mod_exprs_sigs[mod] = exprs_sigs = ExprsSigs()
+        end
+        for (ex, sigs) in tmpexs
+            isempty(sigs) && continue
+            exprs_sigs[ex] = sigs
+        end
+    end
+    return tmpmexs
 end
 
 function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)
@@ -923,6 +957,11 @@ function __init__()
         pkgdata = pkgdatas[id]
         init_watching(pkgdata, srcfiles(pkgdata))
     end
+    # Set up a repository for methods defined at the REPL
+    id = PkgId(nothing, "@REPL")
+    pkgdatas[id] = pkgdata = PkgData(id, nothing)
+    push!(pkgdata.info.files, "REPL")
+    push!(pkgdata.fileinfos, FileInfo(Main))
     # Set the lookup callbacks
     CodeTracking.method_lookup_callback[] = get_def
     CodeTracking.expressions_callback[] = get_expressions

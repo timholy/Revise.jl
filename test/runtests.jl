@@ -1535,6 +1535,19 @@ end
         # end
     end
 
+    @testset "Methods at REPL" begin
+        if isdefined(Base, :active_repl)
+            hp = Base.active_repl.interface.modes[1].hist
+            fstr = "__fREPL__(x::Int16) = 0"
+            histidx = length(hp.history) + 1 - hp.start_idx
+            ex = Base.parse_input_line(fstr; filename="REPL[$histidx]")
+            f = Core.eval(Main, ex)
+            push!(hp.history, fstr)
+            @test Revise.get_def(first(methods(f)))
+            pop!(hp.history)
+        end
+    end
+
     @testset "Switching free/dev" begin
         function make_a2d(path, val, mode="r")
             # Create a new "read-only package" (which mimics how Pkg works when you `add` a package)
