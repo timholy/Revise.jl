@@ -90,6 +90,7 @@ basefiles = Set{String}()
 @time for (i, (mod, file)) in enumerate(Base._included_files)
     (isdefinedmod(mod) && mod != Base.__toplevel__) || continue
     endswith(file, "sysimg.jl") && continue
+    file = Revise.fixpath(file)
     push!(basefiles, reljpath(file))
     # @show file
     mexs = Revise.parse_source(file, mod)
