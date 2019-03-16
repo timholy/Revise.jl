@@ -8,8 +8,8 @@ using Core: CodeInfo
 
 using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
 using CodeTracking: PkgFiles, basedir, srcfiles
-using JuliaInterpreter: whichtt, is_doc_expr, finish_and_return!, get_return
-using JuliaInterpreter: @lookup, moduleof, pc_expr, step_expr!, prepare_thunk, split_expressions
+using JuliaInterpreter: whichtt, is_doc_expr, step_expr!, finish_and_return!, get_return
+using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr, prepare_thunk, split_expressions
 using LoweredCodeUtils: next_or_nothing!, isanonymous_typedef, define_anonymous
 
 export revise, includet, MethodSummary

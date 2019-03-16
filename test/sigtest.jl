@@ -29,6 +29,7 @@ function signature_diffs(mod::Module, signatures; filepredicate=nothing)
     modeval, modinclude = getfield(mod, :eval), getfield(mod, :include)
     failed = []
     for fsym in names(mod; all=true)
+        isdefined(mod, fsym) || continue
         f = getfield(mod, fsym)
         isa(f, Base.Callable) || continue
         (f === modeval || f === modinclude) && continue

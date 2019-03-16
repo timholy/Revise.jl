@@ -36,7 +36,13 @@ end
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr; define=true)
     frame = prepare_thunk(mod, ex)
     frame === nothing && return nothing
-    return methods_by_execution!(recurse, methodinfo, docexprs, frame; define=define)
+    try
+        return methods_by_execution!(recurse, methodinfo, docexprs, frame; define=define)
+    catch err
+        @warn "error evaluating in module $mod: $ex"
+        Base.showerror(stderr, err)
+        return nothing
+    end
 end
 
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame; define=true)
