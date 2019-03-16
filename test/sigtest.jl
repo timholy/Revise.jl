@@ -1,4 +1,4 @@
-using Revise, Test, CodeTracking, ProgressMeter
+using Revise, Test, CodeTracking
 
 function isdefinedmod(mod::Module)
     # Not all modules---e.g., LibGit2---are reachable without loading the stdlib
