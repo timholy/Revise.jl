@@ -62,7 +62,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                 # Anonymous functions should just be defined anew, since there does not seem to be a practical
                 # way to "find" them. They may be needed to define later signatures.
                 # Note that named inner methods don't require special treatment
-                pc = define_anonymous(recurse, frame, stmt)
+                pc = step_expr!(recurse, frame, stmt, true)
             elseif stmt.head == :method
                 empty!(signatures)
                 ret = methoddef!(recurse, signatures, frame, stmt, pc; define=define)
