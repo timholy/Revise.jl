@@ -84,7 +84,7 @@ module Lowering end
         end
     end
     sigs = Revise.eval_with_signatures(Lowering, ex)
-    @test length(sigs) == 2
+    @test length(sigs) >= 2
 end
 
 basefiles = Set{String}()
@@ -93,7 +93,6 @@ basefiles = Set{String}()
     endswith(file, "sysimg.jl") && continue
     file = Revise.fixpath(file)
     push!(basefiles, reljpath(file))
-    # @show file
     mexs = Revise.parse_source(file, mod)
     Revise.instantiate_sigs!(mexs)
 end
