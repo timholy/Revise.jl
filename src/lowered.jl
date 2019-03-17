@@ -40,7 +40,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
         return methods_by_execution!(recurse, methodinfo, docexprs, frame; define=define)
     catch err
         isa(err, InterruptException) && rethrow(err)
-        @warn "error evaluating in module $mod: $ex"
+        @warn "error evaluating in module $mod" exception=ex
         return nothing
     end
 end
