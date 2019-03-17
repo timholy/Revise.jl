@@ -41,7 +41,6 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
     catch err
         isa(err, InterruptException) && rethrow(err)
         @warn "error evaluating in module $mod: $ex"
-        Base.showerror(stderr, err)
         return nothing
     end
 end
