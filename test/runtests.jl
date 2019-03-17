@@ -60,7 +60,11 @@ end
 
 sig_type_exprs(ex) = Revise.sig_type_exprs(Main, ex)   # just for testing purposes
 
-const pair_op_string = string(Dict(1=>2))[7:end-2]     # accomodate changes in Dict printing w/ Julia version
+# accomodate changes in Dict printing w/ Julia version
+const pair_op_compact = let io = IOBuffer()
+    print(IOContext(io, :compact=>true), Dict(1=>2))
+    String(take!(io))[7:end-2]
+end
 
 @testset "Revise" begin
 
@@ -314,7 +318,10 @@ k(x) = 4
         Base.include(mod, file)
         mexs = Revise.parse_source(file, mod)
         Revise.instantiate_sigs!(mexs)
-        @test string(mexs) == "OrderedCollections.OrderedDict($mod$(pair_op_string)ExprsSigs(<1 expressions>, <0 signatures>),$mod.ReviseTest$(pair_op_string)ExprsSigs(<2 expressions>, <2 signatures>),$mod.ReviseTest.Internal$(pair_op_string)ExprsSigs(<6 expressions>, <5 signatures>))"
+        io = IOBuffer()
+        print(IOContext(io, :compact=>true), mexs)
+        str = String(take!(io))
+        @test str == "OrderedCollections.OrderedDict($mod$(pair_op_compact)ExprsSigs(<1 expressions>, <0 signatures>),$mod.ReviseTest$(pair_op_compact)ExprsSigs(<2 expressions>, <2 signatures>),$mod.ReviseTest.Internal$(pair_op_compact)ExprsSigs(<6 expressions>, <5 signatures>))"
         exs = mexs[getfield(mod, :ReviseTest)]
         io = IOBuffer()
         print(IOContext(io, :compact=>true), exs)
