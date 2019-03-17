@@ -723,6 +723,8 @@ function get_def(method::Method; modified_files=revision_queue)
         def !== nothing && return true
     end
     @warn "$(method.sig) was not found"
+    # So that we don't call it again, store missingness info in CodeTracking
+    CodeTracking.method_info[method.sig] = missing
     return false
 end
 
