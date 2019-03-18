@@ -685,9 +685,9 @@ function get_def(method::Method; modified_files=revision_queue)
     filename = fixpath(String(method.file))
     if startswith(filename, "REPL[")
         isdefined(Base, :active_repl) || return false
-        mexs = add_definitions_from_repl(filename)
+        fi = add_definitions_from_repl(filename)
         hassig = false
-        for (mod, exs) in mexs
+        for (mod, exs) in fi.modexsigs
             for sigs in values(exs)
                 hassig |= !isempty(sigs)
             end
@@ -764,22 +764,12 @@ function add_definitions_from_repl(filename)
     src = hp.history[hp.start_idx+hist_idx]
     id = PkgId(nothing, "@REPL")
     pkgdata = pkgdatas[id]
-    tmpmexs = ModuleExprsSigs(Main)
-    parse_source!(tmpmexs, src, filename, Main)
-    instantiate_sigs!(tmpmexs)
-    # Copy the definitions to the @REPL pkgdata
-    mod_exprs_sigs = pkgdata.fileinfos[1].modexsigs
-    for (mod, tmpexs) in tmpmexs
-        exprs_sigs = get(mod_exprs_sigs, mod, nothing)
-        if exprs_sigs === nothing
-            mod_exprs_sigs[mod] = exprs_sigs = ExprsSigs()
-        end
-        for (ex, sigs) in tmpexs
-            isempty(sigs) && continue
-            exprs_sigs[ex] = sigs
-        end
-    end
-    return tmpmexs
+    mexs = ModuleExprsSigs(Main)
+    parse_source!(mexs, src, filename, Main)
+    instantiate_sigs!(mexs)
+    fi = FileInfo(mexs)
+    push!(pkgdata, filename=>fi)
+    return fi
 end
 
 function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)
@@ -962,8 +952,6 @@ function __init__()
     # Set up a repository for methods defined at the REPL
     id = PkgId(nothing, "@REPL")
     pkgdatas[id] = pkgdata = PkgData(id, nothing)
-    push!(pkgdata.info.files, "REPL")
-    push!(pkgdata.fileinfos, FileInfo(Main))
     # Set the lookup callbacks
     CodeTracking.method_lookup_callback[] = get_def
     CodeTracking.expressions_callback[] = get_expressions

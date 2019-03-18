@@ -1491,8 +1491,11 @@ end
     end
 
     @testset "Recipes" begin
+        # https://github.com/JunoLab/Juno.jl/issues/257#issuecomment-473856452
+        meth = @which gcd(10, 20)
+        sigs = signatures_at(Base.find_source_file(String(meth.file)), meth.line)  # this should track Base
+
         # Tracking Base
-        Revise.track(Base)
         id = Base.PkgId(Base)
         pkgdata = Revise.pkgdatas[id]
         @test any(k->endswith(k, "number.jl"), Revise.srcfiles(pkgdata))
@@ -1550,7 +1553,8 @@ end
             ex = Base.parse_input_line(fstr; filename="REPL[$histidx]")
             f = Core.eval(Main, ex)
             push!(hp.history, fstr)
-            @test Revise.get_def(first(methods(f)))
+            m = first(methods(f))
+            @test !isempty(signatures_at(String(m.file), m.line))
             pop!(hp.history)
         end
     end

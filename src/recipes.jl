@@ -63,6 +63,8 @@ function _track(id, modname; modified_files=revision_queue)
                 push!(modified_files, (pkgdata, rpath))
             end
         end
+        # Add files to CodeTracking pkgfiles
+        CodeTracking._pkgfiles[id] = pkgdata.info
         # Add the files to the watch list
         init_watching(pkgdata, srcfiles(pkgdata))
     elseif modname == :Compiler
@@ -145,6 +147,7 @@ function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GI
     end
     if !isempty(pkgdata.fileinfos)
         pkgdatas[id] = pkgdata
+        CodeTracking._pkgfiles[id] = pkgdata.info
         init_watching(pkgdata, srcfiles(pkgdata))
     end
     return nothing

@@ -208,6 +208,9 @@ function read_from_cache(pkgdata::PkgData, file::AbstractString)
 end
 
 function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
+    if startswith(file, "REPL[")
+        return add_definitions_from_repl(file)
+    end
     fi = fileinfo(pkgdata, file)
     if isempty(fi.modexsigs)
         # Source was never parsed, get it from the precompile cache
