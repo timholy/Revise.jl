@@ -28,12 +28,14 @@ function signature_diffs(mod::Module, signatures; filepredicate=nothing)
     extras = copy(signatures)
     modeval, modinclude = getfield(mod, :eval), getfield(mod, :include)
     failed = []
+    nmethods = 0
     for fsym in names(mod; all=true)
         isdefined(mod, fsym) || continue
         f = getfield(mod, fsym)
         isa(f, Base.Callable) || continue
         (f === modeval || f === modinclude) && continue
         for m in methods(f)
+            nmethods += 1
             if haskey(signatures, m.sig)
                 delete!(extras, m.sig)
             else
@@ -44,7 +46,7 @@ function signature_diffs(mod::Module, signatures; filepredicate=nothing)
             end
         end
     end
-    return failed, extras
+    return failed, extras, nmethods
 end
 function extracttype(T)
     p1 = T.parameters[1]
@@ -53,6 +55,9 @@ function extracttype(T)
     error("unrecognized type ", T)
 end
 function in_module_or_core(T, mod::Module)
+    if isa(T, TypeVar)
+        return in_module_or_core(T.ub, mod)
+    end
     if isa(T, UnionAll)
         T = Base.unwrap_unionall(T)
     end
@@ -61,10 +66,7 @@ function in_module_or_core(T, mod::Module)
         return in_module_or_core(T.b, mod)
     end
     if T.name.name == :Type
-        T = extracttype(T)
-        if isa(T, UnionAll)
-            T = Base.unwrap_unionall(T)
-        end
+        return in_module_or_core(extracttype(T), mod)
     end
     Tmod = T.name.module
     return Tmod === mod || Tmod === Core
@@ -96,13 +98,13 @@ basefiles = Set{String}()
     mexs = Revise.parse_source(file, mod)
     Revise.instantiate_sigs!(mexs)
 end
-failed, extras = signature_diffs(Base, CodeTracking.method_info; filepredicate = filepredicate)
+failed, extras, nmethods = signature_diffs(Base, CodeTracking.method_info; filepredicate = filepredicate)
 # In some cases, the above doesn't really select the file-of-origin. For example, anything
 # defined with an @enum gets attributed to Enum.jl rather than the file in which @enum is used.
 realfailed = similar(failed, 0)
 for sig in failed
     ft = Base.unwrap_unionall(sig).parameters[1]
-    startswith(string(ft), "getfield(Base, Symbol(\"##") && continue  # exclude anonymous functions
+    match(r"^getfield\(Base, Symbol\(\"##\d", string(ft)) === nothing || continue  # exclude anonymous functions
     all(T->in_module_or_core(T, Base), Base.unwrap_unionall(sig).parameters[2:end]) || continue
     push!(realfailed, sig)
 end
