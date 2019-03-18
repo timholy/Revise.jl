@@ -234,6 +234,15 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                         Base.delete_method(m)
                         # Remove the entries from CodeTracking data
                         delete!(CodeTracking.method_info, sig)
+                        # Remove frame from JuliaInterpreter, if applicable. Otherwise debuggers
+                        # may erroneously work with outdated code (265-like problems)
+                        if haskey(JuliaInterpreter.framedict, m)
+                            delete!(JuliaInterpreter.framedict, m)
+                        end
+                        if isdefined(m, :generator)
+                            # defensively delete all generated functions
+                            empty!(JuliaInterpreter.genframedict)
+                        end
                         success = true
                     end
                 end
