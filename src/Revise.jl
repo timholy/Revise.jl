@@ -715,6 +715,7 @@ function get_def(method::Method; modified_files=revision_queue)
     # We need to find the right file.
     if method.module == Base || method.module == Core || method.module == Core.Compiler
         @warn "skipping $method to avoid parsing too much code"
+        CodeTracking.method_info[method.sig] = missing
         return false
     end
     parentfile, included_files = modulefiles(method.module)
