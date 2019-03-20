@@ -27,6 +27,41 @@ function use_compiled_modules()
     return Base.JLOptions().use_compiled_modules != 0
 end
 
+function firstline(ex::Expr)
+    for a in ex.args
+        isa(a, LineNumberNode) && return a
+        if isa(a, Expr)
+            line = firstline(a)
+            isa(line, LineNumberNode) && return line
+        end
+    end
+    return nothing
+end
+firstline(rex::RelocatableExpr) = firstline(rex.ex)
+
+newloc(methloc::LineNumberNode, ln, lno) = fixpath(ln)
+
+# Return the only non-trivial expression in ex, or ex itself
+function unwrap(ex::Expr)
+    if ex.head == :block
+        for (i, a) in enumerate(ex.args)
+            if isa(a, Expr)
+                for j = i+1:length(ex.args)
+                    istrivial(ex.args[j]) || return ex
+                end
+                return unwrap(a)
+            elseif !istrivial(a)
+                return ex
+            end
+        end
+        return nothing
+    end
+    return ex
+end
+unwrap(rex::RelocatableExpr) = unwrap(rex.ex)
+
+istrivial(a) = a === nothing || isa(a, LineNumberNode)
+
 ## WatchList utilities
 function systime()
     tv = Libc.TimeVal()

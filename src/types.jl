@@ -15,103 +15,60 @@ mutable struct WatchList
     trackedfiles::Set{String}
 end
 
-const DefMapValue = Union{RelocatableExpr,Tuple{Vector{Any},Int}}  # ([sigt1,...], lineoffset)
+const DocExprs = Dict{Module,Vector{Expr}}
+const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Any}}}
 
-"""
-    DefMap
+Base.setindex!(ex_sigs::ExprsSigs, val, ex::Expr) = setindex!(ex_sigs, val, RelocatableExpr(ex))
 
-Maps `def`=>nothing or `def=>([sigt1,...], lineoffset)`, where:
-
-- `def` is an expression
-- the value is `nothing` if `def` does not define a method
-- if it does define a method, `sigt1...` are the signature-types and `lineoffset` is the
-  difference between the line number when the method was compiled and the current state
-  of the source file.
-
-See the documentation page [How Revise works](@ref) for more information.
-"""
-const DefMap = OrderedDict{RelocatableExpr,Union{DefMapValue,Nothing}}
-
-"""
-    SigtMap
-
-Maps `sigt=>def`, where `sigt` is the signature-type of a method and `def` the expression
-defining the method.
-
-See the documentation page [How Revise works](@ref) for more information.
-"""
-const SigtMap = IdDict{Any,RelocatableExpr}   # sigt=>def
-
-"""
-    FMMaps
-
-`defmap` (`source=>sigtypes`) and `sigtmap` (`sigtypes=>source`) mappings for a
-particular file/module combination.
-See the documentation page [How Revise works](@ref) for more information.
-"""
-struct FMMaps
-    defmap::DefMap
-    sigtmap::SigtMap
-end
-FMMaps() = FMMaps(DefMap(), SigtMap())
-
-Base.isempty(fmm::FMMaps) = isempty(fmm.defmap)
-
-function Base.show(io::IO, fmm::FMMaps)
-    limit = get(io, :limit, true)
-    if limit
-        print(io, "FMMaps(<$(length(fmm.defmap)) expressions>, <$(length(fmm.sigtmap)) signatures>)")
+function Base.show(io::IO, exsigs::ExprsSigs)
+    compact = get(io, :compact, false)
+    if compact
+        n = 0
+        for (rex, sigs) in exsigs
+            sigs === nothing && continue
+            n += length(sigs)
+        end
+        print(io, "ExprsSigs(<$(length(exsigs)) expressions>, <$n signatures>)")
     else
-        println(io, "FMMaps with the following expressions:")
-        for def in keys(fmm.defmap)
-            print(io, "  ")
+        print(io, "ExprsSigs with the following expressions: ")
+        for def in keys(exsigs)
+            print(io, "\n  ")
             Base.show_unquoted(io, def, 2)
-            print(io, '\n')
         end
     end
 end
 
-Base.iterate(fmm::FMMaps) = _returnval(iterate(fmm.defmap))
-Base.iterate(fmm::FMMaps, state) = _returnval(iterate(fmm.defmap, state))
+"""
+    ModuleExprsSigs
 
-function _returnval(ret)
-    ret === nothing && return nothing
-    (rex, val), state = ret
-    if val !== nothing
-        val = val[1]
-    end
-    return (rex, val), state
-end
+For a particular source file, the corresponding `ModuleExprsSigs` is a mapping
+`mod=>exprs=>sigs` of the expressions `exprs` found in `mod` and the signatures `sigs`
+that arise from them. Specifically, if `mes` is a `ModuleExprsSigs`, then `mes[mod][ex]`
+is a list of signatures that result from evaluating `ex` in `mod`. It is possible that
+this returns `nothing`, which can mean either that `ex` does not define any methods
+or that the signatures have not yet been cached.
+
+The first `mod` key is guaranteed to be the module into which this file was `include`d.
+
+To create a `ModuleExprsSigs` from a source file, see [`parse_source`](@ref).
+"""
+const ModuleExprsSigs = OrderedDict{Module,ExprsSigs}
 
 """
-    FileModules
+    fm = ModuleExprsSigs(mod::Module)
 
-For a particular source file, the corresponding `FileModules` is an
-`OrderedDict(mod1=>fmm1, mod2=>fmm2)`,
-mapping the collection of modules "active" in the file (the parent module and any
-submodules it defines) to their corresponding [`FMMaps`](@ref).
-
-The first key is guaranteed to be the module into which this file was `include`d.
-
-To create a `FileModules` from a source file, see [`parse_source`](@ref).
+Initialize an empty `ModuleExprsSigs` for a file that is `include`d into `mod`.
 """
-const FileModules = OrderedDict{Module,FMMaps}
+ModuleExprsSigs(mod::Module) = ModuleExprsSigs(mod=>ExprsSigs())
+
+Base.isempty(fm::ModuleExprsSigs) = length(fm) == 1 && isempty(first(values(fm)))
 
 """
-    fm = FileModules(mod::Module)
-
-Initialize an empty `FileModules` for a file that is `include`d into `mod`.
-"""
-FileModules(mod::Module) = FileModules(mod=>FMMaps())
-
-Base.isempty(fm::FileModules) = length(fm) == 1 && isempty(first(values(fm)))
-
-"""
-    FileInfo(fm::FileModules, cachefile="")
+    FileInfo(fm::ModuleExprsSigs, cachefile="")
 
 Structure to hold the per-module expressions found when parsing a
 single file.
-`fm` holds the [`FileModules`](@ref) for the file.
+`fm` holds the [`ModuleExprsSigs`](@ref) for the file.
 
 Optionally, a `FileInfo` can also record the path to a cache file holding the original source code.
 This is applicable only for precompiled modules and `Base`.
@@ -124,19 +81,33 @@ the original source code gets parsed only when a revision needs to be made.
 Source cache files greatly reduce the overhead of using Revise.
 """
 struct FileInfo
-    fm::FileModules
+    modexsigs::ModuleExprsSigs
     cachefile::String
 end
-FileInfo(fm::FileModules) = FileInfo(fm, "")
+FileInfo(fm::ModuleExprsSigs) = FileInfo(fm, "")
 
 """
     FileInfo(mod::Module, cachefile="")
 
 Initialze an empty FileInfo for a file that is `include`d into `mod`.
 """
-FileInfo(mod::Module, cachefile::AbstractString="") = FileInfo(FileModules(mod), cachefile)
+FileInfo(mod::Module, cachefile::AbstractString="") = FileInfo(ModuleExprsSigs(mod), cachefile)
 
-FileInfo(fm::FileModules, fi::FileInfo) = FileInfo(fm, fi.cachefile)
+FileInfo(fm::ModuleExprsSigs, fi::FileInfo) = FileInfo(fm, fi.cachefile)
+
+function Base.show(io::IO, fi::FileInfo)
+    print(io, "FileInfo(")
+    for (mod, exsigs) in fi.modexsigs
+        show(io, mod)
+        print(io, "=>")
+        show(io, exsigs)
+        print(io, ", ")
+    end
+    if !isempty(fi.cachefile)
+        print(io, "with cachefile ", fi.cachefile)
+    end
+    print(io, ')')
+end
 
 """
     PkgData(id, path, fileinfos::Dict{String,FileInfo})
@@ -169,7 +140,12 @@ function fileindex(info, file::AbstractString)
     return nothing
 end
 
-hasfile(info, file) = fileindex(info, file) !== nothing
+function hasfile(info, file)
+    if isabspath(file)
+        file = relpath(file, info)
+    end
+    fileindex(info, file) !== nothing
+end
 
 function fileinfo(pkgdata::PkgData, file::AbstractString)
     i = fileindex(pkgdata, file)
@@ -182,6 +158,39 @@ function Base.push!(pkgdata::PkgData, pr::Pair{<:AbstractString,FileInfo})
     push!(srcfiles(pkgdata), pr.first)
     push!(pkgdata.fileinfos, pr.second)
     return pkgdata
+end
+
+function Base.show(io::IO, pkgdata::PkgData)
+    compact = get(io, :compact, false)
+    print(io, "PkgData(")
+    if compact
+        print(io, '"', pkgdata.info.basedir, "\", ")
+        nexs, nsigs, nparsed = 0, 0, 0
+        for fi in pkgdata.fileinfos
+            thisnexs, thisnsigs = 0, 0
+            for (mod, exsigs) in fi.modexsigs
+                for (rex, sigs) in exsigs
+                    thisnexs += 1
+                    sigs === nothing && continue
+                    thisnsigs += length(sigs)
+                end
+            end
+            nexs += thisnexs
+            nsigs += thisnsigs
+            if thisnexs > 0
+                nparsed += 1
+            end
+        end
+        print(io, nparsed, '/', length(pkgdata.fileinfos), " parsed files, ", nexs, " expressions, ", nsigs, " signatures)")
+    else
+        show(io, pkgdata.info.id)
+        println(io, ':')
+        for (f, fi) in zip(pkgdata.info.files, pkgdata.fileinfos)
+            print(io, "  \"", f, "\": ")
+            show(IOContext(io, :compact=>true), fi)
+            print('\n')
+        end
+    end
 end
 
 struct GitRepoException <: Exception

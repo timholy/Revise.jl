@@ -3,9 +3,14 @@ module Revise
 using FileWatching, REPL, Distributed, UUIDs
 import LibGit2
 using Base: PkgId
+using Base.Meta: isexpr
+using Core: CodeInfo
 
-using OrderedCollections, CodeTracking
+using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
 using CodeTracking: PkgFiles, basedir, srcfiles
+using JuliaInterpreter: whichtt, is_doc_expr, step_expr!, finish_and_return!, get_return
+using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr, prepare_thunk, split_expressions
+using LoweredCodeUtils: next_or_nothing!, isanonymous_typedef, define_anonymous
 
 export revise, includet, MethodSummary
 
@@ -59,11 +64,13 @@ include("relocatable_exprs.jl")
 include("types.jl")
 include("utils.jl")
 include("parsing.jl")
-include("exprutils.jl")
+include("lowered.jl")
+# include("backedges.jl")
 include("pkgs.jl")
 include("git.jl")
 include("recipes.jl")
 include("logging.jl")
+include("deprecations.jl")
 
 ### Globals to keep track of state
 
@@ -169,153 +176,190 @@ const silence_pkgs = Set{Symbol}()
 const depsdir = joinpath(dirname(@__DIR__), "deps")
 const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
 
+##
+## The inputs are sets of expressions found in each file.
+## Some of those expressions will generate methods which are identified via their signatures.
+## From "old" expressions we know their corresponding signatures, but from "new"
+## expressions we have not yet computed them. This makes old and new asymmetric.
+##
+## Strategy:
+## - For every old expr not found in the new ones,
+##     + delete the corresponding methods (using the signatures we've previously computed)
+##     + remove the sig entries from CodeTracking.method_info  (")
+##   Best to do all the deletion first (across all files and modules) in case a method is
+##   simply being moved from one file to another.
+## - For every new expr found among the old ones,
+##     + update the location info in CodeTracking.method_info
+## - For every new expr not found in the old ones,
+##     + eval the expr
+##     + extract signatures
+##     + add to the ModuleExprsSigs
+##     + add to CodeTracking.method_info
+##
+## Interestingly, the ex=>sigs link may not be the same as the sigs=>ex link.
+## Consider a conditional block,
+##     if Sys.islinux()
+##         f() = 1
+##         g() = 2
+##     else
+##         g() = 3
+##     end
+## From the standpoint of Revise's diff-and-patch functionality, we should look for
+## diffs in this entire block. (Really good backedge support---or a variant of `lower` that
+## links back to the specific expression---might change this, but for
+## now this is the right strategy.) From the standpoint of CodeTracking, we should
+## link the signature to the actual method-defining expression (either :(f() = 1) or :(g() = 2)).
 
-"""
-    fmrep = eval_revised(fmnew::FileModules, fmref::FileModules)
-
-Implement the changes from `fmref` to `fmnew`, returning a replacement [`FileModules`](@ref)
-`fmrep`.
-"""
-function eval_revised(fmnew::FileModules, fmref::FileModules)
-    fmrep = FileModules(first(keys(fmref)))  # replacement for fmref
-    for (mod, fmmnew) in fmnew
-        fmrep[mod] = fmm = FMMaps()
-        if haskey(fmref, mod)
-            eval_revised!(fmm, mod, fmmnew, fmref[mod])
-            for p in workers()
-                p == myid() && continue
-                remotecall(eval_revised_dummy!, p, mod, fmmnew, fmref[mod])
-            end
-        else  # a new submodule (see #43)
-            eval_and_insert_all!(fmm, mod, fmmnew.defmap)
-            for p in workers()
-                p == myid() && continue
-                remotecall(eval_and_insert_all_dummy!, p, mod, fmmnew.defmap)
-            end
-        end
-    end
-    fmrep
-end
-
-function eval_revised!(fmmrep::FMMaps, mod::Module,
-                       fmmnew::FMMaps, fmmref::FMMaps)
-    # Update to the state of fmmnew, preventing any unnecessary evaluation
+function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
     with_logger(_debug_logger) do
-        @debug "Diff" _group="Parsing" activemodule=fullname(mod) newexprs=setdiff(keys(fmmnew.defmap), keys(fmmref.defmap)) oldexprs=setdiff(keys(fmmref.defmap), keys(fmmnew.defmap))
-        # Delete any methods missing in fmmnew
-        # Because we haven't yet evaled and gotten signature types, let's do this "from scratch" using method signatures.
-        # (It might be more efficient to eval first and delete later, but this proves to be safer.)
-        oldsigs, newsigs = filter_signatures(mod, keys(fmmref.defmap)), filter_signatures(mod, keys(fmmnew.defmap))
-        for sig in oldsigs
-            sig ∈ newsigs && continue
-            @debug "DiffSig" _group="Parsing" activemodule=fullname(mod) missingsig=sig newsigs=newsigs
-            for sigt in sigex2sigts(mod, sig)
-                m = get_method(sigt)
-                if isa(m, Method)
-                    Base.delete_method(m)
-                    @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sigt, MethodSummary(m))
-                else
-                    mths = Base._methods_by_ftype(sigt, -1, typemax(UInt))
-                    io = IOBuffer()
-                    println(io, "Extracted method table:")
-                    println(io, mths)
-                    info = String(take!(io))
-                    @warn "Revise failed to find any methods for signature $sigt\n  Perhaps it was already deleted.\n$info"
-                end
-            end
-        end
-        # Eval any expressions unique to fmmnew
-        for (def,val) in fmmnew.defmap
-            @assert def != nothing
-            defref = getkey(fmmref.defmap, def, nothing)
-            if defref != nothing
-                # The same expression is found in both, only update the lineoffset
-                if val !== nothing
-                    sigtref, oldoffset = fmmref.defmap[defref]
-                    lnref = firstlineno(defref)
-                    lnnew = firstlineno(def)
-                    lineoffset = (isa(lnref, Integer) && isa(lnnew, Integer)) ? lnnew-lnref : 0
-                    fmmrep.defmap[defref] = (sigtref, lineoffset)
-                    for sigt in sigtref
-                        # sigt = sigt2methsig(sigt)
-                        fmmrep.sigtmap[sigt] = defref
+        for (ex, sigs) in exs_sigs_old
+            haskey(exs_sigs_new, ex) && continue
+            # ex was deleted
+            sigs === nothing && continue
+            for sig in sigs
+                ret = Base._methods_by_ftype(sig, -1, typemax(UInt))
+                success = false
+                if !isempty(ret)
+                    m = ret[end][3]::Method   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
+                    methsig = m.sig
+                    if sig <: methsig && methsig <: sig
+                        @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
+                        # Delete the corresponding methods
+                        for p in workers()
+                            try  # guard against serialization errors if the type isn't defined on the worker
+                                remotecall(Core.eval, p, Main, :(delete_method_by_sig($sig)))
+                            catch
+                            end
+                        end
+                        Base.delete_method(m)
+                        # Remove the entries from CodeTracking data
+                        delete!(CodeTracking.method_info, sig)
+                        # Remove frame from JuliaInterpreter, if applicable. Otherwise debuggers
+                        # may erroneously work with outdated code (265-like problems)
+                        if haskey(JuliaInterpreter.framedict, m)
+                            delete!(JuliaInterpreter.framedict, m)
+                        end
+                        if isdefined(m, :generator)
+                            # defensively delete all generated functions
+                            empty!(JuliaInterpreter.genframedict)
+                        end
+                        success = true
                     end
-                    oldoffset != lineoffset && @debug "LineOffset" _group="Action" time=time() deltainfo=(sigtref, lnnew, oldoffset=>lineoffset)
-                else
-                    fmmrep.defmap[defref] = nothing
                 end
-            else
-                eval_and_insert!(fmmrep, mod, def=>val)
-            end
-        end
-    end
-    return fmmrep
-end
-
-function filter_signatures(mod::Module, defs)
-    sigs = Set{RelocatableExpr}()
-    for def in defs
-        while is_trivial_block_wrapper(def)
-            def = def.args[end]
-        end
-        def isa ExLike || continue
-        if def.head == :macrocall
-            try
-                _, def = macexpand(mod, convert(Expr, def))
-            catch
-            end
-            def isa ExLike || continue
-        end
-        def.head == :function || def.head == :(=) || continue
-        sig = get_signature(def)
-        sig isa ExLike || continue
-        push!(sigs, relocatable!(sig))
-    end
-    return sigs
-end
-
-eval_revised_dummy!(mod::Module, fmmnew::FMMaps, fmmref::FMMaps) =
-    eval_revised!(FMMaps(), mod, fmmnew, fmmref)
-
-function eval_and_insert!(fmm::FMMaps, mod::Module, pr::Pair)
-    def, val = pr.first, pr.second
-    ex = convert(Expr, def)
-    try
-        if isdocexpr(ex) && mod == Base.__toplevel__
-            Core.eval(Main, ex)
-        else
-            Core.eval(mod, ex)
-        end
-        @debug "Eval" _group="Action" time=time() deltainfo=(mod, relocatable!(ex))
-        if val isa RelocatableExpr
-            instantiate_sigs!(fmm, def, val, mod)
-        else
-            if val !== nothing
-                sigts = Any[sigt2methsig(sigt) for sigt in val[1]]
-                fmm.defmap[def] = (sigts, val[2])
-                for sigt in sigts
-                    fmm.sigtmap[sigt] = def
+                if !success
+                    @debug "FailedDeletion" _group="Action" time=time() deltainfo=(sig,)
                 end
-            else
-                fmm.defmap[def] = val
             end
         end
-    catch err
-        @error "failure to evaluate changes in $mod"
-        showerror(stderr, err)
-        println_maxsize(stderr, "\n", ex; maxlines=20)
     end
-    return fmm
+    return exs_sigs_old
 end
 
-function eval_and_insert_all!(fmm::FMMaps, mod::Module, defmap::DefMap)
-    for pr in defmap
-        eval_and_insert!(fmm, mod, pr)
+const empty_exs_sigs = ExprsSigs()
+function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new)
+    for (mod, exs_sigs_old) in mod_exs_sigs_old
+        exs_sigs_new = get(mod_exs_sigs_new, mod, empty_exs_sigs)
+        delete_missing!(exs_sigs_old, exs_sigs_new)
     end
+    return mod_exs_sigs_old
 end
 
-eval_and_insert_all_dummy!(mod::Module, defmap::DefMap) =
-    eval_and_insert_all!(FMMaps(), mod, defmap)
+function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
+    with_logger(_debug_logger) do
+        for rex in keys(exs_sigs_new)
+            rexo = getkey(exs_sigs_old, rex, nothing)
+            # extract the signatures and update the line info
+            local sigs
+            if rexo === nothing
+                ex = rex.ex
+                # ex is not present in old
+                @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
+                # try
+                    sigs = eval_with_signatures(mod, ex)  # All signatures defined by `ex`
+                    for p in workers()
+                        try   # don't error if `mod` isn't defined on the worker
+                            remotecall(Core.eval, p, mod, ex)
+                        catch
+                        end
+                    end
+                # catch err
+                #     @error "failure to evaluate changes in $mod"
+                #     showerror(stderr, err)
+                #     println_maxsize(stderr, "\n", ex; maxlines=20)
+                # end
+            else
+                sigs = exs_sigs_old[rexo]
+                # Update location info
+                ln, lno = firstline(rex), firstline(rexo)
+                if sigs !== nothing && !isempty(sigs) && ln != lno
+                    @debug "LineOffset" _group="Action" time=time() deltainfo=(sigs, lno=>ln)
+                    for sig in sigs
+                        local methloc, methdef
+                        # try
+                            methloc, methdef = CodeTracking.method_info[sig]
+                        # catch err
+                        #     @show sig sigs
+                        #     @show CodeTracking.method_info
+                        #     rethrow(err)
+                        # end
+                        CodeTracking.method_info[sig] = (newloc(methloc, ln, lno), methdef)
+                    end
+                end
+            end
+            # @show rex rexo sigs
+            exs_sigs_new[rex] = sigs
+        end
+    end
+    return exs_sigs_new
+end
+
+function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old)
+    for (mod, exs_sigs_new) in mod_exs_sigs_new
+        exs_sigs_old = get(mod_exs_sigs_old, mod, empty_exs_sigs)
+        eval_new!(exs_sigs_new, exs_sigs_old, mod)
+    end
+    return mod_exs_sigs_new
+end
+
+struct CodeTrackingMethodInfo
+    exprstack::Vector{Expr}
+    allsigs::Vector{Any}
+end
+CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[])
+CodeTrackingMethodInfo(rex::RelocatableExpr) = CodeTrackingMethodInfo(rex.ex)
+
+function add_signature!(methodinfo::CodeTrackingMethodInfo, sig, ln)
+    CodeTracking.method_info[sig] = (fixpath(ln), methodinfo.exprstack[end])
+    push!(methodinfo.allsigs, sig)
+    return methodinfo
+end
+push_expr!(methodinfo::CodeTrackingMethodInfo, mod::Module, ex::Expr) = (push!(methodinfo.exprstack, ex); methodinfo)
+pop_expr!(methodinfo::CodeTrackingMethodInfo) = (pop!(methodinfo.exprstack); methodinfo)
+
+# Eval and insert into CodeTracking data
+function eval_with_signatures(mod, ex::Expr; define=true)
+    methodinfo = CodeTrackingMethodInfo(ex)
+    docexprs = Dict{Module,Vector{Expr}}()
+    methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define)
+    return methodinfo.allsigs
+end
+
+function instantiate_sigs!(modexsigs::ModuleExprsSigs)
+    for (mod, exsigs) in modexsigs
+        for rex in keys(exsigs)
+            is_doc_expr(rex.ex) && continue
+            sigs = eval_with_signatures(mod, rex.ex; define=false)
+            exsigs[rex.ex] = sigs
+        end
+    end
+    return modexsigs
+end
+
+function eval_revised(mod_exs_sigs_new, mod_exs_sigs_old)
+    delete_missing!(mod_exs_sigs_old, mod_exs_sigs_new)
+    eval_new!(mod_exs_sigs_new, mod_exs_sigs_old)
+    instantiate_sigs!(mod_exs_sigs_new)
+end
 
 """
     Revise.init_watching(files)
@@ -418,6 +462,19 @@ function revise_file_queued(pkgdata::PkgData, file)
     return false
 end
 
+# Because we delete first, we have to make sure we've parsed the file
+function handle_deletions(pkgdata, file)
+    fi = maybe_parse_from_cache!(pkgdata, file)
+    mexsold = fi.modexsigs
+    filep = normpath(joinpath(basedir(pkgdata), file))
+    topmod = first(keys(mexsold))
+    mexsnew = parse_source(filep, topmod)
+    if mexsnew !== nothing
+        delete_missing!(mexsold, mexsnew)
+    end
+    return mexsnew, mexsold
+end
+
 """
     Revise.revise_file_now(pkgdata::PkgData, file)
 
@@ -434,50 +491,13 @@ function revise_file_now(pkgdata::PkgData, file)
         println("Revise is currently tracking the following files in $(pkgdata.id): ", keys(pkgdict))
         error(file, " is not currently being tracked.")
     end
-    maybe_parse_from_cache!(pkgdata, file)
-    fi = fileinfo(pkgdata, i)
-    fmref = fi.fm
-    filep = normpath(joinpath(basedir(pkgdata), file))
-    topmod = first(keys(fi.fm))
-    fmnew = parse_source(filep, topmod)
-    if fmnew != nothing
-        fmrep = eval_revised(fmnew, fmref)
-        pkgdata.fileinfos[i] = FileInfo(fmrep, fi)
+    mexsnew, mexsold = handle_deletions(pkgdata, file)
+    if mexsnew != nothing
+        eval_new!(mexsnew, mexsold)
+        fi = fileinfo(pkgdata, i)
+        pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
     end
     nothing
-end
-
-function instantiate_sigs!(fm::FileModules)
-    for (mod, fmm) in fm
-        instantiate_sigs!(fmm, mod)
-    end
-    return fm
-end
-
-function instantiate_sigs!(fmm::FMMaps, mod::Module)
-    for (def, sig) in fmm.defmap
-        if sig isa RelocatableExpr
-            instantiate_sigs!(fmm, def, sig, mod)
-        end
-    end
-    return fmm
-end
-
-function instantiate_sigs!(fmm::FMMaps, def::RelocatableExpr, sig::RelocatableExpr, mod::Module)
-    sigts = sigex2sigts(mod, sig, def)
-    sigts = Any[sigt2methsig(sigt) for sigt in sigts]
-    # Insert into the maps
-    fmm.defmap[def] = (sigts, 0)
-    defex = convert(Expr, def)
-    for sigt in sigts
-        fmm.sigtmap[sigt] = def
-        # Also add to CodeTracking
-        meth = whichtt(sigt)
-        if isa(meth, Method)
-            CodeTracking.method_info[sigt] = (LineNumberNode(Int(meth.line), meth.file), defex)
-        end
-    end
-    return def
 end
 
 """
@@ -487,42 +507,40 @@ end
 """
 function revise()
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
+
+    # Do all the deletion first. This ensures that a method that moved from one file to another
+    # won't get redefined first and deleted second.
+    revision_errors = []
+    finished = eltype(revision_queue)[]
+    mexsnews = ModuleExprsSigs[]
     for (pkgdata, file) in revision_queue
-        revise_file_now(pkgdata, file)
+        try
+            push!(mexsnews, handle_deletions(pkgdata, file)[1])
+            push!(finished, (pkgdata, file))
+        catch err
+            push!(revision_errors, (basedir(pkgdata), file, err))
+        end
+    end
+    # Do the evaluation
+    for ((pkgdata, file), mexsnew) in zip(finished, mexsnews)
+        i = fileindex(pkgdata, file)
+        fi = fileinfo(pkgdata, i)
+        try
+            eval_new!(mexsnew, fi.modexsigs)
+            pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+        catch err
+            push!(revision_errors, (basedir(pkgdata), file, err))
+        end
     end
     empty!(revision_queue)
+    for (basedir, file, err) in revision_errors
+        fullpath = joinpath(basedir, file)
+        @warn "Failed to revise $fullpath: $err"
+    end
     tracking_Main_includes[] && queue_includes(Main)
     nothing
 end
-
-# This variant avoids unhandled task failures
-function revise(backend::REPL.REPLBackend)
-    sleep(0.01)  # in case the file system isn't quite done writing out the new files
-    for (pkgdata, file) in revision_queue
-        try
-            revise_file_now(pkgdata, file)
-        catch err
-            @static if VERSION >= v"1.2.0-DEV.253"
-                put!(backend.response_channel, (Base.catch_stack(), true))
-            else
-                put!(backend.response_channel, (err, catch_backtrace()))
-            end
-        end
-    end
-    empty!(revision_queue)
-    if tracking_Main_includes[]
-        try
-            queue_includes(Main)
-        catch err
-            @static if VERSION >= v"1.2.0-DEV.253"
-                put!(backend.response_channel, (Base.catch_stack(), true))
-            else
-                put!(backend.response_channel, (err, catch_backtrace()))
-            end
-        end
-    end
-    return nothing
-end
+revise(backend::REPL.REPLBackend) = revise()
 
 """
     revise(mod::Module)
@@ -536,9 +554,17 @@ function revise(mod::Module)
     pkgdata = pkgdatas[id]
     for (i, file) in enumerate(srcfiles(pkgdata))
         fi = fileinfo(pkgdata, i)
-        for (mod,fmm) in fi.fm
-            for def in keys(fmm.defmap)
-                Core.eval(mod, convert(Expr, def))
+        for (mod, exsigs) in fi.modexsigs
+            for def in keys(exsigs)
+                ex = def.ex
+                isexpr(ex, :call) && ex.args[1] == :include && continue
+                try
+                    Core.eval(mod, ex)
+                catch err
+                    @show mod
+                    display(def)
+                    rethrow(err)
+                end
             end
         end
     end
@@ -564,6 +590,9 @@ function track(mod::Module, file::AbstractString)
             pkgdatas[id] = PkgData(id, pathof(mod))
         end
         pkgdata = pkgdatas[id]
+        if !haskey(CodeTracking._pkgfiles, id)
+            CodeTracking._pkgfiles[id] = pkgdata.info
+        end
         push!(pkgdata, file=>FileInfo(fm))
         init_watching(pkgdata, (file,))
     end
@@ -652,49 +681,73 @@ function get_method(@nospecialize(sigt))
 end
 
 """
-    rex = get_def(method::Method)
+    success = get_def(method::Method)
 
-Return the RelocatableExpr defining `method`.
+As needed, load the source file necessary for extracting the code defining `method`.
 The source-file defining `method` must be tracked.
 If it is in Base, this will execute `track(Base)` if necessary.
+
+This is a callback function used by `CodeTracking.jl`'s `definition`.
 """
 function get_def(method::Method; modified_files=revision_queue)
     yield()   # magic bug fix for the OSX test failures. TODO: figure out why this works (prob. Julia bug)
     filename = fixpath(String(method.file))
-    startswith(filename, "REPL") && error("methods defined at the REPL are not yet supported")
+    if startswith(filename, "REPL[")
+        isdefined(Base, :active_repl) || return false
+        fi = add_definitions_from_repl(filename)
+        hassig = false
+        for (mod, exs) in fi.modexsigs
+            for sigs in values(exs)
+                hassig |= !isempty(sigs)
+            end
+        end
+        return hassig
+    end
     id = get_tracked_id(method.module; modified_files=modified_files)
-    id === nothing && return nothing
+    id === nothing && return false
     pkgdata = pkgdatas[id]
     filename = relpath(filename, pkgdata)
     if hasfile(pkgdata, filename)
         def = get_def(method, pkgdata, filename)
-        def !== nothing && return def
+        def !== nothing && return true
     end
-    # Perhaps this is a method that was defined via a macro defined in a different module.
-    # E.g., https://github.com/timholy/Rebugger.jl/issues/3
-    # Try to find the actual file in the same package/module
+    # Lookup can fail for macro-defined methods, see https://github.com/JuliaLang/julia/issues/31197
+    # We need to find the right file.
+    if method.module == Base || method.module == Core || method.module == Core.Compiler
+        @warn "skipping $method to avoid parsing too much code"
+        CodeTracking.method_info[method.sig] = missing
+        return false
+    end
+    parentfile, included_files = modulefiles(method.module)
+    if parentfile !== nothing
+        def = get_def(method, pkgdata, relpath(parentfile, pkgdata))
+        def !== nothing && return true
+        for modulefile in included_files
+            def = get_def(method, pkgdata, relpath(modulefile, pkgdata))
+            def !== nothing && return true
+        end
+    end
+    # As a last resort, try every file in the package
     for file in srcfiles(pkgdata)
         def = get_def(method, pkgdata, file)
-        def !== nothing && return def
+        def !== nothing && return true
     end
-    @warn "$(method.sig) was not found, perhaps it was generated by code"
-    return nothing
+    @warn "$(method.sig) was not found"
+    # So that we don't call it again, store missingness info in CodeTracking
+    CodeTracking.method_info[method.sig] = missing
+    return false
 end
 
 function get_def(method, pkgdata, filename)
     maybe_parse_from_cache!(pkgdata, filename)
-    fi = fileinfo(pkgdata, filename)
-    fmm = get(fi.fm, method.module, nothing)
-    fmm === nothing && return nothing
-    map = fmm.sigtmap
-    haskey(map, method.sig) && return copy(map[method.sig])
-    return nothing
+    return get(CodeTracking.method_info, method.sig, nothing)
 end
 
 function get_tracked_id(id::PkgId; modified_files=revision_queue)
     # Methods from Base or the stdlibs may require that we start tracking
     if !haskey(pkgdatas, id)
         recipe = id.name === "Compiler" ? :Compiler : Symbol(id.name)
+        recipe == :Core && return nothing
         _track(id, recipe; modified_files=modified_files)
         @info "tracking $recipe"
         if !haskey(pkgdatas, id)
@@ -712,7 +765,21 @@ function get_expressions(id::PkgId, filename)
     pkgdata = pkgdatas[id]
     maybe_parse_from_cache!(pkgdata, filename)
     fi = fileinfo(pkgdata, filename)
-    return fi.fm
+    return fi.modexsigs
+end
+
+function add_definitions_from_repl(filename)
+    hist_idx = parse(Int, filename[6:end-1])
+    hp = Base.active_repl.interface.modes[1].hist
+    src = hp.history[hp.start_idx+hist_idx]
+    id = PkgId(nothing, "@REPL")
+    pkgdata = pkgdatas[id]
+    mexs = ModuleExprsSigs(Main)
+    parse_source!(mexs, src, filename, Main)
+    instantiate_sigs!(mexs)
+    fi = FileInfo(mexs)
+    push!(pkgdata, filename=>fi)
+    return fi
 end
 
 function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)
@@ -745,7 +812,7 @@ function update_stacktrace_lineno!(trace)
             if haskey(pkgdatas, id)
                 pkgdict = pkgdatas[id].fileinfos
                 if haskey(pkgdict, file)
-                    fm = pkgdict[file].fm
+                    fm = pkgdict[file].modexsigs
                     for (mod, fmm) in fm
                         if haskey(fmm.sigtmap, sigt)
                             def = fmm.sigtmap[sigt]
@@ -830,7 +897,31 @@ function async_steal_repl_backend()
     return nothing
 end
 
+"""
+    Revise.init_worker(p)
+
+Define methods on worker `p` that Revise needs in order to perform revisions on `p`.
+Revise itself does not need to be running on `p`.
+"""
+function init_worker(p)
+    remotecall(Core.eval, p, Main, quote
+        function whichtt(sig)
+            ret = Base._methods_by_ftype(sig, -1, typemax(UInt))
+            isempty(ret) && return nothing
+            m = ret[end][3]::Method   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
+            methsig = m.sig
+            (sig <: methsig && methsig <: sig) || return nothing
+            return m
+        end
+        function delete_method_by_sig(sig)
+            m = whichtt(sig)
+            isa(m, Method) && Base.delete_method(m)
+        end
+    end)
+end
+
 function __init__()
+    myid() == 1 || return nothing
     if isfile(silencefile[])
         pkgs = readlines(silencefile[])
         for pkg in pkgs
@@ -861,9 +952,16 @@ function __init__()
     end
     # Correct line numbers for code moving around
     Base.update_stackframes_callback[] = update_stacktrace_lineno!
-    # Populate CodeTracking data for dependencies
-    parse_pkg_files(PkgId(CodeTracking))
-    parse_pkg_files(PkgId(OrderedCollections))
+    # Populate CodeTracking data for dependencies and initialize watching
+    for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils)
+        id = PkgId(mod)
+        parse_pkg_files(id)
+        pkgdata = pkgdatas[id]
+        init_watching(pkgdata, srcfiles(pkgdata))
+    end
+    # Set up a repository for methods defined at the REPL
+    id = PkgId(nothing, "@REPL")
+    pkgdatas[id] = pkgdata = PkgData(id, nothing)
     # Set the lookup callbacks
     CodeTracking.method_lookup_callback[] = get_def
     CodeTracking.expressions_callback[] = get_expressions

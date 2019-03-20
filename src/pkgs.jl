@@ -54,6 +54,50 @@ function parse_cache_header(cachefile::String)
     end
 end
 
+function pkg_fileinfo(id::PkgId)
+    uuid, name = id.uuid, id.name
+    # Try to find the matching cache file
+    paths = Base.find_all_in_cache_path(id)
+    for path in paths
+        provides, includes_requires = parse_cache_header(path)
+        mods_files_mtimes, _ = includes_requires
+        for (pkgid, buildid) in provides
+            if pkgid.uuid === uuid && pkgid.name == name
+                return path, mods_files_mtimes
+            end
+        end
+    end
+    return nothing, nothing
+end
+
+"""
+    parentfile, included_files = modulefiles(mod::Module)
+
+Return the `parentfile` in which `mod` was defined, as well as a list of any
+other files that were `include`d to define `mod`. If this operation is unsuccessful,
+`(nothing, nothing)` is returned.
+
+All files are returned as absolute paths.
+"""
+function modulefiles(mod::Module)
+    function keypath(filename)
+        filename = fixpath(filename)
+        return get(src_file_key, filename, filename)
+    end
+    parentfile = String(first(methods(getfield(mod, :eval))).file)
+    id = PkgId(mod)
+    if id.name == "Base" || Symbol(id.name) ∈ stdlib_names
+        parentfile = normpath(Base.find_source_file(parentfile))
+        filedata = Base._included_files
+    else
+        use_compiled_modules() || return nothing, nothing   # FIXME: support non-precompiled packages
+        _, filedata = pkg_fileinfo(id)
+    end
+    filedata === nothing && return nothing, nothing
+    included_files = filter(mf->mf[1] == mod, filedata)
+    return keypath(parentfile), [keypath(mf[2]) for mf in included_files]
+end
+
 """
     parse_pkg_files(id::PkgId)
 
@@ -68,26 +112,16 @@ function parse_pkg_files(id::PkgId)
     pkgdata = pkgdatas[id]
     modsym = Symbol(id.name)
     if use_compiled_modules()
-        # We probably got the top-level file from the precompile cache
-        # Try to find the matching cache file
-        uuid = id.uuid
-        paths = Base.find_all_in_cache_path(id)
-        for path in paths
-            provides, includes_requires = parse_cache_header(path)
-            mods_files_mtimes, _ = includes_requires
-            for (pkgid, buildid) in provides
-                if pkgid.uuid === uuid && pkgid.name == id.name
-                    # found the right cache file
-                    for (mod, fname, _) in mods_files_mtimes
-                        fname = relpath(fname, pkgdata)
-                        # For precompiled packages, we can read the source later (whenever we need it)
-                        # from the *.ji cachefile.
-                        push!(pkgdata, fname=>FileInfo(mod, path))
-                    end
-                    CodeTracking._pkgfiles[id] = pkgdata.info
-                    return srcfiles(pkgdata)
-                end
+        cachefile, mods_files_mtimes = pkg_fileinfo(id)
+        if cachefile !== nothing
+            for (mod, fname, _) in mods_files_mtimes
+                fname = relpath(fname, pkgdata)
+                # For precompiled packages, we can read the source later (whenever we need it)
+                # from the *.ji cachefile.
+                push!(pkgdata, fname=>FileInfo(mod, cachefile))
             end
+            CodeTracking._pkgfiles[id] = pkgdata.info
+            return srcfiles(pkgdata)
         end
     end
     # Non-precompiled package(s). Here we rely on the `include` callbacks to have
@@ -112,13 +146,16 @@ function queue_includes!(pkgdata::PkgData, id::PkgId)
     delids = Int[]
     for i = 1:length(included_files)
         mod, fname = included_files[i]
+        if mod == Base.__toplevel__
+            mod = Main
+        end
         modname = String(Symbol(mod))
         if startswith(modname, modstring) || endswith(fname, modstring*".jl")
-            fm = parse_source(fname, mod)
-            instantiate_sigs!(fm)
+            modexsigs = parse_source(fname, mod)
+            instantiate_sigs!(modexsigs)
             fname = relpath(fname, pkgdata)
-            if fm != nothing
-                push!(pkgdata, fname=>FileInfo(fm))
+            if modexsigs != nothing
+                push!(pkgdata, fname=>FileInfo(modexsigs))
             end
             push!(delids, i)
         end
@@ -171,17 +208,20 @@ function read_from_cache(pkgdata::PkgData, file::AbstractString)
 end
 
 function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
+    if startswith(file, "REPL[")
+        return add_definitions_from_repl(file)
+    end
     fi = fileinfo(pkgdata, file)
-    if isempty(fi.fm)
+    if isempty(fi.modexsigs)
         # Source was never parsed, get it from the precompile cache
         src = read_from_cache(pkgdata, file)
         filep = joinpath(basedir(pkgdata), file)
         filec = get(cache_file_key, filep, filep)
-        topmod = first(keys(fi.fm))
-        if parse_source!(fi.fm, src, Symbol(filec), 1, topmod) === nothing
+        topmod = first(keys(fi.modexsigs))
+        if parse_source!(fi.modexsigs, src, filec, topmod) === nothing
             @error "failed to parse cache file source text for $file"
         end
-        instantiate_sigs!(fi.fm)
+        instantiate_sigs!(fi.modexsigs)
     end
     return fi
 end

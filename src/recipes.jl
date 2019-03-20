@@ -14,6 +14,7 @@ end
 
 function _track(id, modname; modified_files=revision_queue)
     inpath(path, dirs) = all(dir->occursin(dir, path), dirs)
+    haskey(pkgdatas, id) && return nothing  # already tracked
     isbase = modname == :Base
     isstdlib = !isbase && modname ∈ stdlib_names
     if isbase || isstdlib
@@ -44,7 +45,7 @@ function _track(id, modname; modified_files=revision_queue)
             pkgdatas[id] = PkgData(id, srcdir)
         end
         pkgdata = pkgdatas[id]
-        for (submod, filename) in Base._included_files
+        for (submod, filename) in Iterators.drop(Base._included_files, 1)  # stepping through sysimg.jl rebuilds Base, omit it
             ffilename = fixpath(filename)
             inpath(ffilename, dirs) || continue
             keypath = ffilename[1:last(findfirst(dirs[end], ffilename))]
@@ -62,6 +63,8 @@ function _track(id, modname; modified_files=revision_queue)
                 push!(modified_files, (pkgdata, rpath))
             end
         end
+        # Add files to CodeTracking pkgfiles
+        CodeTracking._pkgfiles[id] = pkgdata.info
         # Add the files to the watch list
         init_watching(pkgdata, srcfiles(pkgdata))
     elseif modname == :Compiler
@@ -77,7 +80,7 @@ function _track(id, modname; modified_files=revision_queue)
 end
 
 # Fix paths to files that define Julia (base and stdlibs)
-function fixpath(filename; badpath=basebuilddir, goodpath=juliadir)
+function fixpath(filename::AbstractString; badpath=basebuilddir, goodpath=juliadir)
     startswith(filename, badpath) || return normpath(filename)
     filec = filename
     relfilename = relpath(filename, badpath)
@@ -97,6 +100,9 @@ function fixpath(filename; badpath=basebuilddir, goodpath=juliadir)
     end
     return ffilename
 end
+_fixpath(lnn; kwargs...) = LineNumberNode(lnn.line, Symbol(fixpath(String(lnn.file); kwargs...)))
+fixpath(lnn::LineNumberNode; kwargs...) = _fixpath(lnn; kwargs...)
+fixpath(lnn::Core.LineInfoNode; kwargs...) = _fixpath(lnn; kwargs...)
 
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
 function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue)
@@ -130,16 +136,18 @@ function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GI
             push!(modified_files, (pkgdata, rpath))
         end
         fmod = get(juliaf2m, fullpath, Core.Compiler)  # Core.Compiler is not cached
+        fmod === Core.Compiler && (@warn "Core.Compiler is disabled"; continue)
         fi = FileInfo(fmod)
-        if parse_source!(fi.fm, src, Symbol(file), 1, fmod) === nothing
+        if parse_source!(fi.modexsigs, src, file, fmod) === nothing
             @warn "failed to parse Git source text for $file"
         else
-            instantiate_sigs!(fi.fm)
+            instantiate_sigs!(fi.modexsigs)
         end
         push!(pkgdata, rpath=>fi)
     end
     if !isempty(pkgdata.fileinfos)
         pkgdatas[id] = pkgdata
+        CodeTracking._pkgfiles[id] = pkgdata.info
         init_watching(pkgdata, srcfiles(pkgdata))
     end
     return nothing
