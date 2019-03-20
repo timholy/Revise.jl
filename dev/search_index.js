@@ -301,7 +301,7 @@ var documenterSearchIndex = {"docs": [
     "page": "How Revise works",
     "title": "Revisions and computing diffs",
     "category": "section",
-    "text": "When the file system notifies Revise that a file has been modified, Revise re-parses the file and assigns the expressions to the appropriate modules, creating a Revise.FileModules fmnew. It then compares fmnew against fmref, the reference object that is synchronized to code as it was evaled. The following actions are taken:if a def entry in fmref is equal to one fmnew, the expression is \"unchanged\" except possibly for line number. The lineoffset in fmref is updated as needed.\nif a def entry in fmref is not present in fmnew, that entry is deleted and any corresponding methods are also deleted.\nif a def entry in fmnew is not present in fmref, it is evaled and then added to fmref.Technically, a new fmref is generated every time to ensure that the expressions are ordered as in fmnew; however, conceptually this is better thought of as an updating of fmref, after which fmnew is discarded."
+    "text": "When the file system notifies Revise that a file has been modified, Revise re-parses the file and assigns the expressions to the appropriate modules, creating a Revise.ModuleExprsSigs mexsnew. It then compares mexsnew against mexsref, the reference object that is synchronized to code as it was evaled. The following actions are taken:if a def entry in mexsref is equal to one mexsnew, the expression is \"unchanged\" except possibly for line number. The lineoffset in mexsref is updated as needed.\nif a def entry in mexsref is not present in mexsnew, that entry is deleted and any corresponding methods are also deleted.\nif a def entry in mexsnew is not present in mexsref, it is evaled and then added to mexsref.Technically, a new mexsref is generated every time to ensure that the expressions are ordered as in mexsnew; however, conceptually this is better thought of as an updating of mexsref, after which mexsnew is discarded."
 },
 
 {
@@ -537,91 +537,11 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference/#Revise.RelocatableExpr",
-    "page": "Developer reference",
-    "title": "Revise.RelocatableExpr",
-    "category": "type",
-    "text": "A RelocatableExpr is exactly like an Expr except that comparisons between RelocatableExprs ignore line numbering information. This allows one to detect that two expressions are the same no matter where they appear in a file.\n\nYou can use convert(Expr, rex::RelocatableExpr) to convert to an Expr and convert(RelocatableExpr, ex::Expr) for the converse. Beware that the latter operates in-place and is intended only for internal use.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.DefMap",
-    "page": "Developer reference",
-    "title": "Revise.DefMap",
-    "category": "type",
-    "text": "DefMap\n\nMaps def=>nothing or def=>([sigt1,...], lineoffset), where:\n\ndef is an expression\nthe value is nothing if def does not define a method\nif it does define a method, sigt1... are the signature-types and lineoffset is the difference between the line number when the method was compiled and the current state of the source file.\n\nSee the documentation page How Revise works for more information.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.SigtMap",
-    "page": "Developer reference",
-    "title": "Revise.SigtMap",
-    "category": "type",
-    "text": "SigtMap\n\nMaps sigt=>def, where sigt is the signature-type of a method and def the expression defining the method.\n\nSee the documentation page How Revise works for more information.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.FMMaps",
-    "page": "Developer reference",
-    "title": "Revise.FMMaps",
-    "category": "type",
-    "text": "FMMaps\n\ndefmap (source=>sigtypes) and sigtmap (sigtypes=>source) mappings for a particular file/module combination. See the documentation page How Revise works for more information.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.FileModules",
-    "page": "Developer reference",
-    "title": "Revise.FileModules",
-    "category": "type",
-    "text": "FileModules\n\nFor a particular source file, the corresponding FileModules is an OrderedDict(mod1=>fmm1, mod2=>fmm2), mapping the collection of modules \"active\" in the file (the parent module and any submodules it defines) to their corresponding FMMaps.\n\nThe first key is guaranteed to be the module into which this file was included.\n\nTo create a FileModules from a source file, see parse_source.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.FileInfo",
-    "page": "Developer reference",
-    "title": "Revise.FileInfo",
-    "category": "type",
-    "text": "FileInfo(fm::FileModules, cachefile=\"\")\n\nStructure to hold the per-module expressions found when parsing a single file. fm holds the FileModules for the file.\n\nOptionally, a FileInfo can also record the path to a cache file holding the original source code. This is applicable only for precompiled modules and Base. (This cache file is distinct from the original source file that might be edited by the developer, and it will always hold the state of the code when the package was precompiled or Julia\'s Base was built.) When a cache is available, fm will be empty until the file gets edited: the original source code gets parsed only when a revision needs to be made.\n\nSource cache files greatly reduce the overhead of using Revise.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.PkgData",
-    "page": "Developer reference",
-    "title": "Revise.PkgData",
-    "category": "type",
-    "text": "PkgData(id, path, fileinfos::Dict{String,FileInfo})\n\nA structure holding the data required to handle a particular package. path is the top-level directory defining the package, and fileinfos holds the FileInfo for each file defining the package.\n\nFor the PkgData associated with Main (e.g., for files loaded with includet), the corresponding path entry will be empty.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.WatchList",
-    "page": "Developer reference",
-    "title": "Revise.WatchList",
-    "category": "type",
-    "text": "Revise.WatchList\n\nA struct for holding files that live inside a directory. Some platforms (OSX) have trouble watching too many files. So we watch parent directories, and keep track of which files in them should be tracked.\n\nFields:\n\ntimestamp: mtime of last update\ntrackedfiles: Set of filenames, generally expressed as a relative path\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.Rescheduler",
-    "page": "Developer reference",
-    "title": "Revise.Rescheduler",
-    "category": "type",
-    "text": "Rescheduler(f, args)\n\nTo facilitate precompilation and reduce latency, we replace\n\nfunction watch_manifest(mfile)\n    wait_changed(mfile)\n    # stuff\n    @async watch_manifest(mfile)\nend\n\n@async watch_manifest(mfile)\n\nwith a rescheduling type:\n\nfresched = Rescheduler(watch_manifest, (mfile,))\nschedule(Task(fresched))\n\nwhere now watch_manifest(mfile) should return true if the task should be rescheduled after completion, and false otherwise.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.MethodSummary",
-    "page": "Developer reference",
-    "title": "Revise.MethodSummary",
-    "category": "type",
-    "text": "MethodSummary(method)\n\nCreate a portable summary of a method. In particular, a MethodSummary can be saved to a JLD2 file.\n\n\n\n\n\n"
-},
-
-{
     "location": "dev_reference/#Types-1",
     "page": "Developer reference",
     "title": "Types",
     "category": "section",
-    "text": "Revise.RelocatableExpr\nRevise.DefMap\nRevise.SigtMap\nRevise.FMMaps\nRevise.FileModules\nRevise.FileInfo\nRevise.PkgData\nRevise.WatchList\nRevise.Rescheduler\nMethodSummary"
+    "text": "Revise.RelocatableExpr\nRevise.DefMap\nRevise.SigtMap\nRevise.FMMaps\nRevise.ModuleExprsSigs\nRevise.FileInfo\nRevise.PkgData\nRevise.WatchList\nRevise.Rescheduler\nMethodSummary"
 },
 
 {
@@ -713,22 +633,6 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "dev_reference/#Revise.revise_file_now",
-    "page": "Developer reference",
-    "title": "Revise.revise_file_now",
-    "category": "function",
-    "text": "Revise.revise_file_now(pkgdata::PkgData, file)\n\nProcess revisions to file. This parses file and computes an expression-level diff between the current state of the file and its most recently evaluated state. It then deletes any removed methods and re-evaluates any changed expressions.\n\nid must be a key in Revise.pkgdatas, and file a key in Revise.pkgdatas[id].fileinfos.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.eval_revised",
-    "page": "Developer reference",
-    "title": "Revise.eval_revised",
-    "category": "function",
-    "text": "fmrep = eval_revised(fmnew::FileModules, fmref::FileModules)\n\nImplement the changes from fmref to fmnew, returning a replacement FileModules fmrep.\n\n\n\n\n\n"
-},
-
-{
     "location": "dev_reference/#Evaluating-changes-(revising)-and-computing-diffs-1",
     "page": "Developer reference",
     "title": "Evaluating changes (revising) and computing diffs",
@@ -749,7 +653,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.get_def",
     "category": "function",
-    "text": "rex = get_def(method::Method)\n\nReturn the RelocatableExpr defining method. The source-file defining method must be tracked. If it is in Base, this will execute track(Base) if necessary.\n\n\n\n\n\n"
+    "text": "success = get_def(method::Method)\n\nAs needed, load the source file necessary for extracting the code defining method. The source-file defining method must be tracked. If it is in Base, this will execute track(Base) if necessary.\n\nThis is a callback function used by CodeTracking.jl\'s definition.\n\n\n\n\n\n"
 },
 
 {
@@ -758,86 +662,6 @@ var documenterSearchIndex = {"docs": [
     "title": "Interchange between methods and signatures",
     "category": "section",
     "text": "Revise.get_method\nRevise.get_def"
-},
-
-{
-    "location": "dev_reference/#Revise.parse_source",
-    "page": "Developer reference",
-    "title": "Revise.parse_source",
-    "category": "function",
-    "text": "fm = parse_source(filename::AbstractString, mod::Module)\n\nParse the source filename, returning a FileModules fm. mod is the \"parent\" module for the file (i.e., the one that included the file); if filename defines more module(s) then these will all have separate entries in fm.\n\nIf parsing filename fails, nothing is returned.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.parse_source!",
-    "page": "Developer reference",
-    "title": "Revise.parse_source!",
-    "category": "function",
-    "text": "parse_source!(fm::FileModules, filename, mod::Module)\n\nTop-level parsing of filename as included into module mod. Successfully-parsed expressions will be added to fm. Returns fm if parsing finished successfully, otherwise nothing is returned.\n\nSee also parse_source.\n\n\n\n\n\nsuccess = parse_source!(fm::FileModules, src::AbstractString, file::Symbol, pos::Integer, mod::Module)\n\nParse a string src obtained by reading file as a single string. pos is the 1-based byte offset from which to begin parsing src.\n\nSee also parse_source.\n\n\n\n\n\nsuccess = parse_source!(fm::FileModules, ex::Expr, file, mod::Module)\n\nFor a file that defines a sub-module, parse the body ex of the sub-module.  mod will be the module into which this sub-module is evaluated (i.e., included). Successfully-parsed expressions will be added to fm. Returns true if parsing finished successfully.\n\nSee also parse_source.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.parse_expr!",
-    "page": "Developer reference",
-    "title": "Revise.parse_expr!",
-    "category": "function",
-    "text": "parse_expr!(fm::FileModules, ex::Expr, file::Symbol, mod::Module)\n\nRecursively parse the expressions in ex, iterating over blocks and sub-module definitions. Successfully parsed expressions are added to fm with key mod, and any sub-modules will be stored in fm using appropriate new keys. This accomplishes two main tasks:\n\nadd parsed expressions to the source-code cache (so that later we can detect changes)\ndetermine the module into which each parsed expression is evaluated into\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.parse_module!",
-    "page": "Developer reference",
-    "title": "Revise.parse_module!",
-    "category": "function",
-    "text": "newmod = parse_module!(fm::FileModules, ex::Expr, file, mod::Module)\n\nParse an expression ex that defines a new module newmod. This module is \"parented\" by mod. Source-code expressions are added to fm under the appropriate module name.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.funcdef_expr",
-    "page": "Developer reference",
-    "title": "Revise.funcdef_expr",
-    "category": "function",
-    "text": "exf = funcdef_expr(ex)\n\nRecurse, if necessary, into ex until the first function definition expression is found.\n\nExample\n\njulia> Revise.funcdef_expr(quote\n       \"\"\"\n       A docstring\n       \"\"\"\n       @inline foo(x) = 5\n       end)\n:(foo(x) = begin\n          #= REPL[31]:5 =#\n          5\n      end)\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.get_signature",
-    "page": "Developer reference",
-    "title": "Revise.get_signature",
-    "category": "function",
-    "text": "sigex = get_signature(expr)\n\nExtract the signature from an expression expr that defines a function.\n\nIf expr does not define a function, returns nothing.\n\nExamples\n\njulia> Revise.get_signature(quote\n       function count_different(x::AbstractVector{T}, y::AbstractVector{S}) where {S,T}\n           sum(x .!= y)\n       end\n       end)\n:(count_different(x::AbstractVector{T}, y::AbstractVector{S}) where {S, T})\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.get_callexpr",
-    "page": "Developer reference",
-    "title": "Revise.get_callexpr",
-    "category": "function",
-    "text": "callex = get_callexpr(sigex::ExLike)\n\nReturn the \"call\" expression for a signature-expression sigex. (This strips out :where statements.)\n\nExample\n\njulia> Revise.get_callexpr(:(nested(x::A) where A<:AbstractVector{T} where T))\n:(nested(x::A))\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.sig_type_exprs",
-    "page": "Developer reference",
-    "title": "Revise.sig_type_exprs",
-    "category": "function",
-    "text": "typexs = sig_type_exprs(mod::Module, sigex::Expr)\n\nFrom a function signature-expression sigex (see get_signature), generate a list typexs of concrete signature type expressions. This list will have length 1 unless sigex has default arguments, in which case it will produce one type signature per valid number of supplied arguments.\n\nThese type-expressions can be evaluated in the appropriate module to obtain a Tuple-type. The mod argument must be supplied if sigex has macrocalls in the arguments.\n\nExamples\n\njulia> Revise.sig_type_exprs(Main, :(foo(x::Int, y::String)))\n1-element Array{Expr,1}:\n :(Tuple{(Core.Typeof)(foo), Int, String})\n\njulia> Revise.sig_type_exprs(Main, :(foo(x::Int, y::String=\"hello\")))\n2-element Array{Expr,1}:\n :(Tuple{(Core.Typeof)(foo), Int})\n :(Tuple{(Core.Typeof)(foo), Int, String})\n\njulia> Revise.sig_type_exprs(Main, :(foo(x::AbstractVector{T}, y) where T))\n1-element Array{Expr,1}:\n :(Tuple{(Core.Typeof)(foo), AbstractVector{T}, Any} where T)\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.sigt2methsig",
-    "page": "Developer reference",
-    "title": "Revise.sigt2methsig",
-    "category": "function",
-    "text": "methsig = sigt2methsig(sig)\n\nFor a signature sig, try to return the signature methsig of a currently-defined method.\n\n\n\n\n\n"
-},
-
-{
-    "location": "dev_reference/#Revise.argtypeexpr",
-    "page": "Developer reference",
-    "title": "Revise.argtypeexpr",
-    "category": "function",
-    "text": "typeex1, typeex2, ... = argtypeexpr(mod, ex...)\n\nReturn expressions that specify the types assigned to each argument in a method signature. Returns :Any if no type is assigned to a specific argument. It also skips keyword arguments.\n\nex... should be arguments 2:end of a :call expression (i.e., skipping over the function name).\n\nExamples\n\njulia> sigex = :(varargs(x, rest::Int...))\n:(varargs(x, rest::Int...))\n\njulia> Revise.argtypeexpr(Revise.get_callexpr(sigex).args[2:end]...)\n(:Any, :(Vararg{Int}))\n\njulia> sigex = :(complexargs(w::Vector{T}, @nospecialize(x::Integer), y, z::String=\"\"; kwarg::Bool=false) where T)\n:(complexargs(w::Vector{T}, #= REPL[39]:1 =# @nospecialize(x::Integer), y, z::String=\"\"; kwarg::Bool=false) where T)\n\njulia> Revise.argtypeexpr(Revise.get_callexpr(sigex).args[2:end]...)\n(:(Vector{T}), :Integer, :Any, :String)\n\n\n\n\n\n"
 },
 
 {
