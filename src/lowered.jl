@@ -34,15 +34,26 @@ function methods_by_execution(mod::Module, ex::Expr; define=true)
 end
 
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr; define=true)
+    # We have to turn off all active breakpoints, https://github.com/timholy/CodeTracking.jl/issues/27
+    bps = filter(bp->bp[].isactive, JuliaInterpreter._breakpoints)
+    for bp in bps
+        disable(bp)
+    end
+    local ret
     try
         frame = prepare_thunk(mod, ex)
         frame === nothing && return nothing
-        return methods_by_execution!(recurse, methodinfo, docexprs, frame; define=define)
+        ret = methods_by_execution!(recurse, methodinfo, docexprs, frame; define=define)
     catch err
         isa(err, InterruptException) && rethrow(err)
         @warn "error evaluating in module $mod: $ex" exception=(err, catch_backtrace())
-        return nothing
+        ret = nothing
+    finally
+        for bp in bps
+            enable(bp)
+        end
     end
+    return ret
 end
 
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame; define=true)
