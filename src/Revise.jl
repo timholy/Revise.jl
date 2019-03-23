@@ -583,7 +583,7 @@ function track(mod::Module, file::AbstractString)
     isfile(file) || error(file, " is not a file")
     file = normpath(abspath(file))
     fm = parse_source(file, mod)
-    if fm != nothing
+    if fm !== nothing
         instantiate_sigs!(fm)
         id = PkgId(mod)
         if !haskey(pkgdatas, id)
