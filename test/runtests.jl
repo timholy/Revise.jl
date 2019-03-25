@@ -1326,6 +1326,15 @@ revise_f(x) = 2
         @test revise_floc(10) == 2
         push!(to_remove, joinpath(tempdir(), srcfile))
         cd(curdir)
+
+        # Empty files (issue #253)
+        srcfile = joinpath(tempdir(), randtmp()*".jl")
+        open(srcfile, "w") do io
+            println(io)
+        end
+        includet(srcfile)
+        @test basename(srcfile) ∈ Revise.watched_files[dirname(srcfile)].trackedfiles
+        push!(to_remove, srcfile)
     end
 
     @testset "Auto-track user scripts" begin

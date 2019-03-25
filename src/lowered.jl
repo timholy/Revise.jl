@@ -22,7 +22,7 @@ end
 # This default version is simple; there's a more involved one in Revise.jl that interacts
 # with CodeTracking.
 const MethodInfo = IdDict{Type,LineNumberNode}
-add_signature!(methodinfo::MethodInfo, sig, ln) = push!(methodinfo, sig=>ln)
+add_signature!(methodinfo::MethodInfo, @nospecialize(sig), ln) = push!(methodinfo, sig=>ln)
 push_expr!(methodinfo::MethodInfo, mod::Module, ex::Expr) = methodinfo
 pop_expr!(methodinfo::MethodInfo) = methodinfo
 

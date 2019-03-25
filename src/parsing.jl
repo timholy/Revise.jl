@@ -37,6 +37,7 @@ See also [`parse_source`](@ref).
 """
 function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module)
     ex = Base.parse_input_line(src; filename=filename)
+    ex === nothing && return mod_exprs_sigs
     if isexpr(ex, :error) || isexpr(ex, :incomplete)
         throw(LoadError(filename, 0, ex.args[1]))  # would be nice to get the line number
     end

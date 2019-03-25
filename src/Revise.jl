@@ -328,7 +328,7 @@ end
 CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[])
 CodeTrackingMethodInfo(rex::RelocatableExpr) = CodeTrackingMethodInfo(rex.ex)
 
-function add_signature!(methodinfo::CodeTrackingMethodInfo, sig, ln)
+function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), ln)
     CodeTracking.method_info[sig] = (fixpath(ln), methodinfo.exprstack[end])
     push!(methodinfo.allsigs, sig)
     return methodinfo
@@ -583,7 +583,7 @@ function track(mod::Module, file::AbstractString)
     isfile(file) || error(file, " is not a file")
     file = normpath(abspath(file))
     fm = parse_source(file, mod)
-    if fm != nothing
+    if fm !== nothing
         instantiate_sigs!(fm)
         id = PkgId(mod)
         if !haskey(pkgdatas, id)
