@@ -1038,6 +1038,11 @@ foo(y::Int) = y-51
             bt = throwing_function(Revise.update_stacktrace_lineno!(stacktrace(catch_backtrace())))
             @test bt.file == Symbol(filename) && bt.line == 2
         end
+        io = IOBuffer()
+        if isdefined(Base, :methodloc_callback)
+            print(io, methods(triggered))
+            @test occursin(filename * ":2", String(take!(io)))
+        end
         sleep(2.1)
         open(filename, "w") do io
             println(io, """
@@ -1065,7 +1070,6 @@ foo(y::Int) = y-51
             stacktrace(catch_backtrace())
         end
         targetstr = filename * ":3"
-        io = IOBuffer()
         Base.show_backtrace(io, st)
         @test occursin(targetstr, String(take!(io)))
         # Long stacktraces take a different path, test this too
@@ -1074,6 +1078,10 @@ foo(y::Int) = y-51
         end
         Base.show_backtrace(io, st)
         @test occursin(targetstr, String(take!(io)))
+        if isdefined(Base, :methodloc_callback)
+            print(io, methods(triggered))
+            @test occursin(filename * ":3", String(take!(io)))
+        end
 
         push!(to_remove, filename)
     end

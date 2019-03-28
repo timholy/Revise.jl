@@ -827,6 +827,17 @@ function update_stacktrace_lineno!(trace)
     return trace
 end
 
+function method_location(method::Method)
+    # Why not just call `whereis`? Because that forces tracking. This is being
+    # clever by recognizing that these entries exist only if there have been updates.
+    updated = get(CodeTracking.method_info, method.sig, nothing)
+    if updated !== nothing
+        lnn = updated[1]
+        return lnn.file, lnn.line
+    end
+    return method.file, method.line
+end
+
 @noinline function run_backend(backend)
     while true
         tls = task_local_storage()
@@ -948,6 +959,9 @@ function __init__()
     end
     # Correct line numbers for code moving around
     Base.update_stackframes_callback[] = update_stacktrace_lineno!
+    if isdefined(Base, :methodloc_callback)
+        Base.methodloc_callback[] = method_location
+    end
     # Populate CodeTracking data for dependencies and initialize watching
     for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils)
         id = PkgId(mod)
