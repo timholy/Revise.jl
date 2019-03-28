@@ -802,29 +802,25 @@ file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
     LineNumberNode(lnn.line + line_offset, file)
 
 function update_stacktrace_lineno!(trace)
+    local nrep
     for i = 1:length(trace)
-        t, n = trace[i]
+        t = trace[i]
+        has_nrep = !isa(t, StackTraces.StackFrame)
+        if has_nrep
+            t, nrep = t
+        end
+        t = t::StackTraces.StackFrame
         if t.linfo isa Core.MethodInstance
             m = t.linfo.def
             sigt = m.sig
-            file = String(t.file)
-            id = PkgId(m.module)
-            if haskey(pkgdatas, id)
-                pkgdict = pkgdatas[id].fileinfos
-                if haskey(pkgdict, file)
-                    fm = pkgdict[file].modexsigs
-                    for (mod, fmm) in fm
-                        if haskey(fmm.sigtmap, sigt)
-                            def = fmm.sigtmap[sigt]
-                            lineoffset = fmm.defmap[def][2]
-                            if lineoffset != 0
-                                t = StackTraces.StackFrame(t.func, t.file, t.line+lineoffset, t.linfo, t.from_c, t.inlined, t.pointer)
-                                trace[i] = (t, n)
-                                break
-                            end
-                        end
-                    end
-                end
+            # Why not just call `whereis`? Because that forces tracking. This is being
+            # clever by recognizing that these entries exist only if there have been updates.
+            updated = get(CodeTracking.method_info, sigt, nothing)
+            if updated !== nothing
+                lnn = updated[1]
+                lineoffset = lnn.line - m.line
+                t = StackTraces.StackFrame(t.func, lnn.file, t.line+lineoffset, t.linfo, t.from_c, t.inlined, t.pointer)
+                trace[i] = has_nrep ? (t, nrep) : t
             end
         end
     end
