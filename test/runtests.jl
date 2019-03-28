@@ -259,7 +259,8 @@ k(x) = 4
         @test_broken length(Revise.diffs(rlogger)) == 2
         empty!(rlogger.logs)
 
-        # Backtraces
+        # Backtraces. Note this doesn't test the line-number correction
+        # because both of these are revised definitions.
         cp(fl3, tmpfile; force=true)
         mexsold = mexsnew
         mexsnew = Revise.parse_source(tmpfile, Main)
@@ -1016,6 +1017,65 @@ foo(y::Int) = y-51
         end
         rm_precompile("LineNumberMod")
         pop!(LOAD_PATH)
+    end
+
+    @testset "Line numbers in backtraces and warnings" begin
+        filename = randtmp() * ".jl"
+        open(filename, "w") do io
+            println(io, """
+            function triggered(iserr::Bool, iswarn::Bool)
+                iserr && error("error")
+                iswarn && @warn "Information"
+                return nothing
+            end
+            """)
+        end
+        includet(filename)
+        try
+            triggered(true, false)
+            @test false
+        catch err
+            bt = throwing_function(Revise.update_stacktrace_lineno!(stacktrace(catch_backtrace())))
+            @test bt.file == Symbol(filename) && bt.line == 2
+        end
+        sleep(2.1)
+        open(filename, "w") do io
+            println(io, """
+            # A comment to change the line numbers
+            function triggered(iserr::Bool, iswarn::Bool)
+                iserr && error("error")
+                iswarn && @warn "Information"
+                return nothing
+            end
+            """)
+        end
+        sleep(0.1)
+        yry()
+        try
+            triggered(true, false)
+            @test false
+        catch err
+            bt = throwing_function(Revise.update_stacktrace_lineno!(stacktrace(catch_backtrace())))
+            @test bt.file == Symbol(filename) && bt.line == 3
+        end
+        st = try
+            triggered(true, false)
+            @test false
+        catch err
+            stacktrace(catch_backtrace())
+        end
+        targetstr = filename * ":3"
+        io = IOBuffer()
+        Base.show_backtrace(io, st)
+        @test occursin(targetstr, String(take!(io)))
+        # Long stacktraces take a different path, test this too
+        while length(st) < 100
+            st = vcat(st, st)
+        end
+        Base.show_backtrace(io, st)
+        @test occursin(targetstr, String(take!(io)))
+
+        push!(to_remove, filename)
     end
 
     # Issue #43

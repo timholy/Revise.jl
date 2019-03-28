@@ -1,6 +1,6 @@
 using Random
 
-const rseed = Ref(Random.GLOBAL_RNG)  # to get new random directories (see #24445)
+const rseed = Ref(Random.GLOBAL_RNG)  # to get new random directories (see julia #24445)
 function randtmp()
     Random.seed!(rseed[])
     dirname = joinpath(tempdir(), randstring(10))
