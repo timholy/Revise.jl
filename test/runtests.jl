@@ -1431,6 +1431,14 @@ revise_f(x) = 2
             end
             yry()
             @test revise_g() == 2
+
+            # issue #257
+            logs, _ = Test.collect_test_logs() do  # just to prevent noisy warning
+                try include("nonexistent1.jl") catch end
+                yry()
+                try include("nonexistent2.jl") catch end
+                yry()
+            end
         finally
             Revise.tracking_Main_includes[] = false  # restore old behavior
         end
