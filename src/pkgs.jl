@@ -152,9 +152,9 @@ function queue_includes!(pkgdata::PkgData, id::PkgId)
         modname = String(Symbol(mod))
         if startswith(modname, modstring) || endswith(fname, modstring*".jl")
             modexsigs = parse_source(fname, mod)
-            instantiate_sigs!(modexsigs)
-            fname = relpath(fname, pkgdata)
-            if modexsigs != nothing
+            if modexsigs !== nothing
+                instantiate_sigs!(modexsigs)
+                fname = relpath(fname, pkgdata)
                 push!(pkgdata, fname=>FileInfo(modexsigs))
             end
             push!(delids, i)
