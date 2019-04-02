@@ -341,7 +341,7 @@ var documenterSearchIndex = {"docs": [
     "page": "User reference",
     "title": "Revise.includet",
     "category": "function",
-    "text": "includet(filename)\n\nLoad filename and track any future changes to it. includet is deliberately non-recursive, so if filename loads any other files, they will not be automatically tracked. (See Revise.track to set it up manually.)\n\nincludet is intended for \"user scripts,\" e.g., a file you use locally for a specific purpose such as loading a specific data set or performing some kind of analysis. Do not use includet for packages, as those should be handled by using or import. If using and import aren\'t working, you may have packages in a non-standard location; try fixing it with something like push!(LOAD_PATH, \"/path/to/my/private/repos\").\n\n\n\n\n\n"
+    "text": "includet(filename)\n\nLoad filename and track any future changes to it. includet is simply shorthand for\n\nRevise.track(Main, filename; skip_include=false)\n\nincludet is intended for \"user scripts,\" e.g., a file you use locally for a specific purpose such as loading a specific data set or performing a particular analysis. Do not use includet for packages, as those should be handled by using or import. (If you\'re working with code in Base or one of Julia\'s standard libraries, use Revise.track(mod) instead, where mod is the module.) If using and import aren\'t working, you may have packages in a non-standard location; try fixing it with something like push!(LOAD_PATH, \"/path/to/my/private/repos\").\n\nincludet is deliberately non-recursive, so if filename loads any other files, they will not be automatically tracked. (See Revise.track to set it up manually.)\n\n\n\n\n\n"
 },
 
 {
