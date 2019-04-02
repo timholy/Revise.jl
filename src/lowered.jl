@@ -26,14 +26,14 @@ add_signature!(methodinfo::MethodInfo, @nospecialize(sig), ln) = push!(methodinf
 push_expr!(methodinfo::MethodInfo, mod::Module, ex::Expr) = methodinfo
 pop_expr!(methodinfo::MethodInfo) = methodinfo
 
-function methods_by_execution(mod::Module, ex::Expr; define=true)
+function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     methodinfo = MethodInfo()
     docexprs = Dict{Module,Vector{Expr}}()
-    value = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define)
+    value = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; kwargs...)
     return methodinfo, docexprs
 end
 
-function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr; define=true)
+function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr; kwargs...)
     # We have to turn off all active breakpoints, https://github.com/timholy/CodeTracking.jl/issues/27
     bps = filter(bp->bp[].isactive, JuliaInterpreter._breakpoints)
     for bp in bps
@@ -43,7 +43,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
     try
         frame = prepare_thunk(mod, ex)
         frame === nothing && return nothing
-        ret = methods_by_execution!(recurse, methodinfo, docexprs, frame; define=define)
+        ret = methods_by_execution!(recurse, methodinfo, docexprs, frame; kwargs...)
     catch err
         isa(err, InterruptException) && rethrow(err)
         @warn "error evaluating in module $mod: $ex" exception=(err, catch_backtrace())
@@ -56,7 +56,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
     return ret
 end
 
-function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame; define=true)
+function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame; define=true, skip_include=true)
     mod = moduleof(frame)
     signatures = []  # temporary for method signature storage
     pc = frame.pc
@@ -141,7 +141,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     end
                     assign_this!(frame, value)
                     pc = next_or_nothing!(frame)
-                elseif f === getfield(mod, :include) || f === Base.include || f === Core.include
+                elseif skip_include && (f === getfield(mod, :include) || f === Base.include || f === Core.include)
                     # Skip include calls, otherwise we load new code
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)

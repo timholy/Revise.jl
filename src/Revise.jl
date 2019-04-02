@@ -277,6 +277,7 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
                 # try
                     sigs = eval_with_signatures(mod, ex)  # All signatures defined by `ex`
                     for p in workers()
+                        p == myid() && continue
                         try   # don't error if `mod` isn't defined on the worker
                             remotecall(Core.eval, p, mod, ex)
                         catch
@@ -337,18 +338,18 @@ push_expr!(methodinfo::CodeTrackingMethodInfo, mod::Module, ex::Expr) = (push!(m
 pop_expr!(methodinfo::CodeTrackingMethodInfo) = (pop!(methodinfo.exprstack); methodinfo)
 
 # Eval and insert into CodeTracking data
-function eval_with_signatures(mod, ex::Expr; define=true)
+function eval_with_signatures(mod, ex::Expr; define=true, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
     docexprs = Dict{Module,Vector{Expr}}()
-    methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define)
+    methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define, kwargs...)
     return methodinfo.allsigs
 end
 
-function instantiate_sigs!(modexsigs::ModuleExprsSigs)
+function instantiate_sigs!(modexsigs::ModuleExprsSigs; define=false, kwargs...)
     for (mod, exsigs) in modexsigs
         for rex in keys(exsigs)
             is_doc_expr(rex.ex) && continue
-            sigs = eval_with_signatures(mod, rex.ex; define=false)
+            sigs = eval_with_signatures(mod, rex.ex; define=define, kwargs...)
             exsigs[rex.ex] = sigs
         end
     end
@@ -579,12 +580,12 @@ Watch `file` for updates and [`revise`](@ref) loaded code with any
 changes. `mod` is the module into which `file` is evaluated; if omitted,
 it defaults to `Main`.
 """
-function track(mod::Module, file::AbstractString)
+function track(mod::Module, file::AbstractString; define=false, skip_include=true)
     isfile(file) || error(file, " is not a file")
     file = normpath(abspath(file))
     fm = parse_source(file, mod)
     if fm !== nothing
-        instantiate_sigs!(fm)
+        instantiate_sigs!(fm; define=define, skip_include=skip_include)
         id = PkgId(mod)
         if !haskey(pkgdatas, id)
             pkgdatas[id] = PkgData(id, pathof(mod))
@@ -605,8 +606,7 @@ track(file::AbstractString) = track(Main, file)
 
 Load `filename` and track any future changes to it. `includet` is simply shorthand for
 
-    Base.include(Main, filename)
-    track(Main, filename)
+    Revise.track(Main, filename; skip_include=false)
 
 `includet` is intended for "user scripts," e.g., a file you use locally for a specific
 purpose such as loading a specific data set or performing a particular analysis.
@@ -620,7 +620,7 @@ try fixing it with something like `push!(LOAD_PATH, "/path/to/my/private/repos")
 they will not be automatically tracked.
 (See [`Revise.track`](@ref) to set it up manually.)
 """
-includet(file::AbstractString) = (Base.include(Main, file); track(Main, file))
+includet(file::AbstractString) = track(Main, file; define=true, skip_include=false)
 
 """
     Revise.silence(pkg)
