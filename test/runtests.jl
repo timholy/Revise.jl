@@ -1395,6 +1395,35 @@ revise_f(x) = 2
         includet(srcfile)
         @test basename(srcfile) ∈ Revise.watched_files[dirname(srcfile)].trackedfiles
         push!(to_remove, srcfile)
+
+        # Double-execution (issue #263)
+        srcfile = joinpath(tempdir(), randtmp()*".jl")
+        open(srcfile, "w") do io
+            print(io, """
+            println("executed")
+            """)
+        end
+        logfile = joinpath(tempdir(), randtmp()*".log")
+        open(logfile, "w") do io
+            redirect_stdout(io) do
+                includet(srcfile)
+            end
+        end
+        lines = readlines(logfile)
+        @test length(lines) == 1 && chomp(lines[1]) == "executed"
+        sleep(0.1)
+        open(srcfile, "w") do io
+            print(io, """
+            println("executed again")
+            """)
+        end
+        open(logfile, "w") do io
+            redirect_stdout(io) do
+                yry()
+            end
+        end
+        lines = readlines(logfile)
+        @test length(lines) == 1 && chomp(lines[1]) == "executed again"
     end
 
     @testset "Auto-track user scripts" begin

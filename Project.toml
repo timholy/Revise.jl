@@ -12,18 +12,18 @@ LoweredCodeUtils = "6f1432cf-f94c-5a45-995e-cdbf5db27b0b"
 OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
-Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
+Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 
 [compat]
 CodeTracking = "0.4, 0.5"
-JuliaInterpreter = "0.2, 0.3"
+JuliaInterpreter = "0.2, 0.3, 0.4"
 LoweredCodeUtils = "0.3"
 
 [extras]
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-Example = "7876af07-990d-54b4-ab0e-23690620f79a"
 EponymTuples = "97e2ac4a-e175-5f49-beb1-4d6866a6cdc3"
+Example = "7876af07-990d-54b4-ab0e-23690620f79a"
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
 test = ["Test", "Example", "EponymTuples"]
