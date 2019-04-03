@@ -33,9 +33,6 @@ Revise.included_files
 
 ```@docs
 Revise.RelocatableExpr
-Revise.DefMap
-Revise.SigtMap
-Revise.FMMaps
 Revise.ModuleExprsSigs
 Revise.FileInfo
 Revise.PkgData
@@ -77,9 +74,10 @@ Revise.revise_file_queued
 
 ### Evaluating changes (revising) and computing diffs
 
+[`revise`](@ref) is the primary entry point for implementing changes. Additionally,
+
 ```@docs
 Revise.revise_file_now
-Revise.eval_revised
 ```
 
 ### Interchange between methods and signatures
@@ -94,14 +92,12 @@ Revise.get_def
 ```@docs
 Revise.parse_source
 Revise.parse_source!
-Revise.parse_expr!
-Revise.parse_module!
-Revise.funcdef_expr
-Revise.get_signature
-Revise.get_callexpr
-Revise.sig_type_exprs
-Revise.sigt2methsig
-Revise.argtypeexpr
+```
+
+### Modules and paths
+
+```@docs
+Revise.modulefiles
 ```
 
 ### Git integration
@@ -110,4 +106,10 @@ Revise.argtypeexpr
 Revise.git_source
 Revise.git_files
 Revise.git_repo
+```
+
+### Distributed computing
+
+```@docs
+Revise.init_worker
 ```

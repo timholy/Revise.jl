@@ -120,43 +120,45 @@ a signature-expression with `sigex`, and a signature-type with `sigt`.
 
 ### Core data structures and representations
 
-Two "maps" are central to Revise's inner workings: the `DefMap` links
-definition=>signature-types (the forward workflow), while the `SigtMap` links from
+Two "maps" are central to Revise's inner workings: `ExprsSigs` maps link
+definition=>signature-types (the forward workflow), while `CodeTracking` (specifically,
+its internal variable `method_info`) links from
 signature-type=>definition (the backward workflow).
-Concretely, `SigtMap` is just a `Dict` mapping `sigt=>def`.
+Concretely, `CodeTracking.method_info` is just an `IdDict` mapping `sigt=>(locationinfo, def)`.
 Of note, a stack frame typically contains a link to a method, which stores the equivalent
-of `sigt`; consequently, this information allows one to look up the corresponding `def`.
+of `sigt`; consequently, this information allows one to look up the corresponding
+`locationinfo` and `def`. (When methods move, the location information stored by CodeTracking
+gets updated by Revise.)
 
-The `DefMap` is a bit more complex and has important constraints:
+Some additional notes about Revise's `ExprsSigs` maps:
 
 - For expressions that do not define a method, it is just `def=>nothing`
-- For expressions that do define a method, it is `def=>([sigt1, ...], lineoffset)`.
+- For expressions that do define a method, it is `def=>[sigt1, ...]`.
   `[sigt1, ...]` is the list of signature-types generated from `def` (often just one,
-  but more in the case of methods with default arguments).
-  `lineoffset` is the correction to be added to the currently-compiled code's internal
-  line numbers needed to make them match the current state of the source file.
-- `DefMap` is represented as an `OrderedDict` so as to preserve the sequence in which expressions
+  but more in the case of methods with default arguments or keyword arguments).
+- They are represented as an `OrderedDict` so as to preserve the sequence in which expressions
   occur in the file.
   This can be important particularly for updating macro definitions, which affect the
   expansion of later code.
   The order is maintained so as to match the current ordering of the source-file,
   which is not necessarily the same as the ordering when these expressions were last
   `eval`ed.
-- Each key in the `DefMap` (the definition `RelocatableExpr`) is the most recently
+- Each key in the map (the definition `RelocatableExpr`) is the most recently
   `eval`ed version of the expression.
   This has an important consequence: the line numbers in the `def` (which are still present,
   even though not used for equality comparisons) correspond to the ones in compiled code.
-  If the file is parsed again, comparing the line numbers embedded in two "equal" `def`
-  exprs (the original and the new one) allows us to accurately determine the current value
-  of `lineoffset`.
+  Any discrepancy with the current line numbers in the file is handled through updates to
+  the location information stored by `CodeTracking`.
 
-Importantly, modules can be "reconstructed" from the keys of `DefMap` (or collection of
-`DefMaps`, if the module involves multiple files or has sub-modules), since they hold
+`ExprsSigs` are organized by module and then file, so that one can map
+`filename`=>`module`=>`def`=>`sigts`.
+Importantly, single-file modules can be "reconstructed" from the keys of the corresponding
+`ExprsSigs` (and multi-file modules from a collection of such items), since they hold
 the complete ordered set of expressions that would be `eval`ed to define the module.
 
-The `DefMap` and `SigtMap` are grouped in a [`Revise.FMMaps`](@ref), which are then
-organized by the file in which they occur and their module
-of evaluation.
+The global variable that holds all this information is [`Revise.pkgdatas`](@ref), organized
+into a dictionary of [`Revise.PkgData`](@ref) objects indexed by Base Julia's `PkgId`
+(a unique identifier for packages).
 
 ### An example
 
@@ -188,43 +190,68 @@ indent(::UInt16) = 2
 indent(::UInt8)  = 4
 ```
 
-`indents.jl` is particularly simple: Revise represents it as `"indents.jl"=>Dict(Items=>fmm1)`,
-specifying the filename, module(s) into which its code is `eval`ed, and corresponding `FMMaps`.
-Because `indents.jl` only contains code from a single module (`Items`), the `Dict` has just
-one entry.
-`fmm1` looks like this:
+If you create this as a mini-package and then say `using Revise, Items`, you can start
+examining internal variables in the following manner:
 
 ```julia
-fmm1 = FMMaps(DefMap(:(indent(::UInt16) = 2) => ([Tuple{typeof(indent),UInt16}], 0),
-                     :(indent(::UInt8) = 4)  => ([Tuple{typeof(indent),UInt8}], 0)
-                     ),
-              SigtMap(Tuple{typeof(indent),UInt16} => :(indent(::UInt16) = 2),
-                      Tuple{typeof(indent),UInt8}  => :(indent(::UInt8) = 4)
-                      ))
+julia> id = Base.PkgId(Items)
+Items [b24a5932-55ed-11e9-2a88-e52f99e65a0d]
+
+julia> pkgdata = Revise.pkgdatas[id]
+PkgData(Items [b24a5932-55ed-11e9-2a88-e52f99e65a0d]:
+  "src/Items.jl": FileInfo(Main=>ExprsSigs(<1 expressions>, <0 signatures>), Items=>ExprsSigs(<2 expressions>, <3 signatures>), )
+  "src/indents.jl": FileInfo(Items=>ExprsSigs(<2 expressions>, <2 signatures>), )
 ```
-The `lineoffset`s are initially set to 0 when the code is first compiled, but these
-may be updated if the source file is changed.
+
+(Your specific UUID may differ.)
+
+Path information is stored in `pkgdata.info`:
+```julia
+julia> pkgdata.info
+PkgFiles(Items [b24a5932-55ed-11e9-2a88-e52f99e65a0d]):
+  basedir: "/tmp/pkgs/Items"
+  files: ["src/Items.jl", "src/indents.jl"]
+```
+
+`basedir` is the only part using absolute paths; everything else is encoded relative
+to that location. This facilitates, e.g., switching between `develop` and `add` mode in the
+package manager.
+
+`src/indents.jl` is particularly simple:
+
+```julia
+julia> pkgdata.fileinfos[2]
+FileInfo(Items=>ExprsSigs with the following expressions:
+  :(indent(::UInt16) = begin
+          2
+      end)
+  :(indent(::UInt8) = begin
+          4
+      end), )
+```
+
+This is just a summary; to see the actual `def=>sigts` map, do the following:
+
+```julia
+julia> pkgdata.fileinfos[2].modexsigs[Items]
+OrderedCollections.OrderedDict{Revise.RelocatableExpr,Union{Nothing, Array{Any,1}}} with 2 entries:
+  :(indent(::UInt16) = begin…                       => Any[Tuple{typeof(indent),UInt16}]
+  :(indent(::UInt8) = begin…                        => Any[Tuple{typeof(indent),UInt8}]
+```
+
+These are populated now because we specified `__precompile__(false)`, which forces
+Revise to defensively parse all expressions in the package in case revisions are made
+at some future point.
+For precompiled packages, each `pkgdata.fileinfos[i]` can instead rely on the `cachefile`
+(another field stored in the [`Revise.FileInfo`](@ref)) as a record of the state of the file
+at the time the package was loaded; as a consequence, Revise can defer parsing the source
+file(s) until they are updated.
 
 `Items.jl` is represented with a bit more complexity,
-`"Items.jl"=>Dict(Main=>fmm2, Main.Items=>fmm3)`.
+`"Items.jl"=>Dict(Main=>map1, Items=>map2)`.
 This is because `Items.jl` contains one expression (the `__precompile__` statement)
 that is `eval`ed in `Main`,
 and other expressions that are `eval`ed in `Items`.
-Concretely,
-
-```julia
-fmm2 = FMMaps(DefMap(:(__precompile__(false)) => nothing),
-              SigtMap())
-fmm3 = FMMaps(DefMap(:(include("indents.jl")) => nothing,
-                     def => ([Tuple{typeof(print_item),IO,Any},
-                              Tuple{typeof(print_item),IO,Any,Integer},
-                              Tuple{typeof(print_item),IO,Any,Integer,String}], 0)),
-              SigtMap(Tuple{typeof(print_item),IO,Any} => def,
-                      Tuple{typeof(print_item),IO,Any,Integer} => def,
-                      Tuple{typeof(print_item),IO,Any,Integer,String} => def))
-```
-
-where here `def` is the expression defining `print_item`.
 
 ### Revisions and computing diffs
 
@@ -235,8 +262,8 @@ It then compares `mexsnew` against `mexsref`, the reference object that is synch
 code as it was `eval`ed.
 The following actions are taken:
 
-- if a `def` entry in `mexsref` is equal to one `mexsnew`, the expression is "unchanged"
-  except possibly for line number. The `lineoffset` in `mexsref` is updated as needed.
+- if a `def` entry in `mexsref` is equal to one in `mexsnew`, the expression is "unchanged"
+  except possibly for line number. The `locationinfo` in `CodeTracking` is updated as needed.
 - if a `def` entry in `mexsref` is not present in `mexsnew`, that entry is deleted and
   any corresponding methods are also deleted.
 - if a `def` entry in `mexsnew` is not present in `mexsref`, it is `eval`ed and then added to

@@ -50,7 +50,7 @@ const _debug_logger = ReviseLogger()
 """
     logger = Revise.debug_logger(; min_level=Debug)
 
-Turn on [debug logging](https://docs.julialang.org/en/stable/stdlib/Logging/)
+Turn on [debug logging](https://docs.julialang.org/en/latest/stdlib/Logging/)
 (if `min_level` is set to `Debug` or better) and return the logger object.
 `logger.logs` contains a list of the logged events. The items in this list are of type `Revise.LogRecord`,
 with the following relevant fields:

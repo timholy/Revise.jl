@@ -50,7 +50,7 @@ or that the signatures have not yet been cached.
 
 The first `mod` key is guaranteed to be the module into which this file was `include`d.
 
-To create a `ModuleExprsSigs` from a source file, see [`parse_source`](@ref).
+To create a `ModuleExprsSigs` from a source file, see [`Revise.parse_source`](@ref).
 """
 const ModuleExprsSigs = OrderedDict{Module,ExprsSigs}
 
@@ -64,18 +64,18 @@ ModuleExprsSigs(mod::Module) = ModuleExprsSigs(mod=>ExprsSigs())
 Base.isempty(fm::ModuleExprsSigs) = length(fm) == 1 && isempty(first(values(fm)))
 
 """
-    FileInfo(fm::ModuleExprsSigs, cachefile="")
+    FileInfo(mexs::ModuleExprsSigs, cachefile="")
 
 Structure to hold the per-module expressions found when parsing a
 single file.
-`fm` holds the [`ModuleExprsSigs`](@ref) for the file.
+`mexs` holds the [`Revise.ModuleExprsSigs`](@ref) for the file.
 
 Optionally, a `FileInfo` can also record the path to a cache file holding the original source code.
 This is applicable only for precompiled modules and `Base`.
 (This cache file is distinct from the original source file that might be edited by the
 developer, and it will always hold the state
 of the code when the package was precompiled or Julia's `Base` was built.)
-When a cache is available, `fm` will be empty until the file gets edited:
+When a cache is available, `mexs` will be empty until the file gets edited:
 the original source code gets parsed only when a revision needs to be made.
 
 Source cache files greatly reduce the overhead of using Revise.
@@ -114,7 +114,7 @@ end
 
 A structure holding the data required to handle a particular package.
 `path` is the top-level directory defining the package,
-and `fileinfos` holds the [`FileInfo`](@ref) for each file defining the package.
+and `fileinfos` holds the [`Revise.FileInfo`](@ref) for each file defining the package.
 
 For the `PkgData` associated with `Main` (e.g., for files loaded with [`includet`](@ref)),
 the corresponding `path` entry will be empty.
