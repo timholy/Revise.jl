@@ -1661,6 +1661,8 @@ end
             push!(hp.history, fstr)
             m = first(methods(f))
             @test !isempty(signatures_at(String(m.file), m.line))
+            @test isa(definition(m), Expr)
+            @test isa(definition(String, m), Tuple{<:AbstractString,<:Integer})
             pop!(hp.history)
         end
     end
