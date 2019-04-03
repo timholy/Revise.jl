@@ -61,6 +61,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
     signatures = []  # temporary for method signature storage
     pc = frame.pc
     while true
+        JuliaInterpreter.is_leaf(frame) || break
         stmt = pc_expr(frame, pc)
         if isa(stmt, Expr)
             if stmt.head == :struct_type || stmt.head == :abstract_type || stmt.head == :primitive_type
