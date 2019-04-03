@@ -17,7 +17,7 @@ Top-level parsing of `filename` as included into module
 `mod`. Successfully-parsed expressions will be added to `mexs`. Returns
 `mexs` if parsing finished successfully, otherwise `nothing` is returned.
 
-See also [`parse_source`](@ref).
+See also [`Revise.parse_source`](@ref).
 """
 function parse_source!(mod_exprs_sigs::ModuleExprsSigs, filename::AbstractString, mod::Module)
     if !isfile(filename)
@@ -33,7 +33,7 @@ end
 Parse a string `src` obtained by reading `file` as a single
 string. `pos` is the 1-based byte offset from which to begin parsing `src`.
 
-See also [`parse_source`](@ref).
+See also [`Revise.parse_source`](@ref).
 """
 function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module)
     ex = Base.parse_input_line(src; filename=filename)

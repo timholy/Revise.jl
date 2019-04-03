@@ -78,7 +78,7 @@ include("deprecations.jl")
     Revise.watched_files
 
 Global variable, `watched_files[dirname]` returns the collection of files in `dirname`
-that we're monitoring for changes. The returned value has type [`WatchList`](@ref).
+that we're monitoring for changes. The returned value has type [`Revise.WatchList`](@ref).
 
 This variable allows us to watch directories rather than files, reducing the burden on
 the OS.
@@ -356,6 +356,11 @@ function instantiate_sigs!(modexsigs::ModuleExprsSigs; define=false, kwargs...)
     return modexsigs
 end
 
+# This is intended for testing purposes, but not general use. The key problem is
+# that it doesn't properly handle methods that move from one file to another; there is the
+# risk you could end up deleting the method altogether depending on the order in which you
+# process these.
+# See `revise` for the proper approach.
 function eval_revised(mod_exs_sigs_new, mod_exs_sigs_old)
     delete_missing!(mod_exs_sigs_old, mod_exs_sigs_new)
     eval_new!(mod_exs_sigs_new, mod_exs_sigs_old)
@@ -367,7 +372,7 @@ end
     Revise.init_watching(pkgdata::PkgData, files)
 
 For every filename in `files`, monitor the filesystem for updates. When the file is
-updated, either [`revise_dir_queued`](@ref) or [`revise_file_queued`](@ref) will
+updated, either [`Revise.revise_dir_queued`](@ref) or [`Revise.revise_file_queued`](@ref) will
 be called.
 
 Use the `pkgdata` version if the files are supplied using relative paths.
@@ -403,7 +408,7 @@ init_watching(files) = init_watching(PkgId(Main), files)
 
 Wait for one or more of the files registered in `Revise.watched_files[dirname]` to be
 modified, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
-This is generally called via a [`Rescheduler`](@ref).
+This is generally called via a [`Revise.Rescheduler`](@ref).
 """
 @noinline function revise_dir_queued(pkgdata::PkgData, dirname)
     dirname0 = dirname
@@ -434,9 +439,9 @@ end
     revise_file_queued(pkgdata::PkgData, filename)
 
 Wait for modifications to `filename`, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
-This is generally called via a [`Rescheduler`](@ref).
+This is generally called via a [`Revise.Rescheduler`](@ref).
 
-This is used only on platforms (like BSD) which cannot use [`revise_dir_queued`](@ref).
+This is used only on platforms (like BSD) which cannot use [`Revise.revise_dir_queued`](@ref).
 """
 function revise_file_queued(pkgdata::PkgData, file)
     file0 = file
@@ -482,6 +487,8 @@ end
 Process revisions to `file`. This parses `file` and computes an expression-level diff
 between the current state of the file and its most recently evaluated state.
 It then deletes any removed methods and re-evaluates any changed expressions.
+Note that generally it is better to use [`revise`](@ref) as it properly handles methods
+that move from one file to another.
 
 `id` must be a key in [`Revise.pkgdatas`](@ref), and `file` a key in
 `Revise.pkgdatas[id].fileinfos`.
@@ -647,7 +654,7 @@ silence(pkg::AbstractString) = silence(Symbol(pkg))
     method = get_method(sigt)
 
 Get the method `method` with signature-type `sigt`. This is used to provide
-the method to `Base.delete_method`. See also [`get_signature`](@ref).
+the method to `Base.delete_method`.
 
 If `sigt` does not correspond to a method, returns `nothing`.
 
@@ -885,7 +892,7 @@ end
 """
     Revise.async_steal_repl_backend()
 
-Wait for the REPL to complete its initialization, and then call [`steal_repl_backend`](@ref).
+Wait for the REPL to complete its initialization, and then call [`Revise.steal_repl_backend`](@ref).
 This is necessary because code registered with `atreplinit` runs before the REPL is
 initialized, and there is no corresponding way to register code to run after it is complete.
 """

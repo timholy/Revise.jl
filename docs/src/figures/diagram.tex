@@ -2,7 +2,7 @@
 %      pdflatex -shell-escape diagram
 
 \documentclass{article}
-\usepackage[paperheight=6cm,paperwidth=11cm,margin=0cm]{geometry}
+\usepackage[paperheight=6cm,paperwidth=12cm,margin=0cm]{geometry}
 \usepackage{tikz}
 \usetikzlibrary{calc}
 
@@ -38,12 +38,12 @@
     \path [-latex] (methods.north west) edge node[midway,right] {\texttt{meth.sig}} (sigts.south east);
     \path [-latex] (sigts.south) edge node[midway,left] {\texttt{which}} (methods.west);
 
-v    \path [-latex] (exprs.south west) edge node[midway,left,color=green] {\texttt{defmap}} (sigts.north east);
+v    \path [-latex] (exprs.south west) edge node[midway,left,color=green] {\texttt{ExprsSigs}} (sigts.north east);
     \path [-latex] (lowered.west) edge (sigts.east);
 
 %    \path[dashed] [-latex] (methods.south west) edge [bend left=100] node[pos=0.75,left] {file,line} (src.west);
     %\draw[dashed,->] (methods) to[out=180,in=-90] ($(sigts)-(2,0)$) to[out=90,in=180] node[midway,left] {file,line} (src);
-    \path [-latex] (sigts.north west) edge [bend left=20] node[pos=0.4,left,color=green] {\texttt{sigtmap}} (exprs.west);
+    \path [-latex] (sigts.north west) edge [bend left=20] node[pos=0.4,left,color=green] {\texttt{\tiny CodeTracking.method\_info}} (exprs.west);
 
   \end{tikzpicture}
 
