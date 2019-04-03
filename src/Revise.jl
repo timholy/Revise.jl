@@ -12,7 +12,7 @@ using JuliaInterpreter: whichtt, is_doc_expr, step_expr!, finish_and_return!, ge
 using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr, prepare_thunk, split_expressions
 using LoweredCodeUtils: next_or_nothing!, isanonymous_typedef, define_anonymous
 
-export revise, includet, MethodSummary
+export revise, includet, entr, MethodSummary
 
 """
     Revise.watching_files[]
@@ -628,6 +628,58 @@ they will not be automatically tracked.
 (See [`Revise.track`](@ref) to set it up manually.)
 """
 includet(file::AbstractString) = track(Main, file; define=true, skip_include=false)
+
+"""
+    entr(f, files)
+    entr(f, files, modules)
+
+Execute `f()` whenever files listed in `files`, or code in `modules`, updates.
+`entr` will process updates (and block your command line) until you press Ctrl-C.
+
+# Example
+
+```julia
+entr(["/tmp/watched.txt"], [Pkg1, Pkg2]) do
+    println("update")
+end
+```
+This will print "update" every time `"/tmp/watched.txt"` or any of the code defining
+`Pkg1` or `Pkg2` gets updated.
+"""
+function entr(f::Function, files, modules=nothing)
+    files = collect(files)  # because we may add to this list
+    if modules !== nothing
+        for mod in modules
+            id = PkgId(mod)
+            pkgdata = pkgdatas[id]
+            for file in srcfiles(pkgdata)
+                push!(files, joinpath(basedir(pkgdata), file))
+            end
+        end
+    end
+    active = true
+    try
+        @sync begin
+            for file in files
+                waitfor = isdir(file) ? watch_folder : watch_file
+                @async while active
+                    ret = waitfor(file, 1)
+                    ret.renamed && break
+                    if active && ret.changed
+                        revise()
+                        f()
+                    end
+                end
+            end
+        end
+    catch err
+        if isa(err, InterruptException)
+            active = false
+        else
+            rethrow(err)
+        end
+    end
+end
 
 """
     Revise.silence(pkg)

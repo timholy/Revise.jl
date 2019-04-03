@@ -119,6 +119,22 @@ With Revise, you can
 
 all without restarting your Julia session.
 
+## Other Revise workflows
+
+Revise can be used to perform work when files update.
+For example, let's say you want to regenerate a set of web pages whenever your code changes.
+Suppose you've placed your Julia code in a package called `MyWebCode`,
+and the pages depend on "file1.css" and "file2.js"; then
+
+```julia
+entr(["file1.css", "file2.js"], [MyWebCode]) do
+    build_webpages(args...)
+end
+```
+
+will execute `build_webpages(args...)` whenever you save updates to the listed files
+or `MyWebCode`.
+
 ## What else do I need to know?
 
 Except in cases of problems (see below), that's it!
