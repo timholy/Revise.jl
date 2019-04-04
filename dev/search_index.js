@@ -285,7 +285,7 @@ var documenterSearchIndex = {"docs": [
     "page": "How Revise works",
     "title": "Core data structures and representations",
     "category": "section",
-    "text": "Two \"maps\" are central to Revise\'s inner workings: the DefMap links definition=>signature-types (the forward workflow), while the SigtMap links from signature-type=>definition (the backward workflow). Concretely, SigtMap is just a Dict mapping sigt=>def. Of note, a stack frame typically contains a link to a method, which stores the equivalent of sigt; consequently, this information allows one to look up the corresponding def.The DefMap is a bit more complex and has important constraints:For expressions that do not define a method, it is just def=>nothing\nFor expressions that do define a method, it is def=>([sigt1, ...], lineoffset). [sigt1, ...] is the list of signature-types generated from def (often just one, but more in the case of methods with default arguments). lineoffset is the correction to be added to the currently-compiled code\'s internal line numbers needed to make them match the current state of the source file.\nDefMap is represented as an OrderedDict so as to preserve the sequence in which expressions occur in the file. This can be important particularly for updating macro definitions, which affect the expansion of later code. The order is maintained so as to match the current ordering of the source-file, which is not necessarily the same as the ordering when these expressions were last evaled.\nEach key in the DefMap (the definition RelocatableExpr) is the most recently evaled version of the expression. This has an important consequence: the line numbers in the def (which are still present, even though not used for equality comparisons) correspond to the ones in compiled code. If the file is parsed again, comparing the line numbers embedded in two \"equal\" def exprs (the original and the new one) allows us to accurately determine the current value of lineoffset.Importantly, modules can be \"reconstructed\" from the keys of DefMap (or collection of DefMaps, if the module involves multiple files or has sub-modules), since they hold the complete ordered set of expressions that would be evaled to define the module.The DefMap and SigtMap are grouped in a Revise.FMMaps, which are then organized by the file in which they occur and their module of evaluation."
+    "text": "Two \"maps\" are central to Revise\'s inner workings: ExprsSigs maps link definition=>signature-types (the forward workflow), while CodeTracking (specifically, its internal variable method_info) links from signature-type=>definition (the backward workflow). Concretely, CodeTracking.method_info is just an IdDict mapping sigt=>(locationinfo, def). Of note, a stack frame typically contains a link to a method, which stores the equivalent of sigt; consequently, this information allows one to look up the corresponding locationinfo and def. (When methods move, the location information stored by CodeTracking gets updated by Revise.)Some additional notes about Revise\'s ExprsSigs maps:For expressions that do not define a method, it is just def=>nothing\nFor expressions that do define a method, it is def=>[sigt1, ...]. [sigt1, ...] is the list of signature-types generated from def (often just one, but more in the case of methods with default arguments or keyword arguments).\nThey are represented as an OrderedDict so as to preserve the sequence in which expressions occur in the file. This can be important particularly for updating macro definitions, which affect the expansion of later code. The order is maintained so as to match the current ordering of the source-file, which is not necessarily the same as the ordering when these expressions were last evaled.\nEach key in the map (the definition RelocatableExpr) is the most recently evaled version of the expression. This has an important consequence: the line numbers in the def (which are still present, even though not used for equality comparisons) correspond to the ones in compiled code. Any discrepancy with the current line numbers in the file is handled through updates to the location information stored by CodeTracking.ExprsSigs are organized by module and then file, so that one can map filename=>module=>def=>sigts. Importantly, single-file modules can be \"reconstructed\" from the keys of the corresponding ExprsSigs (and multi-file modules from a collection of such items), since they hold the complete ordered set of expressions that would be evaled to define the module.The global variable that holds all this information is Revise.pkgdatas, organized into a dictionary of Revise.PkgData objects indexed by Base Julia\'s PkgId (a unique identifier for packages)."
 },
 
 {
@@ -293,7 +293,7 @@ var documenterSearchIndex = {"docs": [
     "page": "How Revise works",
     "title": "An example",
     "category": "section",
-    "text": "Consider a module, Items, defined by the following two source files:Items.jl:__precompile__(false)\n\nmodule Items\n\ninclude(\"indents.jl\")\n\nfunction print_item(io::IO, item, ntimes::Integer=1, pre::String=indent(item))\n    print(io, pre)\n    for i = 1:ntimes\n        print(io, item)\n    end\nend\n\nendindents.jl:indent(::UInt16) = 2\nindent(::UInt8)  = 4indents.jl is particularly simple: Revise represents it as \"indents.jl\"=>Dict(Items=>fmm1), specifying the filename, module(s) into which its code is evaled, and corresponding FMMaps. Because indents.jl only contains code from a single module (Items), the Dict has just one entry. fmm1 looks like this:fmm1 = FMMaps(DefMap(:(indent(::UInt16) = 2) => ([Tuple{typeof(indent),UInt16}], 0),\n                     :(indent(::UInt8) = 4)  => ([Tuple{typeof(indent),UInt8}], 0)\n                     ),\n              SigtMap(Tuple{typeof(indent),UInt16} => :(indent(::UInt16) = 2),\n                      Tuple{typeof(indent),UInt8}  => :(indent(::UInt8) = 4)\n                      ))The lineoffsets are initially set to 0 when the code is first compiled, but these may be updated if the source file is changed.Items.jl is represented with a bit more complexity, \"Items.jl\"=>Dict(Main=>fmm2, Main.Items=>fmm3). This is because Items.jl contains one expression (the __precompile__ statement) that is evaled in Main, and other expressions that are evaled in Items. Concretely,fmm2 = FMMaps(DefMap(:(__precompile__(false)) => nothing),\n              SigtMap())\nfmm3 = FMMaps(DefMap(:(include(\"indents.jl\")) => nothing,\n                     def => ([Tuple{typeof(print_item),IO,Any},\n                              Tuple{typeof(print_item),IO,Any,Integer},\n                              Tuple{typeof(print_item),IO,Any,Integer,String}], 0)),\n              SigtMap(Tuple{typeof(print_item),IO,Any} => def,\n                      Tuple{typeof(print_item),IO,Any,Integer} => def,\n                      Tuple{typeof(print_item),IO,Any,Integer,String} => def))where here def is the expression defining print_item."
+    "text": "Consider a module, Items, defined by the following two source files:Items.jl:__precompile__(false)\n\nmodule Items\n\ninclude(\"indents.jl\")\n\nfunction print_item(io::IO, item, ntimes::Integer=1, pre::String=indent(item))\n    print(io, pre)\n    for i = 1:ntimes\n        print(io, item)\n    end\nend\n\nendindents.jl:indent(::UInt16) = 2\nindent(::UInt8)  = 4If you create this as a mini-package and then say using Revise, Items, you can start examining internal variables in the following manner:julia> id = Base.PkgId(Items)\nItems [b24a5932-55ed-11e9-2a88-e52f99e65a0d]\n\njulia> pkgdata = Revise.pkgdatas[id]\nPkgData(Items [b24a5932-55ed-11e9-2a88-e52f99e65a0d]:\n  \"src/Items.jl\": FileInfo(Main=>ExprsSigs(<1 expressions>, <0 signatures>), Items=>ExprsSigs(<2 expressions>, <3 signatures>), )\n  \"src/indents.jl\": FileInfo(Items=>ExprsSigs(<2 expressions>, <2 signatures>), )(Your specific UUID may differ.)Path information is stored in pkgdata.info:julia> pkgdata.info\nPkgFiles(Items [b24a5932-55ed-11e9-2a88-e52f99e65a0d]):\n  basedir: \"/tmp/pkgs/Items\"\n  files: [\"src/Items.jl\", \"src/indents.jl\"]basedir is the only part using absolute paths; everything else is encoded relative to that location. This facilitates, e.g., switching between develop and add mode in the package manager.src/indents.jl is particularly simple:julia> pkgdata.fileinfos[2]\nFileInfo(Items=>ExprsSigs with the following expressions:\n  :(indent(::UInt16) = begin\n          2\n      end)\n  :(indent(::UInt8) = begin\n          4\n      end), )This is just a summary; to see the actual def=>sigts map, do the following:julia> pkgdata.fileinfos[2].modexsigs[Items]\nOrderedCollections.OrderedDict{Revise.RelocatableExpr,Union{Nothing, Array{Any,1}}} with 2 entries:\n  :(indent(::UInt16) = begin…                       => Any[Tuple{typeof(indent),UInt16}]\n  :(indent(::UInt8) = begin…                        => Any[Tuple{typeof(indent),UInt8}]These are populated now because we specified __precompile__(false), which forces Revise to defensively parse all expressions in the package in case revisions are made at some future point. For precompiled packages, each pkgdata.fileinfos[i] can instead rely on the cachefile (another field stored in the Revise.FileInfo) as a record of the state of the file at the time the package was loaded; as a consequence, Revise can defer parsing the source file(s) until they are updated.Items.jl is represented with a bit more complexity, \"Items.jl\"=>Dict(Main=>map1, Items=>map2). This is because Items.jl contains one expression (the __precompile__ statement) that is evaled in Main, and other expressions that are evaled in Items."
 },
 
 {
@@ -301,7 +301,7 @@ var documenterSearchIndex = {"docs": [
     "page": "How Revise works",
     "title": "Revisions and computing diffs",
     "category": "section",
-    "text": "When the file system notifies Revise that a file has been modified, Revise re-parses the file and assigns the expressions to the appropriate modules, creating a Revise.ModuleExprsSigs mexsnew. It then compares mexsnew against mexsref, the reference object that is synchronized to code as it was evaled. The following actions are taken:if a def entry in mexsref is equal to one mexsnew, the expression is \"unchanged\" except possibly for line number. The lineoffset in mexsref is updated as needed.\nif a def entry in mexsref is not present in mexsnew, that entry is deleted and any corresponding methods are also deleted.\nif a def entry in mexsnew is not present in mexsref, it is evaled and then added to mexsref.Technically, a new mexsref is generated every time to ensure that the expressions are ordered as in mexsnew; however, conceptually this is better thought of as an updating of mexsref, after which mexsnew is discarded."
+    "text": "When the file system notifies Revise that a file has been modified, Revise re-parses the file and assigns the expressions to the appropriate modules, creating a Revise.ModuleExprsSigs mexsnew. It then compares mexsnew against mexsref, the reference object that is synchronized to code as it was evaled. The following actions are taken:if a def entry in mexsref is equal to one in mexsnew, the expression is \"unchanged\" except possibly for line number. The locationinfo in CodeTracking is updated as needed.\nif a def entry in mexsref is not present in mexsnew, that entry is deleted and any corresponding methods are also deleted.\nif a def entry in mexsnew is not present in mexsref, it is evaled and then added to mexsref.Technically, a new mexsref is generated every time to ensure that the expressions are ordered as in mexsnew; however, conceptually this is better thought of as an updating of mexsref, after which mexsnew is discarded."
 },
 
 {
@@ -509,7 +509,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.watched_files",
     "category": "constant",
-    "text": "Revise.watched_files\n\nGlobal variable, watched_files[dirname] returns the collection of files in dirname that we\'re monitoring for changes. The returned value has type WatchList.\n\nThis variable allows us to watch directories rather than files, reducing the burden on the OS.\n\n\n\n\n\n"
+    "text": "Revise.watched_files\n\nGlobal variable, watched_files[dirname] returns the collection of files in dirname that we\'re monitoring for changes. The returned value has type Revise.WatchList.\n\nThis variable allows us to watch directories rather than files, reducing the burden on the OS.\n\n\n\n\n\n"
 },
 
 {
@@ -537,11 +537,67 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "dev_reference/#Revise.RelocatableExpr",
+    "page": "Developer reference",
+    "title": "Revise.RelocatableExpr",
+    "category": "type",
+    "text": "A RelocatableExpr wraps an Expr to ensure that comparisons between RelocatableExprs ignore line numbering information. This allows one to detect that two expressions are the same no matter where they appear in a file.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Revise.ModuleExprsSigs",
+    "page": "Developer reference",
+    "title": "Revise.ModuleExprsSigs",
+    "category": "type",
+    "text": "ModuleExprsSigs\n\nFor a particular source file, the corresponding ModuleExprsSigs is a mapping mod=>exprs=>sigs of the expressions exprs found in mod and the signatures sigs that arise from them. Specifically, if mes is a ModuleExprsSigs, then mes[mod][ex] is a list of signatures that result from evaluating ex in mod. It is possible that this returns nothing, which can mean either that ex does not define any methods or that the signatures have not yet been cached.\n\nThe first mod key is guaranteed to be the module into which this file was included.\n\nTo create a ModuleExprsSigs from a source file, see Revise.parse_source.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Revise.FileInfo",
+    "page": "Developer reference",
+    "title": "Revise.FileInfo",
+    "category": "type",
+    "text": "FileInfo(mexs::ModuleExprsSigs, cachefile=\"\")\n\nStructure to hold the per-module expressions found when parsing a single file. mexs holds the Revise.ModuleExprsSigs for the file.\n\nOptionally, a FileInfo can also record the path to a cache file holding the original source code. This is applicable only for precompiled modules and Base. (This cache file is distinct from the original source file that might be edited by the developer, and it will always hold the state of the code when the package was precompiled or Julia\'s Base was built.) When a cache is available, mexs will be empty until the file gets edited: the original source code gets parsed only when a revision needs to be made.\n\nSource cache files greatly reduce the overhead of using Revise.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Revise.PkgData",
+    "page": "Developer reference",
+    "title": "Revise.PkgData",
+    "category": "type",
+    "text": "PkgData(id, path, fileinfos::Dict{String,FileInfo})\n\nA structure holding the data required to handle a particular package. path is the top-level directory defining the package, and fileinfos holds the Revise.FileInfo for each file defining the package.\n\nFor the PkgData associated with Main (e.g., for files loaded with includet), the corresponding path entry will be empty.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Revise.WatchList",
+    "page": "Developer reference",
+    "title": "Revise.WatchList",
+    "category": "type",
+    "text": "Revise.WatchList\n\nA struct for holding files that live inside a directory. Some platforms (OSX) have trouble watching too many files. So we watch parent directories, and keep track of which files in them should be tracked.\n\nFields:\n\ntimestamp: mtime of last update\ntrackedfiles: Set of filenames, generally expressed as a relative path\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Revise.Rescheduler",
+    "page": "Developer reference",
+    "title": "Revise.Rescheduler",
+    "category": "type",
+    "text": "Rescheduler(f, args)\n\nTo facilitate precompilation and reduce latency, we replace\n\nfunction watch_manifest(mfile)\n    wait_changed(mfile)\n    # stuff\n    @async watch_manifest(mfile)\nend\n\n@async watch_manifest(mfile)\n\nwith a rescheduling type:\n\nfresched = Rescheduler(watch_manifest, (mfile,))\nschedule(Task(fresched))\n\nwhere now watch_manifest(mfile) should return true if the task should be rescheduled after completion, and false otherwise.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Revise.MethodSummary",
+    "page": "Developer reference",
+    "title": "Revise.MethodSummary",
+    "category": "type",
+    "text": "MethodSummary(method)\n\nCreate a portable summary of a method. In particular, a MethodSummary can be saved to a JLD2 file.\n\n\n\n\n\n"
+},
+
+{
     "location": "dev_reference/#Types-1",
     "page": "Developer reference",
     "title": "Types",
     "category": "section",
-    "text": "Revise.RelocatableExpr\nRevise.DefMap\nRevise.SigtMap\nRevise.FMMaps\nRevise.ModuleExprsSigs\nRevise.FileInfo\nRevise.PkgData\nRevise.WatchList\nRevise.Rescheduler\nMethodSummary"
+    "text": "Revise.RelocatableExpr\nRevise.ModuleExprsSigs\nRevise.FileInfo\nRevise.PkgData\nRevise.WatchList\nRevise.Rescheduler\nMethodSummary"
 },
 
 {
@@ -557,7 +613,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.async_steal_repl_backend",
     "category": "function",
-    "text": "Revise.async_steal_repl_backend()\n\nWait for the REPL to complete its initialization, and then call steal_repl_backend. This is necessary because code registered with atreplinit runs before the REPL is initialized, and there is no corresponding way to register code to run after it is complete.\n\n\n\n\n\n"
+    "text": "Revise.async_steal_repl_backend()\n\nWait for the REPL to complete its initialization, and then call Revise.steal_repl_backend. This is necessary because code registered with atreplinit runs before the REPL is initialized, and there is no corresponding way to register code to run after it is complete.\n\n\n\n\n\n"
 },
 
 {
@@ -597,7 +653,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.init_watching",
     "category": "function",
-    "text": "Revise.init_watching(files)\nRevise.init_watching(pkgdata::PkgData, files)\n\nFor every filename in files, monitor the filesystem for updates. When the file is updated, either revise_dir_queued or revise_file_queued will be called.\n\nUse the pkgdata version if the files are supplied using relative paths.\n\n\n\n\n\n"
+    "text": "Revise.init_watching(files)\nRevise.init_watching(pkgdata::PkgData, files)\n\nFor every filename in files, monitor the filesystem for updates. When the file is updated, either Revise.revise_dir_queued or Revise.revise_file_queued will be called.\n\nUse the pkgdata version if the files are supplied using relative paths.\n\n\n\n\n\n"
 },
 
 {
@@ -613,7 +669,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.revise_dir_queued",
     "category": "function",
-    "text": "revise_dir_queued(pkgdata::PkgData, dirname)\n\nWait for one or more of the files registered in Revise.watched_files[dirname] to be modified, and then queue the corresponding files on Revise.revision_queue. This is generally called via a Rescheduler.\n\n\n\n\n\n"
+    "text": "revise_dir_queued(pkgdata::PkgData, dirname)\n\nWait for one or more of the files registered in Revise.watched_files[dirname] to be modified, and then queue the corresponding files on Revise.revision_queue. This is generally called via a Revise.Rescheduler.\n\n\n\n\n\n"
 },
 
 {
@@ -621,7 +677,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.revise_file_queued",
     "category": "function",
-    "text": "revise_file_queued(pkgdata::PkgData, filename)\n\nWait for modifications to filename, and then queue the corresponding files on Revise.revision_queue. This is generally called via a Rescheduler.\n\nThis is used only on platforms (like BSD) which cannot use revise_dir_queued.\n\n\n\n\n\n"
+    "text": "revise_file_queued(pkgdata::PkgData, filename)\n\nWait for modifications to filename, and then queue the corresponding files on Revise.revision_queue. This is generally called via a Revise.Rescheduler.\n\nThis is used only on platforms (like BSD) which cannot use Revise.revise_dir_queued.\n\n\n\n\n\n"
 },
 
 {
@@ -633,11 +689,19 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "dev_reference/#Revise.revise_file_now",
+    "page": "Developer reference",
+    "title": "Revise.revise_file_now",
+    "category": "function",
+    "text": "Revise.revise_file_now(pkgdata::PkgData, file)\n\nProcess revisions to file. This parses file and computes an expression-level diff between the current state of the file and its most recently evaluated state. It then deletes any removed methods and re-evaluates any changed expressions. Note that generally it is better to use revise as it properly handles methods that move from one file to another.\n\nid must be a key in Revise.pkgdatas, and file a key in Revise.pkgdatas[id].fileinfos.\n\n\n\n\n\n"
+},
+
+{
     "location": "dev_reference/#Evaluating-changes-(revising)-and-computing-diffs-1",
     "page": "Developer reference",
     "title": "Evaluating changes (revising) and computing diffs",
     "category": "section",
-    "text": "Revise.revise_file_now\nRevise.eval_revised"
+    "text": "revise is the primary entry point for implementing changes. Additionally,Revise.revise_file_now"
 },
 
 {
@@ -645,7 +709,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.get_method",
     "category": "function",
-    "text": "method = get_method(sigt)\n\nGet the method method with signature-type sigt. This is used to provide the method to Base.delete_method. See also get_signature.\n\nIf sigt does not correspond to a method, returns nothing.\n\nExamples\n\njulia> mymethod(::Int) = 1\nmymethod (generic function with 1 method)\n\njulia> mymethod(::AbstractFloat) = 2\nmymethod (generic function with 2 methods)\n\njulia> Revise.get_method(Tuple{typeof(mymethod), Int})\nmymethod(::Int64) in Main at REPL[0]:1\n\njulia> Revise.get_method(Tuple{typeof(mymethod), Float64})\nmymethod(::AbstractFloat) in Main at REPL[1]:1\n\njulia> Revise.get_method(Tuple{typeof(mymethod), Number})\n\n\n\n\n\n\n"
+    "text": "method = get_method(sigt)\n\nGet the method method with signature-type sigt. This is used to provide the method to Base.delete_method.\n\nIf sigt does not correspond to a method, returns nothing.\n\nExamples\n\njulia> mymethod(::Int) = 1\nmymethod (generic function with 1 method)\n\njulia> mymethod(::AbstractFloat) = 2\nmymethod (generic function with 2 methods)\n\njulia> Revise.get_method(Tuple{typeof(mymethod), Int})\nmymethod(::Int64) in Main at REPL[0]:1\n\njulia> Revise.get_method(Tuple{typeof(mymethod), Float64})\nmymethod(::AbstractFloat) in Main at REPL[1]:1\n\njulia> Revise.get_method(Tuple{typeof(mymethod), Number})\n\n\n\n\n\n\n"
 },
 
 {
@@ -665,11 +729,43 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "dev_reference/#Revise.parse_source",
+    "page": "Developer reference",
+    "title": "Revise.parse_source",
+    "category": "function",
+    "text": "mexs = parse_source(filename::AbstractString, mod::Module)\n\nParse the source filename, returning a ModuleExprsSigs mexs. mod is the \"parent\" module for the file (i.e., the one that included the file); if filename defines more module(s) then these will all have separate entries in mexs.\n\nIf parsing filename fails, nothing is returned.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Revise.parse_source!",
+    "page": "Developer reference",
+    "title": "Revise.parse_source!",
+    "category": "function",
+    "text": "parse_source!(mexs::ModuleExprsSigs, filename, mod::Module)\n\nTop-level parsing of filename as included into module mod. Successfully-parsed expressions will be added to mexs. Returns mexs if parsing finished successfully, otherwise nothing is returned.\n\nSee also Revise.parse_source.\n\n\n\n\n\nsuccess = parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module)\n\nParse a string src obtained by reading file as a single string. pos is the 1-based byte offset from which to begin parsing src.\n\nSee also Revise.parse_source.\n\n\n\n\n\n"
+},
+
+{
     "location": "dev_reference/#Parsing-source-code-1",
     "page": "Developer reference",
     "title": "Parsing source code",
     "category": "section",
-    "text": "Revise.parse_source\nRevise.parse_source!\nRevise.parse_expr!\nRevise.parse_module!\nRevise.funcdef_expr\nRevise.get_signature\nRevise.get_callexpr\nRevise.sig_type_exprs\nRevise.sigt2methsig\nRevise.argtypeexpr"
+    "text": "Revise.parse_source\nRevise.parse_source!"
+},
+
+{
+    "location": "dev_reference/#Revise.modulefiles",
+    "page": "Developer reference",
+    "title": "Revise.modulefiles",
+    "category": "function",
+    "text": "parentfile, included_files = modulefiles(mod::Module)\n\nReturn the parentfile in which mod was defined, as well as a list of any other files that were included to define mod. If this operation is unsuccessful, (nothing, nothing) is returned.\n\nAll files are returned as absolute paths.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Modules-and-paths-1",
+    "page": "Developer reference",
+    "title": "Modules and paths",
+    "category": "section",
+    "text": "Revise.modulefiles"
 },
 
 {
@@ -702,6 +798,22 @@ var documenterSearchIndex = {"docs": [
     "title": "Git integration",
     "category": "section",
     "text": "Revise.git_source\nRevise.git_files\nRevise.git_repo"
+},
+
+{
+    "location": "dev_reference/#Revise.init_worker",
+    "page": "Developer reference",
+    "title": "Revise.init_worker",
+    "category": "function",
+    "text": "Revise.init_worker(p)\n\nDefine methods on worker p that Revise needs in order to perform revisions on p. Revise itself does not need to be running on p.\n\n\n\n\n\n"
+},
+
+{
+    "location": "dev_reference/#Distributed-computing-1",
+    "page": "Developer reference",
+    "title": "Distributed computing",
+    "category": "section",
+    "text": "Revise.init_worker"
 },
 
 ]}
