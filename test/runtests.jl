@@ -93,6 +93,7 @@ end
         exs = collectexprs(rex)
         @test length(exs) == 2
         @test isequal(exs[1], Revise.RelocatableExpr(:(f(x) = x^2)))
+        @test hash(exs[1]) == hash(Revise.RelocatableExpr(:(f(x) = x^2)))
         @test !isequal(exs[2], Revise.RelocatableExpr(:(f(x) = x^2)))
         @test isequal(exs[2], Revise.RelocatableExpr(:(g(x) = sin(x))))
         @test !isequal(exs[1], Revise.RelocatableExpr(:(g(x) = sin(x))))
@@ -105,6 +106,14 @@ quote
             sin(x)
         end
 end"""
+    end
+
+    @testset "Equality and hashing" begin
+        # issue #233
+        @test  isequal(Revise.RelocatableExpr(:(x = 1)), Revise.RelocatableExpr(:(x = 1)))
+        @test !isequal(Revise.RelocatableExpr(:(x = 1)), Revise.RelocatableExpr(:(x = 1.0)))
+        @test hash(Revise.RelocatableExpr(:(x = 1))) == hash(Revise.RelocatableExpr(:(x = 1)))
+        @test hash(Revise.RelocatableExpr(:(x = 1))) != hash(Revise.RelocatableExpr(:(x = 1.0)))
     end
 
     @testset "Parse errors" begin

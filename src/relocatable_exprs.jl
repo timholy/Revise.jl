@@ -91,8 +91,8 @@ function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
     # iterators also have the same length.
     reta, retb = iterate(itera), iterate(iterb)
     while true
-        reta == nothing && retb == nothing && return true
-        (reta == nothing || retb == nothing) && return false
+        reta === nothing && retb === nothing && return true
+        (reta === nothing || retb === nothing) && return false
         vala, ia = reta
         valb, ib = retb
         if isa(vala, Expr) && isa(valb, Expr)
@@ -102,6 +102,8 @@ function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
             # two gensymed symbols do not need to match
             sa, sb = String(vala), String(valb)
             (startswith(sa, '#') && startswith(sb, '#')) || isequal(vala, valb) || return false
+        elseif isa(vala, Number) && isa(valb, Number)
+            vala === valb || return false    # issue #233
         else
             isequal(vala, valb) || return false
         end
@@ -122,6 +124,8 @@ function Base.hash(iter::LineSkippingIterator, h::UInt)
             else
                 h += hash(x, h)
             end
+        elseif x isa Number
+            h += hash(typeof(x), hash(x, h))
         else
             h += hash(x, h)
         end
