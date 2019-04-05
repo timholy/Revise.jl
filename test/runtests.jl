@@ -114,6 +114,7 @@ end"""
         @test !isequal(Revise.RelocatableExpr(:(x = 1)), Revise.RelocatableExpr(:(x = 1.0)))
         @test hash(Revise.RelocatableExpr(:(x = 1))) == hash(Revise.RelocatableExpr(:(x = 1)))
         @test hash(Revise.RelocatableExpr(:(x = 1))) != hash(Revise.RelocatableExpr(:(x = 1.0)))
+        @test hash(Revise.RelocatableExpr(:(x = 1))) != hash(Revise.RelocatableExpr(:(x = 2)))
     end
 
     @testset "Parse errors" begin
@@ -1723,8 +1724,21 @@ end
             push!(hp.history, fstr)
             m = first(methods(f))
             @test !isempty(signatures_at(String(m.file), m.line))
-            @test isa(definition(m), Expr)
-            @test isa(definition(String, m), Tuple{<:AbstractString,<:Integer})
+            @test isequal(Revise.RelocatableExpr(definition(m)), Revise.RelocatableExpr(ex))
+            @test definition(String, m)[1] == fstr
+
+            # Test that revisions work (https://github.com/timholy/CodeTracking.jl/issues/38)
+            fstr = "__fREPL__(x::Int16) = 1"
+            histidx = length(hp.history) + 1 - hp.start_idx
+            ex = Base.parse_input_line(fstr; filename="REPL[$histidx]")
+            f = Core.eval(Main, ex)
+            push!(hp.history, fstr)
+            m = first(methods(f))
+            @test isequal(Revise.RelocatableExpr(definition(m)), Revise.RelocatableExpr(ex))
+            @test definition(String, m)[1] == fstr
+            @test !isempty(signatures_at(String(m.file), m.line))
+
+            pop!(hp.history)
             pop!(hp.history)
         end
     end
