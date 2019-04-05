@@ -325,7 +325,7 @@ var documenterSearchIndex = {"docs": [
     "page": "User reference",
     "title": "Revise.track",
     "category": "function",
-    "text": "Revise.track(Base)\nRevise.track(Core.Compiler)\nRevise.track(stdlib)\n\nTrack updates to the code in Julia\'s base directory, base/compiler, or one of its standard libraries.\n\n\n\n\n\nRevise.track(mod::Module, file::AbstractString)\nRevise.track(file::AbstractString)\n\nWatch file for updates and revise loaded code with any changes. mod is the module into which file is evaluated; if omitted, it defaults to Main.\n\n\n\n\n\n"
+    "text": "Revise.track(Base)\nRevise.track(Core.Compiler)\nRevise.track(stdlib)\n\nTrack updates to the code in Julia\'s base directory, base/compiler, or one of its standard libraries.\n\n\n\n\n\nRevise.track(mod::Module, file::AbstractString)\nRevise.track(file::AbstractString)\n\nWatch file for updates and revise loaded code with any changes. mod is the module into which file is evaluated; if omitted, it defaults to Main.\n\nIf this produces many errors, check that you specified mod correctly.\n\n\n\n\n\n"
 },
 
 {
