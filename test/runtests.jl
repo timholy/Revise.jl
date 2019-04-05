@@ -1156,6 +1156,10 @@ methgensym(::Vector{<:Integer}) = 1
 mapf(fs, x) = (fs[1](x), mapf(Base.tail(fs), x)...)
 mapf(::Tuple{}, x) = ()
 
+for T in (Int, Float64, String)
+    @eval mytypeof(x::\$T) = \$T
+end
+
 end
 """)
         end
@@ -1183,6 +1187,9 @@ end
         @test MethDel.methgensym([1]) == 1
         @test_throws MethodError MethDel.methgensym([1.0])
         @test MethDel.mapf((x->x+1, x->x+0.1), 3) == (4, 3.1)
+        @test MethDel.mytypeof(1) === Int
+        @test MethDel.mytypeof(1.0) === Float64
+        @test MethDel.mytypeof("hi") === String
         sleep(0.1)  # ensure watching is set up
         open(joinpath(dn, "MethDel.jl"), "w") do io
             println(io, """
@@ -1202,6 +1209,10 @@ methgensym(::Vector{<:Real}) = 1
 
 mapf(fs::F, x) where F = (fs[1](x), mapf(Base.tail(fs), x)...)
 mapf(::Tuple{}, x) = ()
+
+for T in (Int, String)
+    @eval mytypeof(x::\$T) = \$T
+end
 
 end
 """)
@@ -1234,6 +1245,9 @@ end
         @test length(methods(MethDel.methgensym)) == 1
         @test MethDel.mapf((x->x+1, x->x+0.1), 3) == (4, 3.1)
         @test length(methods(MethDel.mapf)) == 2
+        @test MethDel.mytypeof(1) === Int
+        @test_throws MethodError MethDel.mytypeof(1.0)
+        @test MethDel.mytypeof("hi") === String
 
         Base.delete_method(first(methods(Base.revisefoo)))
 
