@@ -586,6 +586,8 @@ end
 Watch `file` for updates and [`revise`](@ref) loaded code with any
 changes. `mod` is the module into which `file` is evaluated; if omitted,
 it defaults to `Main`.
+
+If this produces many errors, check that you specified `mod` correctly.
 """
 function track(mod::Module, file::AbstractString; define=false, skip_include=true)
     isfile(file) || error(file, " is not a file")
@@ -606,7 +608,10 @@ function track(mod::Module, file::AbstractString; define=false, skip_include=tru
     end
 end
 
-track(file::AbstractString) = track(Main, file)
+function track(file::AbstractString)
+    startswith(file, juliadir) && error("use Revise.track(Base) or Revise.track(<stdlib module>)")
+    track(Main, file)
+end
 
 """
     includet(filename)

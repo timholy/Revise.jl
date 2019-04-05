@@ -1644,6 +1644,9 @@ end
         sigs = signatures_at(Base.find_source_file(String(meth.file)), meth.line)  # this should track Base
 
         # Tracking Base
+        # issue #250
+        @test_throws ErrorException("use Revise.track(Base) or Revise.track(<stdlib module>)") Revise.track(joinpath(Revise.juliadir, "base", "intfuncs.jl"))
+
         id = Base.PkgId(Base)
         pkgdata = Revise.pkgdatas[id]
         @test any(k->endswith(k, "number.jl"), Revise.srcfiles(pkgdata))
