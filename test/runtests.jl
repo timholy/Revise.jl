@@ -1723,6 +1723,8 @@ end
             push!(hp.history, fstr)
             m = first(methods(f))
             @test !isempty(signatures_at(String(m.file), m.line))
+            @test isa(definition(m), Expr)
+            @test isa(definition(String, m), Tuple{<:AbstractString,<:Integer})
             pop!(hp.history)
         end
     end
@@ -1793,6 +1795,41 @@ end
         Base.ACTIVE_PROJECT[] = old_project
 
         push!(to_remove, depot)
+    end
+
+    @testset "entr" begin
+        srcfile = joinpath(tempdir(), randtmp()*".jl")
+        push!(to_remove, srcfile)
+        open(srcfile, "w") do io
+            println(io, "Core.eval(Main, :(__entr__ = 1))")
+        end
+        try
+            @sync begin
+                @async begin
+                    entr([srcfile]) do
+                        include(srcfile)
+                    end
+                end
+                sleep(0.1)
+                touch(srcfile)
+                sleep(0.1)
+                @test Main.__entr__ == 1
+                open(srcfile, "w") do io
+                    println(io, "Core.eval(Main, :(__entr__ = 2))")
+                end
+                sleep(0.1)
+                @test Main.__entr__ == 2
+                open(srcfile, "w") do io
+                    println(io, "error(\"stop\")")
+                end
+                sleep(0.1)
+            end
+            @test false
+        catch err
+            exc = err.exceptions[1].ex.exceptions[1].ex
+            @test isa(exc, LoadError)
+            @test exc.error.msg == "stop"
+        end
     end
 
     GC.gc(); GC.gc()
