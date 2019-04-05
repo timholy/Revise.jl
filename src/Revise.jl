@@ -611,9 +611,9 @@ track(file::AbstractString) = track(Main, file)
 """
     includet(filename)
 
-Load `filename` and track any future changes to it. `includet` is simply shorthand for
+Load `filename` and track any future changes to it. `includet` is essentially shorthand for
 
-    Revise.track(Main, filename; skip_include=false)
+    Revise.track(Main, filename; define=true, skip_include=false)
 
 `includet` is intended for "user scripts," e.g., a file you use locally for a specific
 purpose such as loading a specific data set or performing a particular analysis.
@@ -627,7 +627,27 @@ try fixing it with something like `push!(LOAD_PATH, "/path/to/my/private/repos")
 they will not be automatically tracked.
 (See [`Revise.track`](@ref) to set it up manually.)
 """
-includet(file::AbstractString) = track(Main, file; define=true, skip_include=false)
+function includet(mod::Module, file::AbstractString)
+    prev = Base.source_path(nothing)
+    if prev === nothing
+        file = abspath(file)
+    else
+        file = normpath(joinpath(dirname(prev), file))
+    end
+    tls = task_local_storage()
+    tls[:SOURCE_PATH] = file
+    try
+        track(mod, file; define=true, skip_include=false)
+    finally
+        if prev === nothing
+            delete!(tls, :SOURCE_PATH)
+        else
+            tls[:SOURCE_PATH] = prev
+        end
+    end
+    return nothing
+end
+includet(file::AbstractString) = includet(Main, file)
 
 """
     Revise.silence(pkg)

@@ -1424,6 +1424,34 @@ revise_f(x) = 2
         end
         lines = readlines(logfile)
         @test length(lines) == 1 && chomp(lines[1]) == "executed again"
+
+        # tls path (issue #264)
+        srcdir = joinpath(tempdir(), randtmp())
+        mkpath(srcdir)
+        push!(to_remove, srcdir)
+        srcfile1 = joinpath(srcdir, randtmp()*".jl")
+        srcfile2 = joinpath(srcdir, randtmp()*".jl")
+        open(srcfile1, "w") do io
+            print(io, """
+                includet(\"$(basename(srcfile2))\")
+                """)
+        end
+        open(srcfile2, "w") do io
+            print(io, """
+                f264() = 1
+                """)
+        end
+        include(srcfile1)
+        @test f264() == 1
+        sleep(0.1)
+        open(srcfile2, "w") do io
+            print(io, """
+                f264() = 2
+                """)
+        end
+        sleep(0.1)
+        yry()
+        @test f264() == 2
     end
 
     @testset "Auto-track user scripts" begin
