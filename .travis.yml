@@ -21,8 +21,8 @@ git:
 
 script:
     - export JULIA_PROJECT=""
-    - julia --project -e 'using Pkg; Pkg.build(); Pkg.test();'
-    - JULIA_REVISE_POLL=1 julia --project -e 'using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "test", "polling.jl"))'
+    - julia --project -e 'using Pkg; Pkg.build(); Pkg.test(; coverage=true);'
+    - JULIA_REVISE_POLL=1 julia --code-coverage=user --project -e 'using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "test", "polling.jl"))'
 
 after_success:
   - julia -e 'import Pkg; Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'
