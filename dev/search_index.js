@@ -161,14 +161,6 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "limitations/#Method-deletion-1",
-    "page": "Limitations",
-    "title": "Method deletion",
-    "category": "section",
-    "text": "Sometimes you might wish to change a method\'s type signature or number of arguments, or remove a method specialized for specific types. To prevent \"stale\" methods from being called by dispatch, Revise automatically accommodates method deletion, for example:f(x) = 1\nf(x::Int) = 2 # delete this methodIf you save the file, the next time you call f(5) from the REPL you will get 1, and methods(f) will show a single method. Revise even handles more complex situations, such as functions with default arguments: the definitiondefaultargs(x, y=0, z=1.0f0) = x + y + zgenerates 3 different methods (with one, two, and three arguments respectively), and editing this definition todefaultargs(x, yz=(0,1.0f0)) = x + yz[1] + yz[2]requires that we delete all 3 of the original methods and replace them with two new methods.However, to find the right method(s) to delete, Revise needs to be able to parse source code to extract the signature of the to-be-deleted method(s). Unfortunately, a few valid constructs are quite difficult to parse properly. For example, methods generated with code:for T in (Int, Float64, String)   # edit this line to `for T in (Int, Float64)`\n    @eval mytypeof(x::$T) = $T\nendwill not disappear from the method lists until you restart.note: Note\nTo delete a method manually, you can use m = @which foo(args...) to obtain a method, and then call Base.delete_method(m)."
-},
-
-{
     "location": "limitations/#Macros-and-generated-functions-1",
     "page": "Limitations",
     "title": "Macros and generated functions",
@@ -177,11 +169,11 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
-    "location": "limitations/#Distributed-computing-(multiple-workers)-1",
+    "location": "limitations/#Distributed-computing-(multiple-workers)-and-anonymous-functions-1",
     "page": "Limitations",
-    "title": "Distributed computing (multiple workers)",
+    "title": "Distributed computing (multiple workers) and anonymous functions",
     "category": "section",
-    "text": "Revise supports changes to code in worker processes. The code must be loaded in the main process in which Revise is running, and you must use @everywhere using Revise.Revise cannot handle changes in anonymous functions used in remotecalls. Consider the following module definition:module ParReviseExample\nusing Distributed\n\ngreet(x) = println(\"Hello, \", x)\n\nfoo() = for p in workers()\n    remotecall_fetch(() -> greet(\"Bar\"), p)\nend\n\nend # moduleChanging the remotecall to remotecall_fetch((x) -> greet(\"Bar\"), p, 1) will fail, because the new anonymous function is not defined on all workers. The workaround is to write the code to use named functions, e.g.,module ParReviseExample\nusing Distributed\n\ngreet(x) = println(\"Hello, \", x)\ngreetcaller() = greet(\"Bar\")\n\nfoo() = for p in workers()\n    remotecall_fetch(greetcaller, p)\nend\n\nend # moduleand the corresponding edit to the code would be to modify it to greetcaller(x) = greet(\"Bar\") and remotecall_fetch(greetcaller, p, 1)."
+    "text": "Revise supports changes to code in worker processes. The code must be loaded in the main process in which Revise is running.Revise cannot handle changes in anonymous functions used in remotecalls. Consider the following module definition:module ParReviseExample\nusing Distributed\n\ngreet(x) = println(\"Hello, \", x)\n\nfoo() = for p in workers()\n    remotecall_fetch(() -> greet(\"Bar\"), p)\nend\n\nend # moduleChanging the remotecall to remotecall_fetch((x) -> greet(\"Bar\"), p, 1) will fail, because the new anonymous function is not defined on all workers. The workaround is to write the code to use named functions, e.g.,module ParReviseExample\nusing Distributed\n\ngreet(x) = println(\"Hello, \", x)\ngreetcaller() = greet(\"Bar\")\n\nfoo() = for p in workers()\n    remotecall_fetch(greetcaller, p)\nend\n\nend # moduleand the corresponding edit to the code would be to modify it to greetcaller(x) = greet(\"Bar\") and remotecall_fetch(greetcaller, p, 1)."
 },
 
 {
@@ -189,7 +181,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Limitations",
     "title": "Changes that Revise cannot handle",
     "category": "section",
-    "text": "Finally, there are some kinds of changes that Revise cannot incorporate into a running Julia session:changes to type definitions\nfile or module renames\nconflicts between variables and functions sharing the same nameThese kinds of changes require that you restart your Julia session."
+    "text": "Finally, there are some kinds of changes that Revise cannot incorporate into a running Julia session:changes to type definitions\nfile or module renames\nadding new source files to packages\nconflicts between variables and functions sharing the same nameThese kinds of changes require that you restart your Julia session."
 },
 
 {
@@ -341,7 +333,7 @@ var documenterSearchIndex = {"docs": [
     "page": "User reference",
     "title": "Revise.includet",
     "category": "function",
-    "text": "includet(filename)\n\nLoad filename and track any future changes to it. includet is simply shorthand for\n\nRevise.track(Main, filename; skip_include=false)\n\nincludet is intended for \"user scripts,\" e.g., a file you use locally for a specific purpose such as loading a specific data set or performing a particular analysis. Do not use includet for packages, as those should be handled by using or import. (If you\'re working with code in Base or one of Julia\'s standard libraries, use Revise.track(mod) instead, where mod is the module.) If using and import aren\'t working, you may have packages in a non-standard location; try fixing it with something like push!(LOAD_PATH, \"/path/to/my/private/repos\").\n\nincludet is deliberately non-recursive, so if filename loads any other files, they will not be automatically tracked. (See Revise.track to set it up manually.)\n\n\n\n\n\n"
+    "text": "includet(filename)\n\nLoad filename and track any future changes to it. includet is essentially shorthand for\n\nRevise.track(Main, filename; define=true, skip_include=false)\n\nincludet is intended for \"user scripts,\" e.g., a file you use locally for a specific purpose such as loading a specific data set or performing a particular analysis. Do not use includet for packages, as those should be handled by using or import. (If you\'re working with code in Base or one of Julia\'s standard libraries, use Revise.track(mod) instead, where mod is the module.) If using and import aren\'t working, you may have packages in a non-standard location; try fixing it with something like push!(LOAD_PATH, \"/path/to/my/private/repos\").\n\nincludet is deliberately non-recursive, so if filename loads any other files, they will not be automatically tracked. (See Revise.track to set it up manually.)\n\n\n\n\n\n"
 },
 
 {
