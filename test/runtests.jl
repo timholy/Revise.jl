@@ -1285,6 +1285,48 @@ end
         @test m.sig.parameters[2] === Integer
     end
 
+    @testset "Bindings" begin
+        # issue #239
+        testdir = randtmp()
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "Bindings", "src")
+        mkpath(dn)
+        open(joinpath(dn, "Bindings.jl"), "w") do io
+            println(io, """
+            module Bindings
+            struct Iter end
+            # oops, this should have been Base.iterate, not just iterate
+            iterate(i::Iter) = (i, nothing)
+            iterate(i::Iter, ::Any) = nothing
+            iter() = iterate(Iter())
+            end
+            """)
+        end
+        @eval using Bindings
+        val, state = Bindings.iter()
+        @test_throws MethodError iterate(val, state)
+        sleep(0.1)
+        open(joinpath(dn, "Bindings.jl"), "w") do io
+            println(io, """
+            module Bindings
+            struct Iter end
+            Base.iterate(i::Iter) = (i, nothing)
+            Base.iterate(i::Iter, ::Any) = nothing
+            iter() = iterate(Iter())
+            end
+            """)
+        end
+        sleep(0.1)
+        yry()
+        val, state = Bindings.iter()
+        @test iterate(val, state) === nothing
+        @test Bindings.iter() isa Tuple{Bindings.Iter, Nothing}
+
+        rm_precompile("RevisionErrors")
+    end
+
     @testset "Revision errors" begin
         testdir = randtmp()
         mkdir(testdir)

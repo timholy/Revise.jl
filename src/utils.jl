@@ -62,6 +62,19 @@ unwrap(rex::RelocatableExpr) = unwrap(rex.ex)
 
 istrivial(a) = a === nothing || isa(a, LineNumberNode)
 
+function get_function(m::Method)  # from https://github.com/JuliaDebug/JuliaInterpreter.jl/pull/259
+    sig = Base.unwrap_unionall(m.sig)
+    ft0 = sig.parameters[1]
+    ft = Base.unwrap_unionall(ft0)
+    if ft <: Function && isa(ft, DataType) && isdefined(ft, :instance)
+        return ft.instance
+    elseif isa(ft, DataType) && ft.name === Type.body.name
+        f = ft.parameters[1]
+    else
+        return ft
+    end
+end
+
 ## WatchList utilities
 function systime()
     tv = Libc.TimeVal()

@@ -94,6 +94,10 @@ This list gets populated by callbacks that watch directories for updates.
 """
 const revision_queue = Set{Tuple{PkgData,String}}()
 
+# The following are for fixing "emptied-out bindings," issue #239
+const bindings_queue = Set{Any}()
+const base_names = names(Base)
+
 """
     Revise.pkgdatas
 
@@ -234,6 +238,8 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                         Base.delete_method(m)
                         # Remove the entries from CodeTracking data
                         delete!(CodeTracking.method_info, sig)
+                        # Queue this in case the function gets "emptied out"
+                        push!(bindings_queue, get_function(m))
                         # Remove frame from JuliaInterpreter, if applicable. Otherwise debuggers
                         # may erroneously work with outdated code (265-like problems)
                         if haskey(JuliaInterpreter.framedict, m)
@@ -541,6 +547,21 @@ function revise()
         end
     end
     empty!(revision_queue)
+    # Fix any bindings (issue #239)
+    for f in bindings_queue
+        isa(f, Function) || continue
+        mths = methods(f)
+        isempty(mths) || continue
+        ft = typeof(f)
+        tn = ft.name
+        if tn.module != Base && tn.module != Core
+            name = Symbol(String(tn.name)[2:end])
+            if name ∈ base_names
+                Core.eval(tn.module, :($name = Base.$name))
+            end
+        end
+    end
+    empty!(bindings_queue)
     for (basedir, file, err) in revision_errors
         fullpath = joinpath(basedir, file)
         @warn "Failed to revise $fullpath: $err"
