@@ -25,7 +25,17 @@ CoreLogging.shouldlog(logger::ReviseLogger, level, _module, group, id) = _module
 
 function CoreLogging.handle_message(logger::ReviseLogger, level, msg, _module,
                                     group, id, file, line; kwargs...)
-    push!(logger.logs, LogRecord(level, msg, group, id, file, line, kwargs))
+    rec = LogRecord(level, msg, group, id, file, line, kwargs)
+    push!(logger.logs, rec)
+    if level >= Info
+        if group == "lowered" && haskey(kwargs, :mod) && haskey(kwargs, :ex) && haskey(kwargs, :exception)
+            ex, bt = kwargs[:exception]
+            showerror(stderr, ex, bt; backtrace = bt!==nothing)
+            println(stderr, "\nwhile evaluating\n", kwargs[:ex], "\nin module ", kwargs[:mod])
+        else
+            show(stderr, rec)
+        end
+    end
 end
 
 CoreLogging.catch_exceptions(::ReviseLogger) = false
@@ -33,14 +43,20 @@ CoreLogging.catch_exceptions(::ReviseLogger) = false
 function Base.show(io::IO, l::LogRecord)
     print(io, LogRecord)
     print(io, '(', l.level, ", ", l.message, ", ", l.group, ", ", l.id, ", \"", l.file, "\", ", l.line)
+    exc = nothing
     if !isempty(l.kwargs)
         print(io, ", (")
         prefix = ""
         for (kw, val) in l.kwargs
+            kw == :exception && (exc = val; continue)
             print(io, prefix, kw, "=", val)
             prefix = ", "
         end
         print(io, ')')
+    end
+    if exc !== nothing
+        ex, bt = exc
+        showerror(io, ex, bt; backtrace = bt!==nothing)
     end
     print(io, ')')
 end

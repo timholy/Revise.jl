@@ -1316,6 +1316,25 @@ end
         @test startswith(rec.message, "Failed to revise")
         @test occursin("missing comma", rec.message)
 
+        # Also test that it ends up being reported to the user (issue #281)
+        sleep(0.1)
+        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
+            println(io, """
+            module RevisionErrors
+            f(x) = 2
+            foo(::Vector{T}) = 3
+            end
+            """)
+        end
+        logfile = joinpath(tempdir(), randtmp()*".log")
+        open(logfile, "w") do io
+            redirect_stderr(io) do
+                yry()
+            end
+        end
+        str = read(logfile, String)
+        @test occursin("T not defined", str)
+
         rm_precompile("RevisionErrors")
     end
 
