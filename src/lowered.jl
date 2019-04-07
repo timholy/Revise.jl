@@ -46,7 +46,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
         ret = methods_by_execution!(recurse, methodinfo, docexprs, frame; kwargs...)
     catch err
         isa(err, InterruptException) && rethrow(err)
-        @warn "error evaluating in module $mod: $ex" exception=(err, catch_backtrace())
+        @error "evaluation error" mod ex exception=(err, catch_backtrace())
         ret = nothing
     finally
         for bp in bps
