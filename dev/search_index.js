@@ -57,6 +57,14 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "#Other-Revise-workflows-1",
+    "page": "Home",
+    "title": "Other Revise workflows",
+    "category": "section",
+    "text": "Revise can be used to perform work when files update. For example, let\'s say you want to regenerate a set of web pages whenever your code changes. Suppose you\'ve placed your Julia code in a package called MyWebCode, and the pages depend on \"file1.css\" and \"file2.js\"; thenentr([\"file1.css\", \"file2.js\"], [MyWebCode]) do\n    build_webpages(args...)\nendwill execute build_webpages(args...) whenever you save updates to the listed files or MyWebCode."
+},
+
+{
     "location": "#What-else-do-I-need-to-know?-1",
     "page": "Home",
     "title": "What else do I need to know?",
@@ -337,11 +345,19 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "user_reference/#Revise.entr",
+    "page": "User reference",
+    "title": "Revise.entr",
+    "category": "function",
+    "text": "entr(f, files)\nentr(f, files, modules)\n\nExecute f() whenever files listed in files, or code in modules, updates. entr will process updates (and block your command line) until you press Ctrl-C.\n\nExample\n\nentr([\"/tmp/watched.txt\"], [Pkg1, Pkg2]) do\n    println(\"update\")\nend\n\nThis will print \"update\" every time \"/tmp/watched.txt\" or any of the code defining Pkg1 or Pkg2 gets updated.\n\n\n\n\n\n"
+},
+
+{
     "location": "user_reference/#User-reference-1",
     "page": "User reference",
     "title": "User reference",
     "category": "section",
-    "text": "There are really only three functions that a user would be expected to call manually: revise, includet, and Revise.track. Other user-level constructs might apply if you want to debug Revise or prevent it from watching specific packages.revise\nRevise.track\nincludet"
+    "text": "There are really only four functions that a user would be expected to call manually: revise, includet, Revise.track, and entr. Other user-level constructs might apply if you want to debug Revise or prevent it from watching specific packages.revise\nRevise.track\nincludet\nentr"
 },
 
 {
