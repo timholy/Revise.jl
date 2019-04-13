@@ -2,6 +2,7 @@
 
 ## Using Revise by default
 
+### REPL
 If you like Revise, you can ensure that every Julia session uses it by
 adding the following to your `.julia/config/startup.jl` file:
 
@@ -15,12 +16,23 @@ atreplinit() do repl
 end
 ```
 
+### IJulia
+
 If you want Revise to launch automatically within IJulia, then you should also create a `.julia/config/startup_ijulia.jl` file with the contents
 
 ```julia
 try
     @eval using Revise
 catch
+end
+```
+
+### Juno
+
+For full compatibility with Juno you need to add the following lines to `.julia/config/juno_startup.jl` in addition to the `atreplinit` snippet in the REPL section above:
+```julia
+if isdefined(Main, :Revise) && isdefined(Main, :Atom)
+    getfield(Main, :Revise).setup_atom(getfield(Main, :Atom))
 end
 ```
 
