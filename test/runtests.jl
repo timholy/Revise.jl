@@ -1998,20 +1998,19 @@ end
         Revise.get_tracked_id(Core)   # just test that this doesn't error
 
         # Determine whether a git repo is available. Travis & Appveyor do not have this.
-        # FIXME restore these tests
-        # repo, path = Revise.git_repo(Revise.juliadir)
-        # if repo != nothing
-        #     # Tracking Core.Compiler
-        #     Revise.track(Core.Compiler)
-        #     id = Base.PkgId(Core.Compiler)
-        #     pkgdata = Revise.pkgdatas[id]
-        #     @test any(k->endswith(k, "compiler.jl"), Revise.srcfiles(pkgdata))
-        #     m = first(methods(Core.Compiler.typeinf_code))
-        #     @test definition(m) isa Expr
-        # else
-        #     @test_throws Revise.GitRepoException Revise.track(Core.Compiler)
-        #     @warn "skipping Core.Compiler tests due to lack of git repo"
-        # end
+        repo, path = Revise.git_repo(Revise.juliadir)
+        if repo != nothing
+            # Tracking Core.Compiler
+            Revise.track(Core.Compiler)
+            id = Base.PkgId(Core.Compiler)
+            pkgdata = Revise.pkgdatas[id]
+            @test any(k->endswith(k, "optimize.jl"), Revise.srcfiles(pkgdata))
+            m = first(methods(Core.Compiler.typeinf_code))
+            @test definition(m) isa Expr
+        else
+            @test_throws Revise.GitRepoException Revise.track(Core.Compiler)
+            @warn "skipping Core.Compiler tests due to lack of git repo"
+        end
     end
 
     @testset "CodeTracking #48" begin
