@@ -8,3 +8,4 @@ docs/site
 *.aux
 *.log
 docs/src/figures/diagram.pdf
+Manifest.toml
