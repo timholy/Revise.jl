@@ -1740,6 +1740,9 @@ end
             histidx = length(hp.history) + 1 - hp.start_idx
             ex = Base.parse_input_line(fstr; filename="REPL[$histidx]")
             f = Core.eval(Main, ex)
+            if ex.head == :toplevel
+                ex = ex.args[end]
+            end
             push!(hp.history, fstr)
             m = first(methods(f))
             @test !isempty(signatures_at(String(m.file), m.line))
@@ -1751,6 +1754,9 @@ end
             histidx = length(hp.history) + 1 - hp.start_idx
             ex = Base.parse_input_line(fstr; filename="REPL[$histidx]")
             f = Core.eval(Main, ex)
+            if ex.head == :toplevel
+                ex = ex.args[end]
+            end
             push!(hp.history, fstr)
             m = first(methods(f))
             @test isequal(Revise.RelocatableExpr(definition(m)), Revise.RelocatableExpr(ex))
