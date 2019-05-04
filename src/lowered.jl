@@ -136,6 +136,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     for (newmod, newex) in thismodexs
                         newex = unwrap(newex)
                         newframe = prepare_thunk(newmod, newex)
+                        newframe === nothing && continue
                         push_expr!(methodinfo, newmod, newex)
                         value = methods_by_execution!(recurse, methodinfo, docexprs, newframe; define=define)
                         pop_expr!(methodinfo)
