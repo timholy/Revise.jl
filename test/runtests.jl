@@ -1285,6 +1285,54 @@ end
         @test m.sig.parameters[2] === Integer
     end
 
+    @testset "Evaled toplevel" begin
+        testdir = randtmp()
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dnA = joinpath(testdir, "ToplevelA", "src"); mkpath(dnA)
+        dnB = joinpath(testdir, "ToplevelB", "src"); mkpath(dnB)
+        dnC = joinpath(testdir, "ToplevelC", "src"); mkpath(dnC)
+        open(joinpath(dnA, "ToplevelA.jl"), "w") do io
+            println(io, """
+            module ToplevelA
+            @eval using ToplevelB
+            g() = 2
+            end""")
+        end
+        open(joinpath(dnB, "ToplevelB.jl"), "w") do io
+            println(io, """
+            module ToplevelB
+            using ToplevelC
+            end""")
+        end
+        open(joinpath(dnC, "ToplevelC.jl"), "w") do io
+            println(io, """
+            module ToplevelC
+            export f
+            f() = 1
+            end""")
+        end
+        using ToplevelA
+        @test ToplevelA.ToplevelB.f() == 1
+        @test ToplevelA.g() == 2
+        sleep(0.1)
+        open(joinpath(dnA, "ToplevelA.jl"), "w") do io
+            println(io, """
+            module ToplevelA
+            @eval using ToplevelB
+            g() = 3
+            end""")
+        end
+        yry()
+        @test ToplevelA.ToplevelB.f() == 1
+        @test ToplevelA.g() == 3
+
+        rm_precompile("ToplevelA")
+        rm_precompile("ToplevelB")
+        rm_precompile("ToplevelC")
+    end
+
     @testset "Revision errors" begin
         testdir = randtmp()
         mkdir(testdir)
