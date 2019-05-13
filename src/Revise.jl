@@ -655,11 +655,13 @@ end
 includet(file::AbstractString) = includet(Main, file)
 
 """
-    entr(f, files)
-    entr(f, files, modules)
+    entr(f, files; postpone=false)
+    entr(f, files, modules; postpone=false)
 
 Execute `f()` whenever files listed in `files`, or code in `modules`, updates.
 `entr` will process updates (and block your command line) until you press Ctrl-C.
+Unless `postpone` is `true`, `f()` will be executed also when calling `entr`,
+regardless of file changes.
 
 # Example
 
@@ -671,7 +673,7 @@ end
 This will print "update" every time `"/tmp/watched.txt"` or any of the code defining
 `Pkg1` or `Pkg2` gets updated.
 """
-function entr(f::Function, files, modules=nothing)
+function entr(f::Function, files, modules=nothing; postpone=false)
     files = collect(files)  # because we may add to this list
     if modules !== nothing
         for mod in modules
@@ -685,6 +687,7 @@ function entr(f::Function, files, modules=nothing)
     active = true
     try
         @sync begin
+            postpone || f()
             for file in files
                 waitfor = isdir(file) ? watch_folder : watch_file
                 @async while active
