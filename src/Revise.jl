@@ -692,8 +692,7 @@ function entr(f::Function, files, modules=nothing; postpone=false)
                 waitfor = isdir(file) ? watch_folder : watch_file
                 @async while active
                     ret = waitfor(file, 1)
-                    ret.renamed && break
-                    if active && ret.changed
+                    if active && (ret.changed || ret.renamed)
                         revise()
                         f()
                     end
