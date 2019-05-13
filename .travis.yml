@@ -23,6 +23,7 @@ script:
     - export JULIA_PROJECT=""
     - julia --project -e 'using Pkg; Pkg.build(); Pkg.test(; coverage=true);'
     - JULIA_REVISE_POLL=1 julia --code-coverage=user --project -e 'using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "test", "polling.jl"))'
+    - if [ "$TRAVIS_OS_NAME" = "linux" ]; then echo 4 | sudo tee -a /proc/sys/fs/inotify/max_user_watches; julia --project -e 'using Pkg, Revise; cd(joinpath(dirname(pathof(Revise)), "..", "test")); include("inotify.jl")'; fi
 
 after_success:
   - julia -e 'import Pkg; Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'

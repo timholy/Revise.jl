@@ -39,7 +39,7 @@ function wait_changed(file)
     try
         polling_files[] ? poll_file(file) : watch_file(file)
     catch err
-        if Sys.islinux() && err isa SystemError && err.errnum == 28  # ENOSPC
+        if Sys.islinux() && err isa Base.IOError && err.code == -28  # ENOSPC
             @warn """Your operating system has run out of inotify capacity.
             Check the current value with `cat /proc/sys/fs/inotify/max_user_watches`.
             Set it to a higher level with, e.g., `echo 65536 | sudo tee -a /proc/sys/fs/inotify/max_user_watches`.
