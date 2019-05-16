@@ -273,6 +273,12 @@ Technically, a new `mexsref` is generated every time to ensure that the expressi
 ordered as in `mexsnew`; however, conceptually this is better thought of as an updating of
 `mexsref`, after which `mexsnew` is discarded.
 
+Note that one consequence is that modifying a method causes two actions, the deletion of
+the original followed by `eval`ing a new version.
+During revision, all method deletions are performed first, followed by all the new `eval`ed methods.
+This ensures that if a method gets moved from `fileB.jl` to `fileA.jl`, Revise doesn't mistakenly
+redefine and then delete the method simply because `fileA.jl` got processed before `fileB.jl`.
+
 ### Internal API
 
 You can find more detail about Revise's inner workings in the [Developer reference](@ref).

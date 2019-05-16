@@ -34,14 +34,7 @@ julia> using Base.CoreLogging: Debug
 julia> logs = filter(r->r.level==Debug, rlogger.logs);
 ```
 
-You can capture just the log events that recorded a difference between two
-versions of the same file with
-
-```julia
-julia> log = Revise.diffs(rlogger)
-```
-
-or just the changes that Revise made to running code with
+You can capture just the changes that Revise made to running code with
 
 ```julia
 julia> logs = Revise.actions(rlogger)
@@ -122,7 +115,7 @@ If you want to make use of this, it can be handy to capture the start time with 
 before commencing on a session.
 
 See [`Revise.debug_logger`](@ref) for information on groups besides "Action."
-One part
+
 
 ## A complete debugging demo
 
@@ -144,37 +137,29 @@ julia> ReviseTest.cube(3)
 27
 
 julia> rlogger.logs
-8-element Array{Revise.LogRecord,1}:
- Revise.LogRecord(Debug, Diff, Parsing, Revise_1dfe9141, "/home/tim/.julia/dev/Revise/src/Revise.jl", 214, (activemodule=(:Main,), newexprs=Set(Revise.RelocatableExpr[]), oldexprs=Set(Revise.RelocatableExpr[])))
- Revise.LogRecord(Debug, Diff, Parsing, Revise_1dfe9142, "/home/tim/.julia/dev/Revise/src/Revise.jl", 214, (activemodule=(:Main, :ReviseTest), newexprs=Set(Revise.RelocatableExpr[:(fourth(x) = begin
-          x ^ 4
-      end), :(cube(x) = begin
-          x ^ 3
-      end)]), oldexprs=Set(Revise.RelocatableExpr[:(cube(x) = begin
-          x ^ 4
-      end)])))
- Revise.LogRecord(Debug, Eval, Action, Revise_443cc0b6, "/home/tim/.julia/dev/Revise/src/Revise.jl", 270, (time=1.535105837129072e9, deltainfo=(Main.ReviseTest, :(cube(x) = begin
+julia> rlogger.logs
+9-element Array{Revise.LogRecord,1}:
+ Revise.LogRecord(Debug, DeleteMethod, Action, Revise_4ac0f476, "/home/tim/.julia/dev/Revise/src/Revise.jl", 226, (time=1.557996459055345e9, deltainfo=(Tuple{typeof(Main.ReviseTest.cube),Any}, MethodSummary(:cube, :ReviseTest, Symbol("/tmp/revisetest.jl"), 7, Tuple{typeof(Main.ReviseTest.cube),Any}))))
+ Revise.LogRecord(Debug, DeleteMethod, Action, Revise_4ac0f476, "/home/tim/.julia/dev/Revise/src/Revise.jl", 226, (time=1.557996459167895e9, deltainfo=(Tuple{typeof(Main.ReviseTest.Internal.mult3),Any}, MethodSummary(:mult3, :Internal, Symbol("/tmp/revisetest.jl"), 12, Tuple{typeof(Main.ReviseTest.Internal.mult3),Any}))))
+ Revise.LogRecord(Debug, DeleteMethod, Action, Revise_4ac0f476, "/home/tim/.julia/dev/Revise/src/Revise.jl", 226, (time=1.557996459167956e9, deltainfo=(Tuple{typeof(Main.ReviseTest.Internal.mult4),Any}, MethodSummary(:mult4, :Internal, Symbol("/tmp/revisetest.jl"), 13, Tuple{typeof(Main.ReviseTest.Internal.mult4),Any}))))
+ Revise.LogRecord(Debug, Eval, Action, Revise_9147188b, "/home/tim/.julia/dev/Revise/src/Revise.jl", 276, (time=1.557996459259605e9, deltainfo=(Main.ReviseTest, :(cube(x) = begin
+          #= /tmp/revisetest.jl:7 =#
           x ^ 3
       end))))
- Revise.LogRecord(Debug, Eval, Action, Revise_443cc0b7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 270, (time=1.535105837152789e9, deltainfo=(Main.ReviseTest, :(fourth(x) = begin
+ Revise.LogRecord(Debug, Eval, Action, Revise_9147188b, "/home/tim/.julia/dev/Revise/src/Revise.jl", 276, (time=1.557996459330512e9, deltainfo=(Main.ReviseTest, :(fourth(x) = begin
+          #= /tmp/revisetest.jl:9 =#
           x ^ 4
       end))))
- Revise.LogRecord(Debug, Diff, Parsing, Revise_1dfe9143, "/home/tim/.julia/dev/Revise/src/Revise.jl", 214, (activemodule=(:Main, :ReviseTest, :Internal), newexprs=Set(Revise.RelocatableExpr[:(mult3(x) = begin
-          3x
-      end)]), oldexprs=Set(Revise.RelocatableExpr[:(mult4(x) = begin
-          -x
-      end), :(mult3(x) = begin
-          4x
-      end)])))
- Revise.LogRecord(Debug, LineOffset, Action, Revise_3e9f6659, "/home/tim/.julia/dev/Revise/src/Revise.jl", 229, (time=1.535105837187501e9, deltainfo=(Any[Tuple{typeof(mult2),Any}], 13, 0 => 2)))
- Revise.LogRecord(Debug, Eval, Action, Revise_443cc0b8, "/home/tim/.julia/dev/Revise/src/Revise.jl", 270, (time=1.535105837214e9, deltainfo=(Main.ReviseTest.Internal, :(mult3(x) = begin
+ Revise.LogRecord(Debug, LineOffset, Action, Revise_fb38a7f7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 296, (time=1.557996459331061e9, deltainfo=(Any[Tuple{typeof(mult2),Any}], :(#= /tmp/revisetest.jl:11 =#) => :(#= /tmp/revisetest.jl:13 =#))))
+ Revise.LogRecord(Debug, Eval, Action, Revise_9147188b, "/home/tim/.julia/dev/Revise/src/Revise.jl", 276, (time=1.557996459391182e9, deltainfo=(Main.ReviseTest.Internal, :(mult3(x) = begin
+          #= /tmp/revisetest.jl:14 =#
           3x
       end))))
- Revise.LogRecord(Debug, DeleteMethod, Action, Revise_04f4de6f, "/home/tim/.julia/dev/Revise/src/Revise.jl", 251, (time=1.535105837214255e9, deltainfo=(Tuple{typeof(Main.ReviseTest.Internal.mult4),Any}, MethodSummary(:mult4, :Internal, Symbol("/tmp/revisetest.jl"), 13, Tuple{typeof(Main.ReviseTest.Internal.mult4),Any}))))
+ Revise.LogRecord(Debug, LineOffset, Action, Revise_fb38a7f7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 296, (time=1.557996459391642e9, deltainfo=(Any[Tuple{typeof(unchanged),Any}], :(#= /tmp/revisetest.jl:18 =#) => :(#= /tmp/revisetest.jl:19 =#))))
+ Revise.LogRecord(Debug, LineOffset, Action, Revise_fb38a7f7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 296, (time=1.557996459391695e9, deltainfo=(Any[Tuple{typeof(unchanged2),Any}], :(#= /tmp/revisetest.jl:20 =#) => :(#= /tmp/revisetest.jl:21 =#))))
 ```
 
-In addition to the "Action" items, you can see other entries that record the "Diff"s encountered
-by Revise during revision.
+You can see that Revise started by deleting three methods, followed by evaluating three new versions of those methods. Interspersed are various changes to the line numbering.
 
 In rare cases it might be helpful to independently record the sequence of edits to the file.
 You can make copies `cp editedfile.jl > /tmp/version1.jl`, edit code, `cp editedfile.jl > /tmp/version2.jl`,
