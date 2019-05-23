@@ -13,3 +13,25 @@ end
 else
     yry() = (sleep(0.1); revise(); sleep(0.1))
 end
+
+function collectexprs(rex::Revise.RelocatableExpr)
+    items = []
+    for item in Revise.LineSkippingIterator(rex.ex.args)
+        push!(items, isa(item, Expr) ? Revise.RelocatableExpr(item) : item)
+    end
+    items
+end
+
+function get_docstring(obj)
+    while !isa(obj, AbstractString)
+        fn = fieldnames(typeof(obj))
+        if :content ∈ fn
+            obj = obj.content[1]
+        elseif :code ∈ fn
+            obj = obj.code
+        else
+            error("unknown object ", obj)
+        end
+    end
+    return obj
+end

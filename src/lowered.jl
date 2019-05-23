@@ -149,6 +149,25 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
                 elseif !define && f === Base.Docs.doc!
+                    fargs = JuliaInterpreter.collect_args(frame, stmt)
+                    popfirst!(fargs)
+                    length(fargs) == 3 && push!(fargs, Union{})  # add the default sig
+                    dmod, b, str, sig = fargs
+                    m = get!(Base.Docs.meta(dmod), b, Base.Docs.MultiDoc())
+                    if haskey(m.docs, sig)
+                        currentstr = m.docs[sig]
+                        redefine = currentstr.text != str.text
+                    else
+                        push!(m.order, sig)
+                        redefine = true
+                    end
+                    # (Re)assign without the warning
+                    if redefine
+                        m.docs[sig] = str
+                        str.data[:binding] = b
+                        str.data[:typesig] = sig
+                    end
+                    assign_this!(frame, Base.Docs.doc(b, sig))
                     pc = next_or_nothing!(frame)
                 else
                     # A :call Expr we don't want to intercept
