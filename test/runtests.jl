@@ -67,23 +67,6 @@ const pair_op_compact = let io = IOBuffer()
 end
 
 @testset "Revise" begin
-
-    function collectexprs(rex::Revise.RelocatableExpr)
-        items = []
-        for item in Revise.LineSkippingIterator(rex.ex.args)
-            push!(items, isa(item, Expr) ? Revise.RelocatableExpr(item) : item)
-        end
-        items
-    end
-
-    function get_docstring(ds)
-        docstr = ds.content[1]
-        while !isa(docstr, AbstractString)
-            docstr = docstr.content[1]
-        end
-        return docstr
-    end
-
     @testset "LineSkipping" begin
         rex = Revise.RelocatableExpr(quote
                                     f(x) = x^2
@@ -755,6 +738,68 @@ end
         for (k, v) in odict
             @test haskey(ndict, k)
         end
+    end
+
+    @testset "Macro docstrings (issue #309)" begin
+        testdir = randtmp()
+        mkdir(testdir)
+        push!(to_remove, testdir)
+        push!(LOAD_PATH, testdir)
+        dn = joinpath(testdir, "MacDocstring", "src")
+        mkpath(dn)
+        open(joinpath(dn, "MacDocstring.jl"), "w") do io
+            println(io, """
+            module MacDocstring
+
+            macro myconst(name, val)
+                quote
+                    \"\"\"
+                        mydoc
+                    \"\"\"
+                    const \$(esc(name)) = \$val
+                end
+            end
+
+            @myconst c 1.2
+            f() = 1
+
+            end # module
+            """)
+        end
+        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        @eval using MacDocstring
+        sleep(2)
+        @test MacDocstring.f() == 1
+        ds = @doc(MacDocstring.c)
+        @test strip(get_docstring(ds)) == "mydoc"
+
+        sleep(0.1)  # ensure watching is set up
+        open(joinpath(dn, "MacDocstring.jl"), "w") do io
+            println(io, """
+            module MacDocstring
+
+            macro myconst(name, val)
+                quote
+                    \"\"\"
+                        mydoc
+                    \"\"\"
+                    const \$(esc(name)) = \$val
+                end
+            end
+
+            @myconst c 1.2
+            f() = 2
+
+            end # module
+            """)
+        end
+        yry()
+        @test MacDocstring.f() == 2
+        ds = @doc(MacDocstring.c)
+        @test strip(get_docstring(ds)) == "mydoc"
+
+        rm_precompile("MacDocstring")
+        pop!(LOAD_PATH)
     end
 
     # issue #165
