@@ -13,12 +13,10 @@ notifications:
 git:
   depth: 99999999
 
-## uncomment the following lines to allow failures on nightly julia
-## (tests will run but not make your overall status red)
-#matrix:
-#  allow_failures:
-#  - julia: nightly
-
+matrix:
+  allow_failures:
+    - julia: nightly
+    
 script:
     - export JULIA_PROJECT=""
     - julia --project -e 'using Pkg; Pkg.build(); Pkg.test(; coverage=true);'
