@@ -661,6 +661,61 @@ end
         @test isempty(failedfiles)
     end
 
+    # issue #318
+    @testset "Cross-module extension" begin
+        testdir = newtestdir()
+        dnA = joinpath(testdir, "CrossModA", "src")
+        mkpath(dnA)
+        open(joinpath(dnA, "CrossModA.jl"), "w") do io
+            println(io, """
+            module CrossModA
+            foo(x) = "default"
+            end
+            """)
+        end
+        dnB = joinpath(testdir, "CrossModB", "src")
+        mkpath(dnB)
+        open(joinpath(dnB, "CrossModB.jl"), "w") do io
+            println(io, """
+            module CrossModB
+            import CrossModA
+            CrossModA.foo(x::Int) = 1
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using CrossModA, CrossModB
+        @test CrossModA.foo("") == "default"
+        @test CrossModA.foo(0) == 1
+        sleep(mtimedelay)
+        open(joinpath(dnB, "CrossModB.jl"), "w") do io
+            println(io, """
+            module CrossModB
+            import CrossModA
+            CrossModA.foo(x::Int) = 2
+            end
+            """)
+        end
+        yry()
+        @test CrossModA.foo("") == "default"
+        @test CrossModA.foo(0) == 2
+        open(joinpath(dnB, "CrossModB.jl"), "w") do io
+            println(io, """
+            module CrossModB
+            import CrossModA
+            CrossModA.foo(x::Int) = 3
+            end
+            """)
+        end
+        yry()
+        @test CrossModA.foo("") == "default"
+        @test CrossModA.foo(0) == 3
+
+        rm_precompile("CrossModA")
+        rm_precompile("CrossModB")
+        pop!(LOAD_PATH)
+    end
+
     # issue #36
     @testset "@__FILE__" begin
         testdir = newtestdir()
