@@ -7,9 +7,11 @@ update packages, switch git branches, and/or stash/unstash code;
 typically, the changes will be incorporated into the very next command you issue from the REPL.
 This can save you the overhead of restarting, loading packages, and waiting for code to JIT-compile.
 
-Many users automatically load Revise on startup. This is slightly more involved
-than just adding `using Revise` to `.julia/config/startup.jl`: see [Using Revise
-by default](@ref) for details.
+!!! note "Automatically loading Revise"
+
+    Many users automatically load Revise on startup. This is slightly more involved
+    than just adding `using Revise` to `.julia/config/startup.jl`: see [Using Revise
+    by default](@ref) for details.
 
 ## Installation
 
