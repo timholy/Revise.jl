@@ -17,6 +17,7 @@ throwing_function(bt) = bt[2]
 
 function rm_precompile(pkgname::AbstractString)
     filepath = Base.cache_file_entry(Base.PkgId(pkgname))
+    isa(filepath, Tuple) && (filepath = filepath[1]*filepath[2])  # Julia 1.3+
     for depot in DEPOT_PATH
         fullpath = joinpath(depot, filepath)
         isfile(fullpath) && rm(fullpath)
@@ -1958,9 +1959,19 @@ end
             end
             @test false
         catch err
-            exc = err.exceptions[1].ex.exceptions[1].ex
-            @test isa(exc, LoadError)
-            @test exc.error.msg == "stop"
+            while err isa CompositeException
+                err = err.exceptions[1]
+                @static if VERSION >= v"1.3.0-alpha.110"
+                    if  err isa TaskFailedException
+                        err = err.task.exception
+                    end
+                end
+                if err isa CapturedException
+                    err = err.ex
+                end
+            end
+            @test isa(err, LoadError)
+            @test err.error.msg == "stop"
         end
     end
 

@@ -1,6 +1,10 @@
 using Random
 
 const rseed = Ref(Random.GLOBAL_RNG)  # to get new random directories (see julia #24445)
+if isempty(methods(Random.seed!, Tuple{typeof(rseed[])}))
+    # Julia 1.3-rc1 doesn't have this, fixed in https://github.com/JuliaLang/julia/pull/32961
+    Random.seed!(rng::typeof(rseed[])) = Random.seed!(rng, nothing)
+end
 function randtmp()
     Random.seed!(rseed[])
     dirname = joinpath(tempdir(), randstring(10))
