@@ -9,14 +9,26 @@ function randtmp()
     Random.seed!(rseed[])
     dirname = joinpath(tempdir(), randstring(10))
     rseed[] = Random.GLOBAL_RNG
-    dirname
+    return dirname
+end
+
+const to_remove = String[]
+
+function newtestdir()
+    testdir = randtmp()
+    mkdir(testdir)
+    push!(to_remove, testdir)
+    push!(LOAD_PATH, testdir)
+    return testdir
 end
 
 @static if Sys.isapple()
-    yry() = (sleep(1.1); revise(); sleep(1.1))
+    const mtimedelay = 2.1  # so the defining files are old enough not to trigger mtime criterion
 else
-    yry() = (sleep(0.1); revise(); sleep(0.1))
+    const mtimedelay = 0.1
 end
+
+yry() = (sleep(mtimedelay); revise(); sleep(mtimedelay))
 
 function collectexprs(rex::Revise.RelocatableExpr)
     items = []

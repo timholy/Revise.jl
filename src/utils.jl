@@ -64,6 +64,7 @@ istrivial(a) = a === nothing || isa(a, LineNumberNode)
 
 ## WatchList utilities
 function systime()
+    # It's important to use the same clock used by the filesystem
     tv = Libc.TimeVal()
     tv.sec + tv.usec/10^6
 end
@@ -73,6 +74,14 @@ end
 Base.push!(wl::WatchList, filename) = push!(wl.trackedfiles, filename)
 WatchList() = WatchList(systime(), Set{String}())
 Base.in(file, wl::WatchList) = in(file, wl.trackedfiles)
+
+@static if Sys.isapple()
+     # HFS+ rounds time to seconds, see #22
+     # https://developer.apple.com/library/archive/technotes/tn/tn1150.html#HFSPlusDates
+     newer(mtime, timestamp) = ceil(mtime) >= floor(timestamp)
+ else
+     newer(mtime, timestamp) = mtime >= timestamp
+ end
 
 function macroreplace!(ex::Expr, filename)
     for i = 1:length(ex.args)
