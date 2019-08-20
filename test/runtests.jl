@@ -11,12 +11,11 @@ using Base.CoreLogging: Debug,Info
 
 include("common.jl")
 
-to_remove = String[]
-
 throwing_function(bt) = bt[2]
 
 function rm_precompile(pkgname::AbstractString)
     filepath = Base.cache_file_entry(Base.PkgId(pkgname))
+    isa(filepath, Tuple) && (filepath = filepath[1]*filepath[2])  # Julia 1.3+
     for depot in DEPOT_PATH
         fullpath = joinpath(depot, filepath)
         isfile(fullpath) && rm(fullpath)
@@ -326,10 +325,7 @@ k(x) = 4
     end
 
     @testset "File paths" begin
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         for (pcflag, fbase) in ((true, "pc"), (false, "npc"),)  # precompiled & not
             modname = uppercase(fbase)
             pcexpr = pcflag ? "" : :(__precompile__(false))
@@ -382,8 +378,9 @@ end
             open(joinpath(dn, "file5.jl"), "w") do io
                 println(io, "$(fbase)5() = 5")
             end
-            sleep(2.1)   # so the defining files are old enough not to trigger mtime criterion
+            sleep(mtimedelay)
             @eval using $(Symbol(modname))
+            sleep(mtimedelay)
             fn1, fn2 = Symbol("$(fbase)1"), Symbol("$(fbase)2")
             fn3, fn4 = Symbol("$(fbase)3"), Symbol("$(fbase)4")
             fn5 = Symbol("$(fbase)5")
@@ -395,7 +392,6 @@ end
             @eval @test $(fn5)() == 5
             @eval @test $(fn6)() == 6
             m = @eval first(methods($fn1))
-            # yield()
             rex = Revise.RelocatableExpr(definition(m))
             @test rex == convert(Revise.RelocatableExpr, :( $fn1() = 1 ))
             # Check that definition returns copies
@@ -410,7 +406,6 @@ end
             @test signatures_at(m3file, 1) == [m3.sig]
             @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [m3.sig]
 
-            sleep(0.1)  # to ensure that the file watching has kicked in
             # Change the definition of function 1 (easiest to just rewrite the whole file)
             open(joinpath(dn, modname*".jl"), "w") do io
                 println(io, """
@@ -432,7 +427,6 @@ using_macro_$(fbase)() = @some_macro_$(fbase)()
 end
 """)  # just for fun we skipped the whitespace
             end
-            sleep(0.1)
             yry()
             @eval @test $(fn1)() == -1
             @eval @test $(fn2)() == 2
@@ -518,11 +512,10 @@ end
                 func() = 1
                 """)
         end
-        sleep(2.1)
+        sleep(mtimedelay)
         @eval using Mysupermodule
+        sleep(mtimedelay)
         @test Mysupermodule.Mymodule.func() == 1
-        sleep(1.1)
-        yry()
         open(joinpath(subdir, "filesub.jl"), "w") do io
             print(io, """
                 func() = 2
@@ -555,13 +548,11 @@ end
         open(joinpath(dn, "file2.jl"), "w") do io
             println(io, "li_g() = 2")
         end
-        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        sleep(mtimedelay)
         @eval using LoopInclude
-        sleep(0.1) # to ensure file-watching is set up
+        sleep(mtimedelay)
         @test li_f() == 1
         @test li_g() == 2
-        sleep(1.1)  # ensure watching is set up
-        yry()
         open(joinpath(dn, "file1.jl"), "w") do io
             println(io, "li_f() = -1")
         end
@@ -586,9 +577,10 @@ end
                         end
                         """)
         end
+        sleep(mtimedelay)
         using A228
+        sleep(mtimedelay)
         @test f228(3) == 42
-        sleep(2.1)
         open(joinpath(testdir, "B228.jl"), "w") do io
             println(io, """
                         module B228
@@ -627,10 +619,7 @@ end
 
     # issue #36
     @testset "@__FILE__" begin
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         dn = joinpath(testdir, "ModFILE", "src")
         mkpath(dn)
         open(joinpath(dn, "ModFILE.jl"), "w") do io
@@ -642,10 +631,10 @@ mf() = @__FILE__, 1
 end
 """)
         end
-        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        sleep(mtimedelay)
         @eval using ModFILE
+        sleep(mtimedelay)
         @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 1)
-        sleep(0.1)
         open(joinpath(dn, "ModFILE.jl"), "w") do io
             println(io, """
 module ModFILE
@@ -663,10 +652,7 @@ end
 
     # issue #8
     @testset "Module docstring" begin
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         dn = joinpath(testdir, "ModDocstring", "src")
         mkpath(dn)
         open(joinpath(dn, "ModDocstring.jl"), "w") do io
@@ -684,14 +670,13 @@ end
         open(joinpath(dn, "dependency.jl"), "w") do io
             println(io, "")
         end
-        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        sleep(mtimedelay)
         @eval using ModDocstring
-        sleep(2)
+        sleep(mtimedelay)
         @test ModDocstring.f() == 1
         ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Ahoy! "
 
-        sleep(0.1)  # ensure watching is set up
         open(joinpath(dn, "ModDocstring.jl"), "w") do io
             println(io, """
 " Ahoy! "
@@ -741,10 +726,7 @@ end
     end
 
     @testset "Macro docstrings (issue #309)" begin
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         dn = joinpath(testdir, "MacDocstring", "src")
         mkpath(dn)
         open(joinpath(dn, "MacDocstring.jl"), "w") do io
@@ -766,14 +748,13 @@ end
             end # module
             """)
         end
-        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        sleep(mtimedelay)
         @eval using MacDocstring
-        sleep(2)
+        sleep(mtimedelay)
         @test MacDocstring.f() == 1
         ds = @doc(MacDocstring.c)
         @test strip(get_docstring(ds)) == "mydoc"
 
-        sleep(0.1)  # ensure watching is set up
         open(joinpath(dn, "MacDocstring.jl"), "w") do io
             println(io, """
             module MacDocstring
@@ -804,10 +785,7 @@ end
 
     # issue #165
     @testset "Changing @inline annotations" begin
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         dn = joinpath(testdir, "PerfAnnotations", "src")
         mkpath(dn)
         open(joinpath(dn, "PerfAnnotations.jl"), "w") do io
@@ -829,8 +807,9 @@ end
             end
             """)
         end
-        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        sleep(mtimedelay)
         @eval using PerfAnnotations
+        sleep(mtimedelay)
         @test PerfAnnotations.check_hasinline(3) == 3
         @test PerfAnnotations.check_hasnoinline(3) == 3
         @test PerfAnnotations.check_notannot1(3) == 3
@@ -843,7 +822,6 @@ end
         @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
         ci = code_typed(PerfAnnotations.check_notannot2, Tuple{Int})[1].first
         @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
-        sleep(0.1)
         open(joinpath(dn, "PerfAnnotations.jl"), "w") do io
             println(io, """
             module PerfAnnotations
@@ -883,10 +861,7 @@ end
 
     @testset "Revising macros" begin
         # issue #174
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         dn = joinpath(testdir, "MacroRevision", "src")
         mkpath(dn)
         open(joinpath(dn, "MacroRevision.jl"), "w") do io
@@ -900,11 +875,11 @@ end
             end
             """)
         end
-        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        sleep(mtimedelay)
         @eval using MacroRevision
+        sleep(mtimedelay)
         @test MacroRevision.foo("hello") == 1
 
-        sleep(0.1)
         open(joinpath(dn, "MacroRevision.jl"), "w") do io
             println(io, """
             module MacroRevision
@@ -921,7 +896,6 @@ end
         revise(MacroRevision)
         @test MacroRevision.foo("hello") == 2
 
-        sleep(0.1)
         open(joinpath(dn, "MacroRevision.jl"), "w") do io
             println(io, """
             module MacroRevision
@@ -943,10 +917,7 @@ end
 
     @testset "More arg-modifying macros" begin
         # issue #183
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         dn = joinpath(testdir, "ArgModMacros", "src")
         mkpath(dn)
         open(joinpath(dn, "ArgModMacros.jl"), "w") do io
@@ -967,11 +938,11 @@ end
             end
             """)
         end
-        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        sleep(mtimedelay)
         @eval using ArgModMacros
+        sleep(mtimedelay)
         @test ArgModMacros.hyper_loglikelihood((μ=1, σ=2, LΩ=3), (w̃s=4, α̃s=5, β̃s=6)) == [4,5,6]
         @test ArgModMacros.revision[] == 1
-        sleep(0.1)
         open(joinpath(dn, "ArgModMacros.jl"), "w") do io
             println(io, """
             module ArgModMacros
@@ -999,10 +970,7 @@ end
 
     @testset "Line numbers" begin
         # issue #27
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         modname = "LineNumberMod"
         dn = joinpath(testdir, modname, "src")
         mkpath(dn)
@@ -1034,8 +1002,9 @@ end
 foo(y::Int) = y-51
 """)
         end
-        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        sleep(mtimedelay)
         @eval using LineNumberMod
+        sleep(mtimedelay)
         lines = Int[]
         files = String[]
         for m in methods(LineNumberMod.foo)
@@ -1043,7 +1012,6 @@ foo(y::Int) = y-51
             push!(lines, m.line)
         end
         @test all(f->endswith(string(f), "incl.jl"), files)
-        sleep(0.1)  # ensure watching is set up
         open(joinpath(dn, "incl.jl"), "w") do io
             println(io, """
 0
@@ -1085,7 +1053,9 @@ foo(y::Int) = y-51
             end
             """)
         end
+        sleep(mtimedelay)
         includet(filename)
+        sleep(mtimedelay)
         try
             triggered(true, false)
             @test false
@@ -1098,7 +1068,6 @@ foo(y::Int) = y-51
             print(io, methods(triggered))
             @test occursin(filename * ":2", String(take!(io)))
         end
-        sleep(2.1)
         open(filename, "w") do io
             println(io, """
             # A comment to change the line numbers
@@ -1109,7 +1078,6 @@ foo(y::Int) = y-51
             end
             """)
         end
-        sleep(0.1)
         yry()
         try
             triggered(true, false)
@@ -1143,10 +1111,7 @@ foo(y::Int) = y-51
 
     # Issue #43
     @testset "New submodules" begin
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         dn = joinpath(testdir, "Submodules", "src")
         mkpath(dn)
         open(joinpath(dn, "Submodules.jl"), "w") do io
@@ -1156,10 +1121,10 @@ f() = 1
 end
 """)
         end
-        sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
+        sleep(mtimedelay)
         @eval using Submodules
+        sleep(mtimedelay)
         @test Submodules.f() == 1
-        sleep(0.1)  # ensure watching is set up
         open(joinpath(dn, "Submodules.jl"), "w") do io
             println(io, """
 module Submodules
@@ -1179,10 +1144,7 @@ end
 
     @testset "Method deletion" begin
         Core.eval(Base, :(revisefoo(x::Float64) = 1)) # to test cross-module method scoping
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         dn = joinpath(testdir, "MethDel", "src")
         mkpath(dn)
         open(joinpath(dn, "MethDel.jl"), "w") do io
@@ -1226,7 +1188,9 @@ end
 end
 """)
         end
+        sleep(mtimedelay)
         @eval using MethDel
+        sleep(mtimedelay)
         @test MethDel.f(1.0) == 1
         @test MethDel.f(1) == 2
         @test MethDel.g(rand(3), 1.0) == 1
@@ -1253,7 +1217,6 @@ end
         @test MethDel.mytypeof(1) === Int
         @test MethDel.mytypeof(1.0) === Float64
         @test MethDel.mytypeof("hi") === String
-        sleep(0.1)  # ensure watching is set up
         open(joinpath(dn, "MethDel.jl"), "w") do io
             println(io, """
 module MethDel
@@ -1331,10 +1294,7 @@ end
     end
 
     @testset "Evaled toplevel" begin
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         dnA = joinpath(testdir, "ToplevelA", "src"); mkpath(dnA)
         dnB = joinpath(testdir, "ToplevelB", "src"); mkpath(dnB)
         dnC = joinpath(testdir, "ToplevelC", "src"); mkpath(dnC)
@@ -1358,10 +1318,11 @@ end
             f() = 1
             end""")
         end
+        sleep(mtimedelay)
         using ToplevelA
+        sleep(mtimedelay)
         @test ToplevelA.ToplevelB.f() == 1
         @test ToplevelA.g() == 2
-        sleep(0.1)
         open(joinpath(dnA, "ToplevelA.jl"), "w") do io
             println(io, """
             module ToplevelA
@@ -1379,10 +1340,7 @@ end
     end
 
     @testset "Revision errors" begin
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         dn = joinpath(testdir, "RevisionErrors", "src")
         mkpath(dn)
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
@@ -1392,9 +1350,10 @@ end
             end
             """)
         end
+        sleep(mtimedelay)
         @eval using RevisionErrors
+        sleep(mtimedelay)
         @test RevisionErrors.f(0) == 1
-        sleep(0.1)
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
             println(io, """
             module RevisionErrors
@@ -1410,7 +1369,6 @@ end
         @test occursin("missing comma", rec.message)
 
         # Also test that it ends up being reported to the user (issue #281)
-        sleep(0.1)
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
             println(io, """
             module RevisionErrors
@@ -1432,10 +1390,7 @@ end
     end
 
     @testset "get_def" begin
-        testdir = randtmp()
-        mkdir(testdir)
-        push!(to_remove, testdir)
-        push!(LOAD_PATH, testdir)
+        testdir = newtestdir()
         dn = joinpath(testdir, "GetDef", "src")
         mkpath(dn)
         open(joinpath(dn, "GetDef.jl"), "w") do io
@@ -1449,7 +1404,9 @@ end
             end
             """)
         end
+        sleep(mtimedelay)
         @eval using GetDef
+        sleep(mtimedelay)
         @test GetDef.f(1.0) == 1
         @test GetDef.f([1.0]) == 2
         @test GetDef.f([1]) == 3
@@ -1495,10 +1452,11 @@ end
 revise_f(x) = 1
 """)
         end
+        sleep(mtimedelay)
         includet(srcfile)
+        sleep(mtimedelay)
         @test revise_f(10) == 1
         @test length(signatures_at(srcfile, 1)) == 1
-        sleep(0.1)
         open(srcfile, "w") do io
             print(io, """
 revise_f(x) = 2
@@ -1517,10 +1475,11 @@ revise_f(x) = 2
         revise_floc(x) = 1
         """)
         end
+        sleep(mtimedelay)
         include(joinpath(pwd(), srcfile))
+        sleep(mtimedelay)
         @test revise_floc(10) == 1
         Revise.track(srcfile)
-        sleep(0.1)
         open(srcfile, "w") do io
             print(io, """
         revise_floc(x) = 2
@@ -1536,7 +1495,9 @@ revise_f(x) = 2
         open(srcfile, "w") do io
             println(io)
         end
+        sleep(mtimedelay)
         includet(srcfile)
+        sleep(mtimedelay)
         @test basename(srcfile) ∈ Revise.watched_files[dirname(srcfile)].trackedfiles
         push!(to_remove, srcfile)
 
@@ -1547,15 +1508,16 @@ revise_f(x) = 2
             println("executed")
             """)
         end
+        sleep(mtimedelay)
         logfile = joinpath(tempdir(), randtmp()*".log")
         open(logfile, "w") do io
             redirect_stdout(io) do
                 includet(srcfile)
             end
         end
+        sleep(mtimedelay)
         lines = readlines(logfile)
         @test length(lines) == 1 && chomp(lines[1]) == "executed"
-        sleep(0.1)
         open(srcfile, "w") do io
             print(io, """
             println("executed again")
@@ -1585,15 +1547,15 @@ revise_f(x) = 2
                 f264() = 1
                 """)
         end
+        sleep(mtimedelay)
         include(srcfile1)
+        sleep(mtimedelay)
         @test f264() == 1
-        sleep(0.1)
         open(srcfile2, "w") do io
             print(io, """
                 f264() = 2
                 """)
         end
-        sleep(0.1)
         yry()
         @test f264() == 2
     end
@@ -1604,11 +1566,11 @@ revise_f(x) = 2
         open(srcfile, "w") do io
             println(io, "revise_g() = 1")
         end
+        sleep(mtimedelay)
         # By default user scripts are not tracked
         include(srcfile)
         yry()
         @test revise_g() == 1
-        sleep(0.1)
         open(srcfile, "w") do io
             println(io, "revise_g() = 2")
         end
@@ -1623,10 +1585,10 @@ revise_f(x) = 2
             open(srcfile, "w") do io
                 println(io, "revise_g() = 1")
             end
+            sleep(mtimedelay)
             include(srcfile)
             yry()
             @test revise_g() == 1
-            sleep(0.1)
             open(srcfile, "w") do io
                 println(io, "revise_g() = 2")
             end
@@ -1669,14 +1631,14 @@ g(::Int) = 0
 end
 """)
         end
-        sleep(2.1)   # so the defining files are old enough not to trigger mtime criterion
+        sleep(mtimedelay)
         using ReviseDistributed
+        sleep(mtimedelay)
         @everywhere using ReviseDistributed
         for p in allworkers
             @test remotecall_fetch(ReviseDistributed.f, p)    == π
             @test remotecall_fetch(ReviseDistributed.g, p, 1) == 0
         end
-        sleep(0.1)
         open(joinpath(dn, modname*".jl"), "w") do io
             println(io, """
 module ReviseDistributed
@@ -1687,7 +1649,6 @@ end
 """)
         end
         yry()
-        sleep(1.0)
         @test_throws MethodError ReviseDistributed.g(1)
         for p in allworkers
             @test remotecall_fetch(ReviseDistributed.f, p) == 3.0
@@ -1737,7 +1698,9 @@ end
                 test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
                 LibGit2.commit(repo, "New file test"; author=test_sig, committer=test_sig)
             end
+            sleep(mtimedelay)
             @eval using $(Symbol(modname))
+            sleep(mtimedelay)
             mod = @eval $(Symbol(modname))
             id = Base.PkgId(mod)
             # id = Base.PkgId(Main)
@@ -1747,7 +1710,6 @@ end
                 println("extra")
                 """)
             end
-            sleep(0.1)
             open(mainjl, "w") do io
                 println(io, """
                 module $modname
@@ -1755,6 +1717,7 @@ end
                 end
                 """)
             end
+            sleep(mtimedelay)
             repo = LibGit2.GitRepo(randdir)
             LibGit2.add!(repo, joinpath("src", "extra.jl"))
             logs, _ = Test.collect_test_logs() do
@@ -1896,7 +1859,9 @@ end
         end
         ropkgpath = make_a2d(depot, 1)
         Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)  # like pkg> dev $pkgpath; unfortunately, Pkg.develop(pkgpath) doesn't work
+        sleep(mtimedelay)
         @eval using A2D
+        sleep(mtimedelay)
         @test Base.invokelatest(A2D.f) == 1
         for dir in keys(Revise.watched_files)
             @test !startswith(dir, ropkgpath)
@@ -1905,13 +1870,12 @@ end
         mkpath(devpath)
         mfile = Revise.manifest_file()
         schedule(Task(Revise.Rescheduler(Revise.watch_manifest, (mfile,))))
-        sleep(2.1)
+        sleep(mtimedelay)
         pkgdevpath = make_a2d(devpath, 2, "w")
         Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $pkgdevpath"; do_rethrow=true)
         yry()
         @test Base.invokelatest(A2D.f) == 2
         Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)
-        sleep(2.1)
         yry()
         @test Base.invokelatest(A2D.f) == 1
         for dir in keys(Revise.watched_files)
@@ -1942,25 +1906,35 @@ end
                         include(srcfile)
                     end
                 end
-                sleep(0.1)
+                sleep(mtimedelay)
                 touch(srcfile)
-                sleep(0.1)
+                sleep(mtimedelay)
                 @test Main.__entr__ == 1
                 open(srcfile, "w") do io
                     println(io, "Core.eval(Main, :(__entr__ = 2))")
                 end
-                sleep(0.1)
+                sleep(mtimedelay)
                 @test Main.__entr__ == 2
                 open(srcfile, "w") do io
                     println(io, "error(\"stop\")")
                 end
-                sleep(0.1)
+                sleep(mtimedelay)
             end
             @test false
         catch err
-            exc = err.exceptions[1].ex.exceptions[1].ex
-            @test isa(exc, LoadError)
-            @test exc.error.msg == "stop"
+            while err isa CompositeException
+                err = err.exceptions[1]
+                @static if VERSION >= v"1.3.0-alpha.110"
+                    if  err isa TaskFailedException
+                        err = err.task.exception
+                    end
+                end
+                if err isa CapturedException
+                    err = err.ex
+                end
+            end
+            @test isa(err, LoadError)
+            @test err.error.msg == "stop"
         end
     end
 

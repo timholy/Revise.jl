@@ -235,7 +235,7 @@ function watch_files_via_dir(dirname)
         wf = watched_files[dirname]
         for file in wf.trackedfiles
             fullpath = joinpath(dirname, file)
-            if mtime(fullpath) + 1 >= floor(wf.timestamp) # OSX rounds mtime up, see #22
+            if newer(mtime(fullpath), wf.timestamp)
                 push!(latestfiles, file)
             end
         end
