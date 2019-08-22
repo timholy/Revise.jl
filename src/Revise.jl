@@ -787,6 +787,10 @@ This is a callback function used by `CodeTracking.jl`'s `definition`.
 """
 function get_def(method::Method; modified_files=revision_queue)
     yield()   # magic bug fix for the OSX test failures. TODO: figure out why this works (prob. Julia bug)
+    if method.file == :none && String(method.name)[1] == '#'
+        # This is likely to be a kwarg method, try to find something with location info
+        method = bodymethod(method)
+    end
     filename = fixpath(String(method.file))
     if startswith(filename, "REPL[")
         isdefined(Base, :active_repl) || return false

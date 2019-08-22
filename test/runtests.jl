@@ -1789,6 +1789,12 @@ end
         # end
     end
 
+    @testset "CodeTracking #48" begin
+        m = @which sum([1]; dims=1)
+        file, line = whereis(m)
+        @test endswith(file, "reducedim.jl") && line > 1
+    end
+
     @testset "Methods at REPL" begin
         if isdefined(Base, :active_repl)
             hp = Base.active_repl.interface.modes[1].hist

@@ -93,6 +93,23 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     end
                     if isa(bodycode, CodeInfo)
                         lnn = bodycode.linetable[1]
+                        if lnn.line == 0 && lnn.file == :none && length(bodycode.code) > 1
+                            # This may be a kwarg method. Mimic LoweredCodeUtils.bodymethod,
+                            # except without having a method
+                            stmt = bodycode.code[end-1]
+                            if length(stmt.args) > 1
+                                a = stmt.args[1]
+                                hasself = any(i->LoweredCodeUtils.is_self_call(stmt, bodycode.slotnames, i), 2:length(stmt.args))
+                                if hasself && isa(a, Symbol)
+                                    f = getfield(mod, stmt.args[1])
+                                    mths = methods(f)
+                                    if length(mths) == 1
+                                        mth = first(mths)
+                                        lnn = LineNumberNode(Int(mth.line), mth.file)
+                                    end
+                                end
+                            end
+                        end
                         for sig in signatures
                             add_signature!(methodinfo, sig, lnn)
                         end
