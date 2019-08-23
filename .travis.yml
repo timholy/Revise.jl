@@ -14,11 +14,11 @@ notifications:
 git:
   depth: 99999999
 
-## uncomment the following lines to allow failures on nightly julia
+## uncomment/modify the following lines to allow failures
 ## (tests will run but not make your overall status red)
-matrix:
-  allow_failures:
-    - os: osx
+# matrix:
+#   allow_failures:
+#     - os: osx
 
 script:
     - export JULIA_PROJECT=""

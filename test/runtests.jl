@@ -1525,8 +1525,8 @@ end
         srcfile = joinpath(tempdir(), randtmp()*".jl")
         open(srcfile, "w") do io
             print(io, """
-revise_f(x) = 1
-""")
+            revise_f(x) = 1
+            """)
         end
         sleep(mtimedelay)
         includet(srcfile)
@@ -1535,8 +1535,8 @@ revise_f(x) = 1
         @test length(signatures_at(srcfile, 1)) == 1
         open(srcfile, "w") do io
             print(io, """
-revise_f(x) = 2
-""")
+            revise_f(x) = 2
+            """)
         end
         yry()
         @test revise_f(10) == 2
@@ -1548,18 +1548,18 @@ revise_f(x) = 2
         srcfile = randtmp()*".jl"
         open(srcfile, "w") do io
             print(io, """
-        revise_floc(x) = 1
-        """)
+            revise_floc(x) = 1
+            """)
         end
         sleep(mtimedelay)
         include(joinpath(pwd(), srcfile))
-        sleep(mtimedelay)
         @test revise_floc(10) == 1
         Revise.track(srcfile)
+        sleep(mtimedelay)
         open(srcfile, "w") do io
             print(io, """
-        revise_floc(x) = 2
-        """)
+            revise_floc(x) = 2
+            """)
         end
         yry()
         @test revise_floc(10) == 2
@@ -1981,6 +1981,7 @@ end
         open(srcfile, "w") do io
             println(io, "Core.eval(Main, :(__entr__ = 1))")
         end
+        sleep(mtimedelay)
         try
             @sync begin
                 @async begin
@@ -1988,7 +1989,6 @@ end
                         include(srcfile)
                     end
                 end
-                sleep(mtimedelay)
                 touch(srcfile)
                 sleep(mtimedelay)
                 @test Main.__entr__ == 1
