@@ -10,6 +10,7 @@ makedocs(
     pages = [
         "Home" => "index.md",
         "config.md",
+        "cookbook.md",
         "limitations.md",
         "debugging.md",
         "internals.md",

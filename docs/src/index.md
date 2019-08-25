@@ -70,6 +70,8 @@ ERROR: UndefVarError: f not defined
 
 all without restarting Julia.
 
+If you need more examples, see [Revise usage: a cookbook](@ref).
+
 ## Other key features of Revise
 
 Revise updates its internal paths when you change versions of a package.

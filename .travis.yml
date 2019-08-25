@@ -18,7 +18,7 @@ git:
 ## (tests will run but not make your overall status red)
 matrix:
   allow_failures:
-    - julia: nightly
+    - os: osx
 
 script:
     - export JULIA_PROJECT=""
