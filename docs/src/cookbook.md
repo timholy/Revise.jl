@@ -106,7 +106,7 @@ Hello, revised World!
 From this point forward, revisions should be fast. You can modify `MyPkg.jl`
 quite extensively without quitting the Julia session, although there are some [Limitations](@ref).
 
-## includet usage
+## `includet` usage
 
 The alternative to creating packages is to manually load individual source files.
 Note that this works best if these files are simple: if you find you want projects including
