@@ -1,6 +1,14 @@
 # Limitations
 
-Revise (really, Julia itself) can handle many kinds of code changes, but a few may require special treatment:
+There are some kinds of changes that Revise (or often, Julia itself) cannot incorporate into a running Julia session:
+
+- changes to type definitions
+- adding new source files to packages, or file/module renames
+- conflicts between variables and functions sharing the same name
+
+These kinds of changes require that you restart your Julia session.
+
+In addition, some situations may require special handling:
 
 ### Macros and generated functions
 
@@ -53,14 +61,3 @@ end # module
 
 and the corresponding edit to the code would be to modify it to `greetcaller(x) = greet("Bar")`
 and `remotecall_fetch(greetcaller, p, 1)`.
-
-### Changes that Revise cannot handle
-
-Finally, there are some kinds of changes that Revise cannot incorporate into a running Julia session:
-
-- changes to type definitions
-- file or module renames
-- adding new source files to packages
-- conflicts between variables and functions sharing the same name
-
-These kinds of changes require that you restart your Julia session.
