@@ -5,21 +5,28 @@
 For code that might be useful more than once, it's often a good idea to put it in
 a package.
 For creating packages, the author recommends [PkgTemplates.jl](https://github.com/invenia/PkgTemplates.jl).
+A fallback is to use "plain" `Pkg` commands.
+Both options are described below.
+
+### PkgTemplates
 
 !!! note
-    If you've never developed code before, this approach might require you to do some configuration.
+    Because PkgTemplates integrates nicely with [`git`](https://git-scm.com/),
+    this approach might require you to do some configuration.
     (Once you get things set up, you shouldn't have to do this part ever again.)
     PkgTemplates needs you to configure your `git` user name and email.
-    (Some instructions on configuration are [here](https://help.github.com/en/articles/set-up-git)
-    and [here](https://git-scm.com/book/en/v2/Getting-Started-First-Time-Git-Setup).)
+    Some instructions on configuration are [here](https://help.github.com/en/articles/set-up-git)
+    and [here](https://git-scm.com/book/en/v2/Getting-Started-First-Time-Git-Setup).
     It's also helpful to sign up for a [GitHub account](https://github.com/)
     and set git's `github.user` variable.
     The [PkgTemplates documentation](https://invenia.github.io/PkgTemplates.jl/stable/)
     may also be useful.
 
+    If you struggle with this part, consider trying the "plain" `Pkg` variant below.
+
 !!! note
     If the current directory in your Julia session is itself a package folder, PkgTemplates
-    with use it as the parent environment (project) for your new package.
+    will use it as the parent environment (project) for your new package.
     To reduce confusion, before trying the commands below it may help to first ensure you're in a
     a "neutral" directory, for example by typing `cd()` at the Julia prompt.
 
@@ -106,11 +113,52 @@ Hello, revised World!
 From this point forward, revisions should be fast. You can modify `MyPkg.jl`
 quite extensively without quitting the Julia session, although there are some [Limitations](@ref).
 
+
+### Using Pkg
+
+[Pkg](https://julialang.github.io/Pkg.jl/v1/) works similarly to `PkgTemplates`,
+but requires less configuration while also doing less on your behalf.
+Let's create a blank `MyPkg` using `Pkg`. (If you tried the `PkgTemplates` version
+above, you might first have to delete the package with `Pkg.rm("MyPkg")` following by
+a complete removal from your `dev` directory.)
+
+```julia
+julia> using Pkg
+
+julia> cd(Pkg.devdir())   # take us to the standard "development directory"
+
+(v1.2) pkg> generate MyPkg
+Generating project MyPkg:
+    MyPkg/Project.toml
+    MyPkg/src/MyPkg.jl
+
+(v1.2) pkg> dev MyPkg
+[ Info: resolving package identifier `MyPkg` as a directory at `~/.julia/dev/MyPkg`.
+...
+```
+
+For the line starting `(v1.2) pkg>`, hit the `]` key at the beginning of the line,
+then type `generate MyPkg`.
+The next line, `dev MyPkg`, is necessary to tell `Pkg` about the existence of this new package.
+
+Now you can do the following:
+```julia
+julia> using MyPkg
+[ Info: Precompiling MyPkg [efe7ebfe-4313-4388-9b6c-3590daf47143]
+
+julia> edit(pathof(MyPkg))
+```
+and the rest should be similar to what's above under `PkgTemplates`.
+Note that with this approach, `MyPkg` has not been set up for version
+control.
+
+
 ## `includet` usage
 
 The alternative to creating packages is to manually load individual source files.
-Note that this works best if these files are simple: if you find you want projects including
-other projects, you should switch to the package style above.
+This approach is intended for quick-and-dirty development;
+if you want to track multiple files and/or have some files include other files,
+you should consider switching to the package style above.
 
 Open your editor and create a file like this:
 
