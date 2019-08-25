@@ -13,7 +13,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Home",
     "title": "Introduction to Revise",
     "category": "section",
-    "text": "Revise.jl may help you keep your Julia sessions running longer, reducing the need to restart when you make changes to code. With Revise, you can be in the middle of a session and then edit source code, update packages, switch git branches, and/or stash/unstash code; typically, the changes will be incorporated into the very next command you issue from the REPL. This can save you the overhead of restarting, loading packages, and waiting for code to JIT-compile."
+    "text": "Revise.jl may help you keep your Julia sessions running longer, reducing the need to restart when you make changes to code. With Revise, you can be in the middle of a session and then edit source code, update packages, switch git branches, and/or stash/unstash code; typically, the changes will be incorporated into the very next command you issue from the REPL. This can save you the overhead of restarting, loading packages, and waiting for code to JIT-compile.note: Automatically loading Revise\nMany users automatically load Revise on startup. This is slightly more involved than just adding using Revise to .julia/config/startup.jl: see Using Revise by default for details."
 },
 
 {
@@ -29,7 +29,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Home",
     "title": "Usage example",
     "category": "section",
-    "text": "(v1.0) pkg> dev Example\n[...output related to installation...]\n\njulia> using Revise        # importantly, this must come before `using Example`\n\njulia> using Example\n\njulia> hello(\"world\")\n\"Hello, world\"Now we\'re going to test that the Example module lacks a function named f:julia> Example.f()\nERROR: UndefVarError: f not definedBut we really want f, so let\'s add it. You can either navigate to the source code (at .julia/dev/Example/src/Example.jl) in an editor manually, or you can use Julia to open it for you:julia> edit(hello)   # opens Example.jl in the editor you have configuredNow, add a function f() = π and save the file. Go back to the REPL (the same REPL, don\'t restart Julia) and try this:julia> Example.f()\nπ = 3.1415926535897...Now suppose we realize we\'ve made a horrible mistake: that f method will ruin everything. No problem, just delete f in your editor, save the file, and you\'re back to this:julia> Example.f()\nERROR: UndefVarError: f not definedall without restarting Julia."
+    "text": "(v1.0) pkg> dev Example\n[...output related to installation...]\n\njulia> using Revise        # importantly, this must come before `using Example`\n\njulia> using Example\n\njulia> hello(\"world\")\n\"Hello, world\"Now we\'re going to test that the Example module lacks a function named f:julia> Example.f()\nERROR: UndefVarError: f not definedBut we really want f, so let\'s add it. You can either navigate to the source code (at .julia/dev/Example/src/Example.jl) in an editor manually, or you can use Julia to open it for you:julia> edit(hello)   # opens Example.jl in the editor you have configuredNow, add a function f() = π and save the file. Go back to the REPL (the same REPL, don\'t restart Julia) and try this:julia> Example.f()\nπ = 3.1415926535897...Now suppose we realize we\'ve made a horrible mistake: that f method will ruin everything. No problem, just delete f in your editor, save the file, and you\'re back to this:julia> Example.f()\nERROR: UndefVarError: f not definedall without restarting Julia.If you need more examples, see Revise usage: a cookbook."
 },
 
 {
@@ -153,6 +153,54 @@ var documenterSearchIndex = {"docs": [
 },
 
 {
+    "location": "cookbook/#",
+    "page": "Revise usage: a cookbook",
+    "title": "Revise usage: a cookbook",
+    "category": "page",
+    "text": ""
+},
+
+{
+    "location": "cookbook/#Revise-usage:-a-cookbook-1",
+    "page": "Revise usage: a cookbook",
+    "title": "Revise usage: a cookbook",
+    "category": "section",
+    "text": ""
+},
+
+{
+    "location": "cookbook/#Package-centric-usage-1",
+    "page": "Revise usage: a cookbook",
+    "title": "Package-centric usage",
+    "category": "section",
+    "text": "For code that might be useful more than once, it\'s often a good idea to put it in a package. For creating packages, the author recommends PkgTemplates.jl. A fallback is to use \"plain\" Pkg commands. Both options are described below."
+},
+
+{
+    "location": "cookbook/#PkgTemplates-1",
+    "page": "Revise usage: a cookbook",
+    "title": "PkgTemplates",
+    "category": "section",
+    "text": "note: Note\nBecause PkgTemplates integrates nicely with git, this approach might require you to do some configuration. (Once you get things set up, you shouldn\'t have to do this part ever again.) PkgTemplates needs you to configure your git user name and email. Some instructions on configuration are here and here. It\'s also helpful to sign up for a GitHub account and set git\'s github.user variable. The PkgTemplates documentation may also be useful.If you struggle with this part, consider trying the \"plain\" Pkg variant below.note: Note\nIf the current directory in your Julia session is itself a package folder, PkgTemplates will use it as the parent environment (project) for your new package. To reduce confusion, before trying the commands below it may help to first ensure you\'re in a a \"neutral\" directory, for example by typing cd() at the Julia prompt.Let\'s create a new package, MyPkg, to play with.julia> using PkgTemplates\n\njulia> t = Template()\nTemplate:\n  → User: timholy\n  → Host: github.com\n  → License: MIT (Tim Holy <tim.holy@gmail.com> 2019)\n  → Package directory: ~/.julia/dev\n  → Minimum Julia version: v1.0\n  → SSH remote: No\n  → Add packages to main environment: Yes\n  → Commit Manifest.toml: No\n  → Plugins: None\n\njulia> generate(\"MyPkg\", t)\nGenerating project MyPkg:\n    /home/tim/.julia/dev/MyPkg/Project.toml\n    /home/tim/.julia/dev/MyPkg/src/MyPkg.jl\n[lots more output suppressed]In the first few lines you can see the location of your new package, here the directory /home/tim/.julia/dev/MyPkg.Before doing anything else, let\'s try it out:julia> using Revise   # you must do this before loading any revisable packages\n\njulia> using MyPkg\n[ Info: Precompiling MyPkg [102b5b08-597c-4d40-b98a-e9249f4d01f4]\n\njulia> MyPkg.greet()\nHello World!(It\'s perfectly fine if you see a different string of digits and letters after the \"Precompiling MyPkg\" message.) You\'ll note that Julia found your package without you having to take any extra steps.Without quitting this Julia session, open the MyPkg.jl file in an editor. You might be able to open it withjulia> edit(pathof(MyPkg))although that might require configuring your EDITOR environment variable.You should see something like this:module MyPkg\n\ngreet() = print(\"Hello World!\")\n\nend # moduleThis is the basic package created by PkgTemplates. Let\'s modify greet to return a different message:module MyPkg\n\ngreet() = print(\"Hello, revised World!\")\n\nend # moduleNow go back to that same Julia session, and try calling greet again. After a pause (the code of Revise and its dependencies is compiling), you should seejulia> MyPkg.greet()\nHello, revised World!From this point forward, revisions should be fast. You can modify MyPkg.jl quite extensively without quitting the Julia session, although there are some Limitations."
+},
+
+{
+    "location": "cookbook/#Using-Pkg-1",
+    "page": "Revise usage: a cookbook",
+    "title": "Using Pkg",
+    "category": "section",
+    "text": "Pkg works similarly to PkgTemplates, but requires less configuration while also doing less on your behalf. Let\'s create a blank MyPkg using Pkg. (If you tried the PkgTemplates version above, you might first have to delete the package with Pkg.rm(\"MyPkg\") following by a complete removal from your dev directory.)julia> using Pkg\n\njulia> cd(Pkg.devdir())   # take us to the standard \"development directory\"\n\n(v1.2) pkg> generate MyPkg\nGenerating project MyPkg:\n    MyPkg/Project.toml\n    MyPkg/src/MyPkg.jl\n\n(v1.2) pkg> dev MyPkg\n[ Info: resolving package identifier `MyPkg` as a directory at `~/.julia/dev/MyPkg`.\n...For the line starting (v1.2) pkg>, hit the ] key at the beginning of the line, then type generate MyPkg. The next line, dev MyPkg, is necessary to tell Pkg about the existence of this new package.Now you can do the following:julia> using MyPkg\n[ Info: Precompiling MyPkg [efe7ebfe-4313-4388-9b6c-3590daf47143]\n\njulia> edit(pathof(MyPkg))and the rest should be similar to what\'s above under PkgTemplates. Note that with this approach, MyPkg has not been set up for version control."
+},
+
+{
+    "location": "cookbook/#includet-usage-1",
+    "page": "Revise usage: a cookbook",
+    "title": "includet usage",
+    "category": "section",
+    "text": "The alternative to creating packages is to manually load individual source files. This approach is intended for quick-and-dirty development; if you want to track multiple files and/or have some files include other files, you should consider switching to the package style above.Open your editor and create a file like this:mygreeting() = \"Hello, world!\"Save it as mygreet.jl in some directory. Here we will assume it\'s being saved in /tmp/.Now load the code with includet, which stands for \"include and track\":julia> using Revise\n\njulia> includet(\"/tmp/mygreet.jl\")\n\njulia> mygreeting()\n\"Hello, world!\"Now, in your editor modify mygreeting to do this:mygreeting() = \"Hello, revised world!\"and then try it in the same session:julia> mygreeting()\n\"Hello, revised world!\"As described above, the first revision you make may be very slow, but later revisions should be fast."
+},
+
+{
     "location": "limitations/#",
     "page": "Limitations",
     "title": "Limitations",
@@ -165,7 +213,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Limitations",
     "title": "Limitations",
     "category": "section",
-    "text": "Revise (really, Julia itself) can handle many kinds of code changes, but a few may require special treatment:"
+    "text": "There are some kinds of changes that Revise (or often, Julia itself) cannot incorporate into a running Julia session:changes to type definitions\nadding new source files to packages, or file/module renames\nconflicts between variables and functions sharing the same nameThese kinds of changes require that you restart your Julia session.In addition, some situations may require special handling:"
 },
 
 {
@@ -182,14 +230,6 @@ var documenterSearchIndex = {"docs": [
     "title": "Distributed computing (multiple workers) and anonymous functions",
     "category": "section",
     "text": "Revise supports changes to code in worker processes. The code must be loaded in the main process in which Revise is running.Revise cannot handle changes in anonymous functions used in remotecalls. Consider the following module definition:module ParReviseExample\nusing Distributed\n\ngreet(x) = println(\"Hello, \", x)\n\nfoo() = for p in workers()\n    remotecall_fetch(() -> greet(\"Bar\"), p)\nend\n\nend # moduleChanging the remotecall to remotecall_fetch((x) -> greet(\"Bar\"), p, 1) will fail, because the new anonymous function is not defined on all workers. The workaround is to write the code to use named functions, e.g.,module ParReviseExample\nusing Distributed\n\ngreet(x) = println(\"Hello, \", x)\ngreetcaller() = greet(\"Bar\")\n\nfoo() = for p in workers()\n    remotecall_fetch(greetcaller, p)\nend\n\nend # moduleand the corresponding edit to the code would be to modify it to greetcaller(x) = greet(\"Bar\") and remotecall_fetch(greetcaller, p, 1)."
-},
-
-{
-    "location": "limitations/#Changes-that-Revise-cannot-handle-1",
-    "page": "Limitations",
-    "title": "Changes that Revise cannot handle",
-    "category": "section",
-    "text": "Finally, there are some kinds of changes that Revise cannot incorporate into a running Julia session:changes to type definitions\nfile or module renames\nadding new source files to packages\nconflicts between variables and functions sharing the same nameThese kinds of changes require that you restart your Julia session."
 },
 
 {
