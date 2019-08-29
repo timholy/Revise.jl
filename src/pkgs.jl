@@ -239,7 +239,7 @@ function watch_files_via_dir(dirname)
                 push!(latestfiles, file)
             end
         end
-        updatetime!(wf)
+        isempty(latestfiles) || updatetime!(wf)  # ref issue #341
     end
     return latestfiles, stillwatching
 end
