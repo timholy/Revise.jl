@@ -228,15 +228,15 @@ end
 
 function watch_files_via_dir(dirname)
     wait_changed(dirname)  # this will block until there is a modification
-    latestfiles = String[]
+    latestfiles = Pair{String,PkgId}[]
     # Check to see if we're still watching this directory
     stillwatching = haskey(watched_files, dirname)
     if stillwatching
         wf = watched_files[dirname]
-        for file in wf.trackedfiles
+        for (file, id) in wf.trackedfiles
             fullpath = joinpath(dirname, file)
             if newer(mtime(fullpath), wf.timestamp)
-                push!(latestfiles, file)
+                push!(latestfiles, file=>id)
             end
         end
         isempty(latestfiles) || updatetime!(wf)  # ref issue #341

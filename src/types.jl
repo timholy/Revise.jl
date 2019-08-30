@@ -12,7 +12,7 @@ Fields:
 """
 mutable struct WatchList
     timestamp::Float64         # unix time of last revision
-    trackedfiles::Set{String}
+    trackedfiles::Dict{String,PkgId}
 end
 
 const DocExprs = Dict{Module,Vector{Expr}}
