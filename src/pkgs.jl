@@ -227,8 +227,11 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
 end
 
 function watch_files_via_dir(dirname)
-    wait_changed(dirname)  # this will block until there is a modification
     latestfiles = Pair{String,PkgId}[]
+    with_logger(_debug_logger) do
+        evt = wait_changed(dirname)  # this will block until there is a modification
+        @debug "watch_files_via_dir" _group="Watching" dirname=dirname time=systime() evt=evt
+    end
     # Check to see if we're still watching this directory
     stillwatching = haskey(watched_files, dirname)
     if stillwatching
@@ -238,6 +241,9 @@ function watch_files_via_dir(dirname)
             if newer(mtime(fullpath), wf.timestamp)
                 push!(latestfiles, file=>id)
             end
+        end
+        with_logger(_debug_logger) do
+            @debug "updated files" _groups="Watching" files=latestfiles oldtimestamp=wf.timestamp
         end
         isempty(latestfiles) || updatetime!(wf)  # ref issue #341
     end

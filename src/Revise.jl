@@ -36,7 +36,7 @@ See the documentation for the `JULIA_REVISE_POLL` environment variable.
 """
 const polling_files = Ref(false)
 function wait_changed(file)
-    try
+    evt = try
         polling_files[] ? poll_file(file) : watch_file(file)
     catch err
         if Sys.islinux() && err isa Base.IOError && err.code == -28  # ENOSPC
@@ -48,7 +48,7 @@ function wait_changed(file)
         end
         rethrow(err)
     end
-    return nothing
+    return evt
 end
 
 """
@@ -426,6 +426,9 @@ This is generally called via a [`Revise.Rescheduler`](@ref).
         key = joinpath(dirname, file)
         pkgdata = pkgdatas[id]
         if hasfile(pkgdata, key)  # issue #228
+            with_logger(_debug_logger) do
+                @debug "queue" _group="Watching" pkgid=pkgdata.info.id file=key
+            end
             push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
         end
     end
@@ -456,7 +459,10 @@ function revise_file_queued(pkgdata::PkgData, file)
         end
     end
 
-    wait_changed(file)  # will block here until the file changes
+    with_logger(_debug_logger) do
+        wait_changed(file)  # will block here until the file changes
+        @debug "revise_file_queued" _group="Watching" file=file
+    end
     # Check to see if we're still watching this file
     dirfull, basename = splitdir(file)
     if haskey(watched_files, dirfull)
@@ -519,12 +525,15 @@ function revise()
     revision_errors = []
     finished = eltype(revision_queue)[]
     mexsnews = ModuleExprsSigs[]
-    for (pkgdata, file) in revision_queue
-        try
-            push!(mexsnews, handle_deletions(pkgdata, file)[1])
-            push!(finished, (pkgdata, file))
-        catch err
-            push!(revision_errors, (basedir(pkgdata), file, err))
+    with_logger(_debug_logger) do
+        for (pkgdata, file) in revision_queue
+            @debug "revise()" _group="Action" pkgid=pkgdata.info.id file=file
+            try
+                push!(mexsnews, handle_deletions(pkgdata, file)[1])
+                push!(finished, (pkgdata, file))
+            catch err
+                push!(revision_errors, (basedir(pkgdata), file, err))
+            end
         end
     end
     # Do the evaluation
