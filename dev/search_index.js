@@ -717,7 +717,7 @@ var documenterSearchIndex = {"docs": [
     "page": "Developer reference",
     "title": "Revise.revise_dir_queued",
     "category": "function",
-    "text": "revise_dir_queued(pkgdata::PkgData, dirname)\n\nWait for one or more of the files registered in Revise.watched_files[dirname] to be modified, and then queue the corresponding files on Revise.revision_queue. This is generally called via a Revise.Rescheduler.\n\n\n\n\n\n"
+    "text": "revise_dir_queued(dirname)\n\nWait for one or more of the files registered in Revise.watched_files[dirname] to be modified, and then queue the corresponding files on Revise.revision_queue. This is generally called via a Revise.Rescheduler.\n\n\n\n\n\n"
 },
 
 {
