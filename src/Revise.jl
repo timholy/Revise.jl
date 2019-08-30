@@ -383,7 +383,7 @@ function init_watching(pkgdata::PkgData, files)
         dir, basename = splitdir(file)
         dirfull = joinpath(basedir(pkgdata), dir)
         haskey(watched_files, dirfull) || (watched_files[dirfull] = WatchList())
-        push!(watched_files[dirfull], basename)
+        push!(watched_files[dirfull], basename=>pkgdata)
         if watching_files[]
             fwatcher = Rescheduler(revise_file_queued, (pkgdata, file))
             schedule(Task(fwatcher))
@@ -395,7 +395,7 @@ function init_watching(pkgdata::PkgData, files)
         dirfull = joinpath(basedir(pkgdata), dir)
         updatetime!(watched_files[dirfull])
         if !watching_files[]
-            dwatcher = Rescheduler(revise_dir_queued, (pkgdata, dir))
+            dwatcher = Rescheduler(revise_dir_queued, (dirfull,))
             schedule(Task(dwatcher))
         end
     end
@@ -404,17 +404,14 @@ end
 init_watching(files) = init_watching(PkgId(Main), files)
 
 """
-    revise_dir_queued(pkgdata::PkgData, dirname)
+    revise_dir_queued(dirname)
 
 Wait for one or more of the files registered in `Revise.watched_files[dirname]` to be
 modified, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
 This is generally called via a [`Revise.Rescheduler`](@ref).
 """
-@noinline function revise_dir_queued(pkgdata::PkgData, dirname)
-    dirname0 = dirname
-    if !isabspath(dirname)
-        dirname = joinpath(basedir(pkgdata), dirname)
-    end
+@noinline function revise_dir_queued(dirname)
+    @assert isabspath(dirname)
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
         if !isfile(dirname)
@@ -425,10 +422,11 @@ This is generally called via a [`Revise.Rescheduler`](@ref).
         end
     end
     latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
-    for file in latestfiles
-        key = joinpath(dirname0, file)
+    for (file, id) in latestfiles
+        key = joinpath(dirname, file)
+        pkgdata = pkgdatas[id]
         if hasfile(pkgdata, key)  # issue #228
-            push!(revision_queue, (pkgdata, key))
+            push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
         end
     end
     return stillwatching

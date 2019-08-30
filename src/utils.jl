@@ -71,9 +71,14 @@ end
 function updatetime!(wl::WatchList)
     wl.timestamp = systime()
 end
-Base.push!(wl::WatchList, filename) = push!(wl.trackedfiles, filename)
-WatchList() = WatchList(systime(), Set{String}())
-Base.in(file, wl::WatchList) = in(file, wl.trackedfiles)
+Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgId}) =
+    push!(wl.trackedfiles, filenameid)
+Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgFiles}) =
+    push!(wl, filenameid.first=>filenameid.second.id)
+Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgData}) =
+    push!(wl, filenameid.first=>filenameid.second.info)
+WatchList() = WatchList(systime(), Dict{String,PkgId}())
+Base.in(file, wl::WatchList) = haskey(wl.trackedfiles, file)
 
 @static if Sys.isapple()
      # HFS+ rounds time to seconds, see #22
