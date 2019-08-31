@@ -945,8 +945,10 @@ end
             # exit flag
             break
         end
-        # Process revisions
-        revise(backend)
+        # Process revisions, skipping `exit()` (issue #327)
+        if length(ast.args) < 2 || (ex = ast.args[2]; !isexpr(ex, :call)) || length(ex.args) != 1 || ex.args[1] != :exit
+            revise(backend)
+        end
         # Now eval the input
         REPL.eval_user_input(ast, backend)
     end
