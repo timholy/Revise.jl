@@ -48,8 +48,8 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
         if exprs_sigs === nothing
             mod_exprs_sigs[mod] = exprs_sigs = ExprsSigs()
         end
-        exprs_sigs[unwrap(ex)] = nothing
-        # exprs_sigs[ex] = nothing
+        # exprs_sigs[unwrap(ex)] = nothing
+        exprs_sigs[ex] = nothing
     end
     for (mod, docexs) in docexprs
         exprs_sigs = get(mod_exprs_sigs, mod, nothing)
