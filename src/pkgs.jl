@@ -115,6 +115,9 @@ function parse_pkg_files(id::PkgId)
         cachefile, mods_files_mtimes = pkg_fileinfo(id)
         if cachefile !== nothing
             for (mod, fname, _) in mods_files_mtimes
+                if mod === Main && !isdefined(mod, modsym)  # issue #312
+                    mod = Base.root_module(PkgId(pkgdata))
+                end
                 fname = relpath(fname, pkgdata)
                 # For precompiled packages, we can read the source later (whenever we need it)
                 # from the *.ji cachefile.
