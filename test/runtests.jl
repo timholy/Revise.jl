@@ -1499,6 +1499,26 @@ end
         @test startswith(rec.message, "Failed to revise")
         @test occursin("missing comma", rec.message)
 
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        rec = logs[1]
+        @test startswith(rec.message, "Due to a previously reported error")
+        @test occursin("RevisionErrors.jl", rec.message)
+
+        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
+            println(io, """
+            module RevisionErrors
+            f(x) = 2
+            end
+            """)
+        end
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        @test isempty(logs)
+        @test RevisionErrors.f(0) == 2
+
         # Also test that it ends up being reported to the user (issue #281)
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
             println(io, """

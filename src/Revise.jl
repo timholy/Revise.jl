@@ -95,6 +95,13 @@ This list gets populated by callbacks that watch directories for updates.
 const revision_queue = Set{Tuple{PkgData,String}}()
 
 """
+    Revise.queue_errors
+
+Global variable, lists `(pkgdata, filename)` pairs that errored upon last revision
+"""
+const queue_errors = typeof(revision_queue)()
+
+"""
     Revise.pkgdatas
 
 `pkgdatas` is the core information that tracks the relationship between source code
@@ -525,6 +532,7 @@ function revise()
             push!(finished, (pkgdata, file))
         catch err
             push!(revision_errors, (basedir(pkgdata), file, err))
+            push!(queue_errors, (pkgdata, file))
         end
     end
     # Do the evaluation
@@ -534,14 +542,24 @@ function revise()
         try
             eval_new!(mexsnew, fi.modexsigs)
             pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+            delete!(queue_errors, (pkgdata, file))
         catch err
             push!(revision_errors, (basedir(pkgdata), file, err))
+            push!(queue_errors, (pkgdata, file))
         end
     end
     empty!(revision_queue)
     for (basedir, file, err) in revision_errors
         fullpath = joinpath(basedir, file)
         @warn "Failed to revise $fullpath: $err"
+    end
+    if !isempty(queue_errors)
+        io = IOBuffer()
+        for (pkgdata, file) in queue_errors
+            println(io, "  ", joinpath(basedir(pkgdata), file))
+        end
+        str = String(take!(io))
+        @warn "Due to a previously reported error, the running code does not match saved version for the following files:\n$str"
     end
     tracking_Main_includes[] && queue_includes(Main)
     nothing
