@@ -1044,6 +1044,8 @@ function __init__()
             steal_repl_backend(Base.active_repl_backend::REPL.REPLBackend)
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
+        elseif Base.isinteractive()
+            @async Revise.wait_steal_repl_backend()
         end
         if isdefined(Main, :Atom)
             setup_atom(getfield(Main, :Atom)::Module)
