@@ -1045,7 +1045,9 @@ function __init__()
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
         elseif Base.isinteractive()
-            @async Revise.wait_steal_repl_backend()
+            atreplinit() do repl
+                @async Revise.wait_steal_repl_backend()
+            end
         end
         if isdefined(Main, :Atom)
             setup_atom(getfield(Main, :Atom)::Module)
