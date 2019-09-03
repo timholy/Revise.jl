@@ -1069,6 +1069,10 @@ function __init__()
         pkgdata = pkgdatas[id]
         init_watching(pkgdata, srcfiles(pkgdata))
     end
+    # Add `includet` to the compiled_modules (fixes #302)
+    for m in methods(includet)
+        push!(JuliaInterpreter.compiled_methods, m)
+    end
     # Set up a repository for methods defined at the REPL
     id = PkgId(nothing, "@REPL")
     pkgdatas[id] = pkgdata = PkgData(id, nothing)

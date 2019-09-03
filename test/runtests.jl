@@ -1697,6 +1697,54 @@ end
         end
         yry()
         @test f264() == 2
+
+        # recursive `includet`s (issue #302)
+        testdir = newtestdir()
+        srcfile1 = joinpath(testdir, "Test302.jl")
+        open(srcfile1, "w") do io
+            print(io, """
+            module Test302
+            struct Parameters{T}
+                control::T
+            end
+            function Parameters(control = nothing; kw...)
+                Parameters(control)
+            end
+            function (p::Parameters)(; kw...)
+                p
+            end
+            end
+            """)
+        end
+        srcfile2 = joinpath(testdir, "test2.jl")
+        open(srcfile2, "w") do io
+            print(io, """
+            includet(joinpath(@__DIR__, "Test302.jl"))
+            using .Test302
+            """)
+        end
+        sleep(mtimedelay)
+        includet(srcfile2)
+        sleep(mtimedelay)
+        p = Test302.Parameters{Int}(3)
+        @test p() == p
+        open(srcfile1, "w") do io
+            print(io, """
+            module Test302
+            struct Parameters{T}
+                control::T
+            end
+            function Parameters(control = nothing; kw...)
+                Parameters(control)
+            end
+            function (p::Parameters)(; kw...)
+                0
+            end
+            end
+            """)
+        end
+        yry()
+        @test p() == 0
     end
 
     @testset "Auto-track user scripts" begin
@@ -2053,6 +2101,7 @@ end
                     include(srcfile)
                 end
             end
+            sleep(mtimedelay)
             touch(srcfile)
             sleep(mtimedelay)
             @test Main.__entr__ == 1
