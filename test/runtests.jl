@@ -2101,6 +2101,7 @@ end
                     include(srcfile)
                 end
             end
+            sleep(mtimedelay)
             touch(srcfile)
             sleep(mtimedelay)
             @test Main.__entr__ == 1
