@@ -182,7 +182,7 @@ k(x) = 4
         (def, val) = dvs[1]
         @test isequal(def, Revise.RelocatableExpr(:(square(x) = x^2)))
         @test val == [Tuple{typeof(ReviseTest.square),Any}]
-        @test Revise.firstline(def).line == 5
+        @test Revise.firstline(Revise.unwrap(def)).line == 5
         m = @which ReviseTest.square(1)
         @test m.line == 5
         @test whereis(m) == (tmpfile, 5)
@@ -207,7 +207,7 @@ k(x) = 4
         (def, val) = dvs[1]
         @test isequal(def,  Revise.RelocatableExpr(:(mult2(x) = 2*x)))
         @test val == [Tuple{typeof(ReviseTest.Internal.mult2),Any}]
-        @test Revise.firstline(def).line == 13
+        @test Revise.firstline(Revise.unwrap(def)).line == 13
         m = @which ReviseTest.Internal.mult2(1)
         @test m.line == 11
         @test whereis(m) == (tmpfile, 13)
@@ -1518,6 +1518,33 @@ end
         @test occursin("T not defined", str)
 
         rm_precompile("RevisionErrors")
+
+        testfile = joinpath(testdir, "Test301.jl")
+        open(testfile, "w") do io
+            print(io, """
+            module Test301
+            mutable struct Struct301
+                x::Int
+                err
+
+                Struct301(x::Integer) = new(x)
+            end
+            f(s) = s.err
+            const s = Struct301(1)
+            f(s)
+            end
+            """)
+        end
+        logfile = joinpath(tempdir(), randtmp()*".log")
+        Test.collect_test_logs() do
+            open(logfile, "w") do io
+                redirect_stderr(io) do
+                    includet(testfile)
+                end
+            end
+        end
+        str = read(logfile, String)
+        @test occursin("Test301.jl:10", str)
     end
 
     @testset "get_def" begin
@@ -2088,48 +2115,50 @@ end
 end
 
 @testset "entr" begin
-    srcfile = joinpath(tempdir(), randtmp()*".jl")
-    push!(to_remove, srcfile)
-    open(srcfile, "w") do io
-        println(io, "Core.eval(Main, :(__entr__ = 1))")
-    end
-    sleep(mtimedelay)
-    try
-        @sync begin
-            @async begin
-                entr([srcfile]) do
-                    include(srcfile)
+    if !Sys.isapple()   # these tests are very flaky on OSX
+        srcfile = joinpath(tempdir(), randtmp()*".jl")
+        push!(to_remove, srcfile)
+        open(srcfile, "w") do io
+            println(io, "Core.eval(Main, :(__entr__ = 1))")
+        end
+        sleep(mtimedelay)
+        try
+            @sync begin
+                @async begin
+                    entr([srcfile]) do
+                        include(srcfile)
+                    end
+                end
+                sleep(mtimedelay)
+                touch(srcfile)
+                sleep(mtimedelay)
+                @test Main.__entr__ == 1
+                open(srcfile, "w") do io
+                    println(io, "Core.eval(Main, :(__entr__ = 2))")
+                end
+                sleep(mtimedelay)
+                @test Main.__entr__ == 2
+                open(srcfile, "w") do io
+                    println(io, "error(\"stop\")")
+                end
+                sleep(mtimedelay)
+            end
+            @test false
+        catch err
+            while err isa CompositeException
+                err = err.exceptions[1]
+                @static if VERSION >= v"1.3.0-alpha.110"
+                    if  err isa TaskFailedException
+                        err = err.task.exception
+                    end
+                end
+                if err isa CapturedException
+                    err = err.ex
                 end
             end
-            sleep(mtimedelay)
-            touch(srcfile)
-            sleep(mtimedelay)
-            @test Main.__entr__ == 1
-            open(srcfile, "w") do io
-                println(io, "Core.eval(Main, :(__entr__ = 2))")
-            end
-            sleep(mtimedelay)
-            @test Main.__entr__ == 2
-            open(srcfile, "w") do io
-                println(io, "error(\"stop\")")
-            end
-            sleep(mtimedelay)
+            @test isa(err, LoadError)
+            @test err.error.msg == "stop"
         end
-        @test false
-    catch err
-        while err isa CompositeException
-            err = err.exceptions[1]
-            @static if VERSION >= v"1.3.0-alpha.110"
-                if  err isa TaskFailedException
-                    err = err.task.exception
-                end
-            end
-            if err isa CapturedException
-                err = err.ex
-            end
-        end
-        @test isa(err, LoadError)
-        @test err.error.msg == "stop"
     end
 end
 

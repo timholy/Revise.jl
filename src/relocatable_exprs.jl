@@ -29,7 +29,13 @@ Base.copy(rex::RelocatableExpr) = RelocatableExpr(copy(rex.ex))
 # Implement the required comparison functions. `hash` is needed for Dicts.
 function Base.:(==)(ra::RelocatableExpr, rb::RelocatableExpr)
     a, b = ra.ex, rb.ex
-    a.head == b.head && isequal(LineSkippingIterator(a.args), LineSkippingIterator(b.args))
+    if a.head == b.head
+    elseif a.head == :block
+        a = unwrap(a)
+    elseif b.head == :block
+        b = unwrap(b)
+    end
+    return a.head == b.head && isequal(LineSkippingIterator(a.args), LineSkippingIterator(b.args))
 end
 
 const hashrex_seed = UInt == UInt64 ? 0x7c4568b6e99c82d9 : 0xb9c82fd8

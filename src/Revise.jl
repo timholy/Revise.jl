@@ -291,7 +291,7 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
             else
                 sigs = exs_sigs_old[rexo]
                 # Update location info
-                ln, lno = firstline(rex), firstline(rexo)
+                ln, lno = firstline(unwrap(rex)), firstline(unwrap(rexo))
                 if sigs !== nothing && !isempty(sigs) && ln != lno
                     @debug "LineOffset" _group="Action" time=time() deltainfo=(sigs, lno=>ln)
                     for sig in sigs
@@ -563,12 +563,13 @@ function revise(mod::Module)
         for (mod, exsigs) in fi.modexsigs
             for def in keys(exsigs)
                 ex = def.ex
-                isexpr(ex, :call) && ex.args[1] == :include && continue
+                exuw = unwrap(ex)
+                isexpr(exuw, :call) && exuw.args[1] == :include && continue
                 try
                     Core.eval(mod, ex)
                 catch err
                     @show mod
-                    display(def)
+                    display(ex)
                     rethrow(err)
                 end
             end

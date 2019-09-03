@@ -33,7 +33,7 @@ function Base.show(io::IO, exsigs::ExprsSigs)
         print(io, "ExprsSigs with the following expressions: ")
         for def in keys(exsigs)
             print(io, "\n  ")
-            Base.show_unquoted(io, def, 2)
+            Base.show_unquoted(io, RelocatableExpr(unwrap(def)), 2)
         end
     end
 end

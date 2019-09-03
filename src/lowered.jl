@@ -190,7 +190,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     # A :call Expr we don't want to intercept
                     try
                         pc = step_expr!(recurse, frame, stmt, true)
-                    catch
+                    catch err
                         # This can happen with functions defined in `let` blocks, e.g.,
                         #     let trynames(names) = begin
                         #         return root_path::AbstractString -> begin
@@ -201,8 +201,13 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         #         global manifestfile_path = trynames(Base.manifest_names)
                         #     end
                         # as found in Pkg.Types.
+                        Base.with_output_color(Base.error_color(), stderr) do io
+                            showerror(io, err)
+                        end
+                        fl, ln = whereis(frame)
+                        println(stderr, "\nin expression starting at ", location_string(fl, ln))
                         badstmt = lookup_callexpr(frame, stmt)
-                        @warn "omitting call expression $badstmt in $(whereis(frame))"
+                        @warn "omitting call expression $badstmt"
                         assign_this!(frame, nothing)
                         pc = next_or_nothing!(frame)
                     end
