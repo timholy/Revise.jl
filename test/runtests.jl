@@ -1544,7 +1544,7 @@ end
             end
         end
         str = read(logfile, String)
-        @test occursin("Test301.jl: 10", str)
+        @test occursin("Test301.jl:10", str)
     end
 
     @testset "get_def" begin

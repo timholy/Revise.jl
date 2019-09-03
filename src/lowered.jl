@@ -205,7 +205,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             showerror(io, err)
                         end
                         fl, ln = whereis(frame)
-                        println(stderr, "\nin expression starting at ", fl, ": ", ln)
+                        println(stderr, "\nin expression starting at ", location_string(fl, ln))
                         badstmt = lookup_callexpr(frame, stmt)
                         @warn "omitting call expression $badstmt"
                         assign_this!(frame, nothing)

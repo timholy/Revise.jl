@@ -41,6 +41,9 @@ firstline(rex::RelocatableExpr) = firstline(rex.ex)
 
 newloc(methloc::LineNumberNode, ln, lno) = fixpath(ln)
 
+location_string(file::AbstractString, line) = abspath(file)*':'*string(line)
+location_string(file::Symbol, line) = location_string(string(file), line)
+
 # Return the only non-trivial expression in ex, or ex itself
 function unwrap(ex::Expr)
     if ex.head == :block
