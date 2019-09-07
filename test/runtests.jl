@@ -2162,6 +2162,40 @@ end
     end
 end
 
+# issue #354
+@testset "entr with modules" begin
+
+    testdir = newtestdir()
+    modname = "A354"
+    srcfile = joinpath(testdir, modname * ".jl")
+
+    function setvalue(x)
+        open(srcfile, "w") do io
+            print(io, "module $modname test() = $x end")
+        end
+    end
+
+    setvalue(1)
+    @eval using A354
+
+    result = 0
+    t = @async begin
+        entr([], [A354], postpone=true) do
+            result = A354.test()
+        end
+    end
+    sleep(mtimedelay)
+
+    setvalue(2)
+    sleep(mtimedelay)
+
+    @test result == 2
+
+    t.state = :done
+    rm_precompile(modname)
+
+end
+
 println("beginning cleanup")
 GC.gc(); GC.gc()
 
