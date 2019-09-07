@@ -2189,6 +2189,10 @@ const A354_result = Ref(0)
     @async begin
         sleep(mtimedelay)
         setvalue(2)
+        # belt and suspenders -- make sure we trigger entr:
+        sleep(mtimedelay)
+        touch(srcfile)
+        sleep(mtimedelay)
     end
 
     try
