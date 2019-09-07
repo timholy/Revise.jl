@@ -2176,14 +2176,18 @@ end
     end
 
     setvalue(1)
+
+    # these sleeps may not be needed...
     sleep(mtimedelay)
     @eval using A354
     sleep(mtimedelay)
 
     result = 0
-    t = @async begin
+
+    @async begin
         entr([], [A354], postpone=true) do
             result = A354.test()
+            throw(InterruptException())
         end
     end
     sleep(mtimedelay)
@@ -2193,7 +2197,6 @@ end
 
     @test result == 2
 
-    t.state = :done
     rm_precompile(modname)
 
 end
