@@ -2187,15 +2187,17 @@ const A354_result = Ref(0)
     A354_result[] = 0
 
     @async begin
+        sleep(mtimedelay)
+        setvalue(2)
+    end
+
+    try
         entr([], [A354], postpone=true) do
             A354_result[] = A354.test()
-            throw(InterruptException())
+            error()
         end
+    catch err
     end
-    sleep(mtimedelay)
-
-    setvalue(2)
-    sleep(mtimedelay)
 
     @test A354_result[] == 2
 
