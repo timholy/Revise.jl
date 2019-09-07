@@ -2182,11 +2182,11 @@ end
     @eval using A354
     sleep(mtimedelay)
 
-    result = 0
+    result = Ref(0)
 
     @async begin
         entr([], [A354], postpone=true) do
-            result = A354.test()
+            result[] = A354.test()
             throw(InterruptException())
         end
     end
@@ -2195,7 +2195,7 @@ end
     setvalue(2)
     sleep(mtimedelay)
 
-    @test result == 2
+    @test result[] == 2
 
     rm_precompile(modname)
 
