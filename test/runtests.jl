@@ -2176,7 +2176,9 @@ end
     end
 
     setvalue(1)
+    sleep(mtimedelay)
     @eval using A354
+    sleep(mtimedelay)
 
     result = 0
     t = @async begin
