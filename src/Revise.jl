@@ -676,6 +676,7 @@ This will print "update" every time `"/tmp/watched.txt"` or any of the code defi
 `Pkg1` or `Pkg2` gets updated.
 """
 function entr(f::Function, files, modules=nothing; postpone=false, pause=0.02)
+    yield()
     files = collect(files)  # because we may add to this list
     if modules !== nothing
         for mod in modules
@@ -697,7 +698,7 @@ function entr(f::Function, files, modules=nothing; postpone=false, pause=0.02)
                     if active && (ret.changed || ret.renamed)
                         sleep(pause)
                         revise()
-                        f()
+                        Base.invokelatest(f)
                     end
                 end
             end

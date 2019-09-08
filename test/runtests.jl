@@ -2162,6 +2162,53 @@ end
     end
 end
 
+const A354_result = Ref(0)
+
+# issue #354
+@testset "entr with modules" begin
+
+    testdir = newtestdir()
+    modname = "A354"
+    srcfile = joinpath(testdir, modname * ".jl")
+
+    function setvalue(x)
+        open(srcfile, "w") do io
+            print(io, "module $modname test() = $x end")
+        end
+    end
+
+    setvalue(1)
+
+    # these sleeps may not be needed...
+    sleep(mtimedelay)
+    @eval using A354
+    sleep(mtimedelay)
+
+    A354_result[] = 0
+
+    @async begin
+        sleep(mtimedelay)
+        setvalue(2)
+        # belt and suspenders -- make sure we trigger entr:
+        sleep(mtimedelay)
+        touch(srcfile)
+        sleep(mtimedelay)
+    end
+
+    try
+        entr([], [A354], postpone=true) do
+            A354_result[] = A354.test()
+            error()
+        end
+    catch err
+    end
+
+    @test A354_result[] == 2
+
+    rm_precompile(modname)
+
+end
+
 println("beginning cleanup")
 GC.gc(); GC.gc()
 
