@@ -58,7 +58,9 @@ function pkg_fileinfo(id::PkgId)
     uuid, name = id.uuid, id.name
     # Try to find the matching cache file
     paths = Base.find_all_in_cache_path(id)
+    sourcepath = Base.locate_package(id)
     for path in paths
+        Base.stale_cachefile(sourcepath, path) === true && continue
         provides, includes_requires = parse_cache_header(path)
         mods_files_mtimes, _ = includes_requires
         for (pkgid, buildid) in provides
