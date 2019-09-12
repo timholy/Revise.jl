@@ -1,3 +1,4 @@
+# REVISE: DO NOT PARSE   # For people with JULIA_REVISE_INCLUDE=1
 using Revise, CodeTracking, JuliaInterpreter
 using Test
 
@@ -1789,6 +1790,9 @@ end
         end
         sleep(mtimedelay)
         # By default user scripts are not tracked
+        # issue #358: but if the user is tracking all includes...
+        user_track_includes = Revise.tracking_Main_includes[]
+        Revise.tracking_Main_includes[] = false
         include(srcfile)
         yry()
         @test revise_g() == 1
@@ -1824,7 +1828,7 @@ end
                 yry()
             end
         finally
-            Revise.tracking_Main_includes[] = false  # restore old behavior
+            Revise.tracking_Main_includes[] = user_track_includes  # restore old behavior
         end
     end
 

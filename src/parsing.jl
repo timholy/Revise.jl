@@ -36,6 +36,7 @@ string. `pos` is the 1-based byte offset from which to begin parsing `src`.
 See also [`Revise.parse_source`](@ref).
 """
 function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module)
+    startswith(src, "# REVISE: DO NOT PARSE") && return nothing
     ex = Base.parse_input_line(src; filename=filename)
     ex === nothing && return mod_exprs_sigs
     if isexpr(ex, :error) || isexpr(ex, :incomplete)
