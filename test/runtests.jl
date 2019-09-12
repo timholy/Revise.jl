@@ -66,6 +66,13 @@ const pair_op_compact = let io = IOBuffer()
 end
 
 @testset "Revise" begin
+    @testset "PkgData" begin
+        # Related to #358
+        id = Base.PkgId(Main)
+        pd = Revise.PkgData(id)
+        @test isempty(Revise.basedir(pd))
+    end
+
     @testset "LineSkipping" begin
         rex = Revise.RelocatableExpr(quote
                                     f(x) = x^2

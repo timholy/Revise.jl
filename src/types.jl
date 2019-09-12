@@ -126,7 +126,13 @@ end
 
 PkgData(id::PkgId, path) = PkgData(PkgFiles(id, path), FileInfo[])
 PkgData(id::PkgId, ::Nothing) = PkgData(id, "")
-PkgData(id::PkgId) = PkgData(id, normpath(basepath(id)))
+function PkgData(id::PkgId)
+    bp = basepath(id)
+    if !isempty(bp)
+        bp = normpath(bp)
+    end
+    PkgData(id, bp)
+end
 
 # Abstraction interface for PkgData
 Base.PkgId(pkgdata::PkgData) = PkgId(pkgdata.info)
