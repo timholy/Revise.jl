@@ -7,6 +7,7 @@ os:
 julia:
   - 1.0
   - 1.1
+  - 1.2
   - nightly
 notifications:
   email: false
@@ -29,8 +30,10 @@ git:
 
 ## uncomment the following lines to override the default test script
 script:
-  - julia -e 'using Pkg; Pkg.clone(pwd()); Pkg.build("Revise"); Pkg.test("Revise"; coverage=true)'
-  - JULIA_REVISE_POLL=1 julia --code-coverage -e 'using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "test", "polling.jl"))'
+    - export JULIA_PROJECT=""
+    - julia --project -e 'using Pkg; Pkg.build(); Pkg.test(; coverage=true);'
+    - JULIA_REVISE_POLL=1 julia --code-coverage=user --project -e 'using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "test", "polling.jl"))'
+    - if [ "$TRAVIS_OS_NAME" = "linux" ]; then echo 4 | sudo tee -a /proc/sys/fs/inotify/max_user_watches; julia --project -e 'using Pkg, Revise; cd(joinpath(dirname(pathof(Revise)), "..", "test")); include("inotify.jl")'; fi
 
 after_script:  # TODO: change to after_success once https://github.com/JuliaLang/julia/issues/28306 is fixed
   # push coverage results to Codecov
