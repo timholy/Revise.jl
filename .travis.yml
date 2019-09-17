@@ -7,6 +7,7 @@ os:
 julia:
   - 1.0
   - 1.1
+  - 1.2
   - nightly
 notifications:
   email: false
@@ -29,20 +30,6 @@ git:
 
 ## uncomment the following lines to override the default test script
 script:
-  - julia -e 'using Pkg; Pkg.clone(pwd()); Pkg.build("Revise"); Pkg.test("Revise"; coverage=true)'
-  - JULIA_REVISE_POLL=1 julia --code-coverage -e 'using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "test", "polling.jl"))'
-
-after_script:  # TODO: change to after_success once https://github.com/JuliaLang/julia/issues/28306 is fixed
-  # push coverage results to Codecov
-  - julia -e 'using Pkg, Revise; cd(joinpath(dirname(pathof(Revise)), "..")); Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'
-
-jobs:
-  include:
-    - stage: "Documentation"
-      julia: 1.0
-      os: linux
-      script:
-        - julia --project=docs/ -e 'using Pkg; Pkg.develop(PackageSpec(path=pwd()));
-                                               Pkg.instantiate()'
-        - julia --project=docs/ docs/make.jl
-      after_success: skip
+    - export JULIA_PROJECT=""
+    - julia --project -e 'using Pkg; Pkg.build(); Pkg.test(; coverage=true);'
+    - JULIA_REVISE_POLL=1 julia --code-coverage=user --project -e 'using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "test", "polling.jl"))'
