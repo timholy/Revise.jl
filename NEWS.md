@@ -1,6 +1,11 @@
 This lists only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
+# Revise 2.2
+
+* Revise now warns you when the source files are not synchronized with running code.
+  (https://github.com/timholy/Revise.jl/issues/317)
+
 # Revise 2.1
 
 New features:
