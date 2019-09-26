@@ -146,7 +146,9 @@ This should be reliable even for local builds, cross-builds, and binary installs
 """
 const juliadir = begin
     local jldir = basebuilddir
-    if !isdir(joinpath(jldir, "base"))
+    try
+        isdir(joinpath(jldir, "base")) || throw(ErrorException("$(jldir) does not have \"base\""))
+    catch
         # Binaries probably end up here. We fall back on Sys.BINDIR
         jldir = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
         if !isdir(joinpath(jldir, "base"))
