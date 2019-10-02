@@ -1115,11 +1115,13 @@ end
 
 function setup_atom(atommod::Module)::Nothing
     handlers = getfield(atommod, :handlers)
-    for x in ["eval", "evalall", "evalrepl"]
-        old = handlers[x]
-        Main.Atom.handle(x) do data
-            revise()
-            old(data)
+    for x in ["eval", "evalall", "evalshow", "evalrepl"]
+        if haskey(handlers, x)
+            old = handlers[x]
+            Main.Atom.handle(x) do data
+                revise()
+                old(data)
+            end
         end
     end
     return nothing
