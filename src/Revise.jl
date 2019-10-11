@@ -608,12 +608,12 @@ it defaults to `Main`.
 
 If this produces many errors, check that you specified `mod` correctly.
 """
-function track(mod::Module, file::AbstractString; define=false, skip_include=true)
+function track(mod::Module, file::AbstractString; kwargs...)
     isfile(file) || error(file, " is not a file")
     file = normpath(abspath(file))
     fm = parse_source(file, mod)
     if fm !== nothing
-        instantiate_sigs!(fm; define=define, skip_include=skip_include)
+        instantiate_sigs!(fm; kwargs...)
         id = PkgId(mod)
         if !haskey(pkgdatas, id)
             pkgdatas[id] = PkgData(id, pathof(mod))
@@ -627,9 +627,9 @@ function track(mod::Module, file::AbstractString; define=false, skip_include=tru
     end
 end
 
-function track(file::AbstractString)
+function track(file::AbstractString; kwargs...)
     startswith(file, juliadir) && error("use Revise.track(Base) or Revise.track(<stdlib module>)")
-    track(Main, file)
+    track(Main, file; kwargs...)
 end
 
 """

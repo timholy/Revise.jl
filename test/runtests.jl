@@ -1573,6 +1573,11 @@ end
         end
         str = read(logfile, String)
         @test occursin("Test301.jl:10", str)
+
+        @info "A BoundsError followed by a Warning is expected"
+        Revise.track("callee_error.jl"; define=true, always_rethrow=true)
+        m = @which CalleeError.foo(3.2f0)
+        @test whereis(m)[2] == 14
     end
 
     @testset "get_def" begin
