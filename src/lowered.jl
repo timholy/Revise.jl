@@ -33,7 +33,7 @@ function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     return methodinfo, docexprs
 end
 
-function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr; kwargs...)
+function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr; always_rethrow=false, kwargs...)
     # We have to turn off all active breakpoints, https://github.com/timholy/CodeTracking.jl/issues/27
     bp_refs = JuliaInterpreter.breakpoints()
     if eltype(bp_refs) !== JuliaInterpreter.BreakpointRef
@@ -48,7 +48,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
         frame === nothing && return nothing
         ret = methods_by_execution!(recurse, methodinfo, docexprs, frame; kwargs...)
     catch err
-        isa(err, InterruptException) && rethrow(err)
+        (always_rethrow || isa(err, InterruptException)) && rethrow(err)
         @error "evaluation error" mod ex exception=(err, catch_backtrace())
         ret = nothing
     finally
