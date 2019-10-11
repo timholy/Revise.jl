@@ -62,7 +62,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
     signatures = []  # temporary for method signature storage
     pc = frame.pc
     while true
-        JuliaInterpreter.is_leaf(frame) || break
+        JuliaInterpreter.is_leaf(frame) || (@warn("not a leaf"); break)
         stmt = pc_expr(frame, pc)
         if isa(stmt, Expr)
             if stmt.head == :struct_type || stmt.head == :abstract_type || stmt.head == :primitive_type
@@ -209,6 +209,11 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         badstmt = lookup_callexpr(frame, stmt)
                         @warn "omitting call expression $badstmt"
                         assign_this!(frame, nothing)
+                        # If the error occurred in a callee, we have to unwind the stack
+                        leafframe = JuliaInterpreter.leaf(frame)
+                        while leafframe != frame
+                            leafframe = JuliaInterpreter.return_from(leafframe)
+                        end
                         pc = next_or_nothing!(frame)
                     end
                 end
@@ -221,7 +226,6 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
             pc = step_expr!(recurse, frame, stmt, true)
         end
         pc === nothing && break
-        stmt = pc_expr(frame, pc)
     end
     return get_return(frame)
 end
