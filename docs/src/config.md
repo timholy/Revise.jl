@@ -10,7 +10,8 @@ atreplinit() do repl
     try
         @eval using Revise
         @async Revise.async_steal_repl_backend()
-    catch
+    catch err
+        @error err
     end
 end
 ```
