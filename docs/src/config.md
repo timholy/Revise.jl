@@ -9,7 +9,7 @@ adding the following to your `.julia/config/startup.jl` file:
 atreplinit() do repl
     try
         @eval using Revise
-        Revise.async_steal_repl_backend()
+        @async Revise.async_steal_repl_backend()
     catch
     end
 end
