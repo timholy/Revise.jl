@@ -19,12 +19,36 @@ function assign_this!(frame, value)
 end
 
 # This defines the API needed to store signatures using methods_by_execution!
-# This default version is simple; there's a more involved one in Revise.jl that interacts
-# with CodeTracking.
+# This default version is simple; there's a more involved one in the file Revise.jl
+# that interacts with CodeTracking.
 const MethodInfo = IdDict{Type,LineNumberNode}
 add_signature!(methodinfo::MethodInfo, @nospecialize(sig), ln) = push!(methodinfo, sig=>ln)
 push_expr!(methodinfo::MethodInfo, mod::Module, ex::Expr) = methodinfo
 pop_expr!(methodinfo::MethodInfo) = methodinfo
+add_dependencies!(methodinfo::MethodInfo, be::BackEdges, src, chunks) = methodinfo
+
+function minimal_evaluation!(methodinfo, frame)
+    src = frame.framecode.src
+    be = BackEdges(src)
+    chunks = toplevel_chunks(be)
+    musteval = falses(length(src.code))
+    for chunk in chunks
+        if hastrackedexpr(frame.framecode.src, chunk)
+            musteval[chunk] .= true
+        end
+    end
+    # Conservatively, we need to step in to each Core.eval in case the expression defines a method.
+    hadeval = false
+    for id in eachindex(src.code)
+        stmt = src.code[id]
+        if isa(stmt, Expr) && JuliaInterpreter.hasarg(isequal(:eval), stmt.args)
+            chunkid = findfirst(chunk->id∈chunk, chunks)
+            musteval[chunks[chunkid]] .= true
+        end
+    end
+    add_dependencies!(methodinfo, be, src, chunks)
+    return musteval
+end
 
 function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     methodinfo = MethodInfo()
@@ -46,7 +70,23 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
     try
         frame = prepare_thunk(mod, ex)
         frame === nothing && return nothing
-        ret = methods_by_execution!(recurse, methodinfo, docexprs, frame; kwargs...)
+        # # bypass prepare_thunk so we can do backedge analysis
+        # thunk = Meta.lower(mod, ex)
+        # if !isexpr(thunk, :thunk)
+        #     if isexpr(thunk, :error) || isexpr(thunk, :incomplete)
+        #         error("lowering returned an error, ", thunk)
+        #     end
+        #     thunk = Meta.lower(mod, thunk)
+        #     if isa(thunk, Expr)
+        #         Core.eval(mod, thunk)
+        #         return nothing
+        #     end
+        # end
+        # src = thunk.args[1]
+        # framecode = JuliaInterpreter.FrameCode(mod, src)
+        # frame = JuliaInterpreter.Frame(framecode, JuliaInterpreter.prepare_framedata(framecode, []))
+        musteval = minimal_evaluation!(methodinfo, frame)
+        ret = methods_by_execution!(recurse, methodinfo, docexprs, frame, musteval; kwargs...)
     catch err
         (always_rethrow || isa(err, InterruptException)) && rethrow(err)
         @error "evaluation error" mod ex exception=(err, catch_backtrace())
@@ -57,12 +97,17 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
     return ret
 end
 
-function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame; define=true, skip_include=true)
+function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame, musteval; define=true, skip_include=true)
     mod = moduleof(frame)
     signatures = []  # temporary for method signature storage
     pc = frame.pc
     while true
         JuliaInterpreter.is_leaf(frame) || (@warn("not a leaf"); break)
+        if !musteval[pc] && !define
+            pc = next_or_nothing!(frame)
+            pc === nothing && break
+            continue
+        end
         stmt = pc_expr(frame, pc)
         if isa(stmt, Expr)
             if stmt.head == :struct_type || stmt.head == :abstract_type || stmt.head == :primitive_type
@@ -155,8 +200,9 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         newex = unwrap(newex)
                         newframe = prepare_thunk(newmod, newex)
                         newframe === nothing && continue
+                        newmusteval = minimal_evaluation!(methodinfo, newframe)
                         push_expr!(methodinfo, newmod, newex)
-                        value = methods_by_execution!(recurse, methodinfo, docexprs, newframe; define=define)
+                        value = methods_by_execution!(recurse, methodinfo, docexprs, newframe, newmusteval; define=define)
                         pop_expr!(methodinfo)
                     end
                     assign_this!(frame, value)
@@ -227,5 +273,5 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
         end
         pc === nothing && break
     end
-    return get_return(frame)
+    return musteval[frame.pc] ? get_return(frame) : nothing
 end

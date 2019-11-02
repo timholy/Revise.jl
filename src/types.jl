@@ -17,6 +17,8 @@ end
 
 const DocExprs = Dict{Module,Vector{Expr}}
 const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Any}}}
+const DepDictVals = Tuple{Module,RelocatableExpr}
+const DepDict = Dict{Symbol,Set{DepDictVals}}
 
 Base.setindex!(ex_sigs::ExprsSigs, val, ex::Expr) = setindex!(ex_sigs, val, RelocatableExpr(ex))
 

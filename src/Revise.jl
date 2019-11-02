@@ -64,8 +64,8 @@ include("relocatable_exprs.jl")
 include("types.jl")
 include("utils.jl")
 include("parsing.jl")
+include("backedges.jl")
 include("lowered.jl")
-# include("backedges.jl")
 include("pkgs.jl")
 include("git.jl")
 include("recipes.jl")
@@ -110,6 +110,14 @@ It is a dictionary indexed by PkgId:
 `pkgdatas[id]` returns a value of type [`Revise.PkgData`](@ref).
 """
 const pkgdatas = Dict{PkgId,PkgData}()
+
+const moduledeps = Dict{Module,DepDict}()
+function get_depdict(mod::Module)
+    if !haskey(moduledeps, mod)
+        moduledeps[mod] = DepDict()
+    end
+    return moduledeps[mod]
+end
 
 """
     Revise.included_files
@@ -284,7 +292,7 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
                 # ex is not present in old
                 @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
                 # try
-                    sigs = eval_with_signatures(mod, ex)  # All signatures defined by `ex`
+                    sigs, deps = eval_with_signatures(mod, ex)  # All signatures defined by `ex`
                     for p in workers()
                         p == myid() && continue
                         try   # don't error if `mod` isn't defined on the worker
@@ -292,6 +300,7 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
                         catch
                         end
                     end
+                    storedeps(deps, rex, mod)
                 # catch err
                 #     @error "failure to evaluate changes in $mod"
                 #     showerror(stderr, err)
@@ -334,8 +343,9 @@ end
 struct CodeTrackingMethodInfo
     exprstack::Vector{Expr}
     allsigs::Vector{Any}
+    deps::Set{Union{GlobalRef,Symbol}}
 end
-CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[])
+CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Set{Union{GlobalRef,Symbol}}())
 CodeTrackingMethodInfo(rex::RelocatableExpr) = CodeTrackingMethodInfo(rex.ex)
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), ln)
@@ -345,24 +355,61 @@ function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), 
 end
 push_expr!(methodinfo::CodeTrackingMethodInfo, mod::Module, ex::Expr) = (push!(methodinfo.exprstack, ex); methodinfo)
 pop_expr!(methodinfo::CodeTrackingMethodInfo) = (pop!(methodinfo.exprstack); methodinfo)
+function add_dependencies!(methodinfo::CodeTrackingMethodInfo, be::BackEdges, src, chunks)
+    isempty(src.code) && return methodinfo
+    stmt1 = first(src.code)
+    if isexpr(stmt1, :gotoifnot) && isa(stmt1.args[1], Union{GlobalRef,Symbol})
+        if any(chunk->hastrackedexpr(src, chunk), chunks)
+            push!(methodinfo.deps, stmt1.args[1])
+        end
+    end
+    # for (dep, lines) in be.byname
+    #     for ln in lines
+    #         stmt = src.code[ln]
+    #         if isexpr(stmt, :(=)) && stmt.args[1] == dep
+    #             continue
+    #         else
+    #             push!(methodinfo.deps, dep)
+    #         end
+    #     end
+    # end
+    return methodinfo
+end
 
 # Eval and insert into CodeTracking data
 function eval_with_signatures(mod, ex::Expr; define=true, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
     docexprs = Dict{Module,Vector{Expr}}()
     methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define, kwargs...)
-    return methodinfo.allsigs
+    return methodinfo.allsigs, methodinfo.deps
 end
 
 function instantiate_sigs!(modexsigs::ModuleExprsSigs; define=false, kwargs...)
     for (mod, exsigs) in modexsigs
         for rex in keys(exsigs)
             is_doc_expr(rex.ex) && continue
-            sigs = eval_with_signatures(mod, rex.ex; define=define, kwargs...)
+            sigs, deps = eval_with_signatures(mod, rex.ex; define=define, kwargs...)
             exsigs[rex.ex] = sigs
+            storedeps(deps, rex, mod)
         end
     end
     return modexsigs
+end
+
+function storedeps(deps, rex, mod)
+    for dep in deps
+        if isa(dep, GlobalRef)
+            haskey(moduledeps, dep.mod) || continue
+            ddict, sym = get_depdict(dep.mod), dep.name
+        else
+            ddict, sym = get_depdict(mod), dep
+        end
+        if !haskey(ddict, sym)
+            ddict[sym] = Set{DepDictVals}()
+        end
+        push!(ddict[sym], (mod, rex))
+    end
+    return rex
 end
 
 # This is intended for testing purposes, but not general use. The key problem is

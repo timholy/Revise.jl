@@ -2278,6 +2278,8 @@ end
 
 GC.gc(); GC.gc(); GC.gc()   # work-around for https://github.com/JuliaLang/julia/issues/28306
 
+include("backedges.jl")
+
 @testset "Base signatures" begin
     println("beginning signatures tests")
     # Using the extensive repository of code in Base as a testbed
