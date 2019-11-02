@@ -57,7 +57,7 @@ function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     return methodinfo, docexprs
 end
 
-function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr; always_rethrow=false, kwargs...)
+function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr; always_rethrow=false, define=true, kwargs...)
     # We have to turn off all active breakpoints, https://github.com/timholy/CodeTracking.jl/issues/27
     bp_refs = JuliaInterpreter.breakpoints()
     if eltype(bp_refs) !== JuliaInterpreter.BreakpointRef
@@ -86,7 +86,22 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
         # framecode = JuliaInterpreter.FrameCode(mod, src)
         # frame = JuliaInterpreter.Frame(framecode, JuliaInterpreter.prepare_framedata(framecode, []))
         musteval = minimal_evaluation!(methodinfo, frame)
-        ret = methods_by_execution!(recurse, methodinfo, docexprs, frame, musteval; kwargs...)
+        if !any(musteval)
+            if define
+                ret = try
+                    Core.eval(mod, ex) # evaluate in compiled mode if we don't need to interpret
+                catch err
+                    fl, ln = whereis(frame)
+                    println(stderr, "\n(compiled mode) starting at ", location_string(fl, ln))
+                    @warn "omitting expression $ex"
+                    nothing
+                end
+            else
+                ret = nothing
+            end
+        else
+            ret = methods_by_execution!(recurse, methodinfo, docexprs, frame, musteval; define=define, kwargs...)
+        end
     catch err
         (always_rethrow || isa(err, InterruptException)) && rethrow(err)
         @error "evaluation error" mod ex exception=(err, catch_backtrace())

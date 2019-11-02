@@ -1553,13 +1553,17 @@ end
             module Test301
             mutable struct Struct301
                 x::Int
-                err
+                unset
 
                 Struct301(x::Integer) = new(x)
             end
-            f(s) = s.err
+            f(s) = s.unset
             const s = Struct301(1)
-            f(s)
+            if f(s)
+                g() = 1
+            else
+                g() = 2
+            end
             end
             """)
         end
