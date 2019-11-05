@@ -26,6 +26,7 @@ Revise.basebuilddir
 Revise.pkgdatas
 Revise.watched_files
 Revise.revision_queue
+Revise.queue_errors
 Revise.included_files
 ```
 
@@ -33,10 +34,12 @@ Revise.included_files
 
 ```@docs
 Revise.RelocatableExpr
+Revise.BackEdges
 Revise.ModuleExprsSigs
 Revise.FileInfo
 Revise.PkgData
 Revise.WatchList
+Revise.SlotDep
 Revise.Rescheduler
 MethodSummary
 ```
