@@ -133,7 +133,7 @@ function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GI
             rethrow(err)
         end
         fmod = get(juliaf2m, fullpath, Core.Compiler)  # Core.Compiler is not cached
-        fmod === Core.Compiler && (endswith(fullpath, "compiler.jl") || endswith(fullpath, "tfuncs.jl")) && continue  # defines the module, skip
+        fmod === Core.Compiler && endswith(fullpath, "compiler.jl") && continue  # defines the module, skip
         if src != read(fullpath, String)
             push!(modified_files, (pkgdata, rpath))
         end
