@@ -1,6 +1,6 @@
 name = "Revise"
 uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
-version = "2.2.2"
+version = "2.3.0"
 
 [deps]
 CodeTracking = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
@@ -18,7 +18,8 @@ Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 [compat]
 CodeTracking = "~0.5.1"
 JuliaInterpreter = "~0.7.1"
-LoweredCodeUtils = "0.3.8"
+LoweredCodeUtils = "0.4"
+OrderedCollections = "1"
 julia = "1"
 
 [extras]
