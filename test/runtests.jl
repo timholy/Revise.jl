@@ -2160,6 +2160,41 @@ end
     push!(to_remove, depot)
 end
 
+@testset "Broken dependencies (issue #371)" begin
+    testdir = newtestdir()
+    srcdir = joinpath(testdir, "DepPkg371", "src")
+    filepath = joinpath(srcdir, "DepPkg371.jl")
+    cd(testdir) do
+        Pkg.generate("DepPkg371")
+        open(filepath, "w") do io
+            println(io, """
+            module DepPkg371
+            using OrderedCollections   # undeclared dependency
+            greet() = "Hello world!"
+            end
+            """)
+        end
+    end
+    sleep(mtimedelay)
+    @info "A warning about not having OrderedCollection in dependencies is expected"
+    @eval using DepPkg371
+    @test DepPkg371.greet() == "Hello world!"
+    sleep(mtimedelay)
+    open(filepath, "w") do io
+        println(io, """
+        module DepPkg371
+        using OrderedCollections   # undeclared dependency
+        greet() = "Hello again!"
+        end
+        """)
+    end
+    yry()
+    @test DepPkg371.greet() == "Hello again!"
+
+    rm_precompile("DepPkg371")
+    pop!(LOAD_PATH)
+end
+
 @testset "entr" begin
     if !Sys.isapple()   # these tests are very flaky on OSX
         srcfile = joinpath(tempdir(), randtmp()*".jl")
