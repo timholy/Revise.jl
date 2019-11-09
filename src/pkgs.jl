@@ -59,17 +59,32 @@ function pkg_fileinfo(id::PkgId)
     # Try to find the matching cache file
     paths = Base.find_all_in_cache_path(id)
     sourcepath = Base.locate_package(id)
-    for path in paths
-        Base.stale_cachefile(sourcepath, path) === true && continue
-        provides, includes_requires = parse_cache_header(path)
-        mods_files_mtimes, _ = includes_requires
-        for (pkgid, buildid) in provides
-            if pkgid.uuid === uuid && pkgid.name == name
-                return path, mods_files_mtimes
-            end
+    if length(paths) > 1
+        fpaths = filter(path->Base.stale_cachefile(sourcepath, path) !== true, paths)
+        if isempty(fpaths)
+            # Work-around for #371 (broken dependency prevents tracking):
+            # find the most recent cache file. Presumably this is the one built
+            # to load the package.
+            sort!(paths; by=path->mtime(path), rev=true)
+            deleteat!(paths, 2:length(paths))
+        else
+            paths = fpaths
         end
     end
-    return nothing, nothing
+    isempty(paths) && return nothing, nothing
+    @assert length(paths) == 1
+    path = first(paths)
+    provides, includes_requires = try
+        parse_cache_header(path)
+    catch
+        return nothing, nothing
+    end
+    mods_files_mtimes, _ = includes_requires
+    for (pkgid, buildid) in provides
+        if pkgid.uuid === uuid && pkgid.name == name
+            return path, mods_files_mtimes
+        end
+    end
 end
 
 """
