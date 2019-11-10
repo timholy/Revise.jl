@@ -137,3 +137,20 @@ function printf_maxsize(f::Function, io::IO, args...; maxchars::Integer=500, max
 end
 println_maxsize(args...; kwargs...) = println_maxsize(stdout, args...; kwargs...)
 println_maxsize(io::IO, args...; kwargs...) = printf_maxsize(println, stdout, args...; kwargs...)
+
+# Trimming backtraces
+function trim_toplevel!(bt)
+    n = itoplevel = length(bt)
+    for (i, t) in enumerate(bt)
+        sfs = StackTraces.lookup(t)
+        for sf in sfs
+            if sf.func === Symbol("top-level scope")
+                itoplevel = i
+                break
+            end
+        end
+        itoplevel < n && break
+    end
+    deleteat!(bt, itoplevel+1:length(bt))
+    return bt
+end

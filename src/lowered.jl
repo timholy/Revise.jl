@@ -58,55 +58,41 @@ function methods_by_execution(mod::Module, ex::Expr; kwargs...)
 end
 
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr; always_rethrow=false, define=true, kwargs...)
-    # We have to turn off all active breakpoints, https://github.com/timholy/CodeTracking.jl/issues/27
-    bp_refs = JuliaInterpreter.breakpoints()
-    if eltype(bp_refs) !== JuliaInterpreter.BreakpointRef
-        bp_refs = JuliaInterpreter.BreakpointRef[]
-        foreach(bp -> append!(bp_refs, bp.instances), bp_refs)
-    end
-    active_bp_refs = filter(bp->bp[].isactive, bp_refs)
-    foreach(disable, active_bp_refs)
-    local ret
-    try
-        frame = prepare_thunk(mod, ex)
-        frame === nothing && return nothing
-        # # bypass prepare_thunk so we can do backedge analysis
-        # thunk = Meta.lower(mod, ex)
-        # if !isexpr(thunk, :thunk)
-        #     if isexpr(thunk, :error) || isexpr(thunk, :incomplete)
-        #         error("lowering returned an error, ", thunk)
-        #     end
-        #     thunk = Meta.lower(mod, thunk)
-        #     if isa(thunk, Expr)
-        #         Core.eval(mod, thunk)
-        #         return nothing
-        #     end
-        # end
-        # src = thunk.args[1]
-        # framecode = JuliaInterpreter.FrameCode(mod, src)
-        # frame = JuliaInterpreter.Frame(framecode, JuliaInterpreter.prepare_framedata(framecode, []))
-        musteval = minimal_evaluation!(methodinfo, frame)
-        if !any(musteval)
-            if define
-                ret = try
-                    Core.eval(mod, ex) # evaluate in compiled mode if we don't need to interpret
-                catch err
-                    fl, ln = whereis(frame)
-                    println(stderr, "\n(compiled mode) starting at ", location_string(fl, ln))
-                    @warn "omitting expression $ex"
-                    nothing
-                end
-            else
-                ret = nothing
+    frame = prepare_thunk(mod, ex)
+    frame === nothing && return nothing
+    # Determine whether we need interpreted mode
+    musteval = minimal_evaluation!(methodinfo, frame)
+    if !any(musteval)
+        # We can evaluate the entire expression in compiled mode
+        if define
+            ret = try
+                Core.eval(mod, ex) # evaluate in compiled mode if we don't need to interpret
+            catch err
+                loc = location_string(whereis(frame)...)
+                @error "(compiled mode) evaluation error starting at $loc" mod ex exception=(err, trim_toplevel!(catch_backtrace()))
+                nothing
             end
         else
-            ret = methods_by_execution!(recurse, methodinfo, docexprs, frame, musteval; define=define, kwargs...)
+            ret = nothing
         end
-    catch err
-        (always_rethrow || isa(err, InterruptException)) && rethrow(err)
-        @error "evaluation error" mod ex exception=(err, catch_backtrace())
-        ret = nothing
-    finally
+    else
+        # Use the interpreter
+        # We have to turn off all active breakpoints, https://github.com/timholy/CodeTracking.jl/issues/27
+        bp_refs = JuliaInterpreter.breakpoints()
+        if eltype(bp_refs) !== JuliaInterpreter.BreakpointRef
+            bp_refs = JuliaInterpreter.BreakpointRef[]
+            foreach(bp -> append!(bp_refs, bp.instances), bp_refs)
+        end
+        active_bp_refs = filter(bp->bp[].isactive, bp_refs)
+        foreach(disable, active_bp_refs)
+        ret = try
+            methods_by_execution!(recurse, methodinfo, docexprs, frame, musteval; define=define, kwargs...)
+        catch err
+            (always_rethrow || isa(err, InterruptException)) && rethrow(err)
+            loc = location_string(whereis(frame)...)
+            @error "evaluation error starting at $loc" mod ex exception=(err, trim_toplevel!(catch_backtrace()))
+            nothing
+        end
         foreach(enable, active_bp_refs)
     end
     return ret
