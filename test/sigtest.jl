@@ -85,7 +85,7 @@ module Lowering end
             end
         end
     end
-    sigs = Revise.eval_with_signatures(Lowering, ex)
+    sigs, _ = Revise.eval_with_signatures(Lowering, ex)
     @test length(sigs) >= 2
 end
 

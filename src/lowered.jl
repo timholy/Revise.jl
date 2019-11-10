@@ -26,6 +26,7 @@ add_signature!(methodinfo::MethodInfo, @nospecialize(sig), ln) = push!(methodinf
 push_expr!(methodinfo::MethodInfo, mod::Module, ex::Expr) = methodinfo
 pop_expr!(methodinfo::MethodInfo) = methodinfo
 add_dependencies!(methodinfo::MethodInfo, be::BackEdges, src, chunks) = methodinfo
+add_includes!(methodinfo::MethodInfo, filename) = methodinfo
 
 function minimal_evaluation!(methodinfo, frame)
     src = frame.framecode.src
@@ -41,7 +42,15 @@ function minimal_evaluation!(methodinfo, frame)
     hadeval = false
     for id in eachindex(src.code)
         stmt = src.code[id]
-        if isa(stmt, Expr) && JuliaInterpreter.hasarg(isequal(:eval), stmt.args)
+        me = false
+        if isa(stmt, Expr)
+            if stmt.head == :call
+                f = stmt.args[1]
+                me |= f === :include
+                me |= JuliaInterpreter.hasarg(isequal(:eval), stmt.args)
+            end
+        end
+        if me
             chunkid = findfirst(chunk->id∈chunk, chunks)
             musteval[chunks[chunkid]] .= true
         end
@@ -100,6 +109,7 @@ end
 
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame, musteval; define=true, skip_include=true)
     mod = moduleof(frame)
+    modinclude = getfield(mod, :include)  # hoist this lookup for performance
     signatures = []  # temporary for method signature storage
     pc = frame.pc
     while true
@@ -208,8 +218,9 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     end
                     assign_this!(frame, value)
                     pc = next_or_nothing!(frame)
-                elseif skip_include && (f === getfield(mod, :include) || f === Base.include || f === Core.include)
+                elseif skip_include && (f === modinclude || f === Base.include || f === Core.include)
                     # Skip include calls, otherwise we load new code
+                    add_includes!(methodinfo, @lookup(frame, stmt.args[2]))
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
                 elseif !define && f === Base.Docs.doc!

@@ -282,6 +282,7 @@ function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new)
 end
 
 function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
+    includes = Vector{String}()
     with_logger(_debug_logger) do
         for rex in keys(exs_sigs_new)
             rexo = getkey(exs_sigs_old, rex, nothing)
@@ -292,7 +293,8 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
                 # ex is not present in old
                 @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
                 # try
-                    sigs, deps = eval_with_signatures(mod, ex)  # All signatures defined by `ex`
+                    sigs, deps, _includes = eval_with_signatures(mod, ex)  # All signatures defined by `ex`
+                    append!(includes, _includes)
                     for p in workers()
                         p == myid() && continue
                         try   # don't error if `mod` isn't defined on the worker
@@ -329,23 +331,26 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
             exs_sigs_new[rex] = sigs
         end
     end
-    return exs_sigs_new
+    return exs_sigs_new, includes
 end
 
 function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old)
+    includes = Vector{Pair{Module,Vector{String}}}()
     for (mod, exs_sigs_new) in mod_exs_sigs_new
         exs_sigs_old = get(mod_exs_sigs_old, mod, empty_exs_sigs)
-        eval_new!(exs_sigs_new, exs_sigs_old, mod)
+        _, _includes = eval_new!(exs_sigs_new, exs_sigs_old, mod)
+        push!(includes, mod=>_includes)
     end
-    return mod_exs_sigs_new
+    return mod_exs_sigs_new, includes
 end
 
 struct CodeTrackingMethodInfo
     exprstack::Vector{Expr}
     allsigs::Vector{Any}
     deps::Set{Union{GlobalRef,Symbol}}
+    includes::Vector{String}
 end
-CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Set{Union{GlobalRef,Symbol}}())
+CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Set{Union{GlobalRef,Symbol}}(), String[])
 CodeTrackingMethodInfo(rex::RelocatableExpr) = CodeTrackingMethodInfo(rex.ex)
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), ln)
@@ -375,20 +380,24 @@ function add_dependencies!(methodinfo::CodeTrackingMethodInfo, be::BackEdges, sr
     # end
     return methodinfo
 end
+function add_includes!(methodinfo::CodeTrackingMethodInfo, filename)
+    push!(methodinfo.includes, filename)
+    return methodinfo
+end
 
 # Eval and insert into CodeTracking data
 function eval_with_signatures(mod, ex::Expr; define=true, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
     docexprs = Dict{Module,Vector{Expr}}()
     methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define, kwargs...)
-    return methodinfo.allsigs, methodinfo.deps
+    return methodinfo.allsigs, methodinfo.deps, methodinfo.includes
 end
 
 function instantiate_sigs!(modexsigs::ModuleExprsSigs; define=false, kwargs...)
     for (mod, exsigs) in modexsigs
         for rex in keys(exsigs)
             is_doc_expr(rex.ex) && continue
-            sigs, deps = eval_with_signatures(mod, rex.ex; define=define, kwargs...)
+            sigs, deps, _ = eval_with_signatures(mod, rex.ex; define=define, kwargs...)
             exsigs[rex.ex] = sigs
             storedeps(deps, rex, mod)
         end
@@ -419,7 +428,7 @@ end
 # See `revise` for the proper approach.
 function eval_revised(mod_exs_sigs_new, mod_exs_sigs_old)
     delete_missing!(mod_exs_sigs_old, mod_exs_sigs_new)
-    eval_new!(mod_exs_sigs_new, mod_exs_sigs_old)
+    eval_new!(mod_exs_sigs_new, mod_exs_sigs_old)  # note: drops `includes`
     instantiate_sigs!(mod_exs_sigs_new)
 end
 
@@ -438,13 +447,14 @@ function init_watching(pkgdata::PkgData, files)
     for file in files
         dir, basename = splitdir(file)
         dirfull = joinpath(basedir(pkgdata), dir)
-        haskey(watched_files, dirfull) || (watched_files[dirfull] = WatchList())
+        already_watching = haskey(watched_files, dirfull)
+        already_watching || (watched_files[dirfull] = WatchList())
         push!(watched_files[dirfull], basename=>pkgdata)
         if watching_files[]
             fwatcher = Rescheduler(revise_file_queued, (pkgdata, file))
             schedule(Task(fwatcher))
         else
-            push!(udirs, dir)
+            already_watching || push!(udirs, dir)
         end
     end
     for dir in udirs
@@ -555,9 +565,10 @@ function revise_file_now(pkgdata::PkgData, file)
     end
     mexsnew, mexsold = handle_deletions(pkgdata, file)
     if mexsnew != nothing
-        eval_new!(mexsnew, mexsold)
+        _, includes = eval_new!(mexsnew, mexsold)
         fi = fileinfo(pkgdata, i)
         pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+        maybe_add_includes_to_pkgdata!(pkgdata, file, includes)
     end
     nothing
 end
@@ -589,9 +600,10 @@ function revise()
         i = fileindex(pkgdata, file)
         fi = fileinfo(pkgdata, i)
         try
-            eval_new!(mexsnew, fi.modexsigs)
+            _, includes = eval_new!(mexsnew, fi.modexsigs)
             pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
             delete!(queue_errors, (pkgdata, file))
+            maybe_add_includes_to_pkgdata!(pkgdata, file, includes)
         catch err
             push!(revision_errors, (basedir(pkgdata), file, err))
             push!(queue_errors, (pkgdata, file))
