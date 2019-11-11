@@ -33,7 +33,23 @@ because code moves around within the same file.
 (One unfortunate side effect is that line numbers may become inaccurate in backtraces,
 but Revise takes pains to correct these, see below.)
 
-To accomplish this, Revise uses the following overall strategy:
+Conceptually, Revise implements
+[`diff` and `patch`](https://linuxacademy.com/blog/linux/introduction-using-diff-and-patch/)
+for a running Julia session. Schematically, Revise's inner loop (`revise()`) looks like this:
+
+```julia
+for def in setdiff(oldexprs, newexprs)
+    # `def` is an expression that defines a method.
+    # It was in `oldexprs`, but is no longer present in `newexprs`--delete the method.
+    delete_methods_corresponding_to_defexpr(mod, def)
+end
+for def in setdiff(newexprs, oldexprs)
+    # `def` is an expression for a new or modified method. Instantiate it.
+    Core.eval(mod, def)
+end
+```
+
+In somewhat greater detail, Revise uses the following overall strategy:
 
 - add callbacks to Base so that Revise gets notified when new
   packages are loaded or new files `include`d
@@ -198,6 +214,15 @@ For example, any code inside an `@eval` might, or might not, expand into lowered
     However, starting with version 2.3 Revise should be fairly good at doing this on its own; such manual interventions should not be necessary in most cases.
 
 ### Core data structures and representations
+
+Most of Revise's magic comes down to just three internal variables:
+
+- [`Revise.watched_files`](@ref): encodes information used by the filesystem (`FileWatching`)
+  to detect changes in source files.
+- [`Revise.revision_queue`](@ref): a list of "work to do," containing the files that have been
+  modified since the last code update.
+- [`Revise.pkgdatas`](@ref): the central repository of parsed code, used to "diff" for changes
+  and then "patch" the running session.
 
 Two "maps" are central to Revise's inner workings: `ExprsSigs` maps link
 definition=>signature-types (the forward workflow), while `CodeTracking` (specifically,

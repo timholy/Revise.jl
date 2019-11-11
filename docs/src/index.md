@@ -7,6 +7,11 @@ update packages, switch git branches, and/or stash/unstash code;
 typically, the changes will be incorporated into the very next command you issue from the REPL.
 This can save you the overhead of restarting, loading packages, and waiting for code to JIT-compile.
 
+Using Revise also improves your experience when using the
+[debuggers](https://julialang.org/blog/2019/03/debuggers).
+Revise will keep track of changed locations of your methods in file, and ensure that the
+debugger displays the source code of what you're actually debugging.
+
 !!! note "Automatically loading Revise"
 
     Many users automatically load Revise on startup. This is slightly more involved
@@ -142,6 +147,13 @@ end
 
 will execute `build_webpages(args...)` whenever you save updates to the listed files
 or `MyWebCode`.
+
+## Taking advantage of Revise in other packages
+
+To make it easier for other packages to benefit from Revise without needing to add it
+as a dependency or understand Revise's internals, Revise interfaces with
+[CodeTracking](https://github.com/timholy/CodeTracking.jl),
+which is a small package acting as Revise's "query" interface.
 
 ## What else do I need to know?
 
