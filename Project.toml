@@ -23,11 +23,14 @@ OrderedCollections = "1"
 julia = "1"
 
 [extras]
+EndpointRanges = "340492b5-2a47-5f55-813d-aca7ddf97656"
 EponymTuples = "97e2ac4a-e175-5f49-beb1-4d6866a6cdc3"
 Example = "7876af07-990d-54b4-ab0e-23690620f79a"
 InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
+MappedArrays = "dbb5928d-eab1-5f90-85c2-b9b0edb7c900"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "Example", "EponymTuples", "InteractiveUtils", "Random"]
+test = ["Test", "EndpointRanges", "Example", "EponymTuples", "InteractiveUtils", "MappedArrays", "Random", "Requires"]

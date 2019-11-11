@@ -310,6 +310,40 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file, includes)
     end
 end
 
+function add_require(sourcefile, modcaller, idmod, modname, expr)
+    expr isa Expr || return
+    id = PkgId(modcaller)
+    @async begin
+        # If this fires when the module is first being loaded (because the dependency
+        # was already loaded), Revise may not yet have the pkgdata for this package.
+        while !haskey(pkgdatas, id)
+            sleep(0.1)
+        end
+        # Get/create the FileInfo specifically for tracking @require blocks
+        pkgdata = pkgdatas[id]
+        filekey = relpath(sourcefile, pkgdata) * "__@require__"
+        fileidx = fileindex(pkgdata, filekey)
+        if fileidx === nothing
+            files = srcfiles(pkgdata)
+            fileidx = length(files) + 1
+            push!(files, filekey)
+            push!(pkgdata.fileinfos, FileInfo(modcaller))
+        end
+        fi = pkgdata.fileinfos[fileidx]
+        # Tag the expr to ensure it is unique
+        expr = copy(expr)
+        push!(expr.args, :(__pkguuid__ = $idmod))
+        # Add the expression to the fileinfo
+        exsnew = ExprsSigs()
+        exsnew[expr] = nothing
+        mexsnew = ModuleExprsSigs(modcaller=>exsnew)
+        mexsnew, includes = eval_new!(mexsnew, fi.modexsigs)
+        pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
+        maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes)
+    end
+    return nothing
+end
+
 function watch_files_via_dir(dirname)
     wait_changed(dirname)  # this will block until there is a modification
     latestfiles = Pair{String,PkgId}[]

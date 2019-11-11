@@ -2340,43 +2340,88 @@ end
 
     rm_precompile("NewFile")
     rm_precompile("DeletedFile")
-    pop!(LOAD_PATH)
 
-    # # https://discourse.julialang.org/t/revise-with-requires/19347
-    # dn = joinpath(testdir, "TrackRequires", "src")
-    # mkpath(dn)
-    # open(joinpath(dn, "TrackRequires.jl"), "w") do io
-    #     println(io, """
-    #     module TrackRequires
-    #     using Requires
-    #     function __init__()
-    #         @require EndpointRanges="340492b5-2a47-5f55-813d-aca7ddf97656" begin
-    #             export testfunc
-    #             include("testfile.jl")
-    #             @require Revise="295af30f-e4ad-537b-8983-00126c2a3abe" begin
-    #                 import .Revise
-    #                 # Revise.add_file(TrackRequires, "src/testfile.jl")
-    #             end
-    #         end
-    #     end
-    #     end # module
-    #     """)
-    # end
-    # open(joinpath(dn, "testfile.jl"), "w") do io
-    #     println(io, "testfunc() = 1")
-    # end
-    # sleep(2.1) # so the defining files are old enough not to trigger mtime criterion
-    # @eval using TrackRequires
-    # @test_throws UndefVarError TrackRequires.testfunc()
-    # @eval using EndpointRanges  # to trigger Requires
-    # sleep(0.1)
-    # @test TrackRequires.testfunc() == 1
-    # open(joinpath(dn, "testfile.jl"), "w") do io
-    #     println(io, "testfunc() = 2")
-    # end
-    # yry()
-    # @test_broken TrackRequires.testfunc() == 2
-    # rm_precompile("TrackRequires")
+    # https://discourse.julialang.org/t/revise-with-requires/19347
+    dn = joinpath(testdir, "TrackRequires", "src")
+    mkpath(dn)
+    open(joinpath(dn, "TrackRequires.jl"), "w") do io
+        println(io, """
+        module TrackRequires
+        using Requires
+        function __init__()
+            @require EndpointRanges="340492b5-2a47-5f55-813d-aca7ddf97656" begin
+                export testfunc
+                include("testfile.jl")
+            end
+        end
+        end # module
+        """)
+    end
+    open(joinpath(dn, "testfile.jl"), "w") do io
+        println(io, "testfunc() = 1")
+    end
+    sleep(mtimedelay)
+    @eval using TrackRequires
+    notified = isdefined(TrackRequires.Requires, :withnotifications)
+    notified || @warn "Requires does not support notifications"
+    @test_throws UndefVarError TrackRequires.testfunc()
+    @eval using EndpointRanges  # to trigger Requires
+    sleep(mtimedelay)
+    notified && @test TrackRequires.testfunc() == 1
+    open(joinpath(dn, "testfile.jl"), "w") do io
+        println(io, "testfunc() = 2")
+    end
+    yry()
+    notified && @test TrackRequires.testfunc() == 2
+    # Ensure it also works if the Requires dependency is pre-loaded
+    dn = joinpath(testdir, "TrackRequires2", "src")
+    mkpath(dn)
+    open(joinpath(dn, "TrackRequires2.jl"), "w") do io
+        println(io, """
+        module TrackRequires2
+        using Requires
+        function __init__()
+            @require EndpointRanges="340492b5-2a47-5f55-813d-aca7ddf97656" begin
+                export testfunc
+                include("testfile.jl")
+            end
+            @require MappedArrays="dbb5928d-eab1-5f90-85c2-b9b0edb7c900" begin
+                export othertestfunc
+                include("testfile2.jl")
+            end
+        end
+        end # module
+        """)
+    end
+    open(joinpath(dn, "testfile.jl"), "w") do io
+        println(io, "testfunc() = 1")
+    end
+    open(joinpath(dn, "testfile2.jl"), "w") do io
+        println(io, "othertestfunc() = -1")
+    end
+    sleep(mtimedelay)
+    @eval using TrackRequires2
+    sleep(mtimedelay)
+    notified && @test TrackRequires2.testfunc() == 1
+    @test_throws UndefVarError TrackRequires2.othertestfunc()
+    open(joinpath(dn, "testfile.jl"), "w") do io
+        println(io, "testfunc() = 2")
+    end
+    yry()
+    notified && @test TrackRequires2.testfunc() == 2
+    @test_throws UndefVarError TrackRequires2.othertestfunc()
+    @eval using MappedArrays
+    @test TrackRequires2.othertestfunc() == -1
+    sleep(mtimedelay)
+    open(joinpath(dn, "testfile2.jl"), "w") do io
+        println(io, "othertestfunc() = -2")
+    end
+    yry()
+    notified && @test TrackRequires2.othertestfunc() == -2
+
+    rm_precompile("TrackRequires")
+    rm_precompile("TrackRequires2")
+    pop!(LOAD_PATH)
 end
 
 @testset "entr" begin
