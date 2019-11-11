@@ -592,6 +592,7 @@ function revise()
             push!(finished, (pkgdata, file))
         catch err
             push!(revision_errors, (basedir(pkgdata), file, err))
+            endswith(file, ".jl") || continue
             push!(queue_errors, (pkgdata, file))
         end
     end
@@ -606,6 +607,7 @@ function revise()
             maybe_add_includes_to_pkgdata!(pkgdata, file, includes)
         catch err
             push!(revision_errors, (basedir(pkgdata), file, err))
+            endswith(file, ".jl") || continue
             push!(queue_errors, (pkgdata, file))
         end
     end
