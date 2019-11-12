@@ -69,6 +69,7 @@ end
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr; always_rethrow=false, define=true, kwargs...)
     frame = prepare_thunk(mod, ex)
     frame === nothing && return nothing
+    define || LoweredCodeUtils.rename_framemethods!(recurse, frame)
     # Determine whether we need interpreted mode
     musteval = minimal_evaluation!(methodinfo, frame)
     if !any(musteval)
@@ -211,6 +212,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         newex = unwrap(newex)
                         newframe = prepare_thunk(newmod, newex)
                         newframe === nothing && continue
+                        define || LoweredCodeUtils.rename_framemethods!(recurse, newframe)
                         newmusteval = minimal_evaluation!(methodinfo, newframe)
                         push_expr!(methodinfo, newmod, newex)
                         value = methods_by_execution!(recurse, methodinfo, docexprs, newframe, newmusteval; define=define)
