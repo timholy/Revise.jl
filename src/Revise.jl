@@ -480,7 +480,7 @@ This is generally called via a [`Revise.Rescheduler`](@ref).
     @assert isabspath(dirname)
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
-        if !isfile(dirname)
+        if !isdir(dirname)
             with_logger(SimpleLogger(stderr)) do
                 @warn "$dirname is not an existing directory, Revise is not watching"
             end
@@ -512,12 +512,10 @@ function revise_file_queued(pkgdata::PkgData, file)
     if !isabspath(file)
         file = joinpath(basedir(pkgdata), file)
     end
-    if !isfile(file)
+    if !file_exists(file)
         sleep(0.1)  # in case git has done a delete/replace cycle
-        if !isfile(file)
-            with_logger(SimpleLogger(stderr)) do
-                @error "$file is not an existing file, Revise is not watching"
-            end
+        if !file_exists(file)
+            push!(revision_queue, (pkgdata, file0))  # process file deletions
             return false
         end
     end
@@ -538,7 +536,8 @@ function handle_deletions(pkgdata, file)
     mexsold = fi.modexsigs
     filep = normpath(joinpath(basedir(pkgdata), file))
     topmod = first(keys(mexsold))
-    mexsnew = parse_source(filep, topmod)
+    mexsnew = file_exists(filep) ? parse_source(filep, topmod) :
+              (@warn("$filep no longer exists, deleting all methods"); ModuleExprsSigs(topmod))
     if mexsnew !== nothing
         delete_missing!(mexsold, mexsnew)
     end

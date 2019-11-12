@@ -1,6 +1,14 @@
 This lists only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
+# Revise 2.3
+
+* Avoid running code that is not needed for method definitions when computing signatures.
+  This leads to improved safety and performance.
+* Switch to an O(N) algorithm for renaming frame methods to match their running variants
+* Support addition and deletion of source files
+* Improve handling and printing of errors
+
 # Revise 2.2
 
 * Revise now warns you when the source files are not synchronized with running code.
@@ -12,7 +20,7 @@ New features:
 
 * Add `entr` for re-running code any time a set of dependent files and/or
   packages change.
-  
+
 # Revise 2.0
 
 Revise 2.0 is a major rewrite with
@@ -25,37 +33,37 @@ Breaking changes:
 
 * The ability to revise code in Core.Compiler has regressed until technical
   issues are resolved in JuliaInterpreter.
-  
+
 * In principle, code that cannot be evaluated twice (e.g., library initialization)
   could be problematic.
-  
+
 New features:
 
 * Revise now (re)evaluates top-level code to extract method signatures. This allows
   Revise to identify methods defined by code, e.g., by an `@eval` block.
   Moreover, Revise can identify important changes external to the definition, e.g.,
   if
-  
+
   ```julia
   for T in (Float16, Float32, Float32)
       @eval foo(::Type{$T}) = 1
   end
   ```
-  
+
   gets revised to
-  
+
   ```julia
   for T in (Float32, Float32)
       @eval foo(::Type{$T}) = 1
   end
   ```
-  
+
   then Revise correctly deletes the `Float16` method of `foo`. ([#243])
 
 * Revise handles all method deletions before enacting any new definitions.
   As a consequence, moving methods from one file to another is more robust.
   ([#243])
-  
+
 * Revise was split, with a new package
   [CodeTracking](https://github.com/timholy/CodeTracking.jl)
   designed to be the "query" interface for Revise. ([#245])

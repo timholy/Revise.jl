@@ -12,8 +12,32 @@ function track(mod::Module; modified_files=revision_queue)
     return _track(id, modname; modified_files=modified_files)
 end
 
+const vstring = "v$(VERSION.major).$(VERSION.minor)"
+
+if !isdefined(Base.Filesystem, :splitpath)
+    function splitpath(path)
+        drv, pth = splitdrive(path)
+        parts = split(pth, Base.Filesystem.pathsep())
+        return isempty(drv) ? parts : vcat([drv], parts)
+    end
+end
+
+function inpath(path, dirs)
+    spath = splitpath(path)
+    idx = findfirst(isequal(first(dirs)), spath)
+    idx === nothing && return false
+    for i = 2:length(dirs)
+        idx += 1
+        idx <= length(spath) || return false
+        if spath[idx] == vstring
+            idx += 1
+        end
+        spath[idx] == dirs[i] || return false
+    end
+    return true
+end
+
 function _track(id, modname; modified_files=revision_queue)
-    inpath(path, dirs) = all(dir->occursin(dir, path), dirs)
     haskey(pkgdatas, id) && return nothing  # already tracked
     isbase = modname == :Base
     isstdlib = !isbase && modname ∈ stdlib_names
@@ -23,14 +47,14 @@ function _track(id, modname; modified_files=revision_queue)
             srcdir = fixpath(joinpath(juliadir, "base"))
             dirs = ["base"]
         else
-            stdlibv = joinpath("stdlib", "v$(VERSION.major).$(VERSION.minor)", String(modname))
+            stdlibv = joinpath("stdlib", vstring, String(modname))
             srcdir = fixpath(joinpath(juliadir, stdlibv))
             if !isdir(srcdir)
                 srcdir = fixpath(joinpath(juliadir, "stdlib", String(modname)))
             end
             if !isdir(srcdir)
                 # This can happen for Pkg, since it's developed out-of-tree
-                srcdir = joinpath(juliadir, "usr", "share", "julia", stdlibv)
+                srcdir = joinpath(juliadir, "usr", "share", "julia", stdlibv)  # omit fixpath deliberately
             end
             dirs = ["stdlib", String(modname)]
         end

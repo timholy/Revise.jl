@@ -306,6 +306,14 @@ function watch_files_via_dir(dirname)
         wf = watched_files[dirname]
         for (file, id) in wf.trackedfiles
             fullpath = joinpath(dirname, file)
+            if !file_exists(fullpath)
+                # File may have been deleted. But be very sure.
+                sleep(0.1)
+                if !file_exists(fullpath)
+                    push!(latestfiles, file=>id)
+                    continue
+                end
+            end
             if newer(mtime(fullpath), wf.timestamp)
                 push!(latestfiles, file=>id)
             end

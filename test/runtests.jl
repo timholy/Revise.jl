@@ -2239,7 +2239,37 @@ end
     @test NewFile.f() == 1
     @test NewFile.g() == 2
 
+    dn = joinpath(testdir, "DeletedFile", "src")
+    mkpath(dn)
+    open(joinpath(dn, "DeletedFile.jl"), "w") do io
+        println(io, """
+            module DeletedFile
+            include("g.jl")
+            f() = 1
+            end
+            """)
+    end
+    open(joinpath(dn, "g.jl"), "w") do io
+        println(io, "g() = 1")
+    end
+    sleep(mtimedelay)
+    @eval using DeletedFile
+    @test DeletedFile.f() == DeletedFile.g() == 1
+    sleep(mtimedelay)
+    open(joinpath(dn, "DeletedFile.jl"), "w") do io
+        println(io, """
+            module DeletedFile
+            f() = 1
+            end
+            """)
+    end
+    rm(joinpath(dn, "g.jl"))
+    yry()
+    @test DeletedFile.f() == 1
+    @test_throws MethodError DeletedFile.g()
+
     rm_precompile("NewFile")
+    rm_precompile("DeletedFile")
     pop!(LOAD_PATH)
 
     # # https://discourse.julialang.org/t/revise-with-requires/19347
@@ -2389,12 +2419,13 @@ GC.gc(); GC.gc()
                     catch
                     end
                 end
-                try yry() catch end
+                for i = 1:3
+                    yry()
+                    GC.gc()
+                end
             end
         end
-        if !Sys.isapple()
-            @test occursin("is not an existing directory", read(warnfile, String))
-        end
+        @test occursin("is not an existing directory", read(warnfile, String))
         rm(warnfile)
     end
 end
