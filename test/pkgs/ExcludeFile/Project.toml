@@ -1,0 +1,4 @@
+name = "ExcludeFile"
+uuid = "b915cca1-7962-4ffb-a1c7-2bbdb2d9c14c"
+authors = ["Tim Holy <tim.holy@gmail.com>"]
+version = "0.1.0"

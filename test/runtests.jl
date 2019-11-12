@@ -4,7 +4,7 @@ using Test
 
 @test isempty(detect_ambiguities(Revise, Base, Core))
 
-using Pkg, Unicode, Distributed, InteractiveUtils, REPL
+using Pkg, Unicode, Distributed, InteractiveUtils, REPL, UUIDs
 import LibGit2
 using OrderedCollections: OrderedSet
 using Test: collect_test_logs
@@ -2193,6 +2193,18 @@ end
 
     rm_precompile("DepPkg371")
     pop!(LOAD_PATH)
+end
+
+@testset "Non-jl include_dependency (issue #388)" begin
+    push!(LOAD_PATH, joinpath(@__DIR__, "pkgs"))
+    @eval using ExcludeFile
+    sleep(0.01)
+    pkgdata = Revise.pkgdatas[Base.PkgId(UUID("b915cca1-7962-4ffb-a1c7-2bbdb2d9c14c"), "ExcludeFile")]
+    files = Revise.srcfiles(pkgdata)
+    @test length(files) == 2
+    @test joinpath("src", "ExcludeFile.jl") ∈ files
+    @test joinpath("src", "f.jl") ∈ files
+    @test joinpath("deps", "dependency.txt") ∉ files
 end
 
 @testset "New files & Requires.jl" begin

@@ -41,6 +41,28 @@ function parse_cache_header(f::IO)
         totbytes -= 4 + 4 + n2 + 8
     end
     @assert totbytes == 12 "header of cache file appears to be corrupt"
+    # Determine which includes are included in the source-text cache.
+    # These are the *.jl files that we need to track.
+    srctextpos = read(f, Int64)
+    if srctextpos == 0
+        empty!(includes)
+    else
+        seek(f, srctextpos)
+        keep = Set{String}()
+        while !eof(f)
+            filenamelen = read(f, Int32)
+            filenamelen == 0 && break
+            fn = String(read(f, filenamelen))
+            len = read(f, UInt64)
+            push!(keep, fn)
+            seek(f, position(f) + len)
+        end
+        delids = Int[]
+        for (i, inc) in enumerate(includes)
+            inc[2] ∈ keep || push!(delids, i)
+        end
+        deleteat!(includes, delids)
+    end
     return modules, (includes, requires)
 end
 
