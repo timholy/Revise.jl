@@ -24,6 +24,7 @@ function unique_dirs(iter)
 end
 
 function file_exists(filename)
+    filename = normpath(filename)
     isfile(filename) && return true
     alt = get(cache_file_key, filename, nothing)
     alt === nothing && return false
