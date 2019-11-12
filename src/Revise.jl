@@ -480,7 +480,7 @@ This is generally called via a [`Revise.Rescheduler`](@ref).
     @assert isabspath(dirname)
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
-        if !isfile(dirname)
+        if !isdir(dirname)
             with_logger(SimpleLogger(stderr)) do
                 @warn "$dirname is not an existing directory, Revise is not watching"
             end

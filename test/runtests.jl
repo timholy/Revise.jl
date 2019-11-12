@@ -2407,12 +2407,13 @@ GC.gc(); GC.gc()
                     catch
                     end
                 end
-                try yry() catch end
+                for i = 1:3
+                    yry()
+                    GC.gc()
+                end
             end
         end
-        if !Sys.isapple()
-            @test occursin("is not an existing directory", read(warnfile, String))
-        end
+        @test occursin("is not an existing directory", read(warnfile, String))
         rm(warnfile)
     end
 end
