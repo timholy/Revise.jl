@@ -23,6 +23,13 @@ function unique_dirs(iter)
     return udirs
 end
 
+function file_exists(filename)
+    isfile(filename) && return true
+    alt = get(cache_file_key, filename, nothing)
+    alt === nothing && return false
+    return isfile(alt)
+end
+
 function use_compiled_modules()
     return Base.JLOptions().use_compiled_modules != 0
 end
