@@ -3,7 +3,6 @@
 There are some kinds of changes that Revise (or often, Julia itself) cannot incorporate into a running Julia session:
 
 - changes to type definitions
-- adding new source files to packages, or file/module renames
 - conflicts between variables and functions sharing the same name
 
 These kinds of changes require that you restart your Julia session.
