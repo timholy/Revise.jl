@@ -30,6 +30,8 @@ function CoreLogging.handle_message(logger::ReviseLogger, level, msg, _module,
     if level >= Info
         if group == "lowered" && haskey(kwargs, :mod) && haskey(kwargs, :ex) && haskey(kwargs, :exception)
             ex, bt = kwargs[:exception]
+            printstyled(stderr, msg; color=:red)
+            print(stderr, "\n  ")
             showerror(stderr, ex, bt; backtrace = bt!==nothing)
             println(stderr, "\nwhile evaluating\n", kwargs[:ex], "\nin module ", kwargs[:mod])
         else

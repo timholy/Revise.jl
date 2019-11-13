@@ -9,3 +9,4 @@ docs/site
 *.log
 docs/src/figures/diagram.pdf
 Manifest.toml
+src/aliasnewstruct.jl
