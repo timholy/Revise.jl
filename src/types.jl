@@ -113,6 +113,8 @@ function Base.show(io::IO, fi::FileInfo)
     print(io, ')')
 end
 
+Base.getindex(fi::FileInfo, mod::Module) = fi.modexsigs[mod]
+
 """
     PkgData(id, path, fileinfos::Dict{String,FileInfo})
 

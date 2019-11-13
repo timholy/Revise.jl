@@ -237,16 +237,20 @@ k(x) = 4
                 for (v, lv) in zip(val, logval)
                     isa(v, Expr) && (v = Revise.RelocatableExpr(v))
                     isa(lv, Expr) && (lv = Revise.RelocatableExpr(lv))
-                    @test lv == v
+                    lv == v || return false
                 end
             end
-            return nothing
+            return true
         end
         logs = filter(r->r.level==Debug && r.group=="Action", rlogger.logs)
         @test length(logs) == 9
-        cmpdiff(logs[1], "DeleteMethod"; deltainfo=(Tuple{typeof(ReviseTest.cube),Any}, MethodSummary(mcube)))
-        cmpdiff(logs[2], "DeleteMethod"; deltainfo=(Tuple{typeof(ReviseTest.Internal.mult3),Any}, MethodSummary(mmult3)))
-        cmpdiff(logs[3], "DeleteMethod"; deltainfo=(Tuple{typeof(ReviseTest.Internal.mult4),Any}, MethodSummary(delmeth)))
+        δ1 = (deltainfo=(MethodSummary(mcube),),)
+        δ2 = (deltainfo=(MethodSummary(mmult3),),)
+        δ3 = (deltainfo=(MethodSummary(delmeth),),)
+        isdelmeth(lg, δ) = cmpdiff(lg, "DeleteMethod"; δ...)
+        @test isdelmeth(logs[1], δ1) || isdelmeth(logs[1], δ2) || isdelmeth(logs[1], δ3)
+        @test isdelmeth(logs[2], δ1) || isdelmeth(logs[2], δ2) || isdelmeth(logs[2], δ3)
+        @test isdelmeth(logs[3], δ1) || isdelmeth(logs[3], δ2) || isdelmeth(logs[3], δ3)
         cmpdiff(logs[4], "Eval"; deltainfo=(ReviseTest, :(cube(x) = x^3)))
         cmpdiff(logs[5], "Eval"; deltainfo=(ReviseTest, :(fourth(x) = x^4)))
         stmpfile = Symbol(tmpfile)
@@ -645,8 +649,6 @@ end
         @test B339.f() == 2
         rm_precompile("A339")
         rm_precompile("B339")
-
-        pop!(LOAD_PATH)
     end
 
     # issue #131
@@ -721,7 +723,6 @@ end
 
         rm_precompile("CrossModA")
         rm_precompile("CrossModB")
-        pop!(LOAD_PATH)
     end
 
     # issue #36
@@ -754,7 +755,6 @@ end
         yry()
         @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 2)
         rm_precompile("ModFILE")
-        pop!(LOAD_PATH)
     end
 
     # issue #8
@@ -818,7 +818,6 @@ end
         ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Hello! "
         rm_precompile("ModDocstring")
-        pop!(LOAD_PATH)
     end
 
     @testset "Undef in docstrings" begin
@@ -887,7 +886,6 @@ end
         @test strip(get_docstring(ds)) == "mydoc"
 
         rm_precompile("MacDocstring")
-        pop!(LOAD_PATH)
     end
 
     # issue #165
@@ -962,8 +960,6 @@ end
         ci = code_typed(PerfAnnotations.check_notannot2, Tuple{Int})[1].first
         @test length(ci.code) == 2 && ci.code[1].head == :invoke
         rm_precompile("PerfAnnotations")
-
-        pop!(LOAD_PATH)
     end
 
     @testset "Revising macros" begin
@@ -1019,7 +1015,6 @@ end
         revise(MacroRevision)
         @test MacroRevision.foo("hello") == 3
         rm_precompile("MacroRevision")
-        pop!(LOAD_PATH)
     end
 
     @testset "More arg-modifying macros" begin
@@ -1072,7 +1067,6 @@ end
         @test ArgModMacros.hyper_loglikelihood((μ=1, σ=2, LΩ=3), (w̃s=4, α̃s=5, β̃s=6)) == [4,5,6]
         @test ArgModMacros.revision[] == 2
         rm_precompile("ArgModMacros")
-        pop!(LOAD_PATH)
     end
 
     @testset "Line numbers" begin
@@ -1146,7 +1140,6 @@ foo(y::Int) = y-51
             @test m.line ∈ lines
         end
         rm_precompile("LineNumberMod")
-        pop!(LOAD_PATH)
     end
 
     @testset "Line numbers in backtraces and warnings" begin
@@ -1246,7 +1239,6 @@ end
         @test Submodules.f() == 1
         @test Submodules.Sub.g() == 2
         rm_precompile("Submodules")
-        pop!(LOAD_PATH)
     end
 
     @testset "Timing (issue #341)" begin
@@ -1363,6 +1355,7 @@ f(x) = 1
 g(x::Array{T,N}, y::T) where N where T = 2
 h(x::Array{T}, y::T) where T = g(x, y)
 k(::Int; goodchoice=-1) = goodchoice
+struct Private end
 dfltargs(x::Int8, yz::Tuple{Int,Float32}=(0,1.0f0)) = x+yz[1]+yz[2]
 
 struct A end
@@ -1430,6 +1423,163 @@ end
         Revise.delete_missing!(f_old, f_new)
         m = @which ReviseTestPrivate.methspecificity(1)
         @test m.sig.parameters[2] === Integer
+    end
+
+    if isdefined(Base, :rename_binding)
+        @testset "Redefine struct" begin
+            testdir = newtestdir()
+            dn = joinpath(testdir, "RedefStruct", "src")
+            mkpath(dn)
+            open(joinpath(dn, "RedefStruct.jl"), "w") do io
+                println(io, """
+                module RedefStruct
+                abstract type ST end
+                abstract type STP{T<:Integer} end
+
+                struct A <: ST
+                    x::Int
+                end
+
+                struct B{T<:AbstractFloat}
+                    y::T
+                end
+
+                struct C{T,N,A<:AbstractArray{T}}
+                    data::A
+
+                    function C{T,N,A}(data::AbstractArray{T}) where {T,N,A}
+                        ndims(data) == N-1 || error("wrong dimensionality")
+                        return new{T,N,A}(data)
+                    end
+                end
+                C(data::AbstractArray{T,N}) where {T,N} = C{T,N+1,typeof(data)}(data)
+
+                struct D{T<:Integer} <: STP{T}   # TODO: would like to get rid of the Integer (see julia#6383)
+                    x::T
+                end
+
+                # Methods that take the type as an argument
+                fA(a::A) = true
+                fB(b::B{T}) where T<:AbstractFloat = true
+                fC(c::C{T,N}) where {T,N} = N
+                fD(d::D) = true
+                fSTP(::STP{T}) where T<:Integer = T
+
+                # Methods that call the constructor
+                gA(x) = A(x)
+                gB(::Type{T}) where T = B{float(T)}(-2)
+                gC(sz) = C(zeros(sz))
+
+                include("h.jl")
+
+                end
+                """)
+            end
+            open(joinpath(dn, "h.jl"), "w") do io
+                println(io, """
+                h(::A) = true
+                h(::B) = true
+                """)
+            end
+            sleep(mtimedelay)
+            @eval using RedefStruct
+            a = RedefStruct.gA(3)
+            @test RedefStruct.fA(a)
+            b = RedefStruct.gB(Int)
+            @test b isa RedefStruct.B{Float64}
+            @test RedefStruct.fB(b)
+            c = RedefStruct.gC((3,2))
+            @test RedefStruct.fC(c) == 3
+            @test c.data == zeros(3, 2)
+            @test_throws MethodError RedefStruct.D(5.0)
+            d = RedefStruct.D(UInt32(5))
+            @test RedefStruct.fD(d)
+            @test RedefStruct.fSTP(d) === UInt32
+            # methods in a separate (non-revised) file
+            @test RedefStruct.h(a)
+            @test RedefStruct.h(b)
+            # methods not in the module
+            createa(x) = RedefStruct.A(x)
+            createb(y) = RedefStruct.B(y)
+            createc(data) = RedefStruct.C(data)
+            aa, bb, cc = createa(22), createb(1.0), createc([1])
+            # @test_throws MethodError createb(1)   # FIXME: would like to uncomment this
+
+            sleep(mtimedelay)
+            open(joinpath(dn, "RedefStruct.jl"), "w") do io
+                println(io, """
+                module RedefStruct
+                abstract type ST end
+                abstract type STP{T<:AbstractFloat} end
+
+                struct A <: ST
+                    x::Int8
+                end
+
+                struct B{T<:Integer}
+                    z::T
+                end
+
+                struct C{T,N,A<:AbstractArray{T,N}}
+                    data::A
+
+                    function C{T,N,A}(data::AbstractArray) where {T,N,A}
+                        return new{T,N,A}(data)
+                    end
+                end
+                C(data::AbstractArray{T,N}) where {T,N} = C{T,N,typeof(data)}(data)
+
+                struct D{T<:AbstractFloat} <: STP{T}
+                    x::T
+                end
+
+                # Methods that take the type as an argument
+                fA(a::A) = true
+                fB(b::B{T}) where T<:Integer = true
+                fC(c::C{T,N}) where {T,N} = N
+                fD(d::D) = true
+                fSTP(::STP{T}) where T<:AbstractFloat = T
+
+                # Methods that call the constructor
+                gA(x) = A(x)
+                gB(::Type{T}) where T = B{unsigned(T)}(2)
+                gC(sz) = C(zeros(sz))
+
+                end
+                """)
+            end
+            yry()
+            @test_throws MethodError RedefStruct.fA(a)
+            @test_throws MethodError RedefStruct.fB(b)
+            @test_throws MethodError RedefStruct.fC(c)
+            @test_throws MethodError RedefStruct.fD(d)
+            @test_throws MethodError RedefStruct.fSTP(d)
+            @test_throws MethodError RedefStruct.h(a)
+            @test_throws MethodError RedefStruct.h(b)
+
+            a = RedefStruct.gA(3)
+            @test RedefStruct.fA(a)
+            b = RedefStruct.gB(Int)
+            @test b isa RedefStruct.B{UInt}
+            @test RedefStruct.fB(b)
+            c = RedefStruct.gC((3,2))
+            @test RedefStruct.fC(c) == 2
+            @test c.data == zeros(3, 2)
+            d = RedefStruct.D(5.0)
+            @test RedefStruct.fD(d)
+            @test RedefStruct.fSTP(d) === Float64
+            @test RedefStruct.h(a)
+            @test RedefStruct.h(b)
+
+            aa, bb, cc = createa(22), createb(1), createc([1])
+            @test RedefStruct.fA(aa)
+            @test RedefStruct.fB(bb)
+            @test RedefStruct.fC(cc) == 1
+
+            rm_precompile("RedefStruct")
+        end
+    else
+        @info "Julia version does not support RedefStruct tests"
     end
 
     @testset "Evaled toplevel" begin
@@ -1505,7 +1655,7 @@ end
             yry()
         end
         rec = logs[1]
-        @test rec.message == "Failed to revise $fn"
+        @test rec.message == "Revise failed to parse $fn"
         exc, bt = rec.kwargs[:exception]
         @test exc isa LoadError
         @test exc.file == fn
@@ -1658,7 +1808,6 @@ end
         finally
             Revise.silencefile[] = sfile
         end
-        pop!(LOAD_PATH)
     end
 
     @testset "Manual track" begin
@@ -1960,7 +2109,6 @@ end
         end
         rmprocs(allworkers[2:3]...; waitfor=10)
         rm_precompile("ReviseDistributed")
-        pop!(LOAD_PATH)
     end
 
     @testset "Git" begin
@@ -2242,7 +2390,6 @@ end
     @test DepPkg371.greet() == "Hello again!"
 
     rm_precompile("DepPkg371")
-    pop!(LOAD_PATH)
 end
 
 @testset "Non-jl include_dependency (issue #388)" begin
@@ -2255,6 +2402,7 @@ end
     @test joinpath("src", "ExcludeFile.jl") ∈ files
     @test joinpath("src", "f.jl") ∈ files
     @test joinpath("deps", "dependency.txt") ∉ files
+    pop!(LOAD_PATH)
 end
 
 @testset "New files & Requires.jl" begin
@@ -2320,7 +2468,6 @@ end
 
     rm_precompile("NewFile")
     rm_precompile("DeletedFile")
-    pop!(LOAD_PATH)
 
     # # https://discourse.julialang.org/t/revise-with-requires/19347
     # dn = joinpath(testdir, "TrackRequires", "src")
@@ -2462,13 +2609,7 @@ GC.gc(); GC.gc()
         warnfile = randtmp()
         open(warnfile, "w") do io
             redirect_stderr(io) do
-                for name in to_remove
-                    try
-                        rm(name; force=true, recursive=true)
-                        deleteat!(LOAD_PATH, findall(LOAD_PATH .== name))
-                    catch
-                    end
-                end
+                cleanup(to_remove)
                 for i = 1:3
                     yry()
                     GC.gc()

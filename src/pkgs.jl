@@ -238,7 +238,7 @@ end
 
 function read_from_cache(pkgdata::PkgData, file::AbstractString)
     fi = fileinfo(pkgdata, file)
-    filep = joinpath(basedir(pkgdata), file)
+    filep = abspath(file, pkgdata)
     if fi.cachefile == basesrccache
         # Get the original path
         filec = get(cache_file_key, filep, filep)
@@ -257,7 +257,7 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
     if isempty(fi.modexsigs) && !isempty(fi.cachefile)
         # Source was never parsed, get it from the precompile cache
         src = read_from_cache(pkgdata, file)
-        filep = joinpath(basedir(pkgdata), file)
+        filep = abspath(file, pkgdata)
         filec = get(cache_file_key, filep, filep)
         topmod = first(keys(fi.modexsigs))
         if parse_source!(fi.modexsigs, src, filec, topmod) === nothing
@@ -285,9 +285,9 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file, includes)
                 fi = FileInfo(mod)
                 push!(pkgdata.fileinfos, fi)
                 # Parse the source of the new file
-                fullfile = joinpath(basedir(pkgdata), inc)
-                if isfile(fullfile)
-                    parse_source!(fi.modexsigs, fullfile, mod)
+                filep = abspath(inc, pkgdata)
+                if isfile(filep)
+                    parse_source!(fi.modexsigs, filep, mod)
                     instantiate_sigs!(fi.modexsigs; define=true)
                 end
                 # Add to watchlist
@@ -305,16 +305,16 @@ function watch_files_via_dir(dirname)
     if stillwatching
         wf = watched_files[dirname]
         for (file, id) in wf.trackedfiles
-            fullpath = joinpath(dirname, file)
-            if !file_exists(fullpath)
+            filep = joinpath(dirname, file)
+            if !file_exists(filep)
                 # File may have been deleted. But be very sure.
                 sleep(0.1)
-                if !file_exists(fullpath)
+                if !file_exists(filep)
                     push!(latestfiles, file=>id)
                     continue
                 end
             end
-            if newer(mtime(fullpath), wf.timestamp)
+            if newer(mtime(filep), wf.timestamp)
                 push!(latestfiles, file=>id)
             end
         end
@@ -356,7 +356,7 @@ end
 function has_writable_paths(pkgdata::PkgData)
     haswritable = false
     for file in srcfiles(pkgdata)
-        haswritable |= iswritable(joinpath(basedir(pkgdata), file))
+        haswritable |= iswritable(abspath(file, pkgdata))
     end
     return haswritable
 end
@@ -438,7 +438,7 @@ function watch_manifest(mfile)
                         # Stop all associated watching tasks
                         for dir in unique_dirs(srcfiles(pkgdata))
                             @debug "Pkg" _group="unwatch" dir=dir
-                            delete!(watched_files, joinpath(basedir(pkgdata), dir))
+                            delete!(watched_files, abspath(dir, pkgdata))
                             # Note: if the file is revised, the task(s) will run one more time.
                             # However, because we've removed the directory from the watch list this will be a no-op,
                             # and then the tasks will be dropped.

@@ -10,6 +10,8 @@ function Base.relpath(filename, pkgdata::PkgData)
     return filename
 end
 
+Base.abspath(file, pkgdata::PkgData) = joinpath(basedir(pkgdata), file)
+
 function iswritable(file::AbstractString)  # note this trashes the Base definition, but we don't need it
     return uperm(stat(file)) & 0x02 != 0x00
 end

@@ -1,6 +1,6 @@
 module Revise
 
-using FileWatching, REPL, Distributed, UUIDs
+using FileWatching, REPL, Distributed, UUIDs, InteractiveUtils
 import LibGit2
 using Base: PkgId
 using Base.Meta: isexpr
@@ -13,6 +13,8 @@ using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr, prepare_thunk, spli
 using LoweredCodeUtils: next_or_nothing!, isanonymous_typedef, define_anonymous
 
 export revise, includet, entr, MethodSummary
+
+methodswithkw = hasmethod(methodswith, Tuple{Type}, (:all, :submodules))
 
 """
     Revise.watching_files[]
@@ -227,58 +229,42 @@ const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests d
 ## now this is the right strategy.) From the standpoint of CodeTracking, we should
 ## link the signature to the actual method-defining expression (either :(f() = 1) or :(g() = 2)).
 
-function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
-    with_logger(_debug_logger) do
-        for (ex, sigs) in exs_sigs_old
-            haskey(exs_sigs_new, ex) && continue
-            # ex was deleted
-            sigs === nothing && continue
-            for sig in sigs
-                ret = Base._methods_by_ftype(sig, -1, typemax(UInt))
-                success = false
-                if !isempty(ret)
-                    m = ret[end][3]::Method   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
-                    methsig = m.sig
-                    if sig <: methsig && methsig <: sig
-                        @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
-                        # Delete the corresponding methods
-                        for p in workers()
-                            try  # guard against serialization errors if the type isn't defined on the worker
-                                remotecall(Core.eval, p, Main, :(delete_method_by_sig($sig)))
-                            catch
-                            end
-                        end
-                        Base.delete_method(m)
-                        # Remove the entries from CodeTracking data
-                        delete!(CodeTracking.method_info, sig)
-                        # Remove frame from JuliaInterpreter, if applicable. Otherwise debuggers
-                        # may erroneously work with outdated code (265-like problems)
-                        if haskey(JuliaInterpreter.framedict, m)
-                            delete!(JuliaInterpreter.framedict, m)
-                        end
-                        if isdefined(m, :generator)
-                            # defensively delete all generated functions
-                            empty!(JuliaInterpreter.genframedict)
-                        end
-                        success = true
+function methods_types_to_delete!(methods, types, exs_sigs_old::ExprsSigs, exs_sigs_new::ExprsSigs)
+    for (ex, sigs) in exs_sigs_old
+        haskey(exs_sigs_new, ex) && continue
+        sigs === nothing && continue
+        for sig in sigs
+            success = false
+            if sig <: Tuple
+                # sig is a method signature
+                methoddata = Base._methods_by_ftype(sig, -1, typemax(UInt))
+                if !isempty(methoddata)
+                    m = methoddata[end][3]::Method
+                    if m.sig <: sig && sig <: m.sig  # ensure type-equality
+                        push!(methods, m)
                     end
                 end
-                if !success
-                    @debug "FailedDeletion" _group="Action" time=time() deltainfo=(sig,)
-                end
+            else
+                # sig is a type
+                push!(types, sig)
             end
         end
     end
-    return exs_sigs_old
+    return methods, types
 end
 
 const empty_exs_sigs = ExprsSigs()
-function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new)
+function methods_types_to_delete!(methods, types, mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new::ModuleExprsSigs)
     for (mod, exs_sigs_old) in mod_exs_sigs_old
         exs_sigs_new = get(mod_exs_sigs_new, mod, empty_exs_sigs)
-        delete_missing!(exs_sigs_old, exs_sigs_new)
+        methods_types_to_delete!(methods, types, exs_sigs_old, exs_sigs_new)
     end
     return mod_exs_sigs_old
+end
+
+function methods_types_to_delete!(methods, types, pkgdata::PkgData, file::AbstractString, mod_exs_sigs_new::ModuleExprsSigs)
+    fi = fileinfo(pkgdata, file)
+    return methods_types_to_delete!(methods, types, fi.modexsigs, mod_exs_sigs_new)
 end
 
 function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
@@ -292,22 +278,16 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
                 ex = rex.ex
                 # ex is not present in old
                 @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
-                # try
-                    sigs, deps, _includes = eval_with_signatures(mod, ex)  # All signatures defined by `ex`
-                    append!(includes, _includes)
-                    for p in workers()
-                        p == myid() && continue
-                        try   # don't error if `mod` isn't defined on the worker
-                            remotecall(Core.eval, p, mod, ex)
-                        catch
-                        end
+                sigs, deps, _includes = eval_with_signatures(mod, ex)  # All signatures defined by `ex`
+                append!(includes, _includes)
+                for p in workers()
+                    p == myid() && continue
+                    try   # don't error if `mod` isn't defined on the worker
+                        remotecall(Core.eval, p, mod, ex)
+                    catch
                     end
-                    storedeps(deps, rex, mod)
-                # catch err
-                #     @error "failure to evaluate changes in $mod"
-                #     showerror(stderr, err)
-                #     println_maxsize(stderr, "\n", ex; maxlines=20)
-                # end
+                end
+                storedeps(deps, rex, mod)
             else
                 sigs = exs_sigs_old[rexo]
                 # Update location info
@@ -315,19 +295,11 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
                 if sigs !== nothing && !isempty(sigs) && ln != lno
                     @debug "LineOffset" _group="Action" time=time() deltainfo=(sigs, lno=>ln)
                     for sig in sigs
-                        local methloc, methdef
-                        # try
-                            methloc, methdef = CodeTracking.method_info[sig]
-                        # catch err
-                        #     @show sig sigs
-                        #     @show CodeTracking.method_info
-                        #     rethrow(err)
-                        # end
+                        methloc, methdef = CodeTracking.method_info[sig]
                         CodeTracking.method_info[sig] = (newloc(methloc, ln, lno), methdef)
                     end
                 end
             end
-            # @show rex rexo sigs
             exs_sigs_new[rex] = sigs
         end
     end
@@ -421,15 +393,19 @@ function storedeps(deps, rex, mod)
     return rex
 end
 
-# This is intended for testing purposes, but not general use. The key problem is
+# This is intended for testing purposes, not general use. The key problem is
 # that it doesn't properly handle methods that move from one file to another; there is the
 # risk you could end up deleting the method altogether depending on the order in which you
-# process these.
+# process these. It also doesn't handle type redefinition.
 # See `revise` for the proper approach.
-function eval_revised(mod_exs_sigs_new, mod_exs_sigs_old)
-    delete_missing!(mod_exs_sigs_old, mod_exs_sigs_new)
-    eval_new!(mod_exs_sigs_new, mod_exs_sigs_old)  # note: drops `includes`
-    instantiate_sigs!(mod_exs_sigs_new)
+function eval_revised(mexsnew, mexsold)
+    methods, types = Set{Method}(), Base.IdSet{Any}()
+    methods_types_to_delete!(methods, types, mexsold, mexsnew)
+    @assert isempty(types)
+    delete_methods(methods)
+    eval_new!(mexsnew, mexsold)  # note: drops `includes`
+    instantiate_sigs!(mexsnew)
+    return mexsnew
 end
 
 """
@@ -446,7 +422,7 @@ function init_watching(pkgdata::PkgData, files)
     udirs = Set{String}()
     for file in files
         dir, basename = splitdir(file)
-        dirfull = joinpath(basedir(pkgdata), dir)
+        dirfull = abspath(dir, pkgdata)
         already_watching = haskey(watched_files, dirfull)
         already_watching || (watched_files[dirfull] = WatchList())
         push!(watched_files[dirfull], basename=>pkgdata)
@@ -458,7 +434,7 @@ function init_watching(pkgdata::PkgData, files)
         end
     end
     for dir in udirs
-        dirfull = joinpath(basedir(pkgdata), dir)
+        dirfull = abspath(dir, pkgdata)
         updatetime!(watched_files[dirfull])
         if !watching_files[]
             dwatcher = Rescheduler(revise_dir_queued, (dirfull,))
@@ -510,7 +486,7 @@ This is used only on platforms (like BSD) which cannot use [`Revise.revise_dir_q
 function revise_file_queued(pkgdata::PkgData, file)
     file0 = file
     if !isabspath(file)
-        file = joinpath(basedir(pkgdata), file)
+        file = abspath(file, pkgdata)
     end
     if !file_exists(file)
         sleep(0.1)  # in case git has done a delete/replace cycle
@@ -530,100 +506,241 @@ function revise_file_queued(pkgdata::PkgData, file)
     return false
 end
 
-# Because we delete first, we have to make sure we've parsed the file
-function handle_deletions(pkgdata, file)
+function mexs_pair(pkgdata::PkgData, file)
     fi = maybe_parse_from_cache!(pkgdata, file)
     mexsold = fi.modexsigs
-    filep = normpath(joinpath(basedir(pkgdata), file))
+    filep = normpath(abspath(file, pkgdata))
     topmod = first(keys(mexsold))
     mexsnew = file_exists(filep) ? parse_source(filep, topmod) :
               (@warn("$filep no longer exists, deleting all methods"); ModuleExprsSigs(topmod))
-    if mexsnew !== nothing
-        delete_missing!(mexsold, mexsnew)
-    end
-    return mexsnew, mexsold
+    return mexsold, mexsnew
 end
 
-"""
-    Revise.revise_file_now(pkgdata::PkgData, file)
+# If we're invalidating old types via renaming and defining new versions,
+# we will need to recreate all the methods that operate on that type. We can do that
+# by re-evaluating the corresponding method expressions.
+# Ideally, we'd always take those expressions from the current file state, because the
+# user might have made changes that support the new type definition; however, in the
+# absence of edits the best we can do is assume that the old method defintion is
+# still applicable. Thus we should re-evaluate all relevant expressions from their
+# current state.
+# A simple way to achieve this is to delete the expressions of methods that use the
+# soon-to-be-defunct type from the old expression cache, thus "forcing" a diff when
+# we get to the eval. Some of these expressions may come from files that the
+# user didn't modify, so we have to parse those files, too.
+function clear_cache_for_types!(pdfiles, methods_to_delete, types)
+    function ensure_cached(mod, file)
+        id = Base.PkgId(mod)
+        pkgdata = pkgdatas[id]
+        file = relpath(file, pkgdata)
+        key = (pkgdata, file)
+        if !haskey(pdfiles, key)
+            _, mexsnew = mexs_pair(pkgdata, file)
+            pdfiles[key] = mexsnew
+        end
+        return pkgdata
+    end
+    modfile(method::Method, ml) = method.module, whereis(method)[1]
+    modfile(@nospecialize(T::Type), ml) = (Base.unwrap_unionall(T).name.module,
+        isempty(ml) ? nothing : String(first(ml).file))
+    mikey(method::Method) = method.sig
+    mikey(@nospecialize(T::Type)) = (T = Base.unwrap_unionall(T); getfield(T.name.module, T.name.name))
+    itemsummary(method::Method) = MethodSummary(method)
+    itemsummary(@nospecialize(T::Type)) = T
+    function clearcache(@nospecialize(item), ml)
+        @debug "ClearCache" _group="Action" time=time() deltainfo=(itemsummary(item),)
+        local pkgdata
+        mod, file = modfile(item, ml)
+        if file !== nothing
+            pkgdata = ensure_cached(mod, file)
+        # else
+        #     @show item typeof(item)
+        end
+        key = mikey(item)
+        ret = get(CodeTracking.method_info, key, nothing)
+        if ret !== nothing && ret !== missing # it's possible this already got deleted from being a subtype
+            lnn, ex = ret
+            if file !== nothing
+                fi = fileinfo(pkgdata, relpath(file, pkgdata))
+                delete!(fi[mod], RelocatableExpr(ex))
+            end
+            delete!(CodeTracking.method_info, key)
+        end
+        return nothing
+    end
 
-Process revisions to `file`. This parses `file` and computes an expression-level diff
-between the current state of the file and its most recently evaluated state.
-It then deletes any removed methods and re-evaluates any changed expressions.
-Note that generally it is better to use [`revise`](@ref) as it properly handles methods
-that move from one file to another.
+    with_logger(_debug_logger) do
+        for T in types
+            if isabstracttype(T)
+                # Force re-evaluation of subtypes
+                for ST in subtypes(T)
+                    ST = Base.unwrap_unionall(ST)
+                    ST = getfield(ST.name.module, ST.name.name)
+                    ml = methods(ST)
+                    clearcache(ST, ml)
+                    for method in ml
+                        push!(methods_to_delete, method)
+                        clearcache(method, nothing)
+                    end
+                end
+            else
+                ml = methods(T)
+                clearcache(T, ml)
+                for method in ml
+                    push!(methods_to_delete, method)
+                    clearcache(method, nothing)
+                end
+            end
+            mw = methodswithkw ? methodswith(T; all=true, submodules=true, subtypes=true) : methodswith(T)
+            for method in mw
+                push!(methods_to_delete, method)
+                clearcache(method, nothing)
+            end
+        end
+    end
+    return pdfiles, methods
+end
 
-`id` must be a key in [`Revise.pkgdatas`](@ref), and `file` a key in
-`Revise.pkgdatas[id].fileinfos`.
-"""
-function revise_file_now(pkgdata::PkgData, file)
+if isdefined(Base, :rename_binding)
+    function invalidate_types(types)
+        function rename(@nospecialize(T::Type))
+            mod, oldname = T.name.module, T.name.name
+            newname = gensym(oldname)
+            @debug "RenameBinding" _group="Action" time=time() deltainfo=(oldname, newname)
+            Base.rename_binding(mod, oldname, newname)
+            for p in workers()
+                try
+                    remotecall(Core.eval, p, Base, :(rename_binding($mod, $(Expr(:quote, oldname)), $(Expr(:quote, newname)))))
+                catch
+                end
+            end
+        end
+
+        with_logger(_debug_logger) do
+            for T in types
+                if isabstracttype(T)
+                    for ST in subtypes(T)
+                        rename(Base.unwrap_unionall(ST))
+                    end
+                end
+                rename(Base.unwrap_unionall(T))
+            end
+        end
+        return nothing
+    end
+else
+    invalidate_types(types) = nothing
+end
+
+function delete_methods(methods)
+    with_logger(_debug_logger) do
+        for method in methods
+            @debug "DeleteMethod" _group="Action" time=time() deltainfo=(MethodSummary(method),)
+            # Delete the corresponding methods
+            for p in workers()
+                try  # guard against serialization errors if the type isn't defined on the worker
+                    remotecall(Core.eval, p, Main, :(delete_method_by_sig($(method.sig))))
+                catch
+                end
+            end
+            Base.delete_method(method)
+            # Remove frame from JuliaInterpreter, if applicable. Otherwise debuggers
+            # may erroneously work with outdated code (265-like problems)
+            if haskey(JuliaInterpreter.framedict, method)
+                delete!(JuliaInterpreter.framedict, method)
+            end
+            if isdefined(method, :generator)
+                # defensively delete all generated functions
+                empty!(JuliaInterpreter.genframedict)
+            end
+            # Remove the entries from CodeTracking data
+            delete!(CodeTracking.method_info, method.sig)
+        end
+    end
+    return nothing
+end
+
+# This is intended for testing
+function delete_missing!(exsold::ExprsSigs, exsnew::ExprsSigs)
+    methods, types = Set{Method}(), Base.IdSet{Any}()
+    methods_types_to_delete!(methods, types, exsold, exsnew)
+    delete_methods(methods)
+end
+
+function define_new_methods_types!(pkgdata, file, mexsnew)
     i = fileindex(pkgdata, file)
-    if i === nothing
-        println("Revise is currently tracking the following files in $(pkgdata.id): ", keys(pkgdict))
-        error(file, " is not currently being tracked.")
-    end
-    mexsnew, mexsold = handle_deletions(pkgdata, file)
-    if mexsnew != nothing
-        _, includes = eval_new!(mexsnew, mexsold)
-        fi = fileinfo(pkgdata, i)
-        pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
-        maybe_add_includes_to_pkgdata!(pkgdata, file, includes)
-    end
-    nothing
+    fi = fileinfo(pkgdata, i)
+    _, includes = eval_new!(mexsnew, fi.modexsigs)
+    pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+    delete!(queue_errors, (pkgdata, file))
+    maybe_add_includes_to_pkgdata!(pkgdata, file, includes)
+    return nothing
 end
 
 """
-    revise()
+    revise(queue=Revise.revision_queue)
 
-`eval` any changes in the revision queue. See [`Revise.revision_queue`](@ref).
+Implement any changes for the [`PkgData`](@ref)/filename pairs in `queue`.
+The default is to process all pairs in [`Revise.revision_queue`](@ref), but any input
+for which these pairs can be obtained via `for (pkgdata, file) in queue ... end` is valid.
 """
-function revise()
-    sleep(0.01)  # in case the file system isn't quite done writing out the new files
-
-    # Do all the deletion first. This ensures that a method that moved from one file to another
-    # won't get redefined first and deleted second.
-    revision_errors = []
-    finished = eltype(revision_queue)[]
-    mexsnews = ModuleExprsSigs[]
-    for (pkgdata, file) in revision_queue
+function revise(queue=revision_queue)
+    sleep(0.01)  # in case the file system isn't quite done writing out new files
+    pdfiles = OrderedDict{Tuple{PkgData,String},ModuleExprsSigs}()
+    # Step 1: file parsing
+    for (pkgdata, file) in queue
         try
-            push!(mexsnews, handle_deletions(pkgdata, file)[1])
-            push!(finished, (pkgdata, file))
+            _, mexsnew = mexs_pair(pkgdata, file)
+            pdfiles[(pkgdata, file)] = mexsnew
         catch err
-            push!(revision_errors, (basedir(pkgdata), file, err, catch_backtrace()))
+            # parsing errors
+            @error "Revise failed to parse $(abspath(file, pkgdata))" exception=(err, trim_toplevel!(catch_backtrace()))
             push!(queue_errors, (pkgdata, file))
         end
     end
-    # Do the evaluation
-    for ((pkgdata, file), mexsnew) in zip(finished, mexsnews)
-        i = fileindex(pkgdata, file)
-        fi = fileinfo(pkgdata, i)
+    # Step 2: diff computation to determine methods & types to be "deleted"
+    methods, types = Set{Method}(), Base.IdSet{Any}()
+    for ((pkgdata, file), mexsnew) in pdfiles
+        methods_types_to_delete!(methods, types, pkgdata, file, mexsnew)
+    end
+    # Step 3: force re-evaluation for methods using redefined types
+    clear_cache_for_types!(pdfiles, methods, types)
+    typenames = [Base.unwrap_unionall(T).name.name for T in types]
+    # Step 4: invalidate types
+    invalidate_types(types)
+    # Step 5: delete methods
+    delete_methods(methods)
+    # Step 6: re-evaluation
+    if !isempty(types)
+        # FIXME: this is necessary to get the tests to pass!
+        @info "Redefining the following types: $typenames"
+    end
+    for ((pkgdata, file), mexsnew) in pdfiles
         try
-            _, includes = eval_new!(mexsnew, fi.modexsigs)
-            pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+            define_new_methods_types!(pkgdata, file, mexsnew)
             delete!(queue_errors, (pkgdata, file))
-            maybe_add_includes_to_pkgdata!(pkgdata, file, includes)
         catch err
-            push!(revision_errors, (basedir(pkgdata), file, err, catch_backtrace()))
+            # Abort the remainder of the file if we error. This will reduce ridiculously
+            # long error dumps if, say, we throw an error upon type definition.
             push!(queue_errors, (pkgdata, file))
+            push!(revision_errors, (pkgdata, file, err, catch_backtrace()))
+            @error "Revise failed to evaluate $(abspath(file, pkgdata))" exception=(err, trim_toplevel!(bt))
         end
     end
+    # Step 7: clean up
     empty!(revision_queue)
-    for (basedir, file, err, bt) in revision_errors
-        fullpath = joinpath(basedir, file)
-        @error "Failed to revise $fullpath" exception=(err, trim_toplevel!(bt))
-    end
     if !isempty(queue_errors)
         io = IOBuffer()
         for (pkgdata, file) in queue_errors
-            println(io, "  ", joinpath(basedir(pkgdata), file))
+            println(io, "  ", abspath(file, pkgdata))
         end
         str = String(take!(io))
         @warn "Due to a previously reported error, the running code does not match saved version for the following files:\n$str"
     end
     tracking_Main_includes[] && queue_includes(Main)
-    nothing
+    return nothing
 end
+
 revise(backend::REPL.REPLBackend) = revise()
 
 """
@@ -761,7 +878,7 @@ function entr(f::Function, files, modules=nothing; postpone=false, pause=0.02)
             id = PkgId(mod)
             pkgdata = pkgdatas[id]
             for file in srcfiles(pkgdata)
-                push!(files, joinpath(basedir(pkgdata), file))
+                push!(files, abspath(file, pkgdata))
             end
         end
     end

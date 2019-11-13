@@ -123,11 +123,16 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
         stmt = pc_expr(frame, pc)
         if isa(stmt, Expr)
             if stmt.head == :struct_type || stmt.head == :abstract_type || stmt.head == :primitive_type
+                loc = JuliaInterpreter.codelocation(frame.framecode.src, pc)
+                lnn = frame.framecode.src.linetable[loc]
                 if define
-                    pc = step_expr!(recurse, frame, stmt, true)  # This should check that they are unchanged
+                    pc = step_expr!(recurse, frame, stmt, true)
                 else
                     pc = next_or_nothing!(frame)
                 end
+                # Add the type to "signatures"
+                T = Base.unwrap_unionall(getfield(mod, stmt.args[1]))
+                add_signature!(methodinfo, getfield(T.name.module, T.name.name), lnn)
             elseif stmt.head == :thunk && isanonymous_typedef(stmt.args[1])
                 # Anonymous functions should just be defined anew, since there does not seem to be a practical
                 # way to "find" them. They may be needed to define later signatures.

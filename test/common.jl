@@ -22,6 +22,17 @@ function newtestdir()
     return testdir
 end
 
+function cleanup(dirs)
+    for name in dirs
+        try
+            rm(name; force=true, recursive=true)
+            deleteat!(LOAD_PATH, findall(LOAD_PATH .== name))
+        catch
+        end
+    end
+end
+cleanup() = cleanup(to_remove)
+
 @static if Sys.isapple()
     const mtimedelay = 2.1  # so the defining files are old enough not to trigger mtime criterion
 else
