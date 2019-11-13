@@ -1567,21 +1567,27 @@ end
             end
             """)
         end
-        logfile = joinpath(tempdir(), randtmp()*".log")
-        Test.collect_test_logs() do
-            open(logfile, "w") do io
-                redirect_stderr(io) do
-                    includet(testfile)
-                end
-            end
+        logs, _ = Test.collect_test_logs() do
+            includet(testfile)
         end
-        str = read(logfile, String)
-        @test occursin("Test301.jl:10", str)
+        @test occursin("Test301.jl:10", logs[1].message)
 
-        @info "A BoundsError followed by a Warning is expected"
-        Revise.track("callee_error.jl"; define=true, always_rethrow=true)
+        logs, _ = Test.collect_test_logs() do
+            Revise.track("callee_error.jl"; define=true)
+        end
+        @test length(logs) == 2
+        @test occursin("(compiled mode) evaluation error", logs[1].message)
+        @test occursin("callee_error.jl:12", logs[1].message)
+        exc = logs[1].kwargs[:exception]
+        @test exc[1] isa BoundsError
+        @test length(stacktrace(exc[2])) <= 5
+        @test occursin("evaluation error", logs[2].message)
+        @test occursin("callee_error.jl:13", logs[2].message)
+        exc = logs[2].kwargs[:exception]
+        @test exc[1] isa BoundsError
+        @test length(stacktrace(exc[2])) <= 5
         m = @which CalleeError.foo(3.2f0)
-        @test whereis(m)[2] == 14
+        @test whereis(m)[2] == 15
     end
 
     @testset "get_def" begin

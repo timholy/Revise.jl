@@ -152,7 +152,7 @@ function trim_toplevel!(bt)
     for (i, t) in enumerate(bt)
         sfs = StackTraces.lookup(t)
         for sf in sfs
-            if sf.func === Symbol("top-level scope")
+            if sf.func === Symbol("top-level scope") || (isa(sf.linfo, Core.MethodInstance) && isa(sf.linfo.def, Method) && sf.linfo.def.module ∈ (JuliaInterpreter, LoweredCodeUtils, Revise))
                 itoplevel = i
                 break
             end
