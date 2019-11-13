@@ -590,7 +590,7 @@ function revise()
             push!(mexsnews, handle_deletions(pkgdata, file)[1])
             push!(finished, (pkgdata, file))
         catch err
-            push!(revision_errors, (basedir(pkgdata), file, err))
+            push!(revision_errors, (basedir(pkgdata), file, err, catch_backtrace()))
             push!(queue_errors, (pkgdata, file))
         end
     end
@@ -604,14 +604,14 @@ function revise()
             delete!(queue_errors, (pkgdata, file))
             maybe_add_includes_to_pkgdata!(pkgdata, file, includes)
         catch err
-            push!(revision_errors, (basedir(pkgdata), file, err))
+            push!(revision_errors, (basedir(pkgdata), file, err, catch_backtrace()))
             push!(queue_errors, (pkgdata, file))
         end
     end
     empty!(revision_queue)
-    for (basedir, file, err) in revision_errors
+    for (basedir, file, err, bt) in revision_errors
         fullpath = joinpath(basedir, file)
-        @warn "Failed to revise $fullpath: $err"
+        @error "Failed to revise $fullpath" exception=(err, trim_toplevel!(bt))
     end
     if !isempty(queue_errors)
         io = IOBuffer()

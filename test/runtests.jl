@@ -1482,7 +1482,8 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "RevisionErrors", "src")
         mkpath(dn)
-        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
+        fn = joinpath(dn, "RevisionErrors.jl")
+        open(fn, "w") do io
             println(io, """
             module RevisionErrors
             f(x) = 1
@@ -1493,7 +1494,7 @@ end
         @eval using RevisionErrors
         sleep(mtimedelay)
         @test RevisionErrors.f(0) == 1
-        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
+        open(fn, "w") do io
             println(io, """
             module RevisionErrors
             f{x) = 2
@@ -1504,8 +1505,14 @@ end
             yry()
         end
         rec = logs[1]
-        @test startswith(rec.message, "Failed to revise")
-        @test occursin("missing comma", rec.message)
+        @test rec.message == "Failed to revise $fn"
+        exc, bt = rec.kwargs[:exception]
+        @test exc isa LoadError
+        @test exc.file == fn
+        @test exc.line == 2
+        @test occursin("missing comma or }", exc.error)
+        st = stacktrace(bt)
+        @test length(st) == 1
 
         logs, _ = Test.collect_test_logs() do
             yry()
