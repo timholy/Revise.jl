@@ -40,7 +40,9 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
     ex = Base.parse_input_line(src; filename=filename)
     ex === nothing && return mod_exprs_sigs
     if isexpr(ex, :error) || isexpr(ex, :incomplete)
-        throw(LoadError(filename, 0, ex.args[1]))  # would be nice to get the line number
+        prevex, pos = last_good_position(src)
+        ln = count(isequal('\n'), SubString(src, 1, pos)) + 1
+        throw(LoadError(filename, ln, ex.args[1]))
     end
     modexs, docexprs = Tuple{Module,Expr}[], DocExprs()
     JuliaInterpreter.split_expressions!(modexs, docexprs, mod, ex; extract_docexprs=true)
@@ -65,4 +67,16 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
         end
     end
     return mod_exprs_sigs
+end
+
+function last_good_position(str)
+    ex, pos, n = nothing, 1, length(str)
+    while pos < n
+        try
+            ex, pos = Meta.parse(str, pos; greedy=false)
+        catch
+            return ex, pos
+        end
+    end
+    error("expected an error, finished without one")
 end
