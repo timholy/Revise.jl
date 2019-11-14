@@ -1,27 +1,33 @@
-This lists only major changes, and does not include bug fixes,
+# News
+
+This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
-# Revise 2.3
+## Revise 2.3
 
-* Avoid running code that is not needed for method definitions when computing signatures.
-  This leads to improved safety and performance.
-* Switch to an O(N) algorithm for renaming frame methods to match their running variants
-* Support addition and deletion of source files
-* Improve handling and printing of errors
+* When running code (e.g., with `includet`), execute lines that "do work" rather than
+  "define methods" using the compiler. The greatly improves performance in
+  work-intensive cases.
+* When analyzing code to compute method signatures, omit expressions that don't contribute
+  to signatures. By skipping initialization code this leads to improved safety and
+  performance.
+* Switch to an O(N) algorithm for renaming frame methods to match their running variants.
+* Support addition and deletion of source files.
+* Improve handling and printing of errors.
 
-# Revise 2.2
+## Revise 2.2
 
 * Revise now warns you when the source files are not synchronized with running code.
   (https://github.com/timholy/Revise.jl/issues/317)
 
-# Revise 2.1
+## Revise 2.1
 
 New features:
 
 * Add `entr` for re-running code any time a set of dependent files and/or
   packages change.
 
-# Revise 2.0
+## Revise 2.0
 
 Revise 2.0 is a major rewrite with
 [JuliaInterpeter](https://github.com/JuliaDebug/JuliaInterpreter.jl)
@@ -71,7 +77,7 @@ New features:
 * Line numbers in method lists are corrected for moving code (requires Julia 1.2 or higher)
   ([#278])
 
-# Revise 1.0 (changes compared to the 0.7 branch)
+## Revise 1.0 (changes compared to the 0.7 branch)
 
 Breaking changes:
 
