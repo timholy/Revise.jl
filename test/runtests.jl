@@ -1822,6 +1822,43 @@ end
         end
         yry()
         @test p() == 0
+
+        # Non-included dependency (issue #316)
+        testdir = newtestdir()
+        dn = joinpath(testdir, "LikePlots", "src"); mkpath(dn)
+        open(joinpath(dn, "LikePlots.jl"), "w") do io
+            println(io, """
+            module LikePlots
+            plot() = 0
+            backend() = include(joinpath(@__DIR__, "backends/backend.jl"))
+            end
+            """)
+        end
+        sd = joinpath(dn, "backends"); mkpath(sd)
+        open(joinpath(sd, "backend.jl"), "w") do io
+            println(io, """
+            f() = 1
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using LikePlots
+        @test LikePlots.plot() == 0
+        @test_throws UndefVarError LikePlots.f()
+        sleep(mtimedelay)
+        Revise.track(LikePlots, joinpath(sd, "backend.jl"))
+        LikePlots.backend()
+        @test LikePlots.f() == 1
+        sleep(2*mtimedelay)
+        open(joinpath(sd, "backend.jl"), "w") do io
+            println(io, """
+            f() = 2
+            """)
+        end
+        yry()
+        @test LikePlots.f() == 2
+        @test joinpath("src", "backends", "backend.jl") ∈ Revise.srcfiles(Revise.pkgdatas[Base.PkgId(LikePlots)])
+
+        rm_precompile("LikePlots")
     end
 
     @testset "Auto-track user scripts" begin
