@@ -680,7 +680,7 @@ function track(mod::Module, file::AbstractString; kwargs...)
         if !haskey(CodeTracking._pkgfiles, id)
             CodeTracking._pkgfiles[id] = pkgdata.info
         end
-        push!(pkgdata, file=>FileInfo(fm))
+        push!(pkgdata, relpath(file, pkgdata)=>FileInfo(fm))
         init_watching(pkgdata, (file,))
     end
 end
