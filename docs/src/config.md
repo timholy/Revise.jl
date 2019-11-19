@@ -10,6 +10,7 @@ atreplinit() do repl
     try
         @eval using Pkg
         haskey(Pkg.installed(), "Revise") || @eval Pkg.add("Revise")
+    catch
     end
     try
         @eval using Revise
