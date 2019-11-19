@@ -3,6 +3,7 @@
     try
         @eval using Pkg
         haskey(Pkg.installed(), &quot;Revise&quot;) || @eval Pkg.add(&quot;Revise&quot;)
+    catch
     end
     try
         @eval using Revise
