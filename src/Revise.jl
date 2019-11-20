@@ -68,6 +68,7 @@ include("utils.jl")
 include("parsing.jl")
 include("backedges.jl")
 include("lowered.jl")
+include("traverse_methods.jl")
 include("pkgs.jl")
 include("git.jl")
 include("recipes.jl")
@@ -528,8 +529,14 @@ end
 # soon-to-be-defunct type from the old expression cache, thus "forcing" a diff when
 # we get to the eval. Some of these expressions may come from files that the
 # user didn't modify, so we have to parse those files, too.
-function clear_cache_for_types!(pdfiles, methods_to_delete, types)
-    function ensure_cached(mod, file)
+function add_caches!(pdfiles, methods, newmethods)
+    modfiles = Set{Tuple{Module, String}}()
+    for method in newmethods
+        mod, file = method.module, whereis(method)[1]
+        push!(modfiles, (mod, file))
+        push!(methods, method)
+    end
+    for (mod, file) in modfiles
         id = Base.PkgId(mod)
         pkgdata = pkgdatas[id]
         file = relpath(file, pkgdata)
@@ -538,71 +545,42 @@ function clear_cache_for_types!(pdfiles, methods_to_delete, types)
             _, mexsnew = mexs_pair(pkgdata, file)
             pdfiles[key] = mexsnew
         end
-        return pkgdata
-    end
-    modfile(method::Method, ml) = method.module, whereis(method)[1]
-    modfile(@nospecialize(T::Type), ml) = (Base.unwrap_unionall(T).name.module,
-        isempty(ml) ? nothing : String(first(ml).file))
-    mikey(method::Method) = method.sig
-    mikey(@nospecialize(T::Type)) = (T = Base.unwrap_unionall(T); getfield(T.name.module, T.name.name))
-    itemsummary(method::Method) = MethodSummary(method)
-    itemsummary(@nospecialize(T::Type)) = T
-    function clearcache(@nospecialize(item), ml)
-        @debug "ClearCache" _group="Action" time=time() deltainfo=(itemsummary(item),)
-        local pkgdata
-        mod, file = modfile(item, ml)
-        if file !== nothing
-            pkgdata = ensure_cached(mod, file)
-        # else
-        #     @show item typeof(item)
-        end
-        key = mikey(item)
-        ret = get(CodeTracking.method_info, key, nothing)
-        if ret !== nothing && ret !== missing # it's possible this already got deleted from being a subtype
-            lnn, ex = ret
-            if file !== nothing
-                fi = fileinfo(pkgdata, relpath(file, pkgdata))
-                delete!(fi[mod], RelocatableExpr(ex))
-            end
-            delete!(CodeTracking.method_info, key)
-        end
-        return nothing
-    end
-
-    with_logger(_debug_logger) do
-        for T in types
-            if isabstracttype(T)
-                # Force re-evaluation of subtypes
-                for ST in subtypes(T)
-                    ST = Base.unwrap_unionall(ST)
-                    ST = getfield(ST.name.module, ST.name.name)
-                    ml = methods(ST)
-                    clearcache(ST, ml)
-                    for method in ml
-                        push!(methods_to_delete, method)
-                        clearcache(method, nothing)
-                    end
-                end
-            else
-                ml = methods(T)
-                clearcache(T, ml)
-                for method in ml
-                    push!(methods_to_delete, method)
-                    clearcache(method, nothing)
-                end
-            end
-            mw = methodswithkw ? methodswith(T; all=true, submodules=true, subtypes=true) : methodswith(T)
-            for method in mw
-                push!(methods_to_delete, method)
-                clearcache(method, nothing)
-            end
-        end
     end
     return pdfiles, methods
 end
 
+function clear_cache_for_types(methods)
+    # Organize methods by module, to reduce the amount of Dict-lookup later
+    methbymod = Dict{Module, Vector{Method}}()
+    for method in methods
+        key = method.module
+        if !haskey(methbymod, key)
+            methbymod[key] = Method[]
+        end
+        push!(methbymod[key], method)
+    end
+    with_logger(_debug_logger) do
+        for (mod, methodlist) in methbymod
+            id = Base.PkgId(mod)
+            pkgdata = pkgdatas[id]
+            for method in methodlist
+                lkup = get(CodeTracking.method_info, method.sig, nothing)
+                if lkup !== nothing && !ismissing(lkup)
+                    @debug "ClearCache" _group="Action" time=time() deltainfo=(MethodSummary(method),)
+                    lnn, ex = lkup
+                    fi = fileinfo(pkgdata, relpath(String(lnn.file), pkgdata))
+                    delete!(fi[mod], RelocatableExpr(ex))
+                    delete!(CodeTracking.method_info, method.sig)
+                end
+            end
+        end
+    end
+    return nothing
+end
+
 if isdefined(Base, :rename_binding)
     function invalidate_types(types)
+        isempty(types) && return false
         function rename(@nospecialize(T::Type))
             mod, oldname = T.name.module, T.name.name
             newname = gensym(oldname)
@@ -626,10 +604,10 @@ if isdefined(Base, :rename_binding)
                 rename(Base.unwrap_unionall(T))
             end
         end
-        return nothing
+        return true
     end
 else
-    invalidate_types(types) = nothing
+    invalidate_types(types) = false
 end
 
 function delete_methods(methods)
@@ -703,15 +681,26 @@ function revise(queue=revision_queue)
     for ((pkgdata, file), mexsnew) in pdfiles
         methods_types_to_delete!(methods, types, pkgdata, file, mexsnew)
     end
-    # Step 3: force re-evaluation for methods using redefined types
-    clear_cache_for_types!(pdfiles, methods, types)
+    # Step 3: traverse all existing methods, looking for ones that are either
+    # restricted to one of `types` or specialized for one of `types`
+    if !isempty(types) && isdefined(Base, :rename_binding)
+        newmethods = Set{Method}()
+        action(m::Method) = push!(newmethods, m)
+        action(ci::Core.CodeInstance) = ci.max_world = 0
+        predicate(obj) = typesmatch(types, obj)
+        traverse(predicate, action)  # FIXME: set ci.max_world on workers
+        # Ensure that we have the expression caches for all new methods
+        add_caches!(pdfiles, methods, newmethods)
+        # Clear the corresponding definitions
+        clear_cache_for_types(newmethods)
+    end
     typenames = [Base.unwrap_unionall(T).name.name for T in types]
     # Step 4: invalidate types
     invalidate_types(types)
     # Step 5: delete methods
     delete_methods(methods)
     # Step 6: re-evaluation
-    if !isempty(types)
+    if !isempty(types) && isdefined(Base, :rename_binding)
         # FIXME: this is necessary to get the tests to pass!
         @info "Redefining the following types: $typenames"
     end

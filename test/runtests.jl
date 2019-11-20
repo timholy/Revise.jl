@@ -1426,7 +1426,7 @@ end
     end
 
     if isdefined(Base, :rename_binding)
-        @testset "Redefine struct" begin
+        @testset "Redefine types" begin
             testdir = newtestdir()
             dn = joinpath(testdir, "RedefStruct", "src")
             mkpath(dn)
@@ -1454,6 +1454,8 @@ end
                 end
                 C(data::AbstractArray{T,N}) where {T,N} = C{T,N+1,typeof(data)}(data)
 
+                Base.:(==)(a::C, b::C) = typeof(a) == typeof(b) && a.data == b.data
+
                 struct D{T<:Integer} <: STP{T}   # TODO: would like to get rid of the Integer (see julia#6383)
                     x::T
                 end
@@ -1469,6 +1471,15 @@ end
                 gA(x) = A(x)
                 gB(::Type{T}) where T = B{float(T)}(-2)
                 gC(sz) = C(zeros(sz))
+
+                # Methods that use the type purely internally
+                function internal(val)
+                    x = Any[A(val), rand(), rand(Float32)]
+                    for item in x
+                        isa(item, A) && return 1
+                    end
+                    return -1
+                end
 
                 include("h.jl")
 
@@ -1495,15 +1506,34 @@ end
             d = RedefStruct.D(UInt32(5))
             @test RedefStruct.fD(d)
             @test RedefStruct.fSTP(d) === UInt32
+            @test RedefStruct.internal(1) == 1
+            # Ensure internal has cached inference, and check the world-age at which it
+            # was compiled (later we'll check that it gets recompiled)
+            m = @which RedefStruct.internal(1)
+            ci = m.specializations.func.cache
+            if ci.inferred === nothing
+                @warn "internal was not cached, adding manually"
+                ci.inferred = code_typed(RedefStruct.internal, (Int,))[1].first
+            end
+            wa = ci.min_world
             # methods in a separate (non-revised) file
             @test RedefStruct.h(a)
             @test RedefStruct.h(b)
             # methods not in the module
-            createa(x) = RedefStruct.A(x)
-            createb(y) = RedefStruct.B(y)
-            createc(data) = RedefStruct.C(data)
-            aa, bb, cc = createa(22), createb(1.0), createc([1])
-            # @test_throws MethodError createb(1)   # FIXME: would like to uncomment this
+            @eval module RSCreate
+                using RedefStruct
+                createa(x) = RedefStruct.A(x)
+                createb(y) = RedefStruct.B(y)
+                createc(data) = RedefStruct.C(data)
+                end
+            aa, bb, cc = RSCreate.createa(22), RSCreate.createb(1.0), RSCreate.createc([1])
+            @test_throws MethodError RSCreate.createb(1)
+            m = @which RSCreate.createb(1.0)
+            ci = m.specializations.func.cache
+            if ci.inferred === nothing
+                @warn "createb was not cached, adding manually"
+                ci.inferred = code_typed(RSCreate.createb, (Int,))[1].first
+            end
 
             sleep(mtimedelay)
             open(joinpath(dn, "RedefStruct.jl"), "w") do io
@@ -1545,6 +1575,15 @@ end
                 gB(::Type{T}) where T = B{unsigned(T)}(2)
                 gC(sz) = C(zeros(sz))
 
+                # Methods that use the type purely internally
+                function internal(val)
+                    x = Any[A(val), rand(), rand(Float32)]
+                    for item in x
+                        isa(item, A) && return 1
+                    end
+                    return -1
+                end
+
                 end
                 """)
             end
@@ -1570,8 +1609,13 @@ end
             @test RedefStruct.fSTP(d) === Float64
             @test RedefStruct.h(a)
             @test RedefStruct.h(b)
+            @test RedefStruct.internal(1) == 1
+            # Check that `internal` got recompiled
+            m = @which RedefStruct.internal(1)
+            ci = m.specializations.func.cache
+            @test ci.min_world > wa
 
-            aa, bb, cc = createa(22), createb(1), createc([1])
+            aa, bb, cc = RSCreate.createa(22), RSCreate.createb(1), RSCreate.createc([1])
             @test RedefStruct.fA(aa)
             @test RedefStruct.fB(bb)
             @test RedefStruct.fC(cc) == 1
