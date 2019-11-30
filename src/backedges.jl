@@ -18,7 +18,7 @@ mutable struct SlotDep
 end
 function SlotDep(i::Int, stmt, slotdeps)
     deps = add_deps!(Int[], stmt, slotdeps)
-    SlotDep(isssa(stmt) ? 0 : i, deps)
+    SlotDep(i, deps)
 end
 function add_deps!(linedeps, stmt, slotdeps)
     if isssa(stmt)
