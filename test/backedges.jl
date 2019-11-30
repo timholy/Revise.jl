@@ -30,4 +30,32 @@ end
     @test !isdefined(BackEdgesTest, :planetdiameters)
     @test length(Revise.moduledeps[BackEdgesTest]) == 1
     @test Revise.moduledeps[BackEdgesTest][:flag] == Set([(BackEdgesTest, first(Iterators.drop(mexs[BackEdgesTest], 1))[1])])
+
+    # issue #399
+    src = """
+    for jy in ("j","y"), nu in (0,1)
+        jynu = Expr(:quote, Symbol(jy,nu))
+        jynuf = Expr(:quote, Symbol(jy,nu,"f"))
+        bjynu = Symbol("bessel",jy,nu)
+        if jy == "y"
+            @eval begin
+                \$bjynu(x::Float64) = nan_dom_err(ccall((\$jynu,libm),  Float64, (Float64,), x), x)
+                \$bjynu(x::Float32) = nan_dom_err(ccall((\$jynuf,libm), Float32, (Float32,), x), x)
+                \$bjynu(x::Float16) = Float16(\$bjynu(Float32(x)))
+            end
+        else
+            @eval begin
+                \$bjynu(x::Float64) = ccall((\$jynu,libm),  Float64, (Float64,), x)
+                \$bjynu(x::Float32) = ccall((\$jynuf,libm), Float32, (Float32,), x)
+                \$bjynu(x::Float16) = Float16(\$bjynu(Float32(x)))
+            end
+        end
+        @eval begin
+            \$bjynu(x::Real) = \$bjynu(float(x))
+            \$bjynu(x::Complex) = \$(Symbol("bessel",jy))(\$nu,x)
+        end
+    end
+    """
+    ex = Meta.parse(src)
+    @test Revise.methods_by_execution(BackEdgesTest, ex) isa Tuple
 end
