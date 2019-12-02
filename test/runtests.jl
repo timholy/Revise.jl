@@ -1912,7 +1912,10 @@ end
     end
 
     @testset "Distributed" begin
+        # The d31474 test below is from
+        # https://discourse.julialang.org/t/how-do-i-make-revise-jl-work-in-multiple-workers-environment/31474
         newprocs = addprocs(2)
+        newproc = newprocs[end]
         Revise.init_worker.(newprocs)
         allworkers = [myid(); newprocs]
         dirname = randtmp()
@@ -1925,12 +1928,20 @@ end
         modname = "ReviseDistributed"
         dn = joinpath(dirname, modname, "src")
         mkpath(dn)
+        s31474 = """
+        function d31474()
+            r = @spawnat $newproc sqrt(4)
+            fetch(r)
+        end
+        """
         open(joinpath(dn, modname*".jl"), "w") do io
             println(io, """
 module ReviseDistributed
+using Distributed
 
 f() = π
 g(::Int) = 0
+$s31474
 
 end
 """)
@@ -1943,11 +1954,19 @@ end
             @test remotecall_fetch(ReviseDistributed.f, p)    == π
             @test remotecall_fetch(ReviseDistributed.g, p, 1) == 0
         end
+        @test ReviseDistributed.d31474() == 2.0
+        s31474 = VERSION < v"1.3.0" ? s31474 : """
+        function d31474()
+            r = @spawnat $newproc sqrt(9)
+            fetch(r)
+        end
+        """
         open(joinpath(dn, modname*".jl"), "w") do io
             println(io, """
 module ReviseDistributed
 
 f() = 3.0
+$s31474
 
 end
 """)
@@ -1958,6 +1977,7 @@ end
             @test remotecall_fetch(ReviseDistributed.f, p) == 3.0
             @test_throws RemoteException remotecall_fetch(ReviseDistributed.g, p, 1)
         end
+        @test ReviseDistributed.d31474() == (VERSION < v"1.3.0" ? 2.0 : 3.0)
         rmprocs(allworkers[2:3]...; waitfor=10)
         rm_precompile("ReviseDistributed")
         pop!(LOAD_PATH)
