@@ -62,13 +62,15 @@ end
 function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     methodinfo = MethodInfo()
     docexprs = Dict{Module,Vector{Expr}}()
-    value = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; kwargs...)
-    return methodinfo, docexprs
+    value, frame = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; kwargs...)
+    return methodinfo, docexprs, frame
 end
 
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr; always_rethrow=false, define=true, kwargs...)
-    frame = prepare_thunk(mod, ex)
-    frame === nothing && return nothing
+    lwr = Meta.lower(mod, ex)
+    isa(lwr, Expr) || return nothing, nothing
+    frame = prepare_thunk(mod, copy(lwr), true)
+    frame === nothing && return nothing, nothing
     define || LoweredCodeUtils.rename_framemethods!(recurse, frame)
     # Determine whether we need interpreted mode
     musteval = minimal_evaluation!(methodinfo, frame)
@@ -105,7 +107,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
         end
         foreach(enable, active_bp_refs)
     end
-    return ret
+    return ret, lwr
 end
 
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame, musteval; define=true, skip_include=true)

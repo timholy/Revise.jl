@@ -293,12 +293,15 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
                 # ex is not present in old
                 @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
                 # try
-                    sigs, deps, _includes = eval_with_signatures(mod, ex)  # All signatures defined by `ex`
+                    sigs, deps, _includes, thunk = eval_with_signatures(mod, ex)  # All signatures defined by `ex`
                     append!(includes, _includes)
+                    if VERSION < v"1.3.0" || !isexpr(thunk, :thunk)
+                        thunk = ex
+                    end
                     for p in workers()
                         p == myid() && continue
                         try   # don't error if `mod` isn't defined on the worker
-                            remotecall(Core.eval, p, mod, ex)
+                            remotecall(Core.eval, p, mod, thunk)
                         catch
                         end
                     end
@@ -389,8 +392,8 @@ end
 function eval_with_signatures(mod, ex::Expr; define=true, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
     docexprs = Dict{Module,Vector{Expr}}()
-    methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define, kwargs...)
-    return methodinfo.allsigs, methodinfo.deps, methodinfo.includes
+    _, frame = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define, kwargs...)
+    return methodinfo.allsigs, methodinfo.deps, methodinfo.includes, frame
 end
 
 function instantiate_sigs!(modexsigs::ModuleExprsSigs; define=false, kwargs...)
