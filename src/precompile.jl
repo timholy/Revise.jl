@@ -6,30 +6,28 @@ function _precompile_()
     @assert precompile(Tuple{Rescheduler{typeof(watch_manifest), String}})
     @assert precompile(Tuple{Rescheduler{typeof(revise_dir_queued),Tuple{String}}})
     @assert precompile(Tuple{typeof(revise)})
+    @assert precompile(Tuple{typeof(includet), String})
+    # setindex! doesn't fully precompile, but it's still beneficial to do it
+    # (it shaves off a bit of the time)
+    # See https://github.com/JuliaLang/julia/pull/31466
     @assert precompile(Tuple{typeof(setindex!), ExprsSigs, Nothing, RelocatableExpr})
     @assert precompile(Tuple{typeof(setindex!), ExprsSigs, Vector{Any}, RelocatableExpr})
     @assert precompile(Tuple{typeof(setindex!), ModuleExprsSigs, ExprsSigs, Module})
     @assert precompile(Tuple{typeof(setindex!), Dict{PkgId,PkgData}, PkgData, PkgId})
     @assert precompile(Tuple{typeof(setindex!), Dict{String,WatchList}, WatchList, String})
-    @assert precompile(Tuple{typeof(methods_by_execution!), Any, CodeTrackingMethodInfo, Dict{Module,Vector{Expr}}, Module, Expr})
-    # @assert precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)), NamedTuple{(:define,),Tuple{Bool}}, typeof(Revise.methods_by_execution!), Function, CodeTrackingMethodInfo, Dict{Module,Vector{Expr}}, Frame})
-    # m = bodymethod(which(methods_by_execution!, (Function, CodeTrackingMethodInfo, Dict{Module,Vector{Expr}}, Module, Expr)))
-    # @assert precompile(getfield(Revise, m.name), (Bool, typeof(methods_by_execution!), Function, CodeTrackingMethodInfo, Dict{Module,Vector{Expr}}, Module, Expr))
-    @assert precompile(Tuple{typeof(get_def), Method})
-    # precompile(Tuple{typeof(run_backend), REPL.REPLBackend})
-    # precompile(Tuple{typeof(Revise._watch_package), Base.PkgId})
-    # precompile(Tuple{typeof(Revise.watch_package), Base.PkgId})
-    # precompile(Tuple{typeof(Revise.sig_type_exprs), Module, Expr})
 
-    # # Here are other methods that require >10ms for inference but which do
-    # # not successfully precompile
-    # for dct in (watched_files, pkgdatas)
-    #     precompile(Tuple{typeof(setindex!), typeof(dct), valtype(dct), keytype(dct)})
-    # end
-    # precompile(Tuple{typeof(setindex!), ModuleExprsSigs, FMMaps, Module})
-    # precompile(Tuple{typeof(setindex!), Dict{String,FileInfo}, FileInfo, String})
-    # precompile(Tuple{typeof(watch_file), String, Int})
-    # precompile(Tuple{typeof(empty!), Dict{Tuple{PkgData,String},Nothing}})
+    @assert precompile(Tuple{typeof(methods_by_execution!), Any, CodeTrackingMethodInfo, Dict{Module,Vector{Expr}}, Module, Expr})
+    @assert precompile(Tuple{typeof(get_def), Method})
+    @assert precompile(Tuple{typeof(parse_pkg_files), PkgId})
+    @assert precompile(Tuple{typeof(Base.stale_cachefile), String, String})
+    @assert precompile(Tuple{typeof(filter_valid_cachefiles), String, Vector{String}})
+    @assert precompile(Tuple{typeof(pkg_fileinfo), PkgId})
+    @assert precompile(Tuple{typeof(push!), WatchList, Pair{String,PkgId}})
+    @assert precompile(Tuple{typeof(init_watching), PkgData, Vector{String}})
+    @assert precompile(Tuple{Type{ModuleExprsSigs}, Module})
+    @assert precompile(Tuple{Type{FileInfo}, Module, String})
+    @assert precompile(Tuple{Type{PkgData}, PkgId})
+    @assert precompile(Tuple{typeof(Base._deleteat!), Vector{Tuple{Module,String,Float64}}, Vector{Int}})
 
     return nothing
 end

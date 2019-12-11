@@ -76,13 +76,26 @@ function parse_cache_header(cachefile::String)
     end
 end
 
+# This is an implementation of
+#   filter(path->Base.stale_cachefile(sourcepath, path) !== true, paths)
+# that's easier to precompile. (This is a hotspot in loading Revise.)
+function filter_valid_cachefiles(sourcepath, paths)
+    fpaths = String[]
+    for path in paths
+        if Base.stale_cachefile(sourcepath, path) !== true
+            push!(fpaths, path)
+        end
+    end
+    return fpaths
+end
+
 function pkg_fileinfo(id::PkgId)
     uuid, name = id.uuid, id.name
     # Try to find the matching cache file
     paths = Base.find_all_in_cache_path(id)
     sourcepath = Base.locate_package(id)
     if length(paths) > 1
-        fpaths = filter(path->Base.stale_cachefile(sourcepath, path) !== true, paths)
+        fpaths = filter_valid_cachefiles(sourcepath, paths)
         if isempty(fpaths)
             # Work-around for #371 (broken dependency prevents tracking):
             # find the most recent cache file. Presumably this is the one built
