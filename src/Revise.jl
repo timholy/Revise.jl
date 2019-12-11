@@ -677,6 +677,12 @@ function track(mod::Module, file::AbstractString; kwargs...)
         instantiate_sigs!(fm; kwargs...)
         id = PkgId(mod)
         if !haskey(pkgdatas, id)
+            # Wait a bit to see if `mod` gets initialized
+            # This can happen if the module's __init__ function
+            # calls `track`, e.g., via a @require. Ref issue #403.
+            sleep(0.1)
+        end
+        if !haskey(pkgdatas, id)
             pkgdatas[id] = PkgData(id, pathof(mod))
         end
         pkgdata = pkgdatas[id]
