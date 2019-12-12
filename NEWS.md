@@ -3,6 +3,11 @@
 This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
+## Revise 2.4
+
+* Automatic tracking of methods and included files in `@require` blocks
+  (needs Requires 1.0.0 or higher)
+
 ## Revise 2.3
 
 * When running code (e.g., with `includet`), execute lines that "do work" rather than
