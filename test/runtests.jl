@@ -1504,22 +1504,38 @@ end
         logs, _ = Test.collect_test_logs() do
             yry()
         end
-        rec = logs[1]
-        @test rec.message == "Failed to revise $fn"
-        exc, bt = rec.kwargs[:exception]
-        @test exc isa LoadError
-        @test exc.file == fn
-        @test exc.line == 2
-        @test occursin("missing comma or }", exc.error)
-        st = stacktrace(bt)
-        @test length(st) == 1
 
+        function check_revision_error(rec)
+            @test rec.message == "Failed to revise $fn"
+            exc, bt = rec.kwargs[:exception]
+            @test exc isa LoadError
+            @test exc.file == fn
+            @test exc.line == 2
+            @test occursin("missing comma or }", exc.error)
+            st = stacktrace(bt)
+            @test length(st) == 1
+        end
+
+        # test errors are reported the the first time
+        check_revision_error(logs[1])
         logs, _ = Test.collect_test_logs() do
             yry()
         end
         rec = logs[1]
         @test startswith(rec.message, "Due to a previously reported error")
         @test occursin("RevisionErrors.jl", rec.message)
+
+        # test errors are not re-reported
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        @test length(logs) == 1
+
+        # test error re-reporting
+        logs,_ = Test.collect_test_logs() do
+            Revise.report_errors()
+        end
+        check_revision_error(logs[1])
 
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
             println(io, """

@@ -576,6 +576,13 @@ function revise_file_now(pkgdata::PkgData, file)
     nothing
 end
 
+function report_errors(revision_errors=keys(queue_errors))
+    for (pkgdata, file) in revision_errors
+        (err, bt) = queue_errors[(pkgdata, file)]
+        fullpath = joinpath(basedir(pkgdata), file)
+        @error "Failed to revise $fullpath" exception=(err, trim_toplevel!(bt))
+    end
+end
 """
     revise()
 
@@ -613,18 +620,16 @@ function revise()
         end
     end
     empty!(revision_queue)
-    for (pkgdata, file) in revision_errors
-        (err, bt) = queue_errors[(pkgdata, file)]
-        fullpath = joinpath(basedir(pkgdata), file)
-        @error "Failed to revise $fullpath" exception=(err, trim_toplevel!(bt))
-    end
+    report_errors(revision_errors)
     if !isempty(queue_errors)
         io = IOBuffer()
+        println(io, "\n") # better here than in the triple-quoted literal, see https://github.com/JuliaLang/julia/issues/34105
         for (pkgdata, file) in keys(queue_errors)
             println(io, "  ", joinpath(basedir(pkgdata), file))
         end
         str = String(take!(io))
-        @warn "Due to a previously reported error, the running code does not match saved version for the following files:\n$str"
+        @warn """Due to a previously reported error, the running code does not match saved version for the following files:$str
+        Use Revise.report_errors() to display errors again."""
     end
     tracking_Main_includes[] && queue_includes(Main)
     nothing
