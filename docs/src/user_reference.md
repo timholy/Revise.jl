@@ -1,7 +1,7 @@
 # User reference
 
-There are really only four functions that a user would be expected to call manually:
-`revise`, `includet`, `Revise.track`, and `entr`.
+There are really only five functions that a user would be expected to call manually:
+`revise`, `includet`, `Revise.track`, `entr`, and `Revise.errors`.
 Other user-level constructs might apply if you want to debug Revise or
 prevent it from watching specific packages.
 
@@ -10,6 +10,7 @@ revise
 Revise.track
 includet
 entr
+Revise.errors
 ```
 
 ### Revise logs (debugging Revise)

@@ -97,9 +97,10 @@ const revision_queue = Set{Tuple{PkgData,String}}()
 """
     Revise.queue_errors
 
-Global variable, lists `(pkgdata, filename)` pairs that errored upon last revision
+Global variable, maps `(pkgdata, filename)` pairs that errored upon last revision to
+`(exception, backtrace)`.
 """
-const queue_errors = typeof(revision_queue)()
+const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}()
 
 """
     Revise.pkgdatas
@@ -576,6 +577,21 @@ function revise_file_now(pkgdata::PkgData, file)
 end
 
 """
+    Revise.errors()
+
+Report the errors represented in [`Revise.queue_errors`](@ref).
+Errors are automatically reported the first time they are encountered, but this function
+can be used to report errors again.
+"""
+function errors(revision_errors=keys(queue_errors))
+    for (pkgdata, file) in revision_errors
+        (err, bt) = queue_errors[(pkgdata, file)]
+        fullpath = joinpath(basedir(pkgdata), file)
+        @error "Failed to revise $fullpath" exception=(err, trim_toplevel!(bt))
+    end
+end
+
+"""
     revise()
 
 `eval` any changes in the revision queue. See [`Revise.revision_queue`](@ref).
@@ -593,8 +609,8 @@ function revise()
             push!(mexsnews, handle_deletions(pkgdata, file)[1])
             push!(finished, (pkgdata, file))
         catch err
-            push!(revision_errors, (basedir(pkgdata), file, err, catch_backtrace()))
-            push!(queue_errors, (pkgdata, file))
+            push!(revision_errors, (pkgdata, file))
+            queue_errors[(pkgdata, file)] = (err, catch_backtrace())
         end
     end
     # Do the evaluation
@@ -607,22 +623,21 @@ function revise()
             delete!(queue_errors, (pkgdata, file))
             maybe_add_includes_to_pkgdata!(pkgdata, file, includes)
         catch err
-            push!(revision_errors, (basedir(pkgdata), file, err, catch_backtrace()))
-            push!(queue_errors, (pkgdata, file))
+            push!(revision_errors, (pkgdata, file))
+            queue_errors[(pkgdata, file)] = (err, catch_backtrace())
         end
     end
     empty!(revision_queue)
-    for (basedir, file, err, bt) in revision_errors
-        fullpath = joinpath(basedir, file)
-        @error "Failed to revise $fullpath" exception=(err, trim_toplevel!(bt))
-    end
+    errors(revision_errors)
     if !isempty(queue_errors)
         io = IOBuffer()
-        for (pkgdata, file) in queue_errors
+        println(io, "\n") # better here than in the triple-quoted literal, see https://github.com/JuliaLang/julia/issues/34105
+        for (pkgdata, file) in keys(queue_errors)
             println(io, "  ", joinpath(basedir(pkgdata), file))
         end
         str = String(take!(io))
-        @warn "Due to a previously reported error, the running code does not match saved version for the following files:\n$str"
+        @warn """Due to a previously reported error, the running code does not match saved version for the following files:$str
+        Use Revise.errors() to report errors again."""
     end
     tracking_Main_includes[] && queue_includes(Main)
     nothing

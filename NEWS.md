@@ -3,6 +3,10 @@
 This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
+## Revise 2.5
+
+* Allow previously reported errors to be re-reported with `Revise.errors()`
+
 ## Revise 2.4
 
 * Automatic tracking of methods and included files in `@require` blocks
