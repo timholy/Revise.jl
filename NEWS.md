@@ -3,7 +3,7 @@
 This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
-## Revise master
+## Revise 2.5
 
 * Allow previously reported errors to be re-reported with `Revise.errors()`
 
