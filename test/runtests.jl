@@ -2348,11 +2348,14 @@ end
         println(io, """
         module TrackRequires
         using Requires
+        const called_onearg = Ref(false)
+        onearg(x) = called_onearg[] = true
         function __init__()
             @require EndpointRanges="340492b5-2a47-5f55-813d-aca7ddf97656" begin
                 export testfunc
                 include("testfile.jl")
             end
+            @require CatIndices="aafaddc9-749c-510e-ac4f-586e18779b91" onearg(1)
         end
         end # module
         """)
@@ -2373,6 +2376,16 @@ end
     end
     yry()
     notified && @test TrackRequires.testfunc() == 2
+    # Check a non-block expression
+    warnfile = randtmp()
+    open(warnfile, "w") do io
+        redirect_stderr(io) do
+            @eval using CatIndices
+            sleep(0.5)
+        end
+    end
+    notified && @test TrackRequires.called_onearg[]
+    @test isempty(read(warnfile, String))
     # Ensure it also works if the Requires dependency is pre-loaded
     dn = joinpath(testdir, "TrackRequires2", "src")
     mkpath(dn)

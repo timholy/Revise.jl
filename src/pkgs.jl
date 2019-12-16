@@ -331,7 +331,7 @@ function add_require(sourcefile, modcaller, idmod, modname, expr)
         end
         fi = pkgdata.fileinfos[fileidx]
         # Tag the expr to ensure it is unique
-        expr = copy(expr)
+        expr = Expr(:block, copy(expr))
         push!(expr.args, :(__pkguuid__ = $idmod))
         # Add the expression to the fileinfo
         exsnew = ExprsSigs()
