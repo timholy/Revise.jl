@@ -1533,7 +1533,7 @@ end
 
         # test error re-reporting
         logs,_ = Test.collect_test_logs() do
-            Revise.report_errors()
+            Revise.errors()
         end
         check_revision_error(logs[1])
 
