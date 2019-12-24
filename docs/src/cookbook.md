@@ -4,6 +4,19 @@
 
 For code that might be useful more than once, it's often a good idea to put it in
 a package.
+Revise cooperates with the package manager to enforce its distinction between
+["versioned" and "under development" packages](https://julialang.github.io/Pkg.jl/v1/managing-packages/);
+packages that you want to modify and have tracked by `Revise` should be `dev`ed rather than `add`ed.
+
+!!! note
+    You should never modify package files in your `.julia/packages` directory,
+    because this breaks the "contract" that such package files correspond to registered versions of the code.
+    In recent versions of Julia, the source files in `.julia/packages` are read-only,
+    and you should leave them this way.
+
+    Revise is therefore designed to avoid tracking changes in such files.
+    The correct way to track modifications is to `dev` the package.
+
 For creating packages, the author recommends [PkgTemplates.jl](https://github.com/invenia/PkgTemplates.jl).
 A fallback is to use "plain" `Pkg` commands.
 Both options are described below.
@@ -151,6 +164,10 @@ julia> edit(pathof(MyPkg))
 and the rest should be similar to what's above under `PkgTemplates`.
 Note that with this approach, `MyPkg` has not been set up for version
 control.
+
+!!! note
+    If you `add` instead of `dev` the package, the package manager will make a copy of the `MyPkg` files in your `.julia/packages` directory.
+    This will be the "official" version of the files, and Revise will not track changes.
 
 
 ## `includet` usage
