@@ -1,4 +1,4 @@
-<div align="center"> <img src="images/logo.png" alt="Revise.jl" width="420"></img></div>
+<div align="center"> <img src="images/revise-wordmark.svg" alt="Revise.jl"></img></div>
 
 [![Build Status](https://travis-ci.org/timholy/Revise.jl.svg?branch=master)](https://travis-ci.org/timholy/Revise.jl)
 [![Build status](https://ci.appveyor.com/api/projects/status/e1xnsj4e5q9308y6/branch/master?svg=true)](https://ci.appveyor.com/project/timholy/revise-jl/branch/master)
