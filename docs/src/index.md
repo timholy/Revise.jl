@@ -8,7 +8,7 @@ typically, the changes will be incorporated into the very next command you issue
 This can save you the overhead of restarting, loading packages, and waiting for code to JIT-compile.
 
 Using Revise also improves your experience when using the
-[debuggers](https://julialang.org/blog/2019/03/debuggers).
+[debuggers](https://julialang.org/blog/2019/03/debuggers/).
 Revise will keep track of changed locations of your methods in file, and ensure that the
 debugger displays the source code of what you're actually debugging.
 
