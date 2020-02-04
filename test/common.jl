@@ -1,4 +1,5 @@
 using Random
+using Base.Meta: isexpr
 
 const rseed = Ref(Random.GLOBAL_RNG)  # to get new random directories (see julia #24445)
 if isempty(methods(Random.seed!, Tuple{typeof(rseed[])}))
@@ -50,4 +51,14 @@ function get_docstring(obj)
         end
     end
     return obj
+end
+
+function get_code(f, typ)
+    # Julia 1.5 introduces ":code_coverage_effect" exprs
+    ci = code_typed(f, typ)[1].first
+    code = copy(ci.code)
+    while !isempty(code) && isexpr(code[1], :code_coverage_effect)
+        popfirst!(code)
+    end
+    return code
 end

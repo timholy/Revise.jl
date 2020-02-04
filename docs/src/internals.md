@@ -101,7 +101,7 @@ Because trivial manipulations to source files (e.g., the insertion of blank line
 and/or comments) can change the line number of an expression without necessitating
 its recompilation, Revise implements a way of correcting these line numbers before
 they are displayed to the user.
-The same problem presents when using a [debugger](https://julialang.org/blog/2019/03/debuggers), in that one wants the debugger to display the correct code (at the correct line number) even after modifications have been made to the file.
+The same problem presents when using a [debugger](https://julialang.org/blog/2019/03/debuggers/), in that one wants the debugger to display the correct code (at the correct line number) even after modifications have been made to the file.
 This capability requires that Revise proceed backward from the compiled objects to
 something resembling the original text file.
 
