@@ -921,14 +921,14 @@ end
         @test PerfAnnotations.check_hasnoinline(3) == 3
         @test PerfAnnotations.check_notannot1(3) == 3
         @test PerfAnnotations.check_notannot2(3) == 3
-        ci = code_typed(PerfAnnotations.check_hasinline, Tuple{Int})[1].first
-        @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
-        ci = code_typed(PerfAnnotations.check_hasnoinline, Tuple{Int})[1].first
-        @test length(ci.code) == 2 && ci.code[1].head == :invoke
-        ci = code_typed(PerfAnnotations.check_notannot1, Tuple{Int})[1].first
-        @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
-        ci = code_typed(PerfAnnotations.check_notannot2, Tuple{Int})[1].first
-        @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
+        code = get_code(PerfAnnotations.check_hasinline, Tuple{Int})
+        @test length(code) == 1 && code[1] == Expr(:return, Core.SlotNumber(2))
+        code = get_code(PerfAnnotations.check_hasnoinline, Tuple{Int})
+        @test length(code) == 2 && code[1].head == :invoke
+        code = get_code(PerfAnnotations.check_notannot1, Tuple{Int})
+        @test length(code) == 1 && code[1] == Expr(:return, Core.SlotNumber(2))
+        code = get_code(PerfAnnotations.check_notannot2, Tuple{Int})
+        @test length(code) == 1 && code[1] == Expr(:return, Core.SlotNumber(2))
         open(joinpath(dn, "PerfAnnotations.jl"), "w") do io
             println(io, """
             module PerfAnnotations
@@ -953,14 +953,14 @@ end
         @test PerfAnnotations.check_hasnoinline(3) == 3
         @test PerfAnnotations.check_notannot1(3) == 3
         @test PerfAnnotations.check_notannot2(3) == 3
-        ci = code_typed(PerfAnnotations.check_hasinline, Tuple{Int})[1].first
-        @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
-        ci = code_typed(PerfAnnotations.check_hasnoinline, Tuple{Int})[1].first
-        @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
-        ci = code_typed(PerfAnnotations.check_notannot1, Tuple{Int})[1].first
-        @test length(ci.code) == 1 && ci.code[1] == Expr(:return, Core.SlotNumber(2))
-        ci = code_typed(PerfAnnotations.check_notannot2, Tuple{Int})[1].first
-        @test length(ci.code) == 2 && ci.code[1].head == :invoke
+        code = get_code(PerfAnnotations.check_hasinline, Tuple{Int})
+        @test length(code) == 1 && code[1] == Expr(:return, Core.SlotNumber(2))
+        code = get_code(PerfAnnotations.check_hasnoinline, Tuple{Int})
+        @test length(code) == 1 && code[1] == Expr(:return, Core.SlotNumber(2))
+        code = get_code(PerfAnnotations.check_notannot1, Tuple{Int})
+        @test length(code) == 1 && code[1] == Expr(:return, Core.SlotNumber(2))
+        code = get_code(PerfAnnotations.check_notannot2, Tuple{Int})
+        @test length(code) == 2 && code[1].head == :invoke
         rm_precompile("PerfAnnotations")
 
         pop!(LOAD_PATH)
