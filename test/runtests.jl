@@ -691,6 +691,27 @@ end
         @test isempty(failedfiles)
     end
 
+    do_test("Recursive types (issue #417)") && @testset "Recursive types (issue #417)" begin
+        testdir = newtestdir()
+        fn = joinpath(testdir, "recursive.jl")
+        open(fn, "w") do io
+            println(io, """
+            module RecursiveTypes
+            struct Foo
+                x::Vector{Foo}
+
+                Foo() = new(Foo[])
+            end
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        includet(fn)
+        @test isa(RecursiveTypes.Foo().x, Vector{RecursiveTypes.Foo})
+
+        pop!(LOAD_PATH)
+    end
+
     # issue #318
     do_test("Cross-module extension") && @testset "Cross-module extension" begin
         testdir = newtestdir()
