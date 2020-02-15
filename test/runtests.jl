@@ -1487,6 +1487,10 @@ end
             println(io, """
             module RevisionErrors
             f(x) = 1
+            struct Vec{N, T <: Union{Float32,Float64}}
+                data::NTuple{N, T}
+            end
+            g(x) = 1
             end
             """)
         end
@@ -1498,6 +1502,10 @@ end
             println(io, """
             module RevisionErrors
             f{x) = 2
+            struct Vec{N, T <: Union{Float32,Float64}}
+                data::NTuple{N, T}
+            end
+            g(x) = 1
             end
             """)
         end
@@ -1505,19 +1513,19 @@ end
             yry()
         end
 
-        function check_revision_error(rec)
+        function check_revision_error(rec, msg, line)
             @test rec.message == "Failed to revise $fn"
             exc, bt = rec.kwargs[:exception]
             @test exc isa LoadError
             @test exc.file == fn
-            @test exc.line == 2
-            @test occursin("missing comma or }", exc.error)
+            @test exc.line == line
+            @test occursin(msg, exc.error)
             st = stacktrace(bt)
             @test length(st) == 1
         end
 
         # test errors are reported the the first time
-        check_revision_error(logs[1])
+        check_revision_error(logs[1], "missing comma or }", 2)
         logs, _ = Test.collect_test_logs() do
             yry()
         end
@@ -1535,12 +1543,16 @@ end
         logs,_ = Test.collect_test_logs() do
             Revise.errors()
         end
-        check_revision_error(logs[1])
+        check_revision_error(logs[1], "missing comma or }", 2)
 
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
             println(io, """
             module RevisionErrors
             f(x) = 2
+            struct Vec{N, T <: Union{Float32,Float64}}
+                data::NTuple{N, T}
+            end
+            g(x) = 1
             end
             """)
         end
@@ -1550,11 +1562,48 @@ end
         @test isempty(logs)
         @test RevisionErrors.f(0) == 2
 
+        # issue #421
+        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
+            println(io, """
+            module RevisionErrors
+            f(x) = 2
+            struct Vec{N, T <: Union{Float32,Float64}}
+                data::NTuple{N, T}
+            end
+            function g(x) = 1
+            end
+            """)
+        end
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        check_revision_error(logs[1], "unexpected \"=\"", 6)
+
+        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
+            println(io, """
+            module RevisionErrors
+            f(x) = 2
+            struct Vec{N, T <: Union{Float32,Float64}}
+                data::NTuple{N, T}
+            end
+            g(x) = 1
+            end
+            """)
+        end
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        @test isempty(logs)
+
         # Also test that it ends up being reported to the user (issue #281)
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
             println(io, """
             module RevisionErrors
             f(x) = 2
+            struct Vec{N, T <: Union{Float32,Float64}}
+                data::NTuple{N, T}
+            end
+            g(x) = 1
             foo(::Vector{T}) = 3
             end
             """)
