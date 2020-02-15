@@ -604,11 +604,13 @@ function revise()
     revision_errors = []
     finished = eltype(revision_queue)[]
     mexsnews = ModuleExprsSigs[]
+    interrupt = false
     for (pkgdata, file) in revision_queue
         try
             push!(mexsnews, handle_deletions(pkgdata, file)[1])
             push!(finished, (pkgdata, file))
         catch err
+            interrupt |= isa(err, InterruptException)
             push!(revision_errors, (pkgdata, file))
             queue_errors[(pkgdata, file)] = (err, catch_backtrace())
         end
@@ -623,11 +625,18 @@ function revise()
             delete!(queue_errors, (pkgdata, file))
             maybe_add_includes_to_pkgdata!(pkgdata, file, includes)
         catch err
+            interrupt |= isa(err, InterruptException)
             push!(revision_errors, (pkgdata, file))
             queue_errors[(pkgdata, file)] = (err, catch_backtrace())
         end
     end
-    empty!(revision_queue)
+    if interrupt
+        for pkgfile in finished
+            haskey(queue_errors, pkgfile) || delete!(revision_queue, pkgfile)
+        end
+    else
+        empty!(revision_queue)
+    end
     errors(revision_errors)
     if !isempty(queue_errors)
         io = IOBuffer()
