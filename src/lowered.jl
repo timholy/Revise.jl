@@ -112,7 +112,8 @@ end
 
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame, musteval; define=true, skip_include=true)
     mod = moduleof(frame)
-    modinclude = getfield(mod, :include)  # hoist this lookup for performance
+    # Hoist this lookup for performance. Don't throw even when `mod` is a baremodule:
+    modinclude = isdefined(mod, :include) ? getfield(mod, :include) : nothing
     signatures = []  # temporary for method signature storage
     pc = frame.pc
     while true
