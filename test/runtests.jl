@@ -2168,6 +2168,34 @@ end
             pop!(hp.history)
         end
     end
+
+    @testset "baremodule" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "Baremodule", "src")
+        mkpath(dn)
+        open(joinpath(dn, "Baremodule.jl"), "w") do io
+            println(io, """
+baremodule Baremodule
+f() = 1
+end
+""")
+        end
+        sleep(mtimedelay)
+        @eval using Baremodule
+        sleep(mtimedelay)
+        @test Baremodule.f() == 1
+        open(joinpath(dn, "Baremodule.jl"), "w") do io
+            println(io, """
+module Baremodule
+f() = 2
+end
+""")
+        end
+        yry()
+        @test Baremodule.f() == 2
+        rm_precompile("Baremodule")
+        pop!(LOAD_PATH)
+    end
 end
 
 @testset "Switching free/dev" begin
