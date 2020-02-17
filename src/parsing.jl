@@ -40,7 +40,7 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
     ex = Base.parse_input_line(src; filename=filename)
     ex === nothing && return mod_exprs_sigs
     if isexpr(ex, :error) || isexpr(ex, :incomplete)
-        prevex, pos = last_good_position(src)
+        prevex, pos = first_bad_position(src)
         ln = count(isequal('\n'), SubString(src, 1, pos)) + 1
         throw(LoadError(filename, ln, ex.args[1]))
     end
@@ -69,12 +69,11 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
     return mod_exprs_sigs
 end
 
-function last_good_position(str)
+function first_bad_position(str)
     ex, pos, n = nothing, 1, length(str)
     while pos < n
-        try
-            ex, pos = Meta.parse(str, pos; greedy=false)
-        catch
+        ex, pos = Meta.parse(str, pos; greedy=true, raise=false)
+        if isexpr(ex, :error) || isexpr(ex, :incomplete)
             return ex, pos
         end
     end
