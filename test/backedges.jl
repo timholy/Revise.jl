@@ -1,6 +1,7 @@
 using Revise, Test
 
 module BackEdgesTest
+using Test
 flag = false    # this needs to be defined for the conditional part to work
 end
 
@@ -58,4 +59,14 @@ end
     """
     ex = Meta.parse(src)
     @test Revise.methods_by_execution(BackEdgesTest, ex) isa Tuple
+
+    # Issue #428
+    src = """
+    @testset for i in (1, 2)
+        @test i == i
+    end
+    """
+    ex = Meta.parse(src)
+    @test Revise.methods_by_execution(BackEdgesTest, ex) isa Tuple
+
 end
