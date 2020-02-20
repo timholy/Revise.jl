@@ -1662,6 +1662,102 @@ end
         @test whereis(m)[2] == 15
     end
 
+    @testset "Retry on InterruptException" begin
+        function check_revision_interrupt(logs)
+            rec = logs[1]
+            @test rec.message == "Failed to revise $fn"
+            exc, bt = rec.kwargs[:exception]
+            @test exc isa InterruptException
+            rec = logs[2]
+            @test startswith(rec.message, "Due to a previously reported error")
+        end
+
+        testdir = newtestdir()
+        dn = joinpath(testdir, "RevisionInterrupt", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "RevisionInterrupt.jl")
+        open(fn, "w") do io
+            println(io, """
+            module RevisionInterrupt
+            f(x) = 1
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using RevisionInterrupt
+        sleep(mtimedelay)
+        @test RevisionInterrupt.f(0) == 1
+
+        # Interpreted mode
+        open(fn, "w") do io
+            println(io, """
+            module RevisionInterrupt
+            eval(quote  # this forces interpreted mode
+                throw(InterruptException())
+            end)
+            f(x) = 2
+            end
+            """)
+        end
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        check_revision_interrupt(logs)
+        # This method gets deleted because it's redefined to f(x) = 2,
+        # but the error prevents it from getting that far.
+        # @test RevisionInterrupt.f(0) == 1
+        # Check that InterruptException triggers a retry (issue #418)
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        check_revision_interrupt(logs)
+        # @test RevisionInterrupt.f(0) == 1
+        open(fn, "w") do io
+            println(io, """
+            module RevisionInterrupt
+            f(x) = 2
+            end
+            """)
+        end
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        @test isempty(logs)
+        @test RevisionInterrupt.f(0) == 2
+
+        # Compiled mode
+        open(fn, "w") do io
+            println(io, """
+            module RevisionInterrupt
+            throw(InterruptException())
+            f(x) = 3
+            end
+            """)
+        end
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        check_revision_interrupt(logs)
+        # @test RevisionInterrupt.f(0) == 2
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        check_revision_interrupt(logs)
+        # @test RevisionInterrupt.f(0) == 2
+        open(fn, "w") do io
+            println(io, """
+            module RevisionInterrupt
+            f(x) = 3
+            end
+            """)
+        end
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        @test isempty(logs)
+        @test RevisionInterrupt.f(0) == 3
+    end
+
     @testset "get_def" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "GetDef", "src")

@@ -80,6 +80,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
             ret = try
                 Core.eval(mod, ex) # evaluate in compiled mode if we don't need to interpret
             catch err
+                (always_rethrow || isa(err, InterruptException)) && rethrow(err)
                 loc = location_string(whereis(frame)...)
                 @error "(compiled mode) evaluation error starting at $loc" mod ex exception=(err, trim_toplevel!(catch_backtrace()))
                 nothing
