@@ -1,6 +1,6 @@
 name = "Revise"
 uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
-version = "2.5.1"
+version = "2.5.2"
 
 [deps]
 CodeTracking = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
