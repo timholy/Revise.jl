@@ -1864,6 +1864,11 @@ end
         end
         yry()
         @test revise_floc(10) == 2
+        # Call track again & make sure it doesn't track twice
+        Revise.track(srcfile)
+        id = Base.PkgId(Main)
+        pkgdata = Revise.pkgdatas[id]
+        @test count(isequal(srcfile), pkgdata.info.files) == 1
         push!(to_remove, joinpath(tempdir(), srcfile))
         cd(curdir)
 
