@@ -695,11 +695,14 @@ If this produces many errors, check that you specified `mod` correctly.
 """
 function track(mod::Module, file::AbstractString; kwargs...)
     isfile(file) || error(file, " is not a file")
+    # Determine whether we're already tracking this file
+    id = PkgId(mod)
     file = normpath(abspath(file))
+    haskey(pkgdatas, id) && hasfile(pkgdatas[id], file) && return nothing
+    # Set up tracking
     fm = parse_source(file, mod)
     if fm !== nothing
         instantiate_sigs!(fm; kwargs...)
-        id = PkgId(mod)
         if !haskey(pkgdatas, id)
             # Wait a bit to see if `mod` gets initialized
             # This can happen if the module's __init__ function
@@ -716,6 +719,7 @@ function track(mod::Module, file::AbstractString; kwargs...)
         push!(pkgdata, relpath(file, pkgdata)=>FileInfo(fm))
         init_watching(pkgdata, (file,))
     end
+    return nothing
 end
 
 function track(file::AbstractString; kwargs...)
