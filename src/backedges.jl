@@ -72,6 +72,7 @@ function add_to_backedges!(backedges::BackEdges, slotdeps, loc, stmt)
     if isssa(stmt)
         push!(backedges, stmt=>loc)
     elseif isslotnum(stmt)
+        isassigned(slotdeps, stmt.id) || return backedges # issue #428 (it's inside an `if false...end`)
         sd = slotdeps[stmt.id]
         if sd.lineassigned != 0
             push!(backedges, sd.lineassigned=>loc)
