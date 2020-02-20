@@ -96,18 +96,13 @@ function pkg_fileinfo(id::PkgId)
     sourcepath = Base.locate_package(id)
     if length(paths) > 1
         fpaths = filter_valid_cachefiles(sourcepath, paths)
-        if isempty(fpaths)
-            # Work-around for #371 (broken dependency prevents tracking):
-            # find the most recent cache file. Presumably this is the one built
-            # to load the package.
-            sort!(paths; by=path->mtime(path), rev=true)
-            deleteat!(paths, 2:length(paths))
-        else
-            paths = fpaths
-        end
+        paths = isempty(fpaths) ? paths : fpaths
+        # Work-around for #371 (broken dependency prevents tracking):
+        # find the most recent cache file. Presumably this is the one built
+        # to load the package.
+        sort!(paths; by=path->mtime(path), rev=true)
     end
     isempty(paths) && return nothing, nothing
-    @assert length(paths) == 1
     path = first(paths)
     provides, includes_requires = try
         parse_cache_header(path)
