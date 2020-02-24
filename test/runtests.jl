@@ -67,14 +67,14 @@ const pair_op_compact = let io = IOBuffer()
 end
 
 @testset "Revise" begin
-    @testset "PkgData" begin
+    do_test("PkgData") && @testset "PkgData" begin
         # Related to #358
         id = Base.PkgId(Main)
         pd = Revise.PkgData(id)
         @test isempty(Revise.basedir(pd))
     end
 
-    @testset "LineSkipping" begin
+    do_test("LineSkipping") && @testset "LineSkipping" begin
         rex = Revise.RelocatableExpr(quote
                                     f(x) = x^2
                                     g(x) = sin(x)
@@ -98,7 +98,7 @@ quote
 end"""
     end
 
-    @testset "Equality and hashing" begin
+    do_test("Equality and hashing") && @testset "Equality and hashing" begin
         # issue #233
         @test  isequal(Revise.RelocatableExpr(:(x = 1)), Revise.RelocatableExpr(:(x = 1)))
         @test !isequal(Revise.RelocatableExpr(:(x = 1)), Revise.RelocatableExpr(:(x = 1.0)))
@@ -107,7 +107,7 @@ end"""
         @test hash(Revise.RelocatableExpr(:(x = 1))) != hash(Revise.RelocatableExpr(:(x = 2)))
     end
 
-    @testset "Parse errors" begin
+    do_test("Parse errors") && @testset "Parse errors" begin
         md = Revise.ModuleExprsSigs(Main)
         @test_throws LoadError Revise.parse_source!(md, """
 begin # this block should parse correctly, cf. issue #109
@@ -120,7 +120,7 @@ k(x) = 4
 """, "test", Main)
     end
 
-    @testset "Signature extraction" begin
+    do_test("Signature extraction") && @testset "Signature extraction" begin
         jidir = dirname(dirname(pathof(JuliaInterpreter)))
         scriptfile = joinpath(jidir, "test", "toplevel_script.jl")
         modex = :(module Toplevel include($scriptfile) end)
@@ -149,7 +149,7 @@ k(x) = 4
         @test n > length(nms)/2
     end
 
-    @testset "Comparison and line numbering" begin
+    do_test("Comparison and line numbering") && @testset "Comparison and line numbering" begin
         # We'll also use these tests to try out the logging system
         rlogger = Revise.debug_logger()
 
@@ -309,7 +309,7 @@ k(x) = 4
         @test hash(rex1) == hash(rex3)
     end
 
-    @testset "Display" begin
+    do_test("Display") && @testset "Display" begin
         io = IOBuffer()
         show(io, Revise.RelocatableExpr(:(@inbounds x[2])))
         str = String(take!(io))
@@ -332,7 +332,7 @@ k(x) = 4
         @test str == "ExprsSigs with the following expressions: \n  :(square(x) = begin\n          x ^ 2\n      end)\n  :(cube(x) = begin\n          x ^ 4\n      end)"
     end
 
-    @testset "File paths" begin
+    do_test("File paths") && @testset "File paths" begin
         testdir = newtestdir()
         for (pcflag, fbase) in ((true, "pc"), (false, "npc"),)  # precompiled & not
             modname = uppercase(fbase)
@@ -650,7 +650,7 @@ end
     end
 
     # issue #131
-    @testset "Base & stdlib file paths" begin
+    do_test("Base & stdlib file paths") && @testset "Base & stdlib file paths" begin
         @test isfile(Revise.basesrccache)
         targetfn = Base.Filesystem.path_separator * joinpath("good", "path", "mydir", "myfile.jl")
         @test Revise.fixpath("/some/bad/path/mydir/myfile.jl"; badpath="/some/bad/path", goodpath="/good/path") == targetfn
@@ -670,7 +670,7 @@ end
     end
 
     # issue #318
-    @testset "Cross-module extension" begin
+    do_test("Cross-module extension") && @testset "Cross-module extension" begin
         testdir = newtestdir()
         dnA = joinpath(testdir, "CrossModA", "src")
         mkpath(dnA)
@@ -725,7 +725,7 @@ end
     end
 
     # issue #36
-    @testset "@__FILE__" begin
+    do_test("@__FILE__") && @testset "@__FILE__" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "ModFILE", "src")
         mkpath(dn)
@@ -758,7 +758,7 @@ end
     end
 
     # issue #8
-    @testset "Module docstring" begin
+    do_test("Module docstring") && @testset "Module docstring" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "ModDocstring", "src")
         mkpath(dn)
@@ -821,7 +821,7 @@ end
         pop!(LOAD_PATH)
     end
 
-    @testset "Undef in docstrings" begin
+    do_test("Undef in docstrings") && @testset "Undef in docstrings" begin
         fn = Base.find_source_file("abstractset.jl")   # has lots of examples of """str""" func1, func2
         mexsold = Revise.parse_source(fn, Base)
         mexsnew = Revise.parse_source(fn, Base)
@@ -832,7 +832,7 @@ end
         end
     end
 
-    @testset "Macro docstrings (issue #309)" begin
+    do_test("Macro docstrings (issue #309)") && @testset "Macro docstrings (issue #309)" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "MacDocstring", "src")
         mkpath(dn)
@@ -891,7 +891,7 @@ end
     end
 
     # issue #165
-    @testset "Changing @inline annotations" begin
+    do_test("Changing @inline annotations") && @testset "Changing @inline annotations" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "PerfAnnotations", "src")
         mkpath(dn)
@@ -966,7 +966,7 @@ end
         pop!(LOAD_PATH)
     end
 
-    @testset "Revising macros" begin
+    do_test("Revising macros") && @testset "Revising macros" begin
         # issue #174
         testdir = newtestdir()
         dn = joinpath(testdir, "MacroRevision", "src")
@@ -1022,7 +1022,7 @@ end
         pop!(LOAD_PATH)
     end
 
-    @testset "More arg-modifying macros" begin
+    do_test("More arg-modifying macros") && @testset "More arg-modifying macros" begin
         # issue #183
         testdir = newtestdir()
         dn = joinpath(testdir, "ArgModMacros", "src")
@@ -1075,7 +1075,7 @@ end
         pop!(LOAD_PATH)
     end
 
-    @testset "Line numbers" begin
+    do_test("Line numbers") && @testset "Line numbers" begin
         # issue #27
         testdir = newtestdir()
         modname = "LineNumberMod"
@@ -1149,7 +1149,7 @@ foo(y::Int) = y-51
         pop!(LOAD_PATH)
     end
 
-    @testset "Line numbers in backtraces and warnings" begin
+    do_test("Line numbers in backtraces and warnings") && @testset "Line numbers in backtraces and warnings" begin
         filename = randtmp() * ".jl"
         open(filename, "w") do io
             println(io, """
@@ -1217,7 +1217,7 @@ foo(y::Int) = y-51
     end
 
     # Issue #43
-    @testset "New submodules" begin
+    do_test("New submodules") && @testset "New submodules" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "Submodules", "src")
         mkpath(dn)
@@ -1249,7 +1249,7 @@ end
         pop!(LOAD_PATH)
     end
 
-    @testset "Timing (issue #341)" begin
+    do_test("Timing (issue #341)") && @testset "Timing (issue #341)" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "Timing", "src")
         mkpath(dn)
@@ -1281,7 +1281,7 @@ end
         rm_precompile("Timing")
     end
 
-    @testset "Method deletion" begin
+    do_test("Method deletion") && @testset "Method deletion" begin
         Core.eval(Base, :(revisefoo(x::Float64) = 1)) # to test cross-module method scoping
         testdir = newtestdir()
         dn = joinpath(testdir, "MethDel", "src")
@@ -1432,7 +1432,7 @@ end
         @test m.sig.parameters[2] === Integer
     end
 
-    @testset "Evaled toplevel" begin
+    do_test("Evaled toplevel") && @testset "Evaled toplevel" begin
         testdir = newtestdir()
         dnA = joinpath(testdir, "ToplevelA", "src"); mkpath(dnA)
         dnB = joinpath(testdir, "ToplevelB", "src"); mkpath(dnB)
@@ -1478,7 +1478,7 @@ end
         rm_precompile("ToplevelC")
     end
 
-    @testset "Revision errors" begin
+    do_test("Revision errors") && @testset "Revision errors" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "RevisionErrors", "src")
         mkpath(dn)
@@ -1662,7 +1662,7 @@ end
         @test whereis(m)[2] == 15
     end
 
-    @testset "Retry on InterruptException" begin
+    do_test("Retry on InterruptException") && @testset "Retry on InterruptException" begin
         function check_revision_interrupt(logs)
             rec = logs[1]
             @test rec.message == "Failed to revise $fn"
@@ -1758,7 +1758,7 @@ end
         @test RevisionInterrupt.f(0) == 3
     end
 
-    @testset "get_def" begin
+    do_test("get_def") && @testset "get_def" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "GetDef", "src")
         mkpath(dn)
@@ -1800,7 +1800,7 @@ end
         @test definition(m) isa Expr
     end
 
-    @testset "Pkg exclusion" begin
+    do_test("Pkg exclusion") && @testset "Pkg exclusion" begin
         push!(Revise.dont_watch_pkgs, :Example)
         push!(Revise.silence_pkgs, :Example)
         @eval import Example
@@ -1822,7 +1822,7 @@ end
         pop!(LOAD_PATH)
     end
 
-    @testset "Manual track" begin
+    do_test("Manual track") && @testset "Manual track" begin
         srcfile = joinpath(tempdir(), randtmp()*".jl")
         open(srcfile, "w") do io
             print(io, """
@@ -2027,7 +2027,7 @@ end
         rm_precompile("LikePlots")
     end
 
-    @testset "Auto-track user scripts" begin
+    do_test("Auto-track user scripts") && @testset "Auto-track user scripts" begin
         srcfile = joinpath(tempdir(), randtmp()*".jl")
         push!(to_remove, srcfile)
         open(srcfile, "w") do io
@@ -2077,7 +2077,7 @@ end
         end
     end
 
-    @testset "Distributed" begin
+    do_test("Distributed") && @testset "Distributed" begin
         # The d31474 test below is from
         # https://discourse.julialang.org/t/how-do-i-make-revise-jl-work-in-multiple-workers-environment/31474
         newprocs = addprocs(2)
@@ -2149,7 +2149,7 @@ end
         pop!(LOAD_PATH)
     end
 
-    @testset "Git" begin
+    do_test("Git") && @testset "Git" begin
         # if haskey(ENV, "CI")   # if we're doing CI testing (Travis, Appveyor, etc.)
         #     # First do a full git checkout of a package (we'll use Revise itself)
         #     @warn "checking out a development copy of Revise for testing purposes"
@@ -2221,7 +2221,7 @@ end
         end
     end
 
-    @testset "Recipes" begin
+    do_test("Recipes") && @testset "Recipes" begin
         # https://github.com/JunoLab/Juno.jl/issues/257#issuecomment-473856452
         meth = @which gcd(10, 20)
         sigs = signatures_at(Base.find_source_file(String(meth.file)), meth.line)  # this should track Base
@@ -2278,13 +2278,13 @@ end
         end
     end
 
-    @testset "CodeTracking #48" begin
+    do_test("CodeTracking #48") && @testset "CodeTracking #48" begin
         m = @which sum([1]; dims=1)
         file, line = whereis(m)
         @test endswith(file, "reducedim.jl") && line > 1
     end
 
-    @testset "Methods at REPL" begin
+    do_test("Methods at REPL") && @testset "Methods at REPL" begin
         if isdefined(Base, :active_repl)
             hp = Base.active_repl.interface.modes[1].hist
             fstr = "__fREPL__(x::Int16) = 0"
@@ -2319,7 +2319,7 @@ end
         end
     end
 
-    @testset "baremodule" begin
+    do_test("baremodule") && @testset "baremodule" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "Baremodule", "src")
         mkpath(dn)
@@ -2348,7 +2348,7 @@ end
     end
 end
 
-@testset "Switching free/dev" begin
+do_test("Switching free/dev") && @testset "Switching free/dev" begin
     function make_a2d(path, val, mode="r"; generate=true)
         # Create a new "read-only package" (which mimics how Pkg works when you `add` a package)
         cd(path) do
@@ -2424,7 +2424,7 @@ end
     push!(to_remove, depot)
 end
 
-@testset "Broken dependencies (issue #371)" begin
+do_test("Broken dependencies (issue #371)") && @testset "Broken dependencies (issue #371)" begin
     testdir = newtestdir()
     srcdir = joinpath(testdir, "DepPkg371", "src")
     filepath = joinpath(srcdir, "DepPkg371.jl")
@@ -2459,7 +2459,7 @@ end
     pop!(LOAD_PATH)
 end
 
-@testset "Non-jl include_dependency (issue #388)" begin
+do_test("Non-jl include_dependency (issue #388)") && @testset "Non-jl include_dependency (issue #388)" begin
     push!(LOAD_PATH, joinpath(@__DIR__, "pkgs"))
     @eval using ExcludeFile
     sleep(0.01)
@@ -2471,7 +2471,7 @@ end
     @test joinpath("deps", "dependency.txt") ∉ files
 end
 
-@testset "New files & Requires.jl" begin
+do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     # Issue #107
     testdir = newtestdir()
     dn = joinpath(testdir, "NewFile", "src")
@@ -2631,7 +2631,7 @@ end
     pop!(LOAD_PATH)
 end
 
-@testset "entr" begin
+do_test("entr") && @testset "entr" begin
     if !Sys.isapple()   # these tests are very flaky on OSX
         srcfile = joinpath(tempdir(), randtmp()*".jl")
         push!(to_remove, srcfile)
@@ -2682,7 +2682,7 @@ end
 const A354_result = Ref(0)
 
 # issue #354
-@testset "entr with modules" begin
+do_test("entr with modules") && @testset "entr with modules" begin
 
     testdir = newtestdir()
     modname = "A354"
@@ -2747,7 +2747,7 @@ GC.gc(); GC.gc()
                 end
             end
         end
-        @test occursin("is not an existing directory", read(warnfile, String))
+        isempty(ARGS) && @test occursin("is not an existing directory", read(warnfile, String))
         rm(warnfile)
     end
 end
@@ -2756,7 +2756,7 @@ GC.gc(); GC.gc(); GC.gc()   # work-around for https://github.com/JuliaLang/julia
 
 include("backedges.jl")
 
-@testset "Base signatures" begin
+do_test("Base signatures") && @testset "Base signatures" begin
     println("beginning signatures tests")
     # Using the extensive repository of code in Base as a testbed
     include("sigtest.jl")

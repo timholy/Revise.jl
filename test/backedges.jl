@@ -1,11 +1,13 @@
 using Revise, Test
 
+isdefined(@__MODULE__, :do_test) || include("common.jl")
+
 module BackEdgesTest
 using Test
 flag = false    # this needs to be defined for the conditional part to work
 end
 
-@testset "Backedges" begin
+do_test("Backedges") && @testset "Backedges" begin
     src = """
     # issue #249
     flag = false
