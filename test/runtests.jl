@@ -1019,6 +1019,38 @@ end
         revise(MacroRevision)
         @test MacroRevision.foo("hello") == 3
         rm_precompile("MacroRevision")
+
+        # issue #435
+        dn = joinpath(testdir, "MacroSigs", "src")
+        mkpath(dn)
+        open(joinpath(dn, "MacroSigs.jl"), "w") do io
+            println(io, """
+            module MacroSigs
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using MacroSigs
+        sleep(mtimedelay)
+        open(joinpath(dn, "MacroSigs.jl"), "w") do io
+            println(io, """
+            module MacroSigs
+            macro testmac(fname)
+                esc(quote
+                    function some_fun end
+                    \$fname() = 1
+                    end)
+            end
+
+            @testmac blah
+            end
+            """)
+        end
+        yry()
+        @test MacroSigs.blah() == 1
+        @test haskey(CodeTracking.method_info, (@which MacroSigs.blah()).sig)
+        rm_precompile("MacroSigs")
+
         pop!(LOAD_PATH)
     end
 
