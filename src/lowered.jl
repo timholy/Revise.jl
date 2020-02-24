@@ -141,8 +141,16 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                 empty!(signatures)
                 ret = methoddef!(recurse, signatures, frame, stmt, pc; define=define)
                 if ret === nothing
-                    # This was just `function foo end` or similar
-                    @assert isempty(signatures)
+                    # This was just `function foo end` or similar.
+                    # However, it might have been followed by a thunk that defined a
+                    # method (issue #435), so we still need to check for additions.
+                    if !isempty(signatures)
+                        file, line = whereis(frame.framecode, pc)
+                        lnn = LineNumberNode(Int(line), Symbol(file))
+                        for sig in signatures
+                            add_signature!(methodinfo, sig, lnn)
+                        end
+                    end
                     pc = ret
                 else
                     pc, pc3 = ret

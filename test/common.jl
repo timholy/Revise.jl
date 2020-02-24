@@ -62,3 +62,5 @@ function get_code(f, typ)
     end
     return code
 end
+
+do_test(name) = isempty(ARGS) || name in ARGS
