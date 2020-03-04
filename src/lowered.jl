@@ -166,7 +166,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             # This may be a kwarg method. Mimic LoweredCodeUtils.bodymethod,
                             # except without having a method
                             stmt = bodycode.code[end-1]
-                            if length(stmt.args) > 1
+                            if isa(stmt, Expr) && length(stmt.args) > 1
                                 a = stmt.args[1]
                                 hasself = any(i->LoweredCodeUtils.is_self_call(stmt, bodycode.slotnames, i), 2:length(stmt.args))
                                 if hasself && isa(a, Symbol)
@@ -175,6 +175,14 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                                     if length(mths) == 1
                                         mth = first(mths)
                                         lnn = LineNumberNode(Int(mth.line), mth.file)
+                                    end
+                                end
+                            else
+                                # Just try to find *any* line number
+                                for lnntmp in bodycode.linetable
+                                    if lnntmp.line != 0 || lnntmp.file != :none
+                                        lnn = lnntmp
+                                        break
                                     end
                                 end
                             end
