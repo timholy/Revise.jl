@@ -147,6 +147,28 @@ k(x) = 4
         end
         @test isempty(failed)
         @test n > length(nms)/2
+
+        # Method expressions with bad line number info
+        ex = quote
+            function nolineinfo(x)
+                y = x^2 + 2x + 1
+                @warn "oops"
+                return y
+            end
+        end
+        ex2 = ex.args[end].args[end]
+        for (i, arg) in enumerate(ex2.args)
+            if isa(arg, LineNumberNode)
+                ex2.args[i] = LineNumberNode(0, :none)
+            end
+        end
+        mexs = Revise.ModuleExprsSigs(ReviseTestPrivate)
+        mexs[ReviseTestPrivate][ex] = nothing
+        logs, _ = Test.collect_test_logs() do
+            Revise.instantiate_sigs!(mexs; define=true)
+        end
+        @test isempty(logs)
+        @test isdefined(ReviseTestPrivate, :nolineinfo)
     end
 
     do_test("Comparison and line numbering") && @testset "Comparison and line numbering" begin
