@@ -39,7 +39,7 @@ New features:
 ## Revise 2.0
 
 Revise 2.0 is a major rewrite with
-[JuliaInterpeter](https://github.com/JuliaDebug/JuliaInterpreter.jl)
+[JuliaInterpreter](https://github.com/JuliaDebug/JuliaInterpreter.jl)
 at its foundation.
 
 Breaking changes:
