@@ -491,6 +491,7 @@ function watch_manifest(mfile)
                             maybe_parse_from_cache!(pkgdata, file)
                             push!(revision_queue, (pkgdata, file))
                             push!(files, file)
+                            notify(revision_event)
                         end
                         # Update the directory
                         pkgdata.info.basedir = pkgdir

@@ -2780,6 +2780,39 @@ do_test("entr with modules") && @testset "entr with modules" begin
 
 end
 
+do_test("callbacks") && @testset "callbacks" begin
+
+    mktemp() do path, io
+        contents = Ref("")
+        key = Revise.add_callback([path]) do
+            contents[] = read(path, String)
+        end
+
+        sleep(mtimedelay)
+
+        write(io, "abc")
+        flush(io)
+        sleep(mtimedelay)
+        revise()
+        @test contents[] == "abc"
+
+        write(io, "def")
+        flush(io)
+        sleep(mtimedelay)
+        revise()
+        @test contents[] == "abcdef"
+
+        Revise.remove_callback(key)
+
+        write(io, "ghi")
+        flush(io)
+        sleep(mtimedelay)
+        revise()
+        @test contents[] == "abcdef"
+    end
+
+end
+
 println("beginning cleanup")
 GC.gc(); GC.gc()
 

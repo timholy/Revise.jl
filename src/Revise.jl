@@ -94,6 +94,74 @@ This list gets populated by callbacks that watch directories for updates.
 """
 const revision_queue = Set{Tuple{PkgData,String}}()
 
+const revision_event = Condition()
+
+"""
+    Revise.user_callbacks_queue
+
+Global variable, `user_callbacks_queue` holds `key` values for which the
+file has changed but the user hooks have not yet been called.
+"""
+const user_callbacks_queue = Set{Any}()
+
+const user_callbacks_by_file = Dict{String, Set{Any}}()
+const user_callbacks_by_key = Dict{Any, Any}()
+
+function add_callback(f, files, modules=nothing; key=gensym())
+    remove_callback(key)
+
+    files = map(abspath, files)
+    init_watching(files)
+
+    if modules !== nothing
+        for mod in modules
+            id = PkgId(mod)
+            pkgdata = pkgdatas[id]
+            for file in srcfiles(pkgdata)
+                absname = joinpath(basedir(pkgdata), file)
+                push!(files, absname)
+                track(mod, absname)
+            end
+        end
+    end
+
+    for file in files
+        cb = get!(Set, user_callbacks_by_file, file)
+        push!(cb, key)
+        user_callbacks_by_key[key] = f
+    end
+
+    return key
+end
+
+function remove_callback(key)
+    for cbs in values(user_callbacks_by_file)
+        delete!(cbs, key)
+    end
+    delete!(user_callbacks_by_key, key)
+    # TODO: stop watching these files
+    nothing
+end
+
+function process_user_callbacks!(keys = user_callbacks_queue; throw=false)
+    try
+        # use (a)sync so any exceptions get nicely collected into CompositeException
+        @sync for key in keys
+            f = user_callbacks_by_key[key]
+            @async Base.invokelatest(f)
+        end
+    catch err
+        if throw
+            rethrow(err)
+        else
+            @warn "[Revise] Ignoring callback errors" err
+        end
+    finally
+        empty!(keys)
+    end
+end
+
+
 """
     Revise.queue_errors
 
@@ -101,6 +169,8 @@ Global variable, maps `(pkgdata, filename)` pairs that errored upon last revisio
 `(exception, backtrace)`.
 """
 const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}()
+
+const NOPACKAGE = PkgId(nothing, "")
 
 """
     Revise.pkgdatas
@@ -110,7 +180,7 @@ and julia objects, and allows re-evaluation of code in the proper module scope.
 It is a dictionary indexed by PkgId:
 `pkgdatas[id]` returns a value of type [`Revise.PkgData`](@ref).
 """
-const pkgdatas = Dict{PkgId,PkgData}()
+const pkgdatas = Dict{PkgId,PkgData}(NOPACKAGE => PkgData(NOPACKAGE))
 
 const moduledeps = Dict{Module,DepDict}()
 function get_depdict(mod::Module)
@@ -471,7 +541,7 @@ function init_watching(pkgdata::PkgData, files)
     end
     return nothing
 end
-init_watching(files) = init_watching(PkgId(Main), files)
+init_watching(files) = init_watching(pkgdatas[NOPACKAGE], files)
 
 """
     revise_dir_queued(dirname)
@@ -494,9 +564,16 @@ This is generally called via a [`Revise.Rescheduler`](@ref).
     latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
     for (file, id) in latestfiles
         key = joinpath(dirname, file)
-        pkgdata = pkgdatas[id]
-        if hasfile(pkgdata, key)  # issue #228
-            push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
+        if key in keys(user_callbacks_by_file) # TODO: also do this for per-file watching
+            union!(user_callbacks_queue, user_callbacks_by_file[key])
+            notify(revision_event)
+        end
+        if id != NOPACKAGE
+            pkgdata = pkgdatas[id]
+            if hasfile(pkgdata, key)  # issue #228
+                push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
+                notify(revision_event)
+            end
         end
     end
     return stillwatching
@@ -520,6 +597,7 @@ function revise_file_queued(pkgdata::PkgData, file)
         sleep(0.1)  # in case git has done a delete/replace cycle
         if !file_exists(file)
             push!(revision_queue, (pkgdata, file0))  # process file deletions
+            notify(revision_event)
             return false
         end
     end
@@ -529,6 +607,7 @@ function revise_file_queued(pkgdata::PkgData, file)
     dirfull, basename = splitdir(file)
     if haskey(watched_files, dirfull)
         push!(revision_queue, (pkgdata, file0))
+        notify(revision_event)
         return true
     end
     return false
@@ -592,11 +671,13 @@ function errors(revision_errors=keys(queue_errors))
 end
 
 """
-    revise()
+    revise(; throw=false)
 
 `eval` any changes in the revision queue. See [`Revise.revision_queue`](@ref).
+If `throw` is `true`, throw any errors that occur during revision or callback;
+otherwise these are only logged.
 """
-function revise()
+function revise(; throw=false)
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
 
     # Do all the deletion first. This ensures that a method that moved from one file to another
@@ -649,6 +730,9 @@ function revise()
         Use Revise.errors() to report errors again."""
     end
     tracking_Main_includes[] && queue_includes(Main)
+
+    process_user_callbacks!(throw=throw)
+
     nothing
 end
 revise(backend::REPL.REPLBackend) = revise()
@@ -792,39 +876,22 @@ This will print "update" every time `"/tmp/watched.txt"` or any of the code defi
 """
 function entr(f::Function, files, modules=nothing; postpone=false, pause=0.02)
     yield()
-    files = collect(files)  # because we may add to this list
-    if modules !== nothing
-        for mod in modules
-            id = PkgId(mod)
-            pkgdata = pkgdatas[id]
-            for file in srcfiles(pkgdata)
-                push!(files, joinpath(basedir(pkgdata), file))
-            end
-        end
+    postpone || f()
+    key = add_callback(files, modules) do
+        sleep(pause)
+        f()
     end
-    active = true
+    mycallbacks = [key]
     try
-        @sync begin
-            postpone || f()
-            for file in files
-                waitfor = isdir(file) ? watch_folder : watch_file
-                @async while active
-                    ret = waitfor(file, 1)
-                    if active && (ret.changed || ret.renamed)
-                        sleep(pause)
-                        revise()
-                        Base.invokelatest(f)
-                    end
-                end
-            end
+        while true
+            wait(revision_event)
+            revise(throw=true)
         end
     catch err
-        if isa(err, InterruptException)
-            active = false
-        else
-            rethrow(err)
-        end
+        isa(err, InterruptException) || rethrow(err)
     end
+    remove_callback(key)
+    nothing
 end
 
 """
