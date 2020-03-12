@@ -242,7 +242,12 @@ struct Rescheduler{F,A}
 end
 
 function (thunk::Rescheduler{F,A})() where {F,A}
-    if thunk.f(thunk.args...)::Bool
-        schedule(Task(thunk))
+    reschedule = true
+    try
+        reschedule = thunk.f(thunk.args...)::Bool
+    catch err
+        @warn "[Revise] Error during a background task" err
+    finally
+        reschedule && schedule(Task(thunk))
     end
 end
