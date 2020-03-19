@@ -26,6 +26,20 @@ catch e
 end
 ```
 
+If you are using Visual Studio Code, you should instead add the following to your `.julia/config/startup.jl` file: (full details [here](https://github.com/julia-vscode/julia-vscode/wiki/Known-issues-and-workarounds))
+
+```julia
+atreplinit() do repl
+    @async try
+        sleep(0.1)
+        @eval using Revise
+        @async Revise.wait_steal_repl_backend()
+    catch
+        @warn("Could not load Revise.")
+    end
+end
+```
+
 ## System configuration
 
 !!! note "Linux-specific configuration"
