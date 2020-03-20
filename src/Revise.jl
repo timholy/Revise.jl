@@ -1069,6 +1069,8 @@ end
         # Now eval the input
         REPL.eval_user_input(ast, backend)
     end
+    # tell outer backend loop to exit as well
+    put!(backend.repl_channel, (nothing, -1))
     nothing
 end
 
@@ -1080,12 +1082,10 @@ any REPL input.
 """
 function steal_repl_backend(backend = Base.active_repl_backend)
     @async begin
-        # terminate the current backend
-        put!(backend.repl_channel, (nothing, -1))
-        fetch(backend.backend_task)
-        # restart a new backend that differs only by processing the
-        # revision queue before evaluating each user input
-        backend.backend_task = @async run_backend(backend)
+        # When we return back to the backend loop, tell it to start
+        # running our backend loop next, which differs only
+        # by processing the revision queue before evaluating each input.
+        put!(backend.repl_channel, (:($run_backend($backend)), 1))
     end
     nothing
 end
