@@ -2796,6 +2796,8 @@ do_test("callbacks") && @testset "callbacks" begin
         revise()
         @test contents[] == "abc"
 
+        sleep(mtimedelay)
+
         write(io, "def")
         flush(io)
         sleep(mtimedelay)
@@ -2803,6 +2805,7 @@ do_test("callbacks") && @testset "callbacks" begin
         @test contents[] == "abcdef"
 
         Revise.remove_callback(key)
+        sleep(mtimedelay)
 
         write(io, "ghi")
         flush(io)
