@@ -564,7 +564,7 @@ This is generally called via a [`Revise.Rescheduler`](@ref).
     latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
     for (file, id) in latestfiles
         key = joinpath(dirname, file)
-        if key in keys(user_callbacks_by_file) # TODO: also do this for per-file watching
+        if key in keys(user_callbacks_by_file)
             union!(user_callbacks_queue, user_callbacks_by_file[key])
             notify(revision_event)
         end
@@ -603,6 +603,12 @@ function revise_file_queued(pkgdata::PkgData, file)
     end
 
     wait_changed(file)  # will block here until the file changes
+
+    if file in keys(user_callbacks_by_file)
+        union!(user_callbacks_queue, user_callbacks_by_file[file])
+        notify(revision_event)
+    end
+
     # Check to see if we're still watching this file
     dirfull, basename = splitdir(file)
     if haskey(watched_files, dirfull)
