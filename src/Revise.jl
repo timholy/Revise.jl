@@ -1053,6 +1053,9 @@ function method_location(method::Method)
     return method.file, method.line
 end
 
+# On Julia 1.5.0-DEV.282 and higher, we can just use an AST transformation
+revise_first(ex) = Expr(:toplevel, :($revise()), ex)
+
 @noinline function run_backend(backend)
     while true
         tls = task_local_storage()
@@ -1081,11 +1084,16 @@ Replace the REPL's normal backend with one that calls [`revise`](@ref) before ex
 any REPL input.
 """
 function steal_repl_backend(backend = Base.active_repl_backend)
-    @async begin
-        # When we return back to the backend loop, tell it to start
-        # running our backend loop next, which differs only
-        # by processing the revision queue before evaluating each input.
-        put!(backend.repl_channel, (:($run_backend($backend)), 1))
+    if VERSION >= v"1.5.0-DEV.282"
+        # @warn "See Revise documentation for recommended configuration changes"
+        pushfirst!(backend.ast_transforms, revise_first)
+    else
+        @async begin
+            # When we return back to the backend loop, tell it to start
+            # running our backend loop next, which differs only
+            # by processing the revision queue before evaluating each input.
+            put!(backend.repl_channel, (:($run_backend($backend)), 1))
+        end
     end
     nothing
 end
@@ -1158,9 +1166,15 @@ function __init__()
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
         if isdefined(Base, :active_repl_backend)
-            steal_repl_backend(Base.active_repl_backend::REPL.REPLBackend)
+            if VERSION >= v"1.5.0-DEV.282"
+                pushfirst!(Base.active_repl_backend.ast_transforms, revise_first)
+            else
+                steal_repl_backend(Base.active_repl_backend::REPL.REPLBackend)
+            end
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
+        elseif VERSION >= v"1.5.0-DEV.282"
+            pushfirst!(REPL.repl_ast_transforms, revise_first)
         end
         if isdefined(Main, :Atom)
             setup_atom(getfield(Main, :Atom)::Module)
