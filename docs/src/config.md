@@ -3,7 +3,25 @@
 ## Using Revise by default
 
 If you like Revise, you can ensure that every Julia session uses it by
-adding the following to your `.julia/config/startup.jl` file:
+launching it from your `.julia/config/startup.jl` file.
+
+**If you always use Julia-1.5-DEV.282 or higher**, this can be as simple as
+
+```julia
+using Revise
+```
+
+or, if you use different package depots and do not always have Revise available,
+
+```julia
+try
+    using Revise
+catch e
+    @warn(e.msg)
+end
+```
+
+**If you sometimes use versions of Julia prior to 1.5**, use
 
 ```julia
 atreplinit() do repl
@@ -15,6 +33,8 @@ atreplinit() do repl
     end
 end
 ```
+
+## Using Revise automatically within Jupyter/IJulia
 
 If you want Revise to launch automatically within IJulia, then you should also create a `.julia/config/startup_ijulia.jl` file with the contents
 
