@@ -693,12 +693,12 @@ it defaults to `Main`.
 
 If this produces many errors, check that you specified `mod` correctly.
 """
-function track(mod::Module, file::AbstractString; kwargs...)
+function track(mod::Module, file::AbstractString; allow_abspath::Bool=false, kwargs...)
     isfile(file) || error(file, " is not a file")
     # Determine whether we're already tracking this file
     id = PkgId(mod)
     file = normpath(abspath(file))
-    haskey(pkgdatas, id) && hasfile(pkgdatas[id], file) && return nothing
+    haskey(pkgdatas, id) && hasfile(pkgdatas[id], file; allow_abspath=allow_abspath) && return nothing
     # Set up tracking
     fm = parse_source(file, mod)
     if fm !== nothing
@@ -716,7 +716,7 @@ function track(mod::Module, file::AbstractString; kwargs...)
         if !haskey(CodeTracking._pkgfiles, id)
             CodeTracking._pkgfiles[id] = pkgdata.info
         end
-        push!(pkgdata, relpath(file, pkgdata)=>FileInfo(fm))
+        push!(pkgdata, relpath(file, pkgdata; allow_abspath=allow_abspath)=>FileInfo(fm))
         init_watching(pkgdata, (file,))
     end
     return nothing
@@ -756,7 +756,7 @@ function includet(mod::Module, file::AbstractString)
     tls = task_local_storage()
     tls[:SOURCE_PATH] = file
     try
-        track(mod, file; define=true, skip_include=false)
+        track(mod, file; define=true, skip_include=false, allow_abspath=true)
     finally
         if prev === nothing
             delete!(tls, :SOURCE_PATH)
@@ -921,6 +921,7 @@ function get_def(method::Method; modified_files=revision_queue)
     id = get_tracked_id(method.module; modified_files=modified_files)
     id === nothing && return false
     pkgdata = pkgdatas[id]
+    filename = get(src_file_key, filename, filename)
     filename = relpath(filename, pkgdata)
     if hasfile(pkgdata, filename)
         def = get_def(method, pkgdata, filename)

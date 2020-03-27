@@ -1,11 +1,14 @@
 relpath_safe(path, startpath) = isempty(startpath) ? path : relpath(path, startpath)
 
-function Base.relpath(filename, pkgdata::PkgData)
+function Base.relpath(filename, pkgdata::PkgData; allow_abspath::Bool=false)
     if isabspath(filename) && startswith(filename, basedir(pkgdata))
         filename = relpath_safe(filename, basedir(pkgdata))
     elseif startswith(filename, "compiler")
         # Core.Compiler's pkgid includes "compiler/" in the path
         filename = relpath(filename, "compiler")
+    end
+    if isabspath(filename) && !allow_abspath
+        error("Got an absolute path: ", filename)
     end
     return filename
 end

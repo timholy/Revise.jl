@@ -154,9 +154,9 @@ function fileindex(info, file::AbstractString)
     return nothing
 end
 
-function hasfile(info, file)
+function hasfile(info, file; kwargs...)
     if isabspath(file)
-        file = relpath(file, info)
+        file = relpath(file, info; kwargs...)
     end
     fileindex(info, file) !== nothing
 end

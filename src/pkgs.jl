@@ -191,7 +191,7 @@ end
 #     we can't use the module-of-evaluation to find it. Here we hope that the
 #     top-level filename follows convention and matches the module. TODO?: it's
 #     possible that this needs to be supplemented with parsing.
-function queue_includes!(pkgdata::PkgData, id::PkgId)
+function queue_includes!(pkgdata::PkgData, id::PkgId; kwargs...)
     modstring = id.name
     delids = Int[]
     for i = 1:length(included_files)
@@ -204,7 +204,7 @@ function queue_includes!(pkgdata::PkgData, id::PkgId)
             modexsigs = parse_source(fname, mod)
             if modexsigs !== nothing
                 instantiate_sigs!(modexsigs)
-                fname = relpath(fname, pkgdata)
+                fname = relpath(fname, pkgdata; kwargs...)
                 push!(pkgdata, fname=>FileInfo(modexsigs))
             end
             push!(delids, i)
@@ -221,7 +221,7 @@ function queue_includes(mod::Module)
         pkgdatas[id] = PkgData(id)
     end
     pkgdata = pkgdatas[id]
-    files = queue_includes!(pkgdata, id)
+    files = queue_includes!(pkgdata, id; allow_abspath=mod===Main)
     if has_writable_paths(pkgdata)
         init_watching(pkgdata, files)
     end
@@ -316,7 +316,10 @@ function add_require(sourcefile, modcaller, idmod, modname, expr)
         end
         # Get/create the FileInfo specifically for tracking @require blocks
         pkgdata = pkgdatas[id]
-        filekey = relpath(sourcefile, pkgdata) * "__@require__"
+        filekey = relpath(sourcefile, pkgdata; allow_abspath=true) * "__@require__"
+        if isabspath(filekey)
+            @warn "$filekey is a absolute path, expected relative (add_require)"
+        end
         fileidx = fileindex(pkgdata, filekey)
         if fileidx === nothing
             files = srcfiles(pkgdata)
