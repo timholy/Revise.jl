@@ -41,7 +41,7 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
     ex === nothing && return mod_exprs_sigs
     if isexpr(ex, :error) || isexpr(ex, :incomplete)
         prevex, pos = first_bad_position(src)
-        ln = count(isequal('\n'), SubString(src, 1, pos)) + 1
+        ln = count(isequal('\n'), SubString(src, 1, min(pos, length(src)))) + 1
         throw(LoadError(filename, ln, ex.args[1]))
     end
     modexs, docexprs = Tuple{Module,Expr}[], DocExprs()

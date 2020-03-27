@@ -118,6 +118,27 @@ g(x) = 2
 h{x) = 3  # error
 k(x) = 4
 """, "test", Main)
+
+        # Issue #448
+        testdir = newtestdir()
+        file = joinpath(testdir, "badfile.jl")
+        open(file, "w") do io
+            println(io,
+            """
+            function g()
+                while t
+                c =
+                k
+            end
+            """)
+        end
+        try
+            includet(file)
+        catch err
+            @test isa(err, LoadError)
+            @test err.file == file
+            @test endswith(err.error, "requires end")
+        end
     end
 
     do_test("Signature extraction") && @testset "Signature extraction" begin
@@ -689,6 +710,27 @@ end
             display(failedfiles)
         end
         @test isempty(failedfiles)
+    end
+
+    do_test("Recursive types (issue #417)") && @testset "Recursive types (issue #417)" begin
+        testdir = newtestdir()
+        fn = joinpath(testdir, "recursive.jl")
+        open(fn, "w") do io
+            println(io, """
+            module RecursiveTypes
+            struct Foo
+                x::Vector{Foo}
+
+                Foo() = new(Foo[])
+            end
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        includet(fn)
+        @test isa(RecursiveTypes.Foo().x, Vector{RecursiveTypes.Foo})
+
+        pop!(LOAD_PATH)
     end
 
     # issue #318
