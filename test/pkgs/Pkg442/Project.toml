@@ -1,0 +1,8 @@
+name = "Pkg442"
+uuid = "753a5fd8-985c-4be4-bc89-999c80d1e0e5"
+authors = ["Tim Holy <tim.holy@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+Dep442A = "76238f47-ed95-4e4a-a4d9-95a3fb1630ea"
+Dep442B = "880097ba-c503-4edb-bd3f-4c6394f19e96"

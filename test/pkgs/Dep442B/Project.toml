@@ -1,0 +1,7 @@
+name = "Dep442B"
+uuid = "880097ba-c503-4edb-bd3f-4c6394f19e96"
+authors = ["Tim Holy <tim.holy@gmail.com>"]
+version = "0.1.0"
+
+[deps]
+Requires = "ae029012-a4dd-5104-9daa-d747884805df"
