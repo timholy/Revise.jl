@@ -2722,6 +2722,16 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     yry()
     notified && @test TrackRequires2.othertestfunc() == -2
 
+    # Issue #442
+    push!(LOAD_PATH, joinpath(@__DIR__, "pkgs"))
+    @eval using Pkg442
+    sleep(0.01)
+    @test check442()
+    @test Pkg442.check442A()
+    @test Pkg442.check442B()
+    @test Pkg442.Dep442B.has442A()
+    pop!(LOAD_PATH)
+
     rm_precompile("TrackRequires")
     rm_precompile("TrackRequires2")
     pop!(LOAD_PATH)

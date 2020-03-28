@@ -332,7 +332,21 @@ function add_require(sourcefile, modcaller, idmod, modname, expr)
         exsnew = ExprsSigs()
         exsnew[expr] = nothing
         mexsnew = ModuleExprsSigs(modcaller=>exsnew)
-        mexsnew, includes = eval_new!(mexsnew, fi.modexsigs)
+        # Before executing the expression we need to set the load path appropriately
+        prev = Base.source_path(nothing)
+        tls = task_local_storage()
+        tls[:SOURCE_PATH] = sourcefile
+        # Now execute the expression
+        mexsnew, includes = try
+            eval_new!(mexsnew, fi.modexsigs)
+        finally
+            if prev === nothing
+                delete!(tls, :SOURCE_PATH)
+            else
+                tls[:SOURCE_PATH] = prev
+            end
+        end
+        # Add any new methods or `include`d files to tracked objects
         pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
         maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes)
     end
