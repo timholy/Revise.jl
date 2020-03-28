@@ -1,5 +1,7 @@
 # Debugging Revise
 
+## The logging framework
+
 If Revise isn't behaving the way you expect it to, it can be useful to examine the
 decisions it made.
 Revise supports Julia's [Logging framework](https://docs.julialang.org/en/latest/stdlib/Logging/)
@@ -10,7 +12,7 @@ Alternatively, more advanced developers may want to examine the logs themselves 
 the source of Revise's error, and for such users a few tips about interpreting the log
 messages are also provided below.
 
-## Turning on logging
+### Turning on logging
 
 Currently, the best way to turn on logging is within a running Julia session:
 
@@ -22,7 +24,7 @@ You'll use `rlogger` at the end to retrieve the logs.
 
 Now carry out the series of julia commands and code edits that reproduces the problem.
 
-## Capturing the logs and submitting them with your bug report
+### Capturing the logs and submitting them with your bug report
 
 Once all the revisions have been triggered and the mistake has been reproduced,
 it's time to capture the logs.
@@ -56,7 +58,7 @@ To assist in the resolution of the bug, please also specify additional relevant 
 
 See also [A complete debugging demo](@ref) below.
 
-## Logging by default
+### Logging by default
 
 If you suspect a bug in Revise but have difficulty isolating it, you can include the lines
 
@@ -87,7 +89,7 @@ you can submit with your bug report.
 the same logger object created by the first call--it is not necessary to hold
 on to `rlogger`.)
 
-## The structure of the logs
+### The structure of the logs
 
 For those who want to do a little investigating on their own, it may be helpful to
 know that Revise's core decisions are captured in the group called "Action," and they come in three
@@ -117,7 +119,7 @@ before commencing on a session.
 See [`Revise.debug_logger`](@ref) for information on groups besides "Action."
 
 
-## A complete debugging demo
+### A complete debugging demo
 
 From within Revise's `test/` directory, try the following:
 
@@ -166,3 +168,52 @@ You can make copies `cp editedfile.jl > /tmp/version1.jl`, edit code, `cp edited
 etc.
 `diff version1.jl version2.jl` can be used to capture a compact summary of the changes
 and pasted into the bug report.
+
+## Debugging problems with paths
+
+During certain types of usage you might receive messages like
+
+```julia
+Warning: /some/system/path/stdlib/v1.0/SHA/src is not an existing directory, Revise is not watching
+```
+
+Unless you've just deleted that directory, this indicates that some of Revise's functionality is broken.
+
+In the majority of cases, failures come down to Revise having trouble locating source
+code on your drive.
+This problem should be fixable, because Revise includes functionality
+to update its links to source files, as long as it knows what to do.
+
+One of the best approaches is to run Revise's own tests via `pkg> test Revise`.
+Here are some possible test warnings and errors, and steps you might take to fix them:
+
+- `Base & stdlib file paths: Test Failed at /some/path...  Expression: isfile(Revise.basesrccache)`
+  This failure is quite serious, and indicates that you will be unable to access code in `Base`.
+  To fix this, look for a file called `"base.cache"` somewhere in your Julia install
+  or build directory (for the author, it is at `/home/tim/src/julia-1.0/usr/share/julia/base.cache`).
+  Now compare this with the value of `Revise.basesrccache`.
+  (If you're getting this failure, presumably they are different.)
+  An important "top level" directory is `Sys.BINDIR`; if they differ already at this level,
+  consider adding a symbolic link from the location pointed at by `Sys.BINDIR` to the
+  corresponding top-level directory in your actual Julia installation.
+  You'll know you've succeeded in specifying it correctly when, after restarting
+  Julia, `Revise.basesrccache` points to the correct file and `Revise.juliadir`
+  points to the directory that contains `base/`.
+  If this workaround is not possible or does not succeed, please
+  [file an issue](https://github.com/timholy/Revise.jl/issues) with a description of
+  why you can't use it and/or
+  + details from `versioninfo` and information about how you obtained your Julia installation;
+  + the values of `Revise.basesrccache` and `Revise.juliadir`, and the actual paths to `base.cache`
+    and the directory containing the running Julia's `base/`;
+  + what you attempted when trying to fix the problem;
+  + if possible, your best understanding of why this failed to fix it.
+- `skipping Core.Compiler tests due to lack of git repo`: this likely indicates
+  that you downloaded a Julia binary rather than building Julia from source.
+  While Revise should be able to access the code in `Base` and standard libraries,
+  at the current time it is not possible for Revise to access julia's Core.Compiler module
+  unless you clone Julia's repository and build it from source.
+- `skipping git tests because Revise is not under development`: this warning should be
+  harmless. Revise has built-in functionality for extracting source code using `git`,
+  and it uses itself (i.e., its own git repository) for testing purposes.
+  These tests run only if you have checked out Revise for development (`pkg> dev Revise`)
+  or on the continuous integration servers (Travis and Appveyor).
