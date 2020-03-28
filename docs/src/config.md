@@ -107,17 +107,22 @@ Alternatively, you can omit the call to `Revise.async_steal_repl_backend()` from
 
 ### Polling and NFS-mounted code directories: JULIA\_REVISE\_POLL
 
-`Revise` works by scanning your filesystem for changes to the files that define your code.
-Different operating systems and file systems [offer differing levels of support](https://nodejs.org/api/fs.html#fs_caveats)
-for this feature.
-Because [NFS doesn't support `inotify`](https://stackoverflow.com/questions/4231243/inotify-with-nfs),
-if your code is stored on an NFS-mounted volume you should force Revise to use polling:
-Revise will periodically (every 5s) scan the modification times of each dependent file.
+`Revise` works by monitoring your filesystem for changes to the files that define your code.
+On most operating systems, Revise can work "passively" and wait to be signaled
+that one or more watched directories has changed.
+
+Unfortunately, a few file systems systems (notably, the Unix-based Network File System NFS) don't support this approach. In such cases, Revise needs to "actively" check each file periodically to see whether it has changed since the last check. This active process is called [polling](https://en.wikipedia.org/wiki/Polling_(computer_science)). 
 You turn on polling by setting the environment variable `JULIA_REVISE_POLL` to the
 string `"1"` (e.g., `JULIA_REVISE_POLL=1` in a bash script).
 
-If you're using polling, you may have to wait several seconds before changes take effect.
-Consequently polling is not recommended unless you have no other alternative.
+!!! warning
+    If you're using polling, you may have to wait several seconds before changes take effect.
+    Polling is *not* recommended unless you have no other alternative.
+
+!!! note
+    NFS stands for [Network File System](https://en.wikipedia.org/wiki/Network_File_System) and is typically only used to mount shared network drives on *Unix* file systems.
+    You only need to use polling if your *code* is on the NFS share.
+    Despite similarities in the acronym, NTFS, the standard [filesystem on Windows](https://en.wikipedia.org/wiki/NTFS), is completely different from NFS; Revise's default configuration should work fine on Windows without polling.
 
 ### User scripts: JULIA\_REVISE\_INCLUDE
 
