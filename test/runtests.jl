@@ -2782,7 +2782,11 @@ end
 
 do_test("callbacks") && @testset "callbacks" begin
 
-    mktemp() do path, io
+    append(path, x...) = open(path, append=true) do io
+        write(io, x...)
+    end
+
+    mktemp() do path, _
         contents = Ref("")
         key = Revise.add_callback([path]) do
             contents[] = read(path, String)
@@ -2790,16 +2794,14 @@ do_test("callbacks") && @testset "callbacks" begin
 
         sleep(mtimedelay)
 
-        write(io, "abc")
-        flush(io)
+        append(path, "abc")
         sleep(mtimedelay)
         revise()
         @test contents[] == "abc"
 
         sleep(mtimedelay)
 
-        write(io, "def")
-        flush(io)
+        append(path, "def")
         sleep(mtimedelay)
         revise()
         @test contents[] == "abcdef"
@@ -2807,8 +2809,7 @@ do_test("callbacks") && @testset "callbacks" begin
         Revise.remove_callback(key)
         sleep(mtimedelay)
 
-        write(io, "ghi")
-        flush(io)
+        append(path, "ghi")
         sleep(mtimedelay)
         revise()
         @test contents[] == "abcdef"
