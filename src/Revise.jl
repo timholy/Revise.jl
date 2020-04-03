@@ -157,7 +157,15 @@ function remove_callback(key)
         delete!(cbs, key)
     end
     delete!(user_callbacks_by_key, key)
-    # TODO: stop watching these files
+
+    # possible future work: we may stop watching (some of) these files
+    # now. But we don't really keep track of what background tasks are running
+    # and Julia doesn't have an ergonomic way of task cancellation yet (see
+    # e.g.
+    #     https://github.com/JuliaLang/Juleps/blob/master/StructuredConcurrency.md
+    # so we'll omit this for now. The downside is that in pathological cases,
+    # this may exhaust inotify resources.
+
     nothing
 end
 
