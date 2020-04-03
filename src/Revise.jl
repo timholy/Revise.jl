@@ -107,6 +107,18 @@ const user_callbacks_queue = Set{Any}()
 const user_callbacks_by_file = Dict{String, Set{Any}}()
 const user_callbacks_by_key = Dict{Any, Any}()
 
+"""
+    key = Revise.add_callback(f, files, modules=nothing; key=gensym())
+
+Add a user-specified callback, to be executed during the first run of
+`revise()` after a file in `files` or a module in `modules` is changed on the
+file system. In an interactive session like the REPL, Juno or Jupyter, this
+means the callback executes immediately before executing a new command / cell.
+
+You can use the return value `key` to remove the callback later
+(`Revise.remove_callback`) or to update it using another call
+to `Revise.add_callback` with `key=key`.
+"""
 function add_callback(f, files, modules=nothing; key=gensym())
     remove_callback(key)
 
@@ -134,6 +146,12 @@ function add_callback(f, files, modules=nothing; key=gensym())
     return key
 end
 
+"""
+    Revise.remove_callback(key)
+
+Remove a callback previously installed by a call to `Revise.add_callback(...)`.
+See its docstring for details.
+"""
 function remove_callback(key)
     for cbs in values(user_callbacks_by_file)
         delete!(cbs, key)
