@@ -913,7 +913,6 @@ function entr(f::Function, files, modules=nothing; postpone=false, pause=0.02)
         sleep(pause)
         f()
     end
-    mycallbacks = [key]
     try
         while true
             wait(revision_event)
