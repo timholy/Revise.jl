@@ -10,6 +10,8 @@ using OrderedCollections: OrderedSet
 using Test: collect_test_logs
 using Base.CoreLogging: Debug,Info
 
+using CodeTracking: line_is_decl
+
 include("common.jl")
 
 throwing_function(bt) = bt[2]
@@ -1263,13 +1265,16 @@ foo(y::Int) = y-51
             triggered(true, false)
             @test false
         catch err
-            bt = throwing_function(Revise.update_stacktrace_lineno!(stacktrace(catch_backtrace())))
+            st = stacktrace(catch_backtrace())
+            Revise.update_stacktrace_lineno!(st)
+            bt = throwing_function(st)
             @test bt.file == Symbol(filename) && bt.line == 2
         end
         io = IOBuffer()
         if isdefined(Base, :methodloc_callback)
             print(io, methods(triggered))
-            @test occursin(filename * ":2", String(take!(io)))
+            mline = line_is_decl ? 1 : 2
+            @test occursin(filename * ":$mline", String(take!(io)))
         end
         open(filename, "w") do io
             println(io, """
@@ -1306,7 +1311,8 @@ foo(y::Int) = y-51
         @test occursin(targetstr, String(take!(io)))
         if isdefined(Base, :methodloc_callback)
             print(io, methods(triggered))
-            @test occursin(filename * ":3", String(take!(io)))
+            mline = line_is_decl ? 2 : 3
+            @test occursin(filename * ":$mline", String(take!(io)))
         end
 
         push!(to_remove, filename)

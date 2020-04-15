@@ -14,6 +14,8 @@ using LoweredCodeUtils: next_or_nothing!, isanonymous_typedef, define_anonymous
 
 export revise, includet, entr, MethodSummary
 
+using CodeTracking: line_is_decl
+
 """
     Revise.watching_files[]
 
