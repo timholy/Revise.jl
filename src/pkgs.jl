@@ -387,6 +387,7 @@ This function gets called via a callback registered with `Base.require`, at the 
 of module-loading by `using` or `import`.
 """
 function watch_package(id::PkgId)
+    occursin(joinpath(".julia","packages"), basedir(PkgData(id))) && return nothing #Skip package files that are read-only (aren't dev-ed)
     # Because the callbacks are made with `invokelatest`, for reasons of performance
     # we need to make sure this function is fast to compile. By hiding the real
     # work behind a @async, we truncate the chain of dependency.
