@@ -94,7 +94,7 @@ function pkg_fileinfo(id::PkgId)
     # Try to find the matching cache file
     paths = Base.find_all_in_cache_path(id)
     sourcepath = Base.locate_package(id)
-    if length(paths) > 1
+    if sourcepath !== nothing && length(paths) > 1
         fpaths = filter_valid_cachefiles(sourcepath, paths)
         paths = isempty(fpaths) ? paths : fpaths
         # Work-around for #371 (broken dependency prevents tracking):
