@@ -81,6 +81,7 @@ end
 # that's easier to precompile. (This is a hotspot in loading Revise.)
 function filter_valid_cachefiles(sourcepath, paths)
     fpaths = String[]
+    sorcepath === nothing && return fpaths
     for path in paths
         if Base.stale_cachefile(sourcepath, path) !== true
             push!(fpaths, path)
@@ -94,7 +95,7 @@ function pkg_fileinfo(id::PkgId)
     # Try to find the matching cache file
     paths = Base.find_all_in_cache_path(id)
     sourcepath = Base.locate_package(id)
-    if sourcepath !== nothing && length(paths) > 1
+    if length(paths) > 1
         fpaths = filter_valid_cachefiles(sourcepath, paths)
         paths = isempty(fpaths) ? paths : fpaths
         # Work-around for #371 (broken dependency prevents tracking):
