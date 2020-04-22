@@ -81,6 +81,7 @@ end
 # that's easier to precompile. (This is a hotspot in loading Revise.)
 function filter_valid_cachefiles(sourcepath, paths)
     fpaths = String[]
+    sorcepath === nothing && return fpaths
     for path in paths
         if Base.stale_cachefile(sourcepath, path) !== true
             push!(fpaths, path)
