@@ -12,6 +12,11 @@ using Base.CoreLogging: Debug,Info
 
 using CodeTracking: line_is_decl
 
+# In addition to using this for the "More arg-modifying macros" test below,
+# this package is used on Travis to test what happens when you have multiple
+# *.ji files for the package.
+using EponymTuples
+
 include("common.jl")
 
 throwing_function(bt) = bt[2]
@@ -74,6 +79,12 @@ end
         id = Base.PkgId(Main)
         pd = Revise.PkgData(id)
         @test isempty(Revise.basedir(pd))
+    end
+
+    do_test("Package contents") && @testset "Package contents" begin
+        id = Base.PkgId(EponymTuples)
+        path, mods_files_mtimes = Revise.pkg_fileinfo(id)
+        @test occursin("EponymTuples", path)
     end
 
     do_test("LineSkipping") && @testset "LineSkipping" begin
@@ -1426,6 +1437,11 @@ for T in (Int, Float64, String)
     @eval mytypeof(x::\$T) = \$T
 end
 
+@generated function firstparam(A::AbstractArray)
+    T = A.parameters[1]
+    return :(\$T)
+end
+
 end
 """)
         end
@@ -1458,6 +1474,7 @@ end
         @test MethDel.mytypeof(1) === Int
         @test MethDel.mytypeof(1.0) === Float64
         @test MethDel.mytypeof("hi") === String
+        @test MethDel.firstparam(rand(2,2)) === Float64
         open(joinpath(dn, "MethDel.jl"), "w") do io
             println(io, """
 module MethDel
@@ -1515,6 +1532,7 @@ end
         @test MethDel.mytypeof(1) === Int
         @test_throws MethodError MethDel.mytypeof(1.0)
         @test MethDel.mytypeof("hi") === String
+        @test_throws MethodError MethDel.firstparam(rand(2,2))
 
         Base.delete_method(first(methods(Base.revisefoo)))
 
@@ -1532,6 +1550,43 @@ end
         Revise.delete_missing!(f_old, f_new)
         m = @which ReviseTestPrivate.methspecificity(1)
         @test m.sig.parameters[2] === Integer
+    end
+
+    do_test("revise_file_now") && @testset "revise_file_now" begin
+        # Very rarely this is used for debugging
+        testdir = newtestdir()
+        dn = joinpath(testdir, "ReviseFileNow", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "ReviseFileNow.jl")
+        open(fn, "w") do io
+            println(io, """
+            module ReviseFileNow
+            f(x) = 1
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using ReviseFileNow
+        @test ReviseFileNow.f(0) == 1
+        sleep(mtimedelay)
+        pkgdata = Revise.pkgdatas[Base.PkgId(ReviseFileNow)]
+        open(fn, "w") do io
+            println(io, """
+            module ReviseFileNow
+            f(x) = 2
+            end
+            """)
+        end
+        try
+            Revise.revise_file_now(pkgdata, "foo")
+        catch err
+            @test isa(err, ErrorException)
+            @test occursin("not currently being tracked", err.msg)
+        end
+        Revise.revise_file_now(pkgdata, relpath(fn, pkgdata))
+        @test ReviseFileNow.f(0) == 2
+
+        rm_precompile("ReviseFileNow")
     end
 
     do_test("Evaled toplevel") && @testset "Evaled toplevel" begin
@@ -2418,6 +2473,8 @@ end
 
             pop!(hp.history)
             pop!(hp.history)
+        else
+            @warn "REPL tests skipped"
         end
     end
 

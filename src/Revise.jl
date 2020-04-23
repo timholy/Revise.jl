@@ -357,7 +357,6 @@ struct CodeTrackingMethodInfo
     includes::Vector{String}
 end
 CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Set{Union{GlobalRef,Symbol}}(), String[])
-CodeTrackingMethodInfo(rex::RelocatableExpr) = CodeTrackingMethodInfo(rex.ex)
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), ln)
     CodeTracking.method_info[sig] = (fixpath(ln), methodinfo.exprstack[end])
@@ -473,7 +472,6 @@ function init_watching(pkgdata::PkgData, files)
     end
     return nothing
 end
-init_watching(files) = init_watching(PkgId(Main), files)
 
 """
     revise_dir_queued(dirname)
@@ -563,9 +561,10 @@ that move from one file to another.
 `Revise.pkgdatas[id].fileinfos`.
 """
 function revise_file_now(pkgdata::PkgData, file)
+    # @assert !isabspath(file)
     i = fileindex(pkgdata, file)
     if i === nothing
-        println("Revise is currently tracking the following files in $(pkgdata.id): ", keys(pkgdict))
+        println("Revise is currently tracking the following files in $(PkgId(pkgdata)): ", srcfiles(pkgdata))
         error(file, " is not currently being tracked.")
     end
     mexsnew, mexsold = handle_deletions(pkgdata, file)
@@ -998,25 +997,6 @@ function add_definitions_from_repl(filename)
     push!(pkgdata, filename=>fi)
     return fi
 end
-
-function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)
-    if ex.head == :line
-        ex.args[1] += line_offset
-        ex.args[2] = file
-    else
-        for (i, a) in enumerate(ex.args)
-            if isa(a, Expr)
-                fix_line_statements!(a::Expr, file, line_offset)
-            elseif isa(a, LineNumberNode)
-                ex.args[i] = file_line_statement(a::LineNumberNode, file, line_offset)
-            end
-        end
-    end
-    ex
-end
-
-file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
-    LineNumberNode(lnn.line + line_offset, file)
 
 function update_stacktrace_lineno!(trace)
     local nrep

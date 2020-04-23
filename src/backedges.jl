@@ -208,6 +208,13 @@ function toplevel_chunks(backedges::BackEdges)
     return chunks
 end
 
+"""
+    hastrackedexpr(src, chunk=1:length(src.code))
+
+Detect whether the specified `chunk` of `src` contains a definition tracked
+by Revise. By default these are methods and type definitions (the latter because
+they might contain constructors).
+"""
 function hastrackedexpr(code::CodeInfo, chunk::AbstractUnitRange=axes(code.code, 1); heads=(:method, :struct_type, :abstract_type, :primitive_type))
     for stmtidx in chunk
         stmt = code.code[stmtidx]
