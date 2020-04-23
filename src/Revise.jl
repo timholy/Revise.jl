@@ -850,49 +850,6 @@ silence(pkg::AbstractString) = silence(Symbol(pkg))
 ## Utilities
 
 """
-    method = get_method(sigt)
-
-Get the method `method` with signature-type `sigt`. This is used to provide
-the method to `Base.delete_method`.
-
-If `sigt` does not correspond to a method, returns `nothing`.
-
-# Examples
-
-```jldoctest; setup = :(using Revise), filter = r"in Main at.*"
-julia> mymethod(::Int) = 1
-mymethod (generic function with 1 method)
-
-julia> mymethod(::AbstractFloat) = 2
-mymethod (generic function with 2 methods)
-
-julia> Revise.get_method(Tuple{typeof(mymethod), Int})
-mymethod(::Int64) in Main at REPL[0]:1
-
-julia> Revise.get_method(Tuple{typeof(mymethod), Float64})
-mymethod(::AbstractFloat) in Main at REPL[1]:1
-
-julia> Revise.get_method(Tuple{typeof(mymethod), Number})
-
-```
-"""
-function get_method(@nospecialize(sigt))
-    mths = Base._methods_by_ftype(sigt, -1, typemax(UInt))
-    length(mths) == 1 && return mths[1][3]
-    if !isempty(mths)
-        # There might be many methods, but the one that should match should be the
-        # last one, since methods are ordered by specificity
-        i = lastindex(mths)
-        while i > 0
-            m = mths[i][3]
-            m.sig == sigt && return m
-            i -= 1
-        end
-    end
-    return nothing
-end
-
-"""
     success = get_def(method::Method)
 
 As needed, load the source file necessary for extracting the code defining `method`.

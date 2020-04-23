@@ -1,16 +1,18 @@
 # REVISE: DO NOT PARSE   # For people with JULIA_REVISE_INCLUDE=1
-using Revise, CodeTracking, JuliaInterpreter
+using Revise
+using Revise.CodeTracking
+using Revise.JuliaInterpreter
 using Test
 
 @test isempty(detect_ambiguities(Revise, Base, Core))
 
 using Pkg, Unicode, Distributed, InteractiveUtils, REPL, UUIDs
 import LibGit2
-using OrderedCollections: OrderedSet
+using Revise.OrderedCollections: OrderedSet
 using Test: collect_test_logs
 using Base.CoreLogging: Debug,Info
 
-using CodeTracking: line_is_decl
+using Revise.CodeTracking: line_is_decl
 
 # In addition to using this for the "More arg-modifying macros" test below,
 # this package is used on Travis to test what happens when you have multiple
@@ -375,17 +377,29 @@ k(x) = 4
         Base.include(mod, file)
         mexs = Revise.parse_source(file, mod)
         Revise.instantiate_sigs!(mexs)
-        io = IOBuffer()
+        # io = IOBuffer()
         print(IOContext(io, :compact=>true), mexs)
         str = String(take!(io))
         @test str == "OrderedCollections.OrderedDict($mod$(pair_op_compact)ExprsSigs(<1 expressions>, <0 signatures>),$mod.ReviseTest$(pair_op_compact)ExprsSigs(<2 expressions>, <2 signatures>),$mod.ReviseTest.Internal$(pair_op_compact)ExprsSigs(<6 expressions>, <5 signatures>))"
         exs = mexs[getfield(mod, :ReviseTest)]
-        io = IOBuffer()
+        # io = IOBuffer()
         print(IOContext(io, :compact=>true), exs)
         @test String(take!(io)) == "ExprsSigs(<2 expressions>, <2 signatures>)"
         print(IOContext(io, :compact=>false), exs)
         str = String(take!(io))
         @test str == "ExprsSigs with the following expressions: \n  :(square(x) = begin\n          x ^ 2\n      end)\n  :(cube(x) = begin\n          x ^ 4\n      end)"
+
+        sleep(0.1)  # wait for EponymTuples to hit the cache
+        pkgdata = Revise.pkgdatas[Base.PkgId(EponymTuples)]
+        file = first(Revise.srcfiles(pkgdata))
+        Revise.maybe_parse_from_cache!(pkgdata, file)
+        print(io, pkgdata)
+        str = String(take!(io))
+        @test occursin("EponymTuples.jl\": FileInfo", str)
+        @test occursin(r"with cachefile.*EponymTuples.*ji", str)
+        print(IOContext(io, :compact=>true), pkgdata)
+        str = String(take!(io))
+        @test occursin("1/1 parsed files", str)
     end
 
     do_test("File paths") && @testset "File paths" begin
@@ -895,6 +909,40 @@ end
         ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Hello! "
         rm_precompile("ModDocstring")
+        pop!(LOAD_PATH)
+    end
+
+    do_test("Changing docstrings") && @testset "Changing docstring" begin
+        # Compiled mode covers most docstring changes, so we have to go to
+        # special effort to test the older interpreter-based solution.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "ChangeDocstring", "src")
+        mkpath(dn)
+        open(joinpath(dn, "ChangeDocstring.jl"), "w") do io
+            println(io, """
+            module ChangeDocstring
+            "f" f() = 1
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using ChangeDocstring
+        sleep(mtimedelay)
+        @test ChangeDocstring.f() == 1
+        ds = @doc(ChangeDocstring.f)
+        @test ds.content[1].content[1].content[1].content[1] == "f"
+        # Now manually change the docstring
+        ex = quote "g" f() = 1 end
+        lwr = Meta.lower(ChangeDocstring, ex)
+        frame = JuliaInterpreter.prepare_thunk(ChangeDocstring, lwr, true)
+        methodinfo = Revise.MethodInfo()
+        docexprs = Dict{Module,Vector{Expr}}()
+        ret = Revise.methods_by_execution!(JuliaInterpreter.finish_and_return!, methodinfo,
+                                           docexprs, frame, trues(length(frame.framecode.src.code)); define=false)
+        ds = @doc(ChangeDocstring.f)
+        @test ds.content[1].content[1].content[1].content[1] == "g"
+
+        rm_precompile("ChangeDocstring")
         pop!(LOAD_PATH)
     end
 
@@ -2505,6 +2553,16 @@ end
         rm_precompile("Baremodule")
         pop!(LOAD_PATH)
     end
+end
+
+do_test("Utilities") && @testset "Utilities" begin
+    # Used by Rebugger but still lives here
+    io = IOBuffer()
+    Revise.println_maxsize(io, "a"^100; maxchars=50)
+    str = String(take!(io))
+    @test startswith(str, "a"^25)
+    @test endswith(chomp(chomp(str)), "a"^24)
+    @test occursin("…", str)
 end
 
 do_test("Switching free/dev") && @testset "Switching free/dev" begin
