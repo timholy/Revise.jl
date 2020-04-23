@@ -1155,6 +1155,14 @@ function init_worker(p)
 end
 
 function __init__()
+    println("-------------------")
+    println("-------------------")
+    println("-------------------")
+    println("RUNNING __INIT__")
+    println("MY ID : $(myid())")
+    println("-------------------")
+    println("-------------------")
+    println("-------------------")
     myid() == 1 || return nothing
     if isfile(silencefile[])
         pkgs = readlines(silencefile[])
