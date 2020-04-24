@@ -99,22 +99,6 @@ Base.in(file, wl::WatchList) = haskey(wl.trackedfiles, file)
      newer(mtime, timestamp) = mtime >= timestamp
  end
 
-function macroreplace!(ex::Expr, filename)
-    for i = 1:length(ex.args)
-        ex.args[i] = macroreplace!(ex.args[i], filename)
-    end
-    if ex.head == :macrocall
-        m = ex.args[1]
-        if m == Symbol("@__FILE__")
-            return String(filename)
-        elseif m == Symbol("@__DIR__")
-            return dirname(String(filename))
-        end
-    end
-    return ex
-end
-macroreplace!(s, filename) = s
-
 function printf_maxsize(f::Function, io::IO, args...; maxchars::Integer=500, maxlines::Integer=20)
     # This is dumb but certain to work
     iotmp = IOBuffer()
@@ -144,7 +128,7 @@ function printf_maxsize(f::Function, io::IO, args...; maxchars::Integer=500, max
     end
 end
 println_maxsize(args...; kwargs...) = println_maxsize(stdout, args...; kwargs...)
-println_maxsize(io::IO, args...; kwargs...) = printf_maxsize(println, stdout, args...; kwargs...)
+println_maxsize(io::IO, args...; kwargs...) = printf_maxsize(println, io, args...; kwargs...)
 
 # Trimming backtraces
 function trim_toplevel!(bt)

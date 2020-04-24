@@ -1,16 +1,23 @@
 # REVISE: DO NOT PARSE   # For people with JULIA_REVISE_INCLUDE=1
-using Revise, CodeTracking, JuliaInterpreter
+using Revise
+using Revise.CodeTracking
+using Revise.JuliaInterpreter
 using Test
 
 @test isempty(detect_ambiguities(Revise, Base, Core))
 
 using Pkg, Unicode, Distributed, InteractiveUtils, REPL, UUIDs
 import LibGit2
-using OrderedCollections: OrderedSet
+using Revise.OrderedCollections: OrderedSet
 using Test: collect_test_logs
 using Base.CoreLogging: Debug,Info
 
-using CodeTracking: line_is_decl
+using Revise.CodeTracking: line_is_decl
+
+# In addition to using this for the "More arg-modifying macros" test below,
+# this package is used on Travis to test what happens when you have multiple
+# *.ji files for the package.
+using EponymTuples
 
 include("common.jl")
 
@@ -74,6 +81,12 @@ end
         id = Base.PkgId(Main)
         pd = Revise.PkgData(id)
         @test isempty(Revise.basedir(pd))
+    end
+
+    do_test("Package contents") && @testset "Package contents" begin
+        id = Base.PkgId(EponymTuples)
+        path, mods_files_mtimes = Revise.pkg_fileinfo(id)
+        @test occursin("EponymTuples", path)
     end
 
     do_test("LineSkipping") && @testset "LineSkipping" begin
@@ -364,17 +377,29 @@ k(x) = 4
         Base.include(mod, file)
         mexs = Revise.parse_source(file, mod)
         Revise.instantiate_sigs!(mexs)
-        io = IOBuffer()
+        # io = IOBuffer()
         print(IOContext(io, :compact=>true), mexs)
         str = String(take!(io))
         @test str == "OrderedCollections.OrderedDict($mod$(pair_op_compact)ExprsSigs(<1 expressions>, <0 signatures>),$mod.ReviseTest$(pair_op_compact)ExprsSigs(<2 expressions>, <2 signatures>),$mod.ReviseTest.Internal$(pair_op_compact)ExprsSigs(<6 expressions>, <5 signatures>))"
         exs = mexs[getfield(mod, :ReviseTest)]
-        io = IOBuffer()
+        # io = IOBuffer()
         print(IOContext(io, :compact=>true), exs)
         @test String(take!(io)) == "ExprsSigs(<2 expressions>, <2 signatures>)"
         print(IOContext(io, :compact=>false), exs)
         str = String(take!(io))
         @test str == "ExprsSigs with the following expressions: \n  :(square(x) = begin\n          x ^ 2\n      end)\n  :(cube(x) = begin\n          x ^ 4\n      end)"
+
+        sleep(0.1)  # wait for EponymTuples to hit the cache
+        pkgdata = Revise.pkgdatas[Base.PkgId(EponymTuples)]
+        file = first(Revise.srcfiles(pkgdata))
+        Revise.maybe_parse_from_cache!(pkgdata, file)
+        print(io, pkgdata)
+        str = String(take!(io))
+        @test occursin("EponymTuples.jl\": FileInfo", str)
+        @test occursin(r"with cachefile.*EponymTuples.*ji", str)
+        print(IOContext(io, :compact=>true), pkgdata)
+        str = String(take!(io))
+        @test occursin("1/1 parsed files", str)
     end
 
     do_test("File paths") && @testset "File paths" begin
@@ -884,6 +909,40 @@ end
         ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Hello! "
         rm_precompile("ModDocstring")
+        pop!(LOAD_PATH)
+    end
+
+    do_test("Changing docstrings") && @testset "Changing docstring" begin
+        # Compiled mode covers most docstring changes, so we have to go to
+        # special effort to test the older interpreter-based solution.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "ChangeDocstring", "src")
+        mkpath(dn)
+        open(joinpath(dn, "ChangeDocstring.jl"), "w") do io
+            println(io, """
+            module ChangeDocstring
+            "f" f() = 1
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using ChangeDocstring
+        sleep(mtimedelay)
+        @test ChangeDocstring.f() == 1
+        ds = @doc(ChangeDocstring.f)
+        @test ds.content[1].content[1].content[1].content[1] == "f"
+        # Now manually change the docstring
+        ex = quote "g" f() = 1 end
+        lwr = Meta.lower(ChangeDocstring, ex)
+        frame = JuliaInterpreter.prepare_thunk(ChangeDocstring, lwr, true)
+        methodinfo = Revise.MethodInfo()
+        docexprs = Dict{Module,Vector{Expr}}()
+        ret = Revise.methods_by_execution!(JuliaInterpreter.finish_and_return!, methodinfo,
+                                           docexprs, frame, trues(length(frame.framecode.src.code)); define=false)
+        ds = @doc(ChangeDocstring.f)
+        @test ds.content[1].content[1].content[1].content[1] == "g"
+
+        rm_precompile("ChangeDocstring")
         pop!(LOAD_PATH)
     end
 
@@ -1426,6 +1485,11 @@ for T in (Int, Float64, String)
     @eval mytypeof(x::\$T) = \$T
 end
 
+@generated function firstparam(A::AbstractArray)
+    T = A.parameters[1]
+    return :(\$T)
+end
+
 end
 """)
         end
@@ -1458,6 +1522,7 @@ end
         @test MethDel.mytypeof(1) === Int
         @test MethDel.mytypeof(1.0) === Float64
         @test MethDel.mytypeof("hi") === String
+        @test MethDel.firstparam(rand(2,2)) === Float64
         open(joinpath(dn, "MethDel.jl"), "w") do io
             println(io, """
 module MethDel
@@ -1515,6 +1580,7 @@ end
         @test MethDel.mytypeof(1) === Int
         @test_throws MethodError MethDel.mytypeof(1.0)
         @test MethDel.mytypeof("hi") === String
+        @test_throws MethodError MethDel.firstparam(rand(2,2))
 
         Base.delete_method(first(methods(Base.revisefoo)))
 
@@ -1532,6 +1598,43 @@ end
         Revise.delete_missing!(f_old, f_new)
         m = @which ReviseTestPrivate.methspecificity(1)
         @test m.sig.parameters[2] === Integer
+    end
+
+    do_test("revise_file_now") && @testset "revise_file_now" begin
+        # Very rarely this is used for debugging
+        testdir = newtestdir()
+        dn = joinpath(testdir, "ReviseFileNow", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "ReviseFileNow.jl")
+        open(fn, "w") do io
+            println(io, """
+            module ReviseFileNow
+            f(x) = 1
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using ReviseFileNow
+        @test ReviseFileNow.f(0) == 1
+        sleep(mtimedelay)
+        pkgdata = Revise.pkgdatas[Base.PkgId(ReviseFileNow)]
+        open(fn, "w") do io
+            println(io, """
+            module ReviseFileNow
+            f(x) = 2
+            end
+            """)
+        end
+        try
+            Revise.revise_file_now(pkgdata, "foo")
+        catch err
+            @test isa(err, ErrorException)
+            @test occursin("not currently being tracked", err.msg)
+        end
+        Revise.revise_file_now(pkgdata, relpath(fn, pkgdata))
+        @test ReviseFileNow.f(0) == 2
+
+        rm_precompile("ReviseFileNow")
     end
 
     do_test("Evaled toplevel") && @testset "Evaled toplevel" begin
@@ -2418,6 +2521,8 @@ end
 
             pop!(hp.history)
             pop!(hp.history)
+        else
+            @warn "REPL tests skipped"
         end
     end
 
@@ -2448,6 +2553,16 @@ end
         rm_precompile("Baremodule")
         pop!(LOAD_PATH)
     end
+end
+
+do_test("Utilities") && @testset "Utilities" begin
+    # Used by Rebugger but still lives here
+    io = IOBuffer()
+    Revise.println_maxsize(io, "a"^100; maxchars=50)
+    str = String(take!(io))
+    @test startswith(str, "a"^25)
+    @test endswith(chomp(chomp(str)), "a"^24)
+    @test occursin("…", str)
 end
 
 do_test("Switching free/dev") && @testset "Switching free/dev" begin

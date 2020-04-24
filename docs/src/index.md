@@ -176,7 +176,7 @@ If Revise isn't working for you, here are some steps to try:
 - Try running `test Revise` from the Pkg REPL-mode.
   If tests pass, check the documentation to make sure you understand how Revise should work.
   If they fail (especially if it mirrors functionality that you need and isn't working), see
-  [Fixing a broken or partially-working installation](@ref) for some suggestions.
+  [Debugging problems with paths](@ref) for one set of suggestions.
 
 If you still encounter problems, please [file an issue](https://github.com/timholy/Revise.jl/issues).
 Especially if you think Revise is making mistakes in adding or deleting methods, please
