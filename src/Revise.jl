@@ -456,7 +456,7 @@ function init_watching(pkgdata::PkgData, files)
         already_watching || (watched_files[dirfull] = WatchList())
         push!(watched_files[dirfull], basename=>pkgdata)
         if watching_files[]
-            fwatcher = Rescheduler(revise_file_queued, (pkgdata, file))
+            fwatcher = TaskThunk(revise_file_queued, (pkgdata, file))
             schedule(Task(fwatcher))
         else
             already_watching || push!(udirs, dir)
@@ -466,7 +466,7 @@ function init_watching(pkgdata::PkgData, files)
         dirfull = joinpath(basedir(pkgdata), dir)
         updatetime!(watched_files[dirfull])
         if !watching_files[]
-            dwatcher = Rescheduler(revise_dir_queued, (dirfull,))
+            dwatcher = TaskThunk(revise_dir_queued, (dirfull,))
             schedule(Task(dwatcher))
         end
     end
@@ -478,28 +478,31 @@ end
 
 Wait for one or more of the files registered in `Revise.watched_files[dirname]` to be
 modified, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
-This is generally called via a [`Revise.Rescheduler`](@ref).
+This is generally called via a [`Revise.TaskThunk`](@ref).
 """
 @noinline function revise_dir_queued(dirname)
     @assert isabspath(dirname)
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
+    end
+    stillwatching = true
+    while stillwatching
         if !isdir(dirname)
             with_logger(SimpleLogger(stderr)) do
                 @warn "$dirname is not an existing directory, Revise is not watching"
             end
-            return false
+            break
+        end
+        latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
+        for (file, id) in latestfiles
+            key = joinpath(dirname, file)
+            pkgdata = pkgdatas[id]
+            if hasfile(pkgdata, key)  # issue #228
+                push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
+            end
         end
     end
-    latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
-    for (file, id) in latestfiles
-        key = joinpath(dirname, file)
-        pkgdata = pkgdatas[id]
-        if hasfile(pkgdata, key)  # issue #228
-            push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
-        end
-    end
-    return stillwatching
+    return
 end
 
 # See #66.
@@ -507,7 +510,7 @@ end
     revise_file_queued(pkgdata::PkgData, filename)
 
 Wait for modifications to `filename`, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
-This is generally called via a [`Revise.Rescheduler`](@ref).
+This is generally called via a [`Revise.TaskThunk`](@ref).
 
 This is used only on platforms (like BSD) which cannot use [`Revise.revise_dir_queued`](@ref).
 """
@@ -518,20 +521,23 @@ function revise_file_queued(pkgdata::PkgData, file)
     end
     if !file_exists(file)
         sleep(0.1)  # in case git has done a delete/replace cycle
-        if !file_exists(file)
-            push!(revision_queue, (pkgdata, file0))  # process file deletions
-            return false
-        end
     end
 
-    wait_changed(file)  # will block here until the file changes
-    # Check to see if we're still watching this file
     dirfull, basename = splitdir(file)
-    if haskey(watched_files, dirfull)
+    stillwatching = true
+    while stillwatching
+        if !file_exists(file)
+            with_logger(SimpleLogger(stderr)) do
+                @warn "$file is not an existing file, Revise is not watching"
+            end
+            break
+        end
+        wait_changed(file)  # will block here until the file changes
+        # Check to see if we're still watching this file
+        stillwatching = haskey(watched_files, dirfull)
         push!(revision_queue, (pkgdata, file0))
-        return true
     end
-    return false
+    return
 end
 
 # Because we delete first, we have to make sure we've parsed the file
@@ -1155,7 +1161,7 @@ function __init__()
     if mfile === nothing
         @warn "no Manifest.toml file found, static paths used"
     else
-        wmthunk = Rescheduler(watch_manifest, (mfile,))
+        wmthunk = TaskThunk(watch_manifest, (mfile,))
         schedule(Task(wmthunk))
     end
     return nothing

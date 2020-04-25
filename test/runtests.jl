@@ -2616,7 +2616,7 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     devpath = joinpath(depot, "dev")
     mkpath(devpath)
     mfile = Revise.manifest_file()
-    schedule(Task(Revise.Rescheduler(Revise.watch_manifest, (mfile,))))
+    schedule(Task(Revise.TaskThunk(Revise.watch_manifest, (mfile,))))
     sleep(mtimedelay)
     pkgdevpath = make_a2d(devpath, 2, "w"; generate=false)
     cp(joinpath(ropkgpath, "Project.toml"), joinpath(devpath, "A2D/Project.toml"))
