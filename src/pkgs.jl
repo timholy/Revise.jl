@@ -480,49 +480,50 @@ function find_from_hash(name, uuid, hash)
 end
 
 function watch_manifest(mfile)
-    wait_changed(mfile)
-    try
-        with_logger(_debug_logger) do
-            @debug "Pkg" _group="manifest_update" manifest_file=mfile
-            isfile(mfile) || return nothing
-            pkgdirs = manifest_paths(mfile)
-            for (id, pkgdir) in pkgdirs
-                if haskey(pkgdatas, id)
-                    pkgdata = pkgdatas[id]
-                    if pkgdir != basedir(pkgdata)
-                        ## The package directory has changed
-                        @debug "Pkg" _group="pathswitch" oldpath=basedir(pkgdata) newpath=pkgdir
-                        # Stop all associated watching tasks
-                        for dir in unique_dirs(srcfiles(pkgdata))
-                            @debug "Pkg" _group="unwatch" dir=dir
-                            delete!(watched_files, joinpath(basedir(pkgdata), dir))
-                            # Note: if the file is revised, the task(s) will run one more time.
-                            # However, because we've removed the directory from the watch list this will be a no-op,
-                            # and then the tasks will be dropped.
-                        end
-                        # Revise code as needed
-                        files = String[]
-                        for file in srcfiles(pkgdata)
-                            maybe_parse_from_cache!(pkgdata, file)
-                            push!(revision_queue, (pkgdata, file))
-                            push!(files, file)
-                        end
-                        # Update the directory
-                        pkgdata.info.basedir = pkgdir
-                        # Restart watching, if applicable
-                        if has_writable_paths(pkgdata)
-                            init_watching(pkgdata, files)
+    while true
+        wait_changed(mfile)
+        try
+            with_logger(_debug_logger) do
+                @debug "Pkg" _group="manifest_update" manifest_file=mfile
+                isfile(mfile) || return nothing
+                pkgdirs = manifest_paths(mfile)
+                for (id, pkgdir) in pkgdirs
+                    if haskey(pkgdatas, id)
+                        pkgdata = pkgdatas[id]
+                        if pkgdir != basedir(pkgdata)
+                            ## The package directory has changed
+                            @debug "Pkg" _group="pathswitch" oldpath=basedir(pkgdata) newpath=pkgdir
+                            # Stop all associated watching tasks
+                            for dir in unique_dirs(srcfiles(pkgdata))
+                                @debug "Pkg" _group="unwatch" dir=dir
+                                delete!(watched_files, joinpath(basedir(pkgdata), dir))
+                                # Note: if the file is revised, the task(s) will run one more time.
+                                # However, because we've removed the directory from the watch list this will be a no-op,
+                                # and then the tasks will be dropped.
+                            end
+                            # Revise code as needed
+                            files = String[]
+                            for file in srcfiles(pkgdata)
+                                maybe_parse_from_cache!(pkgdata, file)
+                                push!(revision_queue, (pkgdata, file))
+                                push!(files, file)
+                            end
+                            # Update the directory
+                            pkgdata.info.basedir = pkgdir
+                            # Restart watching, if applicable
+                            if has_writable_paths(pkgdata)
+                                init_watching(pkgdata, files)
+                            end
                         end
                     end
                 end
             end
-        end
-    catch err
-        @static if VERSION >= v"1.2.0-DEV.253"
-            put!(Base.active_repl_backend.response_channel, (Base.catch_stack(), true))
-        else
-            put!(Base.active_repl_backend.response_channel, (err, catch_backtrace()))
+        catch err
+            @static if VERSION >= v"1.2.0-DEV.253"
+                put!(Base.active_repl_backend.response_channel, (Base.catch_stack(), true))
+            else
+                put!(Base.active_repl_backend.response_channel, (err, catch_backtrace()))
+            end
         end
     end
-    return true
 end

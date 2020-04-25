@@ -3,8 +3,7 @@ function _precompile_()
 
     @assert precompile(Tuple{typeof(watch_manifest), String})
     @assert precompile(Tuple{typeof(watch_file), String, Int})
-    @assert precompile(Tuple{Rescheduler{typeof(watch_manifest), String}})
-    @assert precompile(Tuple{Rescheduler{typeof(revise_dir_queued),Tuple{String}}})
+    @assert precompile(Tuple{TaskThunk})
     @assert precompile(Tuple{typeof(revise)})
     @assert precompile(Tuple{typeof(includet), String})
     # setindex! doesn't fully precompile, but it's still beneficial to do it

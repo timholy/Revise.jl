@@ -40,7 +40,7 @@ Revise.FileInfo
 Revise.PkgData
 Revise.WatchList
 Revise.SlotDep
-Revise.Rescheduler
+Revise.TaskThunk
 MethodSummary
 ```
 

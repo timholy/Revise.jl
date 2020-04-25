@@ -216,37 +216,14 @@ function Base.showerror(io::IO, ex::GitRepoException)
 end
 
 """
-    Rescheduler(f, args)
+    thunk = TaskThunk(f, args)
 
-To facilitate precompilation and reduce latency, we replace
-
-```julia
-function watch_manifest(mfile)
-    wait_changed(mfile)
-    # stuff
-    @async watch_manifest(mfile)
-end
-
-@async watch_manifest(mfile)
-```
-
-with a rescheduling type:
-
-```julia
-fresched = Rescheduler(watch_manifest, (mfile,))
-schedule(Task(fresched))
-```
-
-where now `watch_manifest(mfile)` should return `true` if the task
-should be rescheduled after completion, and `false` otherwise.
+To facilitate precompilation and reduce latency, we avoid creation of anonymous thunks.
+`thunk` can be used as an argument in `schedule(Task(thunk))`.
 """
-struct Rescheduler{F,A}
-    f::F
-    args::A
+struct TaskThunk
+    f          # deliberately untyped
+    args       # deliberately untyped
 end
 
-function (thunk::Rescheduler{F,A})() where {F,A}
-    if thunk.f(thunk.args...)::Bool
-        schedule(Task(thunk))
-    end
-end
+@noinline (thunk::TaskThunk)() = thunk.f(thunk.args...)
