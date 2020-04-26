@@ -404,19 +404,21 @@ k(x) = 4
 
     do_test("File paths") && @testset "File paths" begin
         testdir = newtestdir()
-        for (pcflag, fbase) in ((true, "pc"), (false, "npc"),)  # precompiled & not
-            modname = uppercase(fbase)
-            pcexpr = pcflag ? "" : :(__precompile__(false))
-            # Create a package with the following structure:
-            #   src/PkgName.jl   # PC.jl = precompiled, NPC.jl = nonprecompiled
-            #   src/file2.jl
-            #   src/subdir/file3.jl
-            #   src/subdir/file4.jl
-            # exploring different ways of expressing the `include` statement
-            dn = joinpath(testdir, modname, "src")
-            mkpath(dn)
-            open(joinpath(dn, modname*".jl"), "w") do io
-                println(io, """
+        for wf in (Revise.watching_files[] ? (true,) : (true, false))
+            for (pcflag, fbase) in ((true, "pc"), (false, "npc"),)  # precompiled & not
+                modname = uppercase(fbase) * (wf ? "WF" : "WD")
+                fbase = fbase * (wf ? "wf" : "wd")
+                pcexpr = pcflag ? "" : :(__precompile__(false))
+                # Create a package with the following structure:
+                #   src/PkgName.jl   # PC.jl = precompiled, NPC.jl = nonprecompiled
+                #   src/file2.jl
+                #   src/subdir/file3.jl
+                #   src/subdir/file4.jl
+                # exploring different ways of expressing the `include` statement
+                dn = joinpath(testdir, modname, "src")
+                mkpath(dn)
+                open(joinpath(dn, modname*".jl"), "w") do io
+                    println(io, """
 $pcexpr
 module $modname
 
@@ -442,51 +444,51 @@ using_macro_$(fbase)() = @some_macro_$(fbase)()
 
 end
 """)
-            end
-            open(joinpath(dn, "file2.jl"), "w") do io
-                println(io, "$(fbase)2() = 2")
-            end
-            mkdir(joinpath(dn, "subdir"))
-            open(joinpath(dn, "subdir", "file3.jl"), "w") do io
-                println(io, "$(fbase)3() = 3")
-            end
-            open(joinpath(dn, "subdir", "file4.jl"), "w") do io
-                println(io, "$(fbase)4() = 4")
-            end
-            open(joinpath(dn, "file5.jl"), "w") do io
-                println(io, "$(fbase)5() = 5")
-            end
-            sleep(mtimedelay)
-            @eval using $(Symbol(modname))
-            sleep(mtimedelay)
-            fn1, fn2 = Symbol("$(fbase)1"), Symbol("$(fbase)2")
-            fn3, fn4 = Symbol("$(fbase)3"), Symbol("$(fbase)4")
-            fn5 = Symbol("$(fbase)5")
-            fn6 = Symbol("using_macro_$(fbase)")
-            @eval @test $(fn1)() == 1
-            @eval @test $(fn2)() == 2
-            @eval @test $(fn3)() == 3
-            @eval @test $(fn4)() == 4
-            @eval @test $(fn5)() == 5
-            @eval @test $(fn6)() == 6
-            m = @eval first(methods($fn1))
-            rex = Revise.RelocatableExpr(definition(m))
-            @test rex == convert(Revise.RelocatableExpr, :( $fn1() = 1 ))
-            # Check that definition returns copies
-            rex2 = deepcopy(rex)
-            rex.ex.args[end].args[end] = 2
-            @test Revise.RelocatableExpr(definition(m)) == rex2
-            @test Revise.RelocatableExpr(definition(m)) != rex
-            # CodeTracking methods
-            m3 = first(methods(eval(fn3)))
-            m3file = joinpath(dn, "subdir", "file3.jl")
-            @test whereis(m3) == (m3file, 1)
-            @test signatures_at(m3file, 1) == [m3.sig]
-            @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [m3.sig]
+                end
+                open(joinpath(dn, "file2.jl"), "w") do io
+                    println(io, "$(fbase)2() = 2")
+                end
+                mkdir(joinpath(dn, "subdir"))
+                open(joinpath(dn, "subdir", "file3.jl"), "w") do io
+                    println(io, "$(fbase)3() = 3")
+                end
+                open(joinpath(dn, "subdir", "file4.jl"), "w") do io
+                    println(io, "$(fbase)4() = 4")
+                end
+                open(joinpath(dn, "file5.jl"), "w") do io
+                    println(io, "$(fbase)5() = 5")
+                end
+                sleep(mtimedelay)
+                @eval using $(Symbol(modname))
+                sleep(mtimedelay)
+                fn1, fn2 = Symbol("$(fbase)1"), Symbol("$(fbase)2")
+                fn3, fn4 = Symbol("$(fbase)3"), Symbol("$(fbase)4")
+                fn5 = Symbol("$(fbase)5")
+                fn6 = Symbol("using_macro_$(fbase)")
+                @eval @test $(fn1)() == 1
+                @eval @test $(fn2)() == 2
+                @eval @test $(fn3)() == 3
+                @eval @test $(fn4)() == 4
+                @eval @test $(fn5)() == 5
+                @eval @test $(fn6)() == 6
+                m = @eval first(methods($fn1))
+                rex = Revise.RelocatableExpr(definition(m))
+                @test rex == convert(Revise.RelocatableExpr, :( $fn1() = 1 ))
+                # Check that definition returns copies
+                rex2 = deepcopy(rex)
+                rex.ex.args[end].args[end] = 2
+                @test Revise.RelocatableExpr(definition(m)) == rex2
+                @test Revise.RelocatableExpr(definition(m)) != rex
+                # CodeTracking methods
+                m3 = first(methods(eval(fn3)))
+                m3file = joinpath(dn, "subdir", "file3.jl")
+                @test whereis(m3) == (m3file, 1)
+                @test signatures_at(m3file, 1) == [m3.sig]
+                @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [m3.sig]
 
-            # Change the definition of function 1 (easiest to just rewrite the whole file)
-            open(joinpath(dn, modname*".jl"), "w") do io
-                println(io, """
+                # Change the definition of function 1 (easiest to just rewrite the whole file)
+                open(joinpath(dn, modname*".jl"), "w") do io
+                    println(io, """
 $pcexpr
 module $modname
 export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5, using_macro_$(fbase)
@@ -504,68 +506,70 @@ using_macro_$(fbase)() = @some_macro_$(fbase)()
 
 end
 """)  # just for fun we skipped the whitespace
-            end
-            yry()
-            @eval @test $(fn1)() == -1
-            @eval @test $(fn2)() == 2
-            @eval @test $(fn3)() == 3
-            @eval @test $(fn4)() == 4
-            @eval @test $(fn5)() == 5
-            @eval @test $(fn6)() == 6      # because it hasn't been re-macroexpanded
-            @test revise(eval(Symbol(modname)))
-            @eval @test $(fn6)() == -6
-            # Redefine function 2
-            open(joinpath(dn, "file2.jl"), "w") do io
-                println(io, "$(fbase)2() = -2")
-            end
-            yry()
-            @eval @test $(fn1)() == -1
-            @eval @test $(fn2)() == -2
-            @eval @test $(fn3)() == 3
-            @eval @test $(fn4)() == 4
-            @eval @test $(fn5)() == 5
-            @eval @test $(fn6)() == -6
-            open(joinpath(dn, "subdir", "file3.jl"), "w") do io
-                println(io, "$(fbase)3() = -3")
-            end
-            yry()
-            @eval @test $(fn1)() == -1
-            @eval @test $(fn2)() == -2
-            @eval @test $(fn3)() == -3
-            @eval @test $(fn4)() == 4
-            @eval @test $(fn5)() == 5
-            @eval @test $(fn6)() == -6
-            open(joinpath(dn, "subdir", "file4.jl"), "w") do io
-                println(io, "$(fbase)4() = -4")
-            end
-            yry()
-            @eval @test $(fn1)() == -1
-            @eval @test $(fn2)() == -2
-            @eval @test $(fn3)() == -3
-            @eval @test $(fn4)() == -4
-            @eval @test $(fn5)() == 5
-            @eval @test $(fn6)() == -6
-            open(joinpath(dn, "file5.jl"), "w") do io
-                println(io, "$(fbase)5() = -5")
-            end
-            yry()
-            @eval @test $(fn1)() == -1
-            @eval @test $(fn2)() == -2
-            @eval @test $(fn3)() == -3
-            @eval @test $(fn4)() == -4
-            @eval @test $(fn5)() == -5
-            @eval @test $(fn6)() == -6
-            # Check that the list of files is complete
-            pkgdata = Revise.pkgdatas[Base.PkgId(modname)]
-            for file = [joinpath("src", modname*".jl"), joinpath("src", "file2.jl"),
-                        joinpath("src", "subdir", "file3.jl"),
-                        joinpath("src", "subdir", "file4.jl"),
-                        joinpath("src", "file5.jl")]
-                @test Revise.hasfile(pkgdata, file)
+                end
+                yry()
+                @eval @test $(fn1)() == -1
+                @eval @test $(fn2)() == 2
+                @eval @test $(fn3)() == 3
+                @eval @test $(fn4)() == 4
+                @eval @test $(fn5)() == 5
+                @eval @test $(fn6)() == 6      # because it hasn't been re-macroexpanded
+                @test revise(eval(Symbol(modname)))
+                @eval @test $(fn6)() == -6
+                # Redefine function 2
+                open(joinpath(dn, "file2.jl"), "w") do io
+                    println(io, "$(fbase)2() = -2")
+                end
+                yry()
+                @eval @test $(fn1)() == -1
+                @eval @test $(fn2)() == -2
+                @eval @test $(fn3)() == 3
+                @eval @test $(fn4)() == 4
+                @eval @test $(fn5)() == 5
+                @eval @test $(fn6)() == -6
+                open(joinpath(dn, "subdir", "file3.jl"), "w") do io
+                    println(io, "$(fbase)3() = -3")
+                end
+                yry()
+                @eval @test $(fn1)() == -1
+                @eval @test $(fn2)() == -2
+                @eval @test $(fn3)() == -3
+                @eval @test $(fn4)() == 4
+                @eval @test $(fn5)() == 5
+                @eval @test $(fn6)() == -6
+                open(joinpath(dn, "subdir", "file4.jl"), "w") do io
+                    println(io, "$(fbase)4() = -4")
+                end
+                yry()
+                @eval @test $(fn1)() == -1
+                @eval @test $(fn2)() == -2
+                @eval @test $(fn3)() == -3
+                @eval @test $(fn4)() == -4
+                @eval @test $(fn5)() == 5
+                @eval @test $(fn6)() == -6
+                open(joinpath(dn, "file5.jl"), "w") do io
+                    println(io, "$(fbase)5() = -5")
+                end
+                yry()
+                @eval @test $(fn1)() == -1
+                @eval @test $(fn2)() == -2
+                @eval @test $(fn3)() == -3
+                @eval @test $(fn4)() == -4
+                @eval @test $(fn5)() == -5
+                @eval @test $(fn6)() == -6
+                # Check that the list of files is complete
+                pkgdata = Revise.pkgdatas[Base.PkgId(modname)]
+                for file = [joinpath("src", modname*".jl"), joinpath("src", "file2.jl"),
+                            joinpath("src", "subdir", "file3.jl"),
+                            joinpath("src", "subdir", "file4.jl"),
+                            joinpath("src", "file5.jl")]
+                    @test Revise.hasfile(pkgdata, file)
+                end
             end
         end
-        # Remove the precompiled file
-        rm_precompile("PC")
+        # Remove the precompiled file(s)
+        rm_precompile("PCWF")
+        Revise.watching_files[] || rm_precompile("PCWD")
 
         # Submodules (issue #142)
         srcdir = joinpath(testdir, "Mysupermodule", "src")
