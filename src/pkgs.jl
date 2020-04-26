@@ -355,7 +355,12 @@ function add_require(sourcefile, modcaller, idmod, modname, expr)
 end
 
 function watch_files_via_dir(dirname)
-    wait_changed(dirname)  # this will block until there is a modification
+    try
+        wait_changed(dirname)  # this will block until there is a modification
+    catch e
+        # issue #459
+        (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+    end
     latestfiles = Pair{String,PkgId}[]
     # Check to see if we're still watching this directory
     stillwatching = haskey(watched_files, dirname)
@@ -481,7 +486,12 @@ end
 
 function watch_manifest(mfile)
     while true
-        wait_changed(mfile)
+        try
+            wait_changed(mfile)
+        catch e
+            # issue #459
+            (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+        end
         try
             with_logger(_debug_logger) do
                 @debug "Pkg" _group="manifest_update" manifest_file=mfile
