@@ -532,7 +532,12 @@ function revise_file_queued(pkgdata::PkgData, file)
             end
             break
         end
-        wait_changed(file)  # will block here until the file changes
+        try
+            wait_changed(file)  # will block here until the file changes
+        catch e
+            # issue #459
+            (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+        end
         # Check to see if we're still watching this file
         stillwatching = haskey(watched_files, dirfull)
         push!(revision_queue, (pkgdata, file0))
