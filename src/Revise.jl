@@ -819,9 +819,13 @@ function entr(f::Function, files, modules=nothing; postpone=false, pause=0.02)
         @sync begin
             postpone || f()
             for file in files
-                waitfor = isdir(file) ? watch_folder : watch_file
+                is_file_dir = isdir(file)
                 @async while active
-                    ret = waitfor(file, 1)
+                    if is_file_dir
+                        ret = watch_folder(file, 1)[2]
+                    else
+                        ret = watch_file(file, 1)
+                    end
                     if active && (ret.changed || ret.renamed)
                         sleep(pause)
                         revise()
