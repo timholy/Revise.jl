@@ -1,8 +1,10 @@
 using Core.Compiler: CodeInfo, NewvarNode, GotoNode
 using Base.Meta: isexpr
+using JuliaInterpreter: is_global_ref
 
 const SSAValues = Union{Core.Compiler.SSAValue, JuliaInterpreter.SSAValue}
-const structheads = (:struct_type, :abstract_type, :primitive_type)
+
+const structheads = VERSION >= v"1.5.0-DEV.702" ? () : (:struct_type, :abstract_type, :primitive_type)
 const trackedheads = (:method, structheads...)
 
 isssa(stmt) = isa(stmt, Core.Compiler.SSAValue) | isa(stmt, JuliaInterpreter.SSAValue)
@@ -255,6 +257,7 @@ function hastrackedexpr(code::CodeInfo, chunk::AbstractUnitRange=axes(code.code,
     for stmtidx in chunk
         stmt = code.code[stmtidx]
         if isa(stmt, Expr)
+            stmt.head == :call && is_global_ref(stmt.args[1], Core, :_typebody!) && return true
             stmt.head ∈ heads && return true
             if stmt.head == :thunk
                 hastrackedexpr(stmt.args[1]; heads=heads) && return true
