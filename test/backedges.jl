@@ -1,4 +1,5 @@
 using Revise, Test
+using Base.Meta: isexpr
 
 isdefined(@__MODULE__, :do_test) || include("common.jl")
 
@@ -8,6 +9,14 @@ flag = false    # this needs to be defined for the conditional part to work
 end
 
 do_test("Backedges") && @testset "Backedges" begin
+    src = Meta.lower(Base, :(max_values(T::Union{map(X -> Type{X}, BitIntegerSmall_types)...}) = 1 << (8*sizeof(T)))).args[1]
+    # Find the inner struct def for the anonymous function
+    idtype = findall(stmt->isexpr(stmt, :thunk) && isa(stmt.args[1], Core.CodeInfo), src.code)[end]
+    src2 = src.code[idtype].args[1]
+    be = Revise.BackEdges(src2)
+    chunks = Revise.toplevel_chunks(be)
+    @test chunks[1] == 1:length(src2.code)-1  # skips the `return` at the end
+
     src = """
     # issue #249
     flag = false

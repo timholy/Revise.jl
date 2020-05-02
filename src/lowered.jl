@@ -126,18 +126,19 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
         end
         stmt = pc_expr(frame, pc)
         if isa(stmt, Expr)
-            if stmt.head == :struct_type || stmt.head == :abstract_type || stmt.head == :primitive_type
+            head = stmt.head
+            if head ∈ structheads
                 if define
                     pc = step_expr!(recurse, frame, stmt, true)  # This should check that they are unchanged
                 else
                     pc = next_or_nothing!(frame)
                 end
-            elseif stmt.head == :thunk && isanonymous_typedef(stmt.args[1])
+            elseif head === :thunk && isanonymous_typedef(stmt.args[1])
                 # Anonymous functions should just be defined anew, since there does not seem to be a practical
                 # way to "find" them. They may be needed to define later signatures.
                 # Note that named inner methods don't require special treatment
                 pc = step_expr!(recurse, frame, stmt, true)
-            elseif stmt.head == :method
+            elseif head === :method
                 empty!(signatures)
                 ret = methoddef!(recurse, signatures, frame, stmt, pc; define=define)
                 if ret === nothing
@@ -230,7 +231,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         end
                     end
                 end
-            elseif stmt.head == :(=) && isa(stmt.args[1], Symbol)
+            elseif head === :(=) && isa(stmt.args[1], Symbol)
                 if define
                     pc = step_expr!(recurse, frame, stmt, true)
                 else
@@ -246,7 +247,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     #     pc = step_expr!(recurse, frame, stmt, true)
                     # end
                 end
-            elseif stmt.head == :call
+            elseif head === :call
                 f = @lookup(frame, stmt.args[1])
                 if f === Core.eval
                     # an @eval or eval block: this may contain method definitions, so intercept it.

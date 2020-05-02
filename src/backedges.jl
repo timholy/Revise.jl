@@ -2,6 +2,8 @@ using Core.Compiler: CodeInfo, NewvarNode, GotoNode
 using Base.Meta: isexpr
 
 const SSAValues = Union{Core.Compiler.SSAValue, JuliaInterpreter.SSAValue}
+const structheads = (:struct_type, :abstract_type, :primitive_type)
+const trackedheads = (:method, structheads...)
 
 isssa(stmt) = isa(stmt, Core.Compiler.SSAValue) | isa(stmt, JuliaInterpreter.SSAValue)
 isslotnum(stmt) = isa(stmt, Core.Compiler.SlotNumber) | isa(stmt, JuliaInterpreter.SlotNumber)
@@ -37,11 +39,18 @@ function add_deps!(linedeps, stmt, slotdeps)
 end
 
 # See docs below for `BackEdges(ci::CodeInfo)`
+mutable struct Uses
+    ids::Vector{Int}        # lines where it is used
+    defined::Vector{Int}    # lines where it is defined
+end
+Uses() = Uses(Int[], Int[])
+Base.push!(uses::Uses, loc::Int) = push!(uses.ids, loc)
+
 struct BackEdges
     byid::Vector{Vector{Int}}
-    byname::Dict{Union{GlobalRef,Symbol},Vector{Int}}
+    byname::Dict{Union{GlobalRef,Symbol},Uses}
 end
-BackEdges(n::Integer) = BackEdges([Int[] for i = 1:n], Dict{Union{GlobalRef,Symbol},Vector{Int}}())
+BackEdges(n::Integer) = BackEdges([Int[] for i = 1:n], Dict{Union{GlobalRef,Symbol},Uses}())
 
 id_loc(pr::Pair) = pr.first, pr.second
 id_loc(pr::Pair{<:SSAValues,Int}) = pr.first.id, pr.second
@@ -62,7 +71,7 @@ function Base.push!(be::BackEdges, pr::Pair{named,Int}) where named <: Union{Sym
     end
     ref = get(be.byname, id, nothing)
     if ref === nothing
-        be.byname[id] = ref = Int[]
+        be.byname[id] = ref = Uses()
     end
     push!(ref, loc)
     return be
@@ -85,10 +94,21 @@ function add_to_backedges!(backedges::BackEdges, slotdeps, loc, stmt)
     elseif stmt isa Symbol
         push!(backedges, stmt=>loc)
     elseif stmt isa Expr
-        if stmt.head == :call && !(isssa(stmt.args[1]) || isslotnum(stmt.args[1]))
+        head = stmt.head
+        if head === :call && !(isssa(stmt.args[1]) || isslotnum(stmt.args[1]))
             for a in Iterators.drop(stmt.args, 1)  # don't track the callee
                 add_to_backedges!(backedges, slotdeps, loc, a)
             end
+        elseif head ∈ trackedheads && (name = stmt.args[1]; isa(name, Symbol) | isa(name, GlobalRef))
+            push!(backedges, name=>loc)
+            push!(backedges.byname[name].defined, loc)
+            for a in Iterators.drop(stmt.args, 1)
+                add_to_backedges!(backedges, slotdeps, loc, a)
+            end
+        elseif head === :(=) && (lhs = stmt.args[1]; isa(lhs, Symbol) || isa(lhs, GlobalRef))
+            add_to_backedges!(backedges, slotdeps, loc, lhs)
+            push!(backedges.byname[lhs].defined, loc)
+            add_to_backedges!(backedges, slotdeps, loc, stmt.args[2])
         else
             for a in stmt.args
                 add_to_backedges!(backedges, slotdeps, loc, a)
@@ -163,16 +183,29 @@ function BackEdges(ci::CodeInfo)
     while i < n
         stmt = ci.code[i]
         if isa(stmt, Expr)
-            if stmt.head == :(=) && isslotnum(stmt.args[1])
+            head = stmt.head
+            if head === :(=) && isslotnum(stmt.args[1])
                 id = stmt.args[1].id
                 slotdeps[id] = SlotDep(i, stmt.args[2], slotdeps)
                 i += 1
-            elseif stmt.head == :gotoifnot
+            elseif head === :gotoifnot
                 dep, _ = stmt.args
                 add_to_backedges!(backedges, slotdeps, i, dep)
                 # Add the non-toplevel successor basic blocks as dependents of this line
                 bbidx = searchsortedlast(bbs.index, i) + 1 # bb index of this line
                 add_block_dependents!(backedges, bbs, istoplevel, i, bbidx)
+                i += 1
+            elseif head === :thunk
+                ci_thunk = stmt.args[1]
+                if isa(ci_thunk, CodeInfo)
+                    bethunk = BackEdges(ci_thunk)
+                    for (name, uses) in bethunk.byname
+                        add_to_backedges!(backedges, slotdeps, i, name)
+                        if !isempty(uses.defined)
+                            push!(backedges.byname[name].defined, i)
+                        end
+                    end
+                end
                 i += 1
             else
                 add_to_backedges!(backedges, slotdeps, i, stmt)
@@ -189,13 +222,16 @@ end
 ## Now that we can construct BackEdges, let's use them for analysis
 
 function toplevel_chunks(backedges::BackEdges)
-    be = backedges.byid
+    be = [copy(usedby) for usedby in backedges.byid]
     n = length(be)
-    chunkid = Vector{Int}(undef, n)
+    for (name, uses) in backedges.byname
+        isempty(uses.defined) && continue
+        id = minimum(uses.ids)
+        append!(be[id], uses.ids)
+    end
+    chunkid = collect(1:n)
     for i = n:-1:1
-        if isempty(be[i])
-            chunkid[i] = i
-        else
+        if !isempty(be[i])
             chunkid[i] = maximum(chunkid[be[i]])
         end
     end
@@ -215,7 +251,7 @@ Detect whether the specified `chunk` of `src` contains a definition tracked
 by Revise. By default these are methods and type definitions (the latter because
 they might contain constructors).
 """
-function hastrackedexpr(code::CodeInfo, chunk::AbstractUnitRange=axes(code.code, 1); heads=(:method, :struct_type, :abstract_type, :primitive_type))
+function hastrackedexpr(code::CodeInfo, chunk::AbstractUnitRange=axes(code.code, 1); heads=trackedheads)
     for stmtidx in chunk
         stmt = code.code[stmtidx]
         if isa(stmt, Expr)
