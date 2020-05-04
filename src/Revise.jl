@@ -781,16 +781,16 @@ end
 includet(file::AbstractString) = includet(Main, file)
 
 """
-    entr(f, files; postpone=false, pause=0.02)
-    entr(f, files, modules; postpone=false, pause=0.02)
+    entr(f, paths; postpone=false, pause=0.02)
+    entr(f, paths, modules; postpone=false, pause=0.02)
 
-Execute `f()` whenever files listed in `files`, or code in `modules`, updates.
-`entr` will process updates (and block your command line) until you press Ctrl-C.
-Unless `postpone` is `true`, `f()` will be executed also when calling `entr`,
-regardless of file changes. The `pause` is the period (in seconds) that `entr`
-will wait between being triggered and actually calling `f()`, to handle
-clusters of modifications, such as those produced by saving files in certain
-text editors.
+Execute `f()` whenever files or directories listed in `paths`, or code in
+`modules`, updates.  `entr` will process updates (and block your command
+line) until you press Ctrl-C.  Unless `postpone` is `true`, `f()` will be
+executed also when calling `entr`, regardless of file changes. The `pause`
+is the period (in seconds) that `entr` will wait between being triggered and
+actually calling `f()`, to handle clusters of modifications, such as those
+produced by saving files in certain text editors.
 
 # Example
 
@@ -802,15 +802,15 @@ end
 This will print "update" every time `"/tmp/watched.txt"` or any of the code defining
 `Pkg1` or `Pkg2` gets updated.
 """
-function entr(f::Function, files, modules=nothing; postpone=false, pause=0.02)
+function entr(f::Function, paths, modules=nothing; postpone=false, pause=0.02)
     yield()
-    files = collect(files)  # because we may add to this list
+    paths = collect(paths)  # because we may add to this list
     if modules !== nothing
         for mod in modules
             id = PkgId(mod)
             pkgdata = pkgdatas[id]
             for file in srcfiles(pkgdata)
-                push!(files, joinpath(basedir(pkgdata), file))
+                push!(paths, joinpath(basedir(pkgdata), file))
             end
         end
     end
@@ -818,13 +818,13 @@ function entr(f::Function, files, modules=nothing; postpone=false, pause=0.02)
     try
         @sync begin
             postpone || f()
-            for file in files
-                is_file_dir = isdir(file)
+            for path in paths
+                is_file_dir = isdir(path)
                 @async while active
                     if is_file_dir
-                        ret = watch_folder(file, 1)[2]
+                        ret = watch_folder(path, 1)[2]
                     else
-                        ret = watch_file(file, 1)
+                        ret = watch_file(path, 1)
                     end
                     if active && (ret.changed || ret.renamed)
                         sleep(pause)
