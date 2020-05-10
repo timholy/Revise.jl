@@ -2,7 +2,7 @@ function _precompile_()
     ccall(:jl_generating_output, Cint, ()) == 1 || return nothing
 
     @assert precompile(Tuple{typeof(watch_manifest), String})
-    @assert precompile(Tuple{typeof(watch_file), String, Int})
+    @assert precompile(Tuple{typeof(revise_dir_queued), String})
     @assert precompile(Tuple{TaskThunk})
     @assert precompile(Tuple{typeof(revise)})
     @assert precompile(Tuple{typeof(includet), String})

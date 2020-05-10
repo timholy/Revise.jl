@@ -94,7 +94,7 @@ end
                                     f(x) = x^2
                                     g(x) = sin(x)
                                     end)
-        @test length(Expr(rex).args) == 4  # including the line number expressions
+        @test length(rex.ex.args) == 4  # including the line number expressions
         exs = collectexprs(rex)
         @test length(exs) == 2
         @test isequal(exs[1], Revise.RelocatableExpr(:(f(x) = x^2)))
@@ -473,7 +473,7 @@ end
                 @eval @test $(fn6)() == 6
                 m = @eval first(methods($fn1))
                 rex = Revise.RelocatableExpr(definition(m))
-                @test rex == convert(Revise.RelocatableExpr, :( $fn1() = 1 ))
+                @test rex == Revise.RelocatableExpr(:( $fn1() = 1 ))
                 # Check that definition returns copies
                 rex2 = deepcopy(rex)
                 rex.ex.args[end].args[end] = 2

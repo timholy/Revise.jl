@@ -19,10 +19,8 @@ end
 
 const ExLike = Union{Expr,RelocatableExpr}
 
-Base.convert(::Type{RelocatableExpr}, ex::Expr) = RelocatableExpr(ex)
-
 Base.convert(::Type{Expr}, rex::RelocatableExpr) = rex.ex
-Expr(rex::RelocatableExpr) = rex.ex
+# Expr(rex::RelocatableExpr) = rex.ex   # too costly (inference invalidation)
 
 Base.copy(rex::RelocatableExpr) = RelocatableExpr(copy(rex.ex))
 
@@ -66,7 +64,7 @@ struct LineSkippingIterator
     args::Vector{Any}
 end
 
-Base.IteratorSize(::Type{<:LineSkippingIterator}) = Base.SizeUnknown()
+Base.IteratorSize(::Type{LineSkippingIterator}) = Base.SizeUnknown()
 
 function Base.iterate(iter::LineSkippingIterator, i=0)
     i = skip_to_nonline(iter.args, i+1)
