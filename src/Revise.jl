@@ -820,20 +820,24 @@ function entr(f::Function, files, modules=nothing; postpone=false, pause=0.02)
             postpone || f()
             for file in files
                 waitfor = isdir(file) ? watch_folder : watch_file
-                @async while active
-                    ret = waitfor(file, 1)
-                    if active && (ret.changed || ret.renamed)
-                        sleep(pause)
-                        revise()
-                        Base.invokelatest(f)
+                @async try
+                    while active
+                        ret = waitfor(file, 1)
+                        if active && (ret.changed || ret.renamed)
+                            sleep(pause)
+                            revise()
+                            Base.invokelatest(f)
+                        end
                     end
+                catch err
+                    active = false
+                    rethrow(err)
                 end
             end
         end
     catch err
-        if isa(err, InterruptException)
-            active = false
-        else
+        active = false
+        if !isa(err, InterruptException)
             rethrow(err)
         end
     end
