@@ -44,7 +44,7 @@ function minimal_evaluation!(methodinfo, frame)
         stmt = src.code[id]
         me = false
         if isa(stmt, Expr)
-            if stmt.head == :call
+            if stmt.head === :call
                 f = stmt.args[1]
                 me |= f === :include
                 me |= JuliaInterpreter.hasarg(isequal(:eval), stmt.args)
@@ -111,7 +111,11 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
     return ret, lwr
 end
 
-function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame, musteval; define=true, skip_include=true)
+const LineTypes = Union{LineNumberNode,Core.LineInfoNode}
+
+function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame, musteval; define::Bool=true, skip_include::Bool=true)
+    isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
+
     mod = moduleof(frame)
     # Hoist this lookup for performance. Don't throw even when `mod` is a baremodule:
     modinclude = isdefined(mod, :include) ? getfield(mod, :include) : nothing
@@ -171,16 +175,20 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             bodycode = @lookup(frame, bodycode)
                         end
                         if isa(bodycode, CodeInfo)
-                            lnn = bodycode.linetable[1]
-                            if lnn.line == 0 && lnn.file == :none
+                            lnn = bodycode.linetable[1]::LineTypes
+                            if !isok(lnn)
                                 lnn = nothing
                                 if length(bodycode.code) > 1
                                     # This may be a kwarg method. Mimic LoweredCodeUtils.bodymethod,
                                     # except without having a method
                                     stmt = bodycode.code[end-1]
                                     if isa(stmt, Expr) && length(stmt.args) > 1
-                                        a = stmt.args[1]
-                                        hasself = any(i->LoweredCodeUtils.is_self_call(stmt, bodycode.slotnames, i), 2:length(stmt.args))
+                                        stmt = stmt::Expr
+                                            a = stmt.args[1]
+                                        nargs = length(stmt.args)
+                                        hasself = let stmt = stmt, slotnames::Vector{Symbol} = bodycode.slotnames
+                                            any(i->LoweredCodeUtils.is_self_call(stmt, slotnames, i), 2:nargs)
+                                        end
                                         if isa(a, Core.SlotNumber)
                                             a = bodycode.slotnames[a.id]
                                         end
@@ -199,8 +207,9 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                                 end
                                 if lnn === nothing
                                     # Just try to find *any* line number
-                                    for lnntmp in bodycode.linetable
-                                        if lnntmp.line != 0 || lnntmp.file != :none
+                                    for lnntmp in bodycode.linetable::Vector{Any}
+                                        lnntmp = lnntmp::LineTypes
+                                        if isok(lnntmp)
                                             lnn = lnntmp
                                             break
                                         end
@@ -208,8 +217,8 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                                 end
                             end
                         elseif isexpr(bodycode, :lambda)
-                            lnntmp = bodycode.args[end][1]
-                            if lnntmp.line != 0 || lnntmp.file != :none
+                            lnntmp = bodycode.args[end][1]::LineTypes
+                            if isok(lnntmp)
                                 lnn = lnntmp
                             end
                         end
@@ -217,15 +226,15 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     if lnn === nothing
                         i = frame.framecode.src.codelocs[pc3]
                         while i > 0
-                            lnntmp = frame.framecode.src.linetable[i]
-                            if lnntmp.line != 0 || lnntmp.file != :none
+                            lnntmp = frame.framecode.src.linetable[i]::LineTypes
+                            if isok(lnntmp)
                                 lnn = lnntmp
                                 break
                             end
                             i -= 1
                         end
                     end
-                    if lnn !== nothing && (lnn.line != 0 || lnn.file != :none)
+                    if lnn !== nothing && isok(lnn)
                         for sig in signatures
                             add_signature!(methodinfo, sig, lnn)
                         end
@@ -251,7 +260,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                 f = @lookup(frame, stmt.args[1])
                 if f === Core.eval
                     # an @eval or eval block: this may contain method definitions, so intercept it.
-                    evalmod = @lookup(frame, stmt.args[2])
+                    evalmod = @lookup(frame, stmt.args[2])::Module
                     evalex = @lookup(frame, stmt.args[3])
                     thismodexs, thisdocexprs = split_expressions(evalmod, evalex; extract_docexprs=true)
                     for (m, docexs) in thisdocexprs
