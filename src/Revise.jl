@@ -1,5 +1,9 @@
 module Revise
 
+if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optlevel"))
+    @eval Base.Experimental.@optlevel 0
+end
+
 using FileWatching, REPL, Distributed, UUIDs
 import LibGit2
 using Base: PkgId
