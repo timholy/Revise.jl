@@ -111,8 +111,6 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
     return ret, lwr
 end
 
-const LineTypes = Union{LineNumberNode,Core.LineInfoNode}
-
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame, musteval; define::Bool=true, skip_include::Bool=true)
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
 
@@ -163,7 +161,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     stmt3 = pc_expr(frame, pc3)
                     lnn = nothing
                     if line_is_decl
-                        sigcode = @lookup(frame, stmt3.args[2])
+                        sigcode = @lookup(frame, stmt3.args[2])::Core.SimpleVector
                         lnn = sigcode[end]
                         if !isa(lnn, LineNumberNode)
                             lnn = nothing
@@ -175,7 +173,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             bodycode = @lookup(frame, bodycode)
                         end
                         if isa(bodycode, CodeInfo)
-                            lnn = bodycode.linetable[1]::LineTypes
+                            lnn = linetable(bodycode, 1)
                             if !isok(lnn)
                                 lnn = nothing
                                 if length(bodycode.code) > 1
@@ -184,7 +182,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                                     stmt = bodycode.code[end-1]
                                     if isa(stmt, Expr) && length(stmt.args) > 1
                                         stmt = stmt::Expr
-                                            a = stmt.args[1]
+                                        a = stmt.args[1]
                                         nargs = length(stmt.args)
                                         hasself = let stmt = stmt, slotnames::Vector{Symbol} = bodycode.slotnames
                                             any(i->LoweredCodeUtils.is_self_call(stmt, slotnames, i), 2:nargs)
@@ -207,7 +205,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                                 end
                                 if lnn === nothing
                                     # Just try to find *any* line number
-                                    for lnntmp in bodycode.linetable::Vector{Any}
+                                    for lnntmp in linetable(bodycode)
                                         lnntmp = lnntmp::LineTypes
                                         if isok(lnntmp)
                                             lnn = lnntmp
@@ -217,6 +215,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                                 end
                             end
                         elseif isexpr(bodycode, :lambda)
+                            bodycode = bodycode::Expr
                             lnntmp = bodycode.args[end][1]::LineTypes
                             if isok(lnntmp)
                                 lnn = lnntmp
@@ -224,9 +223,9 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         end
                     end
                     if lnn === nothing
-                        i = frame.framecode.src.codelocs[pc3]
+                        i = codelocs(frame, pc3)
                         while i > 0
-                            lnntmp = frame.framecode.src.linetable[i]::LineTypes
+                            lnntmp = linetable(frame, i)
                             if isok(lnntmp)
                                 lnn = lnntmp
                                 break
@@ -290,10 +289,10 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     fargs = JuliaInterpreter.collect_args(frame, stmt)
                     popfirst!(fargs)
                     length(fargs) == 3 && push!(fargs, Union{})  # add the default sig
-                    dmod, b, str, sig = fargs
-                    m = get!(Base.Docs.meta(dmod), b, Base.Docs.MultiDoc())
+                    dmod::Module, b::Base.Docs.Binding, str::Base.Docs.DocStr, sig = fargs
+                    m = get!(Base.Docs.meta(dmod), b, Base.Docs.MultiDoc())::Base.Docs.MultiDoc
                     if haskey(m.docs, sig)
-                        currentstr = m.docs[sig]
+                        currentstr = m.docs[sig]::Base.Docs.DocStr
                         redefine = currentstr.text != str.text
                     else
                         push!(m.order, sig)
