@@ -94,6 +94,11 @@ This list gets populated by callbacks that watch directories for updates.
 """
 const revision_queue = Set{Tuple{PkgData,String}}()
 
+"""
+    Revise.revision_event
+
+This `Condition` is used to notify `entr` that one of the watched files has changed.
+"""
 const revision_event = Condition()
 
 """
@@ -104,7 +109,19 @@ file has changed but the user hooks have not yet been called.
 """
 const user_callbacks_queue = Set{Any}()
 
+"""
+    Revise.user_callbacks_by_file
+
+Global variable, maps files (identified by their absolute path) to the set of
+callback keys registered for them.
+"""
 const user_callbacks_by_file = Dict{String, Set{Any}}()
+
+"""
+    Revise.user_callbacks_by_key
+
+Global variable, maps callback keys to user hooks.
+"""
 const user_callbacks_by_key = Dict{Any, Any}()
 
 """
@@ -127,12 +144,12 @@ function add_callback(f, files, modules=nothing; key=gensym())
 
     if modules !== nothing
         for mod in modules
+            track(mod)  # Potentially needed for modules like e.g. Base
             id = PkgId(mod)
             pkgdata = pkgdatas[id]
             for file in srcfiles(pkgdata)
                 absname = joinpath(basedir(pkgdata), file)
                 push!(files, absname)
-                track(mod, absname)
             end
         end
     end
@@ -196,6 +213,13 @@ Global variable, maps `(pkgdata, filename)` pairs that errored upon last revisio
 """
 const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}()
 
+"""
+    Revise.NOPACKAGE
+
+Global variable; default `PkgId` used for files which do not belong to any
+package, but still have to be watched because user callbacks have been
+registered for them.
+"""
 const NOPACKAGE = PkgId(nothing, "")
 
 """
