@@ -1,7 +1,7 @@
 module Revise
 
 if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optlevel"))
-    @eval Base.Experimental.@optlevel 0
+    @eval Base.Experimental.@optlevel 1
 end
 
 using FileWatching, REPL, Distributed, UUIDs
