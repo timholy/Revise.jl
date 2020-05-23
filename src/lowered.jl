@@ -61,7 +61,7 @@ end
 
 function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     methodinfo = MethodInfo()
-    docexprs = Dict{Module,Vector{Expr}}()
+    docexprs = DocExprs()
     value, frame = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; kwargs...)
     return methodinfo, docexprs, frame
 end

@@ -940,7 +940,7 @@ end
         lwr = Meta.lower(ChangeDocstring, ex)
         frame = JuliaInterpreter.prepare_thunk(ChangeDocstring, lwr, true)
         methodinfo = Revise.MethodInfo()
-        docexprs = Dict{Module,Vector{Expr}}()
+        docexprs = Revise.DocExprs()
         ret = Revise.methods_by_execution!(JuliaInterpreter.finish_and_return!, methodinfo,
                                            docexprs, frame, trues(length(frame.framecode.src.code)); define=false)
         ds = @doc(ChangeDocstring.f)

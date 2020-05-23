@@ -15,7 +15,20 @@ function _precompile_()
     @assert precompile(Tuple{typeof(setindex!), Dict{PkgId,PkgData}, PkgData, PkgId})
     @assert precompile(Tuple{typeof(setindex!), Dict{String,WatchList}, WatchList, String})
 
-    @assert precompile(Tuple{typeof(methods_by_execution!), Any, CodeTrackingMethodInfo, Dict{Module,Vector{Expr}}, Module, Expr})
+    MI = CodeTrackingMethodInfo
+    @assert precompile(Tuple{typeof(minimal_evaluation!), MI, Core.CodeInfo})
+    @assert precompile(Tuple{typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
+    @assert precompile(Tuple{typeof(methods_by_execution!), Any, MI, DocExprs, JuliaInterpreter.Frame, Vector{Bool}})
+    @assert precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
+                            NamedTuple{(:skip_include,),Tuple{Bool}},
+                            typeof(methods_by_execution!), Function, MI, DocExprs, Module, Expr})
+    @assert precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
+                            NamedTuple{(:define, :skip_include),Tuple{Bool,Bool}},
+                            typeof(methods_by_execution!), Function, MI, DocExprs, Module, Expr})
+    @assert precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
+                            NamedTuple{(:define, :skip_include),Tuple{Bool,Bool}},
+                            typeof(methods_by_execution!), Function, MI, DocExprs, JuliaInterpreter.Frame, Vector{Bool}})
+
     @assert precompile(Tuple{typeof(get_def), Method})
     @assert precompile(Tuple{typeof(parse_pkg_files), PkgId})
     @assert precompile(Tuple{typeof(Base.stale_cachefile), String, String})
