@@ -2906,50 +2906,48 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
 end
 
 do_test("entr") && @testset "entr" begin
-    if !Sys.isapple()   # these tests are very flaky on OSX
-        srcfile = joinpath(tempdir(), randtmp()*".jl")
-        push!(to_remove, srcfile)
-        open(srcfile, "w") do io
-            println(io, "Core.eval(Main, :(__entr__ = 1))")
-        end
-        sleep(mtimedelay)
-        try
-            @sync begin
-                @async begin
-                    entr([srcfile]) do
-                        include(srcfile)
-                    end
-                end
-                sleep(mtimedelay)
-                touch(srcfile)
-                sleep(mtimedelay)
-                @test Main.__entr__ == 1
-                open(srcfile, "w") do io
-                    println(io, "Core.eval(Main, :(__entr__ = 2))")
-                end
-                sleep(mtimedelay)
-                @test Main.__entr__ == 2
-                open(srcfile, "w") do io
-                    println(io, "error(\"stop\")")
-                end
-                sleep(mtimedelay)
-            end
-            @test false
-        catch err
-            while err isa CompositeException
-                err = err.exceptions[1]
-                @static if VERSION >= v"1.3.0-alpha.110"
-                    if  err isa TaskFailedException
-                        err = err.task.exception
-                    end
-                end
-                if err isa CapturedException
-                    err = err.ex
+    srcfile = joinpath(tempdir(), randtmp()*".jl")
+    push!(to_remove, srcfile)
+    open(srcfile, "w") do io
+        println(io, "Core.eval(Main, :(__entr__ = 1))")
+    end
+    sleep(mtimedelay)
+    try
+        @sync begin
+            @async begin
+                entr([srcfile]) do
+                    include(srcfile)
                 end
             end
-            @test isa(err, LoadError)
-            @test err.error.msg == "stop"
+            sleep(mtimedelay)
+            touch(srcfile)
+            sleep(mtimedelay)
+            @test Main.__entr__ == 1
+            open(srcfile, "w") do io
+                println(io, "Core.eval(Main, :(__entr__ = 2))")
+            end
+            sleep(mtimedelay)
+            @test Main.__entr__ == 2
+            open(srcfile, "w") do io
+                println(io, "error(\"stop\")")
+            end
+            sleep(mtimedelay)
         end
+        @test false
+    catch err
+        while err isa CompositeException
+            err = err.exceptions[1]
+            @static if VERSION >= v"1.3.0-alpha.110"
+                if  err isa TaskFailedException
+                    err = err.task.exception
+                end
+            end
+            if err isa CapturedException
+                err = err.ex
+            end
+        end
+        @test isa(err, LoadError)
+        @test err.error.msg == "stop"
     end
 end
 
