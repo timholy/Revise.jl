@@ -280,20 +280,21 @@ end
 function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file, includes)
     for (mod, inc) in includes
         inc = joinpath(splitdir(file)[1], inc)
+        incrp = relpath(inc, pkgdata)
         hasfile = false
         for srcfile in srcfiles(pkgdata)
-            if srcfile == inc
+            if srcfile == incrp
                 hasfile = true
                 break
             end
         end
         if !hasfile
             # Add the file to pkgdata
-            push!(pkgdata.info.files, inc)
+            push!(pkgdata.info.files, incrp)
             fi = FileInfo(mod)
             push!(pkgdata.fileinfos, fi)
             # Parse the source of the new file
-            fullfile = joinpath(basedir(pkgdata), inc)
+            fullfile = joinpath(basedir(pkgdata), incrp)
             if isfile(fullfile)
                 parse_source!(fi.modexsigs, fullfile, mod)
                 instantiate_sigs!(fi.modexsigs; define=true)
@@ -313,41 +314,46 @@ function add_require(sourcefile, modcaller, idmod, modname, expr)
         while !haskey(pkgdatas, id)
             sleep(0.1)
         end
-        # Get/create the FileInfo specifically for tracking @require blocks
-        pkgdata = pkgdatas[id]
-        filekey = relpath(sourcefile, pkgdata) * "__@require__"
-        fileidx = fileindex(pkgdata, filekey)
-        if fileidx === nothing
-            files = srcfiles(pkgdata)
-            fileidx = length(files) + 1
-            push!(files, filekey)
-            push!(pkgdata.fileinfos, FileInfo(modcaller))
-        end
-        fi = pkgdata.fileinfos[fileidx]
-        # Tag the expr to ensure it is unique
-        expr = Expr(:block, copy(expr))
-        push!(expr.args, :(__pkguuid__ = $idmod))
-        # Add the expression to the fileinfo
-        exsnew = ExprsSigs()
-        exsnew[expr] = nothing
-        mexsnew = ModuleExprsSigs(modcaller=>exsnew)
-        # Before executing the expression we need to set the load path appropriately
-        prev = Base.source_path(nothing)
-        tls = task_local_storage()
-        tls[:SOURCE_PATH] = sourcefile
-        # Now execute the expression
-        mexsnew, includes = try
-            eval_new!(mexsnew, fi.modexsigs)
-        finally
-            if prev === nothing
-                delete!(tls, :SOURCE_PATH)
-            else
-                tls[:SOURCE_PATH] = prev
+        lock(pkgdatas_lock)   # ensure watch_package has finished
+        try
+            # Get/create the FileInfo specifically for tracking @require blocks
+            pkgdata = pkgdatas[id]
+            filekey = relpath(sourcefile, pkgdata) * "__@require__"
+            fileidx = fileindex(pkgdata, filekey)
+            if fileidx === nothing
+                files = srcfiles(pkgdata)
+                fileidx = length(files) + 1
+                push!(files, filekey)
+                push!(pkgdata.fileinfos, FileInfo(modcaller))
             end
+            fi = pkgdata.fileinfos[fileidx]
+            # Tag the expr to ensure it is unique
+            expr = Expr(:block, copy(expr))
+            push!(expr.args, :(__pkguuid__ = $idmod))
+            # Add the expression to the fileinfo
+            exsnew = ExprsSigs()
+            exsnew[expr] = nothing
+            mexsnew = ModuleExprsSigs(modcaller=>exsnew)
+            # Before executing the expression we need to set the load path appropriately
+            prev = Base.source_path(nothing)
+            tls = task_local_storage()
+            tls[:SOURCE_PATH] = sourcefile
+            # Now execute the expression
+            mexsnew, includes = try
+                eval_new!(mexsnew, fi.modexsigs)
+            finally
+                if prev === nothing
+                    delete!(tls, :SOURCE_PATH)
+                else
+                    tls[:SOURCE_PATH] = prev
+                end
+            end
+            # Add any new methods or `include`d files to tracked objects
+            pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
+            maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes)
+        finally
+            unlock(pkgdatas_lock)
         end
-        # Add any new methods or `include`d files to tracked objects
-        pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
-        maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes)
     end
     return nothing
 end
@@ -406,10 +412,15 @@ end
         remove_from_included_files(modsym)
         return nothing
     end
-    files = parse_pkg_files(id)
-    pkgdata = pkgdatas[id]
-    if has_writable_paths(pkgdata)
-        init_watching(pkgdata, files)
+    lock(pkgdatas_lock)
+    try
+        files = parse_pkg_files(id)
+        pkgdata = pkgdatas[id]
+        if has_writable_paths(pkgdata)
+            init_watching(pkgdata, files)
+        end
+    finally
+        unlock(pkgdatas_lock)
     end
 end
 

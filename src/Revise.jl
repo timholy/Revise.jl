@@ -118,6 +118,9 @@ It is a dictionary indexed by PkgId:
 """
 const pkgdatas = Dict{PkgId,PkgData}()
 
+# Used to keep @require from beating watch_package
+const pkgdatas_lock = ReentrantLock()
+
 const moduledeps = Dict{Module,DepDict}()
 function get_depdict(mod::Module)
     if !haskey(moduledeps, mod)
@@ -714,15 +717,19 @@ function track(mod::Module, file::AbstractString; kwargs...)
     # Determine whether we're already tracking this file
     id = PkgId(mod)
     file = normpath(abspath(file))
-    haskey(pkgdatas, id) && hasfile(pkgdatas[id], file) && return nothing
+    if !haskey(pkgdatas, id)
+        # Check whether `track` was called via a @require. Ref issue #403 & #431.
+        st = stacktrace(backtrace())
+        any(sf->sf.func === :listenpkg && endswith(String(sf.file), "require.jl"), st) && return nothing
+    else
+        hasfile(pkgdatas[id], file) && return nothing
+    end
     # Set up tracking
     fm = parse_source(file, mod)
     if fm !== nothing
         instantiate_sigs!(fm; kwargs...)
         if !haskey(pkgdatas, id)
             # Wait a bit to see if `mod` gets initialized
-            # This can happen if the module's __init__ function
-            # calls `track`, e.g., via a @require. Ref issue #403.
             sleep(0.1)
         end
         if !haskey(pkgdatas, id)
