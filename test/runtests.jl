@@ -3000,6 +3000,77 @@ do_test("entr with modules") && @testset "entr with modules" begin
 
 end
 
+do_test("callbacks") && @testset "callbacks" begin
+
+    append(path, x...) = open(path, append=true) do io
+        write(io, x...)
+    end
+
+    mktemp() do path, _
+        contents = Ref("")
+        key = Revise.add_callback([path]) do
+            contents[] = read(path, String)
+        end
+
+        sleep(mtimedelay)
+
+        append(path, "abc")
+        sleep(mtimedelay)
+        revise()
+        @test contents[] == "abc"
+
+        sleep(mtimedelay)
+
+        append(path, "def")
+        sleep(mtimedelay)
+        revise()
+        @test contents[] == "abcdef"
+
+        Revise.remove_callback(key)
+        sleep(mtimedelay)
+
+        append(path, "ghi")
+        sleep(mtimedelay)
+        revise()
+        @test contents[] == "abcdef"
+    end
+
+    testdir = newtestdir()
+    modname = "A355"
+    srcfile = joinpath(testdir, modname * ".jl")
+
+    function setvalue(x)
+        open(srcfile, "w") do io
+            print(io, "module $modname test() = $x end")
+        end
+    end
+
+    setvalue(1)
+
+    sleep(mtimedelay)
+    @eval using A355
+    sleep(mtimedelay)
+
+    A355_result = Ref(0)
+
+    Revise.add_callback([], [A355]) do
+        A355_result[] = A355.test()
+    end
+
+    sleep(mtimedelay)
+    setvalue(2)
+    # belt and suspenders -- make sure we trigger entr:
+    sleep(mtimedelay)
+    touch(srcfile)
+
+    yry()
+
+    @test A355_result[] == 2
+
+    rm_precompile(modname)
+
+end
+
 println("beginning cleanup")
 GC.gc(); GC.gc()
 
