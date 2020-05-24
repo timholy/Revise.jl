@@ -26,7 +26,7 @@ add_signature!(methodinfo::MethodInfo, @nospecialize(sig), ln) = push!(methodinf
 push_expr!(methodinfo::MethodInfo, mod::Module, ex::Expr) = methodinfo
 pop_expr!(methodinfo::MethodInfo) = methodinfo
 add_dependencies!(methodinfo::MethodInfo, be::BackEdges, src, chunks) = methodinfo
-add_includes!(methodinfo::MethodInfo, filename) = methodinfo
+add_includes!(methodinfo::MethodInfo, mod::Module, filename) = methodinfo
 
 function minimal_evaluation!(methodinfo, frame)
     src = frame.framecode.src
@@ -283,7 +283,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     pc = next_or_nothing!(frame)
                 elseif skip_include && (f === modinclude || f === Base.include || f === Core.include)
                     # Skip include calls, otherwise we load new code
-                    add_includes!(methodinfo, @lookup(frame, stmt.args[2]))
+                    add_includes!(methodinfo, mod, @lookup(frame, stmt.args[2]))
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
                 elseif !define && f === Base.Docs.doc!

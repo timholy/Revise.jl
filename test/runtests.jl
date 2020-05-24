@@ -2701,6 +2701,9 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         println(io, """
             module NewFile
             f() = 1
+            module SubModule
+            struct NewType end
+            end
             end
             """)
     end
@@ -2717,12 +2720,36 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
             module NewFile
             include("g.jl")
             f() = 1
+            module SubModule
+            struct NewType end
+            end
             end
             """)
     end
     yry()
     @test NewFile.f() == 1
     @test NewFile.g() == 2
+    sd = joinpath(dn, "subdir")
+    mkpath(sd)
+    open(joinpath(sd, "h.jl"), "w") do io
+        println(io, "h(::NewType) = 3")
+    end
+    open(joinpath(dn, "NewFile.jl"), "w") do io
+        println(io, """
+            module NewFile
+            include("g.jl")
+            f() = 1
+            module SubModule
+            struct NewType end
+            include("subdir/h.jl")
+            end
+            end
+            """)
+    end
+    yry()
+    @test NewFile.f() == 1
+    @test NewFile.g() == 2
+    @test NewFile.SubModule.h(NewFile.SubModule.NewType()) == 3
 
     dn = joinpath(testdir, "DeletedFile", "src")
     mkpath(dn)
@@ -2765,12 +2792,16 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         using Requires
         const called_onearg = Ref(false)
         onearg(x) = called_onearg[] = true
+        module SubModule
+        abstract type SuperType end
+        end
         function __init__()
             @require EndpointRanges="340492b5-2a47-5f55-813d-aca7ddf97656" begin
                 export testfunc
                 include("testfile.jl")
             end
             @require CatIndices="aafaddc9-749c-510e-ac4f-586e18779b91" onearg(1)
+            @require IndirectArrays="9b13fd28-a010-5f03-acff-a1bbcff69959" @eval SubModule include("st.jl")
         end
         end # module
         """)
@@ -2778,11 +2809,18 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     open(joinpath(dn, "testfile.jl"), "w") do io
         println(io, "testfunc() = 1")
     end
+    open(joinpath(dn, "st.jl"), "w") do io
+        println(io, """
+        struct NewType <: SuperType end
+        h(::NewType) = 3
+        """)
+    end
     sleep(mtimedelay)
     @eval using TrackRequires
     notified = isdefined(TrackRequires.Requires, :withnotifications)
     notified || @warn "Requires does not support notifications"
     @test_throws UndefVarError TrackRequires.testfunc()
+    @test_throws UndefVarError TrackRequires.SubModule.h(TrackRequires.SubModule.NewType())
     @eval using EndpointRanges  # to trigger Requires
     sleep(mtimedelay)
     notified && @test TrackRequires.testfunc() == 1
@@ -2791,6 +2829,11 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     end
     yry()
     notified && @test TrackRequires.testfunc() == 2
+    @test_throws UndefVarError TrackRequires.SubModule.h(TrackRequires.SubModule.NewType())
+    # Issue #477
+    @eval using IndirectArrays
+    sleep(mtimedelay)
+    notified && @test TrackRequires.SubModule.h(TrackRequires.SubModule.NewType()) == 3
     # Check a non-block expression
     warnfile = randtmp()
     open(warnfile, "w") do io
