@@ -1,0 +1,54 @@
+name: CI
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    branches:
+      - '**'
+jobs:
+  test:
+    name: Install & test Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        version:
+          - '1.0'
+          - '1'
+          - 'nightly'
+        os:
+          - ubuntu-latest
+          - macOS-latest
+          - windows-latest
+        arch:
+          - x64
+    steps:
+    - uses: actions/checkout@v2
+    - uses: julia-actions/setup-julia@v1
+      with:
+        version: ${{ matrix.version }}
+        arch: ${{ matrix.arch }}
+    - uses: julia-actions/julia-buildpkg@latest
+    # Populate the precompile cache with an extraneous file, to catch issues like in #460
+    - name: populate_compiled
+      if: ${{ matrix.os != 'windows-latest' }}
+      run: julia -e 'include(joinpath("test", "populate_compiled.jl"))'
+    - uses: julia-actions/julia-runtest@latest
+    - name: extra tests
+      if: ${{ matrix.os != 'windows-latest' }}
+      run: |
+        echo $TERM
+        # Tests for when using polling
+        julia --project --code-coverage=user -e 'ENV["JULIA_REVISE_POLL"]="1"; using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "test", "polling.jl"))'
+        # The REPL wasn't initialized, so the "Methods at REPL" tests didn't run. Pick those up now.
+        TERM="xterm" julia --project --code-coverage=user -e 'using InteractiveUtils, REPL, Revise; @async(Base.run_main_repl(true, true, false, true, false)); sleep(2); Revise.async_steal_repl_backend(); include(joinpath("test", "runtests.jl")); REPL.eval_user_input(:(exit()), Base.active_repl_backend)' "Methods at REPL"
+        # We also need to pick up the Git tests, but for that we need to `dev` the package
+        julia --code-coverage=user -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); include(joinpath("test", "runtests.jl"))' "Git"
+    # Running out of inotify storage (see #26)
+    - name: inotify
+      if: ${{ matrix.os == 'ubuntu-latest' }}
+      run: echo 4 | sudo tee -a /proc/sys/fs/inotify/max_user_watches; julia --project --code-coverage=user -e 'using Pkg, Revise; cd(joinpath(dirname(pathof(Revise)), "..", "test")); include("inotify.jl")'
+    - name: codecov
+      env:
+        CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+      uses: julia-actions/julia-uploadcodecov@latest
