@@ -289,7 +289,7 @@ function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new)
 end
 
 function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
-    includes = Vector{String}()
+    includes = Vector{Pair{Module,String}}()
     with_logger(_debug_logger) do
         for rex in keys(exs_sigs_new)
             rexo = getkey(exs_sigs_old, rex, nothing)
@@ -345,11 +345,11 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
 end
 
 function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old)
-    includes = Vector{Pair{Module,Vector{String}}}()
+    includes = Vector{Pair{Module,String}}()
     for (mod, exs_sigs_new) in mod_exs_sigs_new
         exs_sigs_old = get(mod_exs_sigs_old, mod, empty_exs_sigs)
         _, _includes = eval_new!(exs_sigs_new, exs_sigs_old, mod)
-        push!(includes, mod=>_includes)
+        append!(includes, _includes)
     end
     return mod_exs_sigs_new, includes
 end
@@ -358,9 +358,9 @@ struct CodeTrackingMethodInfo
     exprstack::Vector{Expr}
     allsigs::Vector{Any}
     deps::Set{Union{GlobalRef,Symbol}}
-    includes::Vector{String}
+    includes::Vector{Pair{Module,String}}
 end
-CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Set{Union{GlobalRef,Symbol}}(), String[])
+CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Set{Union{GlobalRef,Symbol}}(), Pair{Module,String}[])
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), ln)
     CodeTracking.method_info[sig] = (fixpath(ln), methodinfo.exprstack[end])
@@ -389,8 +389,8 @@ function add_dependencies!(methodinfo::CodeTrackingMethodInfo, be::BackEdges, sr
     # end
     return methodinfo
 end
-function add_includes!(methodinfo::CodeTrackingMethodInfo, filename)
-    push!(methodinfo.includes, filename)
+function add_includes!(methodinfo::CodeTrackingMethodInfo, mod::Module, filename)
+    push!(methodinfo.includes, mod=>filename)
     return methodinfo
 end
 

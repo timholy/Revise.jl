@@ -278,30 +278,28 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
 end
 
 function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file, includes)
-    for (mod, incs) in includes
-        for inc in incs
-            inc = joinpath(splitdir(file)[1], inc)
-            hasfile = false
-            for srcfile in srcfiles(pkgdata)
-                if srcfile == inc
-                    hasfile = true
-                    break
-                end
+    for (mod, inc) in includes
+        inc = joinpath(splitdir(file)[1], inc)
+        hasfile = false
+        for srcfile in srcfiles(pkgdata)
+            if srcfile == inc
+                hasfile = true
+                break
             end
-            if !hasfile
-                # Add the file to pkgdata
-                push!(pkgdata.info.files, inc)
-                fi = FileInfo(mod)
-                push!(pkgdata.fileinfos, fi)
-                # Parse the source of the new file
-                fullfile = joinpath(basedir(pkgdata), inc)
-                if isfile(fullfile)
-                    parse_source!(fi.modexsigs, fullfile, mod)
-                    instantiate_sigs!(fi.modexsigs; define=true)
-                end
-                # Add to watchlist
-                init_watching(pkgdata, (inc,))
+        end
+        if !hasfile
+            # Add the file to pkgdata
+            push!(pkgdata.info.files, inc)
+            fi = FileInfo(mod)
+            push!(pkgdata.fileinfos, fi)
+            # Parse the source of the new file
+            fullfile = joinpath(basedir(pkgdata), inc)
+            if isfile(fullfile)
+                parse_source!(fi.modexsigs, fullfile, mod)
+                instantiate_sigs!(fi.modexsigs; define=true)
             end
+            # Add to watchlist
+            init_watching(pkgdata, (inc,))
         end
     end
 end
