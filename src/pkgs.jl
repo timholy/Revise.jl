@@ -81,6 +81,7 @@ end
 # that's easier to precompile. (This is a hotspot in loading Revise.)
 function filter_valid_cachefiles(sourcepath, paths)
     fpaths = String[]
+    sourcepath === nothing && return fpaths
     for path in paths
         if Base.stale_cachefile(sourcepath, path) !== true
             push!(fpaths, path)
@@ -332,7 +333,21 @@ function add_require(sourcefile, modcaller, idmod, modname, expr)
         exsnew = ExprsSigs()
         exsnew[expr] = nothing
         mexsnew = ModuleExprsSigs(modcaller=>exsnew)
-        mexsnew, includes = eval_new!(mexsnew, fi.modexsigs)
+        # Before executing the expression we need to set the load path appropriately
+        prev = Base.source_path(nothing)
+        tls = task_local_storage()
+        tls[:SOURCE_PATH] = sourcefile
+        # Now execute the expression
+        mexsnew, includes = try
+            eval_new!(mexsnew, fi.modexsigs)
+        finally
+            if prev === nothing
+                delete!(tls, :SOURCE_PATH)
+            else
+                tls[:SOURCE_PATH] = prev
+            end
+        end
+        # Add any new methods or `include`d files to tracked objects
         pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
         maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes)
     end
@@ -340,7 +355,12 @@ function add_require(sourcefile, modcaller, idmod, modname, expr)
 end
 
 function watch_files_via_dir(dirname)
-    wait_changed(dirname)  # this will block until there is a modification
+    try
+        wait_changed(dirname)  # this will block until there is a modification
+    catch e
+        # issue #459
+        (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+    end
     latestfiles = Pair{String,PkgId}[]
     # Check to see if we're still watching this directory
     stillwatching = haskey(watched_files, dirname)
@@ -465,50 +485,56 @@ function find_from_hash(name, uuid, hash)
 end
 
 function watch_manifest(mfile)
-    wait_changed(mfile)
-    try
-        with_logger(_debug_logger) do
-            @debug "Pkg" _group="manifest_update" manifest_file=mfile
-            isfile(mfile) || return nothing
-            pkgdirs = manifest_paths(mfile)
-            for (id, pkgdir) in pkgdirs
-                if haskey(pkgdatas, id)
-                    pkgdata = pkgdatas[id]
-                    if pkgdir != basedir(pkgdata)
-                        ## The package directory has changed
-                        @debug "Pkg" _group="pathswitch" oldpath=basedir(pkgdata) newpath=pkgdir
-                        # Stop all associated watching tasks
-                        for dir in unique_dirs(srcfiles(pkgdata))
-                            @debug "Pkg" _group="unwatch" dir=dir
-                            delete!(watched_files, joinpath(basedir(pkgdata), dir))
-                            # Note: if the file is revised, the task(s) will run one more time.
-                            # However, because we've removed the directory from the watch list this will be a no-op,
-                            # and then the tasks will be dropped.
-                        end
-                        # Revise code as needed
-                        files = String[]
-                        for file in srcfiles(pkgdata)
-                            maybe_parse_from_cache!(pkgdata, file)
-                            push!(revision_queue, (pkgdata, file))
-                            push!(files, file)
-                            notify(revision_event)
-                        end
-                        # Update the directory
-                        pkgdata.info.basedir = pkgdir
-                        # Restart watching, if applicable
-                        if has_writable_paths(pkgdata)
-                            init_watching(pkgdata, files)
+    while true
+        try
+            wait_changed(mfile)
+        catch e
+            # issue #459
+            (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+        end
+        try
+            with_logger(_debug_logger) do
+                @debug "Pkg" _group="manifest_update" manifest_file=mfile
+                isfile(mfile) || return nothing
+                pkgdirs = manifest_paths(mfile)
+                for (id, pkgdir) in pkgdirs
+                    if haskey(pkgdatas, id)
+                        pkgdata = pkgdatas[id]
+                        if pkgdir != basedir(pkgdata)
+                            ## The package directory has changed
+                            @debug "Pkg" _group="pathswitch" oldpath=basedir(pkgdata) newpath=pkgdir
+                            # Stop all associated watching tasks
+                            for dir in unique_dirs(srcfiles(pkgdata))
+                                @debug "Pkg" _group="unwatch" dir=dir
+                                delete!(watched_files, joinpath(basedir(pkgdata), dir))
+                                # Note: if the file is revised, the task(s) will run one more time.
+                                # However, because we've removed the directory from the watch list this will be a no-op,
+                                # and then the tasks will be dropped.
+                            end
+                            # Revise code as needed
+                            files = String[]
+                            for file in srcfiles(pkgdata)
+                                maybe_parse_from_cache!(pkgdata, file)
+                                push!(revision_queue, (pkgdata, file))
+                                push!(files, file)
+                                notify(revision_event)
+                            end
+                            # Update the directory
+                            pkgdata.info.basedir = pkgdir
+                            # Restart watching, if applicable
+                            if has_writable_paths(pkgdata)
+                                init_watching(pkgdata, files)
+                            end
                         end
                     end
                 end
             end
-        end
-    catch err
-        @static if VERSION >= v"1.2.0-DEV.253"
-            put!(Base.active_repl_backend.response_channel, (Base.catch_stack(), true))
-        else
-            put!(Base.active_repl_backend.response_channel, (err, catch_backtrace()))
+        catch err
+            @static if VERSION >= v"1.2.0-DEV.253"
+                put!(Base.active_repl_backend.response_channel, (Base.catch_stack(), true))
+            else
+                put!(Base.active_repl_backend.response_channel, (err, catch_backtrace()))
+            end
         end
     end
-    return true
 end

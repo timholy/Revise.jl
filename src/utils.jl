@@ -92,28 +92,30 @@ WatchList() = WatchList(systime(), Dict{String,PkgId}())
 Base.in(file, wl::WatchList) = haskey(wl.trackedfiles, file)
 
 @static if Sys.isapple()
-     # HFS+ rounds time to seconds, see #22
-     # https://developer.apple.com/library/archive/technotes/tn/tn1150.html#HFSPlusDates
-     newer(mtime, timestamp) = ceil(mtime) >= floor(timestamp)
- else
-     newer(mtime, timestamp) = mtime >= timestamp
- end
-
-function macroreplace!(ex::Expr, filename)
-    for i = 1:length(ex.args)
-        ex.args[i] = macroreplace!(ex.args[i], filename)
-    end
-    if ex.head == :macrocall
-        m = ex.args[1]
-        if m == Symbol("@__FILE__")
-            return String(filename)
-        elseif m == Symbol("@__DIR__")
-            return dirname(String(filename))
-        end
-    end
-    return ex
+    # HFS+ rounds time to seconds, see #22
+    # https://developer.apple.com/library/archive/technotes/tn/tn1150.html#HFSPlusDates
+    newer(mtime, timestamp) = ceil(mtime) >= floor(timestamp)
+else
+    newer(mtime, timestamp) = mtime >= timestamp
 end
-macroreplace!(s, filename) = s
+
+"""
+    success = throwto_repl(e::Exception)
+
+Try throwing `e` from the REPL's backend task. Returns `true` if the necessary conditions
+were met and the throw can be expected to succeed. The throw is generated from another
+task, so a `yield` will need to occur before it happens.
+"""
+function throwto_repl(e::Exception)
+    if isdefined(Base, :active_repl_backend) &&
+            Base.active_repl_backend.backend_task.state === :runnable &&
+            isempty(Base.Workqueue) &&
+            Base.active_repl_backend.in_eval
+        @async Base.throwto(Base.active_repl_backend.backend_task, e)
+        return true
+    end
+    return false
+end
 
 function printf_maxsize(f::Function, io::IO, args...; maxchars::Integer=500, maxlines::Integer=20)
     # This is dumb but certain to work
@@ -144,7 +146,7 @@ function printf_maxsize(f::Function, io::IO, args...; maxchars::Integer=500, max
     end
 end
 println_maxsize(args...; kwargs...) = println_maxsize(stdout, args...; kwargs...)
-println_maxsize(io::IO, args...; kwargs...) = printf_maxsize(println, stdout, args...; kwargs...)
+println_maxsize(io::IO, args...; kwargs...) = printf_maxsize(println, io, args...; kwargs...)
 
 # Trimming backtraces
 function trim_toplevel!(bt)

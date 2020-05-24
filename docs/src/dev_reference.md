@@ -40,7 +40,7 @@ Revise.FileInfo
 Revise.PkgData
 Revise.WatchList
 Revise.SlotDep
-Revise.Rescheduler
+Revise.TaskThunk
 MethodSummary
 ```
 
@@ -83,10 +83,9 @@ Revise.revise_file_queued
 Revise.revise_file_now
 ```
 
-### Interchange between methods and signatures
+### Caching the definition of methods
 
 ```@docs
-Revise.get_method
 Revise.get_def
 ```
 

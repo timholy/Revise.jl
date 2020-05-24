@@ -1,5 +1,9 @@
 module Revise
 
+if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optlevel"))
+    @eval Base.Experimental.@optlevel 1
+end
+
 using FileWatching, REPL, Distributed, UUIDs
 import LibGit2
 using Base: PkgId
@@ -13,6 +17,8 @@ using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr, prepare_thunk, spli
 using LoweredCodeUtils: next_or_nothing!, isanonymous_typedef, define_anonymous
 
 export revise, includet, entr, MethodSummary
+
+using CodeTracking: line_is_decl
 
 """
     Revise.watching_files[]
@@ -475,7 +481,6 @@ struct CodeTrackingMethodInfo
     includes::Vector{String}
 end
 CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Set{Union{GlobalRef,Symbol}}(), String[])
-CodeTrackingMethodInfo(rex::RelocatableExpr) = CodeTrackingMethodInfo(rex.ex)
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), ln)
     CodeTracking.method_info[sig] = (fixpath(ln), methodinfo.exprstack[end])
@@ -575,7 +580,7 @@ function init_watching(pkgdata::PkgData, files)
         already_watching || (watched_files[dirfull] = WatchList())
         push!(watched_files[dirfull], basename=>pkgdata)
         if watching_files[]
-            fwatcher = Rescheduler(revise_file_queued, (pkgdata, file))
+            fwatcher = TaskThunk(revise_file_queued, (pkgdata, file))
             schedule(Task(fwatcher))
         else
             already_watching || push!(udirs, dir)
@@ -585,7 +590,7 @@ function init_watching(pkgdata::PkgData, files)
         dirfull = joinpath(basedir(pkgdata), dir)
         updatetime!(watched_files[dirfull])
         if !watching_files[]
-            dwatcher = Rescheduler(revise_dir_queued, (dirfull,))
+            dwatcher = TaskThunk(revise_dir_queued, (dirfull,))
             schedule(Task(dwatcher))
         end
     end
@@ -598,35 +603,39 @@ init_watching(files) = init_watching(pkgdatas[NOPACKAGE], files)
 
 Wait for one or more of the files registered in `Revise.watched_files[dirname]` to be
 modified, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
-This is generally called via a [`Revise.Rescheduler`](@ref).
+This is generally called via a [`Revise.TaskThunk`](@ref).
 """
 @noinline function revise_dir_queued(dirname)
     @assert isabspath(dirname)
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
+    end
+    stillwatching = true
+    while stillwatching
         if !isdir(dirname)
             with_logger(SimpleLogger(stderr)) do
                 @warn "$dirname is not an existing directory, Revise is not watching"
             end
-            return false
+            break
         end
-    end
-    latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
-    for (file, id) in latestfiles
-        key = joinpath(dirname, file)
-        if key in keys(user_callbacks_by_file)
-            union!(user_callbacks_queue, user_callbacks_by_file[key])
-            notify(revision_event)
-        end
-        if id != NOPACKAGE
-            pkgdata = pkgdatas[id]
-            if hasfile(pkgdata, key)  # issue #228
-                push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
+
+        latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
+        for (file, id) in latestfiles
+            key = joinpath(dirname, file)
+            if key in keys(user_callbacks_by_file)
+                union!(user_callbacks_queue, user_callbacks_by_file[key])
                 notify(revision_event)
+            end
+            if id != NOPACKAGE
+                pkgdata = pkgdatas[id]
+                if hasfile(pkgdata, key)  # issue #228
+                    push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
+                    notify(revision_event)
+                end
             end
         end
     end
-    return stillwatching
+    return
 end
 
 # See #66.
@@ -634,7 +643,7 @@ end
     revise_file_queued(pkgdata::PkgData, filename)
 
 Wait for modifications to `filename`, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
-This is generally called via a [`Revise.Rescheduler`](@ref).
+This is generally called via a [`Revise.TaskThunk`](@ref).
 
 This is used only on platforms (like BSD) which cannot use [`Revise.revise_dir_queued`](@ref).
 """
@@ -645,28 +654,35 @@ function revise_file_queued(pkgdata::PkgData, file)
     end
     if !file_exists(file)
         sleep(0.1)  # in case git has done a delete/replace cycle
-        if !file_exists(file)
-            push!(revision_queue, (pkgdata, file0))  # process file deletions
-            notify(revision_event)
-            return false
-        end
     end
 
-    wait_changed(file)  # will block here until the file changes
-
-    if file in keys(user_callbacks_by_file)
-        union!(user_callbacks_queue, user_callbacks_by_file[file])
-        notify(revision_event)
-    end
-
-    # Check to see if we're still watching this file
     dirfull, basename = splitdir(file)
-    if haskey(watched_files, dirfull)
+    stillwatching = true
+    while stillwatching
+        if !file_exists(file)
+            with_logger(SimpleLogger(stderr)) do
+                @warn "$file is not an existing file, Revise is not watching"
+            end
+            notify(revision_event)
+            break
+        end
+        try
+            wait_changed(file)  # will block here until the file changes
+        catch e
+            # issue #459
+            (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+        end
+
+        if file in keys(user_callbacks_by_file)
+            union!(user_callbacks_queue, user_callbacks_by_file[file])
+            notify(revision_event)
+        end
+
+        # Check to see if we're still watching this file
+        stillwatching = haskey(watched_files, dirfull)
         push!(revision_queue, (pkgdata, file0))
-        notify(revision_event)
-        return true
     end
-    return false
+    return
 end
 
 # Because we delete first, we have to make sure we've parsed the file
@@ -696,9 +712,10 @@ that move from one file to another.
 `Revise.pkgdatas[id].fileinfos`.
 """
 function revise_file_now(pkgdata::PkgData, file)
+    # @assert !isabspath(file)
     i = fileindex(pkgdata, file)
     if i === nothing
-        println("Revise is currently tracking the following files in $(pkgdata.id): ", keys(pkgdict))
+        println("Revise is currently tracking the following files in $(PkgId(pkgdata)): ", srcfiles(pkgdata))
         error(file, " is not currently being tracked.")
     end
     mexsnew, mexsold = handle_deletions(pkgdata, file)
@@ -971,49 +988,6 @@ silence(pkg::AbstractString) = silence(Symbol(pkg))
 ## Utilities
 
 """
-    method = get_method(sigt)
-
-Get the method `method` with signature-type `sigt`. This is used to provide
-the method to `Base.delete_method`.
-
-If `sigt` does not correspond to a method, returns `nothing`.
-
-# Examples
-
-```jldoctest; setup = :(using Revise), filter = r"in Main at.*"
-julia> mymethod(::Int) = 1
-mymethod (generic function with 1 method)
-
-julia> mymethod(::AbstractFloat) = 2
-mymethod (generic function with 2 methods)
-
-julia> Revise.get_method(Tuple{typeof(mymethod), Int})
-mymethod(::Int64) in Main at REPL[0]:1
-
-julia> Revise.get_method(Tuple{typeof(mymethod), Float64})
-mymethod(::AbstractFloat) in Main at REPL[1]:1
-
-julia> Revise.get_method(Tuple{typeof(mymethod), Number})
-
-```
-"""
-function get_method(@nospecialize(sigt))
-    mths = Base._methods_by_ftype(sigt, -1, typemax(UInt))
-    length(mths) == 1 && return mths[1][3]
-    if !isempty(mths)
-        # There might be many methods, but the one that should match should be the
-        # last one, since methods are ordered by specificity
-        i = lastindex(mths)
-        while i > 0
-            m = mths[i][3]
-            m.sig == sigt && return m
-            i -= 1
-        end
-    end
-    return nothing
-end
-
-"""
     success = get_def(method::Method)
 
 As needed, load the source file necessary for extracting the code defining `method`.
@@ -1119,25 +1093,6 @@ function add_definitions_from_repl(filename)
     return fi
 end
 
-function fix_line_statements!(ex::Expr, file::Symbol, line_offset::Int=0)
-    if ex.head == :line
-        ex.args[1] += line_offset
-        ex.args[2] = file
-    else
-        for (i, a) in enumerate(ex.args)
-            if isa(a, Expr)
-                fix_line_statements!(a::Expr, file, line_offset)
-            elseif isa(a, LineNumberNode)
-                ex.args[i] = file_line_statement(a::LineNumberNode, file, line_offset)
-            end
-        end
-    end
-    ex
-end
-
-file_line_statement(lnn::LineNumberNode, file::Symbol, line_offset) =
-    LineNumberNode(lnn.line + line_offset, file)
-
 function update_stacktrace_lineno!(trace)
     local nrep
     for i = 1:length(trace)
@@ -1175,6 +1130,9 @@ function method_location(method::Method)
     return method.file, method.line
 end
 
+# On Julia 1.5.0-DEV.282 and higher, we can just use an AST transformation
+revise_first(ex) = Expr(:toplevel, :($revise()), ex)
+
 @noinline function run_backend(backend)
     while true
         tls = task_local_storage()
@@ -1191,6 +1149,8 @@ end
         # Now eval the input
         REPL.eval_user_input(ast, backend)
     end
+    # tell outer backend loop to exit as well
+    put!(backend.repl_channel, (nothing, -1))
     nothing
 end
 
@@ -1201,13 +1161,16 @@ Replace the REPL's normal backend with one that calls [`revise`](@ref) before ex
 any REPL input.
 """
 function steal_repl_backend(backend = Base.active_repl_backend)
-    @async begin
-        # terminate the current backend
-        put!(backend.repl_channel, (nothing, -1))
-        fetch(backend.backend_task)
-        # restart a new backend that differs only by processing the
-        # revision queue before evaluating each user input
-        backend.backend_task = @async run_backend(backend)
+    if VERSION >= v"1.5.0-DEV.282"
+        # @warn "See Revise documentation for recommended configuration changes"
+        pushfirst!(backend.ast_transforms, revise_first)
+    else
+        @async begin
+            # When we return back to the backend loop, tell it to start
+            # running our backend loop next, which differs only
+            # by processing the revision queue before evaluating each input.
+            put!(backend.repl_channel, (:($run_backend($backend)), 1))
+        end
     end
     nothing
 end
@@ -1280,9 +1243,15 @@ function __init__()
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
         if isdefined(Base, :active_repl_backend)
-            steal_repl_backend(Base.active_repl_backend::REPL.REPLBackend)
+            if VERSION >= v"1.5.0-DEV.282"
+                pushfirst!(Base.active_repl_backend.ast_transforms, revise_first)
+            else
+                steal_repl_backend(Base.active_repl_backend::REPL.REPLBackend)
+            end
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
+        elseif VERSION >= v"1.5.0-DEV.282"
+            pushfirst!(REPL.repl_ast_transforms, revise_first)
         end
         if isdefined(Main, :Atom)
             setup_atom(getfield(Main, :Atom)::Module)
@@ -1324,7 +1293,7 @@ function __init__()
     if mfile === nothing
         @warn "no Manifest.toml file found, static paths used"
     else
-        wmthunk = Rescheduler(watch_manifest, (mfile,))
+        wmthunk = TaskThunk(watch_manifest, (mfile,))
         schedule(Task(wmthunk))
     end
     return nothing
