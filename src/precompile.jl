@@ -41,5 +41,8 @@ function _precompile_()
     @assert precompile(Tuple{Type{PkgData}, PkgId})
     @assert precompile(Tuple{typeof(Base._deleteat!), Vector{Tuple{Module,String,Float64}}, Vector{Int}})
 
+    @assert precompile(Tuple{typeof(track), Module, String})
+    @assert precompile(Tuple{typeof(add_require), String, Module, String, String, Expr})
+    @assert precompile(Tuple{typeof(_add_require), String, Module, String, String, Expr})
     return nothing
 end

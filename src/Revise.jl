@@ -854,13 +854,28 @@ function track(mod::Module, file::AbstractString; kwargs...)
     isfile(file) || error(file, " is not a file")
     # Determine whether we're already tracking this file
     id = PkgId(mod)
-    file = normpath(abspath(file))
-    if !haskey(pkgdatas, id)
+    if haskey(pkgdatas, id)
+        pkgdata = pkgdatas[id]
+        file = abspath(file)
+        # `Base.locate_package`, which is how `pkgdata` gets initialized, might strip pieces of the path.
+        # For example, on Travis macOS the paths returned by `abspath`
+        # can be preceded by "/private" which is not present in the value returned by `Base.locate_package`.
+        idx = findfirst(basedir(pkgdata), file)
+        if idx !== nothing
+            idx = first(idx)
+            if idx > 1
+                file = file[idx:end]
+            end
+            hasfile(pkgdata, file) && return nothing
+        end
+    else
         # Check whether `track` was called via a @require. Ref issue #403 & #431.
         st = stacktrace(backtrace())
-        any(sf->sf.func === :listenpkg && endswith(String(sf.file), "require.jl"), st) && return nothing
-    else
-        hasfile(pkgdatas[id], file) && return nothing
+        if any(sf->sf.func === :listenpkg && endswith(String(sf.file), "require.jl"), st)
+            nameof(mod) === :Plots || Base.depwarn("Revise@2.4 or higher automatically handles `include` statements in `@require` expressions.\nPlease do not call `Revise.track` from such blocks.", :track)
+            return nothing
+        end
+        file = abspath(file)
     end
     # Set up tracking
     fm = parse_source(file, mod)

@@ -32,7 +32,8 @@ InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 MappedArrays = "dbb5928d-eab1-5f90-85c2-b9b0edb7c900"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
+RoundingIntegers = "d5f540fe-1c90-5db3-b776-2e2f362d9394"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "CatIndices", "EndpointRanges", "Example", "EponymTuples", "IndirectArrays", "InteractiveUtils", "MappedArrays", "Random", "Requires"]
+test = ["Test", "CatIndices", "EndpointRanges", "Example", "EponymTuples", "IndirectArrays", "InteractiveUtils", "MappedArrays", "Random", "Requires", "RoundingIntegers"]
