@@ -572,7 +572,7 @@ be called.
 
 Use the `pkgdata` version if the files are supplied using relative paths.
 """
-function init_watching(pkgdata::PkgData, files)
+function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
     udirs = Set{String}()
     for file in files
         dir, basename = splitdir(file)
@@ -855,26 +855,31 @@ function track(mod::Module, file::AbstractString; kwargs...)
     # Determine whether we're already tracking this file
     id = PkgId(mod)
     file = normpath(abspath(file))
-    haskey(pkgdatas, id) && hasfile(pkgdatas[id], file) && return nothing
+    if !haskey(pkgdatas, id)
+        # Check whether `track` was called via a @require. Ref issue #403 & #431.
+        st = stacktrace(backtrace())
+        any(sf->sf.func === :listenpkg && endswith(String(sf.file), "require.jl"), st) && return nothing
+    else
+        hasfile(pkgdatas[id], file) && return nothing
+    end
     # Set up tracking
     fm = parse_source(file, mod)
     if fm !== nothing
         instantiate_sigs!(fm; kwargs...)
         if !haskey(pkgdatas, id)
             # Wait a bit to see if `mod` gets initialized
-            # This can happen if the module's __init__ function
-            # calls `track`, e.g., via a @require. Ref issue #403.
             sleep(0.1)
         end
-        if !haskey(pkgdatas, id)
-            pkgdatas[id] = PkgData(id, pathof(mod))
+        pkgdata = get(pkgdatas, id, nothing)
+        if pkgdata === nothing
+            pkgdata = PkgData(id, pathof(mod))
         end
-        pkgdata = pkgdatas[id]
         if !haskey(CodeTracking._pkgfiles, id)
             CodeTracking._pkgfiles[id] = pkgdata.info
         end
         push!(pkgdata, relpath(file, pkgdata)=>FileInfo(fm))
         init_watching(pkgdata, (file,))
+        pkgdatas[id] = pkgdata
     end
     return nothing
 end
@@ -1273,9 +1278,9 @@ function __init__()
     # Populate CodeTracking data for dependencies and initialize watching
     for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils)
         id = PkgId(mod)
-        parse_pkg_files(id)
-        pkgdata = pkgdatas[id]
+        pkgdata = parse_pkg_files(id)
         init_watching(pkgdata, srcfiles(pkgdata))
+        pkgdatas[id] = pkgdata
     end
     # Add `includet` to the compiled_modules (fixes #302)
     for m in methods(includet)

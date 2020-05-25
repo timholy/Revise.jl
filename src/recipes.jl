@@ -65,10 +65,10 @@ function _track(id, modname; modified_files=revision_queue)
         mtcache = mtime(basesrccache)
         # Initialize expression-tracking for files, and
         # note any modified since Base was built
-        if !haskey(pkgdatas, id)
-            pkgdatas[id] = PkgData(id, srcdir)
+        pkgdata = get(pkgdatas, id, nothing)
+        if pkgdata === nothing
+            pkgdata = PkgData(id, srcdir)
         end
-        pkgdata = pkgdatas[id]
         for (submod, filename) in Iterators.drop(Base._included_files, 1)  # stepping through sysimg.jl rebuilds Base, omit it
             ffilename = fixpath(filename)
             inpath(ffilename, dirs) || continue
@@ -91,12 +91,16 @@ function _track(id, modname; modified_files=revision_queue)
         CodeTracking._pkgfiles[id] = pkgdata.info
         # Add the files to the watch list
         init_watching(pkgdata, srcfiles(pkgdata))
+        # Save the result (unnecessary if already in pkgdatas, but doesn't hurt either)
+        pkgdatas[id] = pkgdata
     elseif modname == :Compiler
         compilerdir = normpath(joinpath(juliadir, "base", "compiler"))
-        if !haskey(pkgdatas, id)
-            pkgdatas[id] = PkgData(id, compilerdir)
+        pkgdata = get(pkgdatas, id, nothing)
+        if pkgdata === nothing
+            pkgdata = PkgData(id, compilerdir)
         end
-        track_subdir_from_git(id, compilerdir; modified_files=modified_files)
+        track_subdir_from_git!(pkgdata, compilerdir; modified_files=modified_files)
+        # insertion into pkgdatas is done by track_subdir_from_git!
     else
         error("no Revise.track recipe for module ", modname)
     end
@@ -129,11 +133,7 @@ fixpath(lnn::LineNumberNode; kwargs...) = _fixpath(lnn; kwargs...)
 fixpath(lnn::Core.LineInfoNode; kwargs...) = _fixpath(lnn; kwargs...)
 
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
-function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue)
-    if !haskey(pkgdatas, id)
-        pkgdatas[id] = PkgData(id)
-    end
-    pkgdata = pkgdatas[id]
+function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue)
     # diff against files at the same commit used to build Julia
     repo, repo_path = git_repo(subdir)
     if repo == nothing
@@ -170,9 +170,10 @@ function track_subdir_from_git(id::PkgId, subdir::AbstractString; commit=Base.GI
         push!(pkgdata, rpath=>fi)
     end
     if !isempty(pkgdata.fileinfos)
-        pkgdatas[id] = pkgdata
+        id = PkgId(pkgdata)
         CodeTracking._pkgfiles[id] = pkgdata.info
         init_watching(pkgdata, srcfiles(pkgdata))
+        pkgdatas[id] = pkgdata
     end
     return nothing
 end

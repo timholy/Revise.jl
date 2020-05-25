@@ -154,10 +154,10 @@ Its job is to organize the files and expressions defining the module so that lat
 detect and process revisions.
 """
 function parse_pkg_files(id::PkgId)
-    if !haskey(pkgdatas, id)
-        pkgdatas[id] = PkgData(id)
+    pkgdata = get(pkgdatas, id, nothing)
+    if pkgdata === nothing
+        pkgdata = PkgData(id)
     end
-    pkgdata = pkgdatas[id]
     modsym = Symbol(id.name)
     if use_compiled_modules()
         cachefile, mods_files_mtimes = pkg_fileinfo(id)
@@ -172,14 +172,14 @@ function parse_pkg_files(id::PkgId)
                 push!(pkgdata, fname=>FileInfo(mod, cachefile))
             end
             CodeTracking._pkgfiles[id] = pkgdata.info
-            return srcfiles(pkgdata)
+            return pkgdata
         end
     end
     # Non-precompiled package(s). Here we rely on the `include` callbacks to have
     # already populated `included_files`; all we have to do is collect the relevant
     # files.
     queue_includes!(pkgdata, id)
-    return srcfiles(pkgdata)
+    return pkgdata
 end
 
 # The main trick here is that since `using` is recursive, `included_files`
@@ -213,19 +213,21 @@ function queue_includes!(pkgdata::PkgData, id::PkgId)
     end
     deleteat!(included_files, delids)
     CodeTracking._pkgfiles[id] = pkgdata.info
-    return srcfiles(pkgdata)
+    return pkgdata
 end
 
 function queue_includes(mod::Module)
     id = PkgId(mod)
-    if !haskey(pkgdatas, id)
-        pkgdatas[id] = PkgData(id)
+    pkgdata = get(pkgdatas, id, nothing)
+    if pkgdata === nothing
+        pkgdata = PkgData(id)
     end
-    pkgdata = pkgdatas[id]
-    files = queue_includes!(pkgdata, id)
+    queue_includes!(pkgdata, id)
     if has_writable_paths(pkgdata)
-        init_watching(pkgdata, files)
+        init_watching(pkgdata)
     end
+    pkgdatas[id] = pkgdata
+    return pkgdata
 end
 
 # A near-duplicate of some of the functionality of queue_includes!
@@ -406,11 +408,11 @@ end
         remove_from_included_files(modsym)
         return nothing
     end
-    files = parse_pkg_files(id)
-    pkgdata = pkgdatas[id]
+    pkgdata = parse_pkg_files(id)
     if has_writable_paths(pkgdata)
-        init_watching(pkgdata, files)
+        init_watching(pkgdata, srcfiles(pkgdata))
     end
+    pkgdatas[id] = pkgdata
 end
 
 function has_writable_paths(pkgdata::PkgData)

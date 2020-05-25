@@ -2402,7 +2402,6 @@ end
             sleep(mtimedelay)
             mod = @eval $(Symbol(modname))
             id = Base.PkgId(mod)
-            # id = Base.PkgId(Main)
             extrajl = joinpath(randdir, "src", "extra.jl")
             open(extrajl, "w") do io
                 println(io, """
@@ -2419,11 +2418,12 @@ end
             sleep(mtimedelay)
             repo = LibGit2.GitRepo(randdir)
             LibGit2.add!(repo, joinpath("src", "extra.jl"))
+            pkgdata = Revise.pkgdatas[id]
             logs, _ = Test.collect_test_logs() do
-                Revise.track_subdir_from_git(id, joinpath(randdir, "src"); commit="HEAD")
+                Revise.track_subdir_from_git!(pkgdata, joinpath(randdir, "src"); commit="HEAD")
             end
             yry()
-            @test Revise.hasfile(Revise.pkgdatas[id], mainjl)
+            @test Revise.hasfile(pkgdata, mainjl)
             @test startswith(logs[end].message, "skipping src/extra.jl") || startswith(logs[end-1].message, "skipping src/extra.jl")
             rm_precompile("ModuleWithNewFile")
             pop!(LOAD_PATH)
