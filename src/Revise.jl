@@ -858,18 +858,10 @@ function track(mod::Module, file::AbstractString; kwargs...)
     id = PkgId(mod)
     if haskey(pkgdatas, id)
         pkgdata = pkgdatas[id]
-        file = abspath(file)
-        # `Base.locate_package`, which is how `pkgdata` gets initialized, might strip pieces of the path.
-        # For example, on Travis macOS the paths returned by `abspath`
-        # can be preceded by "/private" which is not present in the value returned by `Base.locate_package`.
-        idx = findfirst(basedir(pkgdata), file)
-        if idx !== nothing
-            idx = first(idx)
-            if idx > 1
-                file = file[idx:end]
-            end
-            hasfile(pkgdata, file) && return nothing
-        end
+        relfile = relpath(abspath(file), pkgdata)
+        hasfile(pkgdata, relfile) && return nothing
+        # Use any "fixes" provided by relpath
+        file = joinpath(basedir(pkgdata), relfile)
     else
         # Check whether `track` was called via a @require. Ref issue #403 & #431.
         st = stacktrace(backtrace())
