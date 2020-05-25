@@ -63,10 +63,18 @@ function get_code(f, typ)
     return code
 end
 
-do_test(name) = isempty(ARGS) || name in ARGS
+function do_test(name)
+    runtest = isempty(ARGS) || name in ARGS
+    # Sometimes we get "no output received for 10 minutes" on CI,
+    # to debug this it may be useful to know what test is being run.
+    runtest && haskey(ENV, "CI") && println("Starting test ", name)
+    return runtest
+end
+
 
 if !isempty(ARGS) && "REVISE_TESTS_WATCH_FILES" ∈ ARGS
     Revise.watching_files[] = true
+    println("Running tests with `Revise.watching_files[] = true`")
     idx = findall(isequal("REVISE_TESTS_WATCH_FILES"), ARGS)
     deleteat!(ARGS, idx)
 end
