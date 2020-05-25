@@ -1,8 +1,18 @@
 relpath_safe(path, startpath) = isempty(startpath) ? path : relpath(path, startpath)
 
 function Base.relpath(filename, pkgdata::PkgData)
-    if isabspath(filename) && startswith(filename, basedir(pkgdata))
-        filename = relpath_safe(filename, basedir(pkgdata))
+    if isabspath(filename)
+        # `Base.locate_package`, which is how `pkgdata` gets initialized, might strip pieces of the path.
+        # For example, on Travis macOS the paths returned by `abspath`
+        # can be preceded by "/private" which is not present in the value returned by `Base.locate_package`.
+        idx = findfirst(basedir(pkgdata), filename)
+        if idx !== nothing
+            idx = first(idx)
+            if idx > 1
+                filename = filename[idx:end]
+            end
+            filename = relpath_safe(filename, basedir(pkgdata))
+        end
     elseif startswith(filename, "compiler")
         # Core.Compiler's pkgid includes "compiler/" in the path
         filename = relpath(filename, "compiler")
