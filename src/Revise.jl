@@ -27,7 +27,7 @@ Returns `true` if we watch files rather than their containing directory.
 FreeBSD and NFS-mounted systems should watch files, otherwise we prefer to watch
 directories.
 """
-const watching_files = Ref(Sys.KERNEL == :FreeBSD)
+const watching_files = Ref(Sys.KERNEL === :FreeBSD)
 
 """
     Revise.polling_files[]
@@ -648,7 +648,6 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
 This is used only on platforms (like BSD) which cannot use [`Revise.revise_dir_queued`](@ref).
 """
 function revise_file_queued(pkgdata::PkgData, file)
-    file0 = file
     if !isabspath(file)
         file = joinpath(basedir(pkgdata), file)
     end
@@ -680,7 +679,7 @@ function revise_file_queued(pkgdata::PkgData, file)
 
         # Check to see if we're still watching this file
         stillwatching = haskey(watched_files, dirfull)
-        push!(revision_queue, (pkgdata, file0))
+        PkgId(pkgdata) != NOPACKAGE && push!(revision_queue, (pkgdata, relpath(file, pkgdata)))
     end
     return
 end
