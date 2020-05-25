@@ -26,8 +26,19 @@ Revise.basebuilddir
 Revise.pkgdatas
 Revise.watched_files
 Revise.revision_queue
+Revise.NOPACKAGE
 Revise.queue_errors
 Revise.included_files
+```
+
+The following are specific to user callbacks (see [`Revise.add_callback`](@ref)) and
+the implementation of [`entr`](@ref):
+
+```@docs
+Revise.revision_event
+Revise.user_callbacks_queue
+Revise.user_callbacks_by_file
+Revise.user_callbacks_by_key
 ```
 
 ## Types
@@ -75,6 +86,14 @@ Revise.revise_dir_queued
 Revise.revise_file_queued
 ```
 
+The following functions support user callbacks, and are used in the implementation of `entr`
+but can be used more broadly:
+
+```@docs
+Revise.add_callback
+Revise.remove_callback
+```
+
 ### Evaluating changes (revising) and computing diffs
 
 [`revise`](@ref) is the primary entry point for implementing changes. Additionally,
@@ -96,10 +115,29 @@ Revise.parse_source
 Revise.parse_source!
 ```
 
+### Lowered source code
+
+Much of the "brains" of Revise comes from doing analysis on lowered code.
+This part of the package is not as well documented.
+
+```@docs
+Revise.hastrackedexpr
+```
+
 ### Modules and paths
 
 ```@docs
 Revise.modulefiles
+```
+
+### Handling errors
+
+In current releases of Julia, hitting Ctrl-C from the REPL can stop tasks running in the background.
+This risks stopping Revise's ability to watch for changes in files and directories.
+Revise has a work-around for this problem.
+
+```@docs
+Revise.throwto_repl
 ```
 
 ### Git integration
