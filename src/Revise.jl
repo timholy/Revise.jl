@@ -13,7 +13,8 @@ using Core: CodeInfo
 using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
 using CodeTracking: PkgFiles, basedir, srcfiles
 using JuliaInterpreter: whichtt, is_doc_expr, step_expr!, finish_and_return!, get_return
-using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr, prepare_thunk, split_expressions
+using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr, prepare_thunk, split_expressions,
+                        linetable, codelocs, LineTypes
 using LoweredCodeUtils: next_or_nothing!, isanonymous_typedef, define_anonymous
 
 export revise, includet, entr, MethodSummary
@@ -517,7 +518,7 @@ end
 # Eval and insert into CodeTracking data
 function eval_with_signatures(mod, ex::Expr; define=true, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
-    docexprs = Dict{Module,Vector{Expr}}()
+    docexprs = DocExprs()
     _, frame = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define, kwargs...)
     return methodinfo.allsigs, methodinfo.deps, methodinfo.includes, frame
 end
@@ -571,7 +572,7 @@ be called.
 
 Use the `pkgdata` version if the files are supplied using relative paths.
 """
-function init_watching(pkgdata::PkgData, files)
+function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
     udirs = Set{String}()
     for file in files
         dir, basename = splitdir(file)
@@ -853,27 +854,47 @@ function track(mod::Module, file::AbstractString; kwargs...)
     isfile(file) || error(file, " is not a file")
     # Determine whether we're already tracking this file
     id = PkgId(mod)
-    file = normpath(abspath(file))
-    haskey(pkgdatas, id) && hasfile(pkgdatas[id], file) && return nothing
+    if haskey(pkgdatas, id)
+        pkgdata = pkgdatas[id]
+        file = abspath(file)
+        # `Base.locate_package`, which is how `pkgdata` gets initialized, might strip pieces of the path.
+        # For example, on Travis macOS the paths returned by `abspath`
+        # can be preceded by "/private" which is not present in the value returned by `Base.locate_package`.
+        idx = findfirst(basedir(pkgdata), file)
+        if idx !== nothing
+            idx = first(idx)
+            if idx > 1
+                file = file[idx:end]
+            end
+            hasfile(pkgdata, file) && return nothing
+        end
+    else
+        # Check whether `track` was called via a @require. Ref issue #403 & #431.
+        st = stacktrace(backtrace())
+        if any(sf->sf.func === :listenpkg && endswith(String(sf.file), "require.jl"), st)
+            nameof(mod) === :Plots || Base.depwarn("Revise@2.4 or higher automatically handles `include` statements in `@require` expressions.\nPlease do not call `Revise.track` from such blocks.", :track)
+            return nothing
+        end
+        file = abspath(file)
+    end
     # Set up tracking
     fm = parse_source(file, mod)
     if fm !== nothing
         instantiate_sigs!(fm; kwargs...)
         if !haskey(pkgdatas, id)
             # Wait a bit to see if `mod` gets initialized
-            # This can happen if the module's __init__ function
-            # calls `track`, e.g., via a @require. Ref issue #403.
             sleep(0.1)
         end
-        if !haskey(pkgdatas, id)
-            pkgdatas[id] = PkgData(id, pathof(mod))
+        pkgdata = get(pkgdatas, id, nothing)
+        if pkgdata === nothing
+            pkgdata = PkgData(id, pathof(mod))
         end
-        pkgdata = pkgdatas[id]
         if !haskey(CodeTracking._pkgfiles, id)
             CodeTracking._pkgfiles[id] = pkgdata.info
         end
         push!(pkgdata, relpath(file, pkgdata)=>FileInfo(fm))
         init_watching(pkgdata, (file,))
+        pkgdatas[id] = pkgdata
     end
     return nothing
 end
@@ -1272,9 +1293,9 @@ function __init__()
     # Populate CodeTracking data for dependencies and initialize watching
     for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils)
         id = PkgId(mod)
-        parse_pkg_files(id)
-        pkgdata = pkgdatas[id]
+        pkgdata = parse_pkg_files(id)
         init_watching(pkgdata, srcfiles(pkgdata))
+        pkgdatas[id] = pkgdata
     end
     # Add `includet` to the compiled_modules (fixes #302)
     for m in methods(includet)

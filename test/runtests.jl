@@ -940,7 +940,7 @@ end
         lwr = Meta.lower(ChangeDocstring, ex)
         frame = JuliaInterpreter.prepare_thunk(ChangeDocstring, lwr, true)
         methodinfo = Revise.MethodInfo()
-        docexprs = Dict{Module,Vector{Expr}}()
+        docexprs = Revise.DocExprs()
         ret = Revise.methods_by_execution!(JuliaInterpreter.finish_and_return!, methodinfo,
                                            docexprs, frame, trues(length(frame.framecode.src.code)); define=false)
         ds = @doc(ChangeDocstring.f)
@@ -2231,7 +2231,15 @@ end
         end
         yry()
         @test LikePlots.f() == 2
-        @test joinpath("src", "backends", "backend.jl") ∈ Revise.srcfiles(Revise.pkgdatas[Base.PkgId(LikePlots)])
+        pkgdata = Revise.pkgdatas[Base.PkgId(LikePlots)]
+        @test joinpath("src", "backends", "backend.jl") ∈ Revise.srcfiles(pkgdata)
+        # No duplications from Revise.track with either relative or absolute paths
+        Revise.track(LikePlots, joinpath(sd, "backend.jl"))
+        @test length(Revise.srcfiles(pkgdata)) == 2
+        cd(dn) do
+            Revise.track(LikePlots, joinpath("backends", "backend.jl"))
+            @test length(Revise.srcfiles(pkgdata)) == 2
+        end
 
         rm_precompile("LikePlots")
     end
@@ -2402,7 +2410,6 @@ end
             sleep(mtimedelay)
             mod = @eval $(Symbol(modname))
             id = Base.PkgId(mod)
-            # id = Base.PkgId(Main)
             extrajl = joinpath(randdir, "src", "extra.jl")
             open(extrajl, "w") do io
                 println(io, """
@@ -2419,11 +2426,12 @@ end
             sleep(mtimedelay)
             repo = LibGit2.GitRepo(randdir)
             LibGit2.add!(repo, joinpath("src", "extra.jl"))
+            pkgdata = Revise.pkgdatas[id]
             logs, _ = Test.collect_test_logs() do
-                Revise.track_subdir_from_git(id, joinpath(randdir, "src"); commit="HEAD")
+                Revise.track_subdir_from_git!(pkgdata, joinpath(randdir, "src"); commit="HEAD")
             end
             yry()
-            @test Revise.hasfile(Revise.pkgdatas[id], mainjl)
+            @test Revise.hasfile(pkgdata, mainjl)
             @test startswith(logs[end].message, "skipping src/extra.jl") || startswith(logs[end-1].message, "skipping src/extra.jl")
             rm_precompile("ModuleWithNewFile")
             pop!(LOAD_PATH)
@@ -2802,6 +2810,11 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
             end
             @require CatIndices="aafaddc9-749c-510e-ac4f-586e18779b91" onearg(1)
             @require IndirectArrays="9b13fd28-a010-5f03-acff-a1bbcff69959" @eval SubModule include("st.jl")
+            @require RoundingIntegers="d5f540fe-1c90-5db3-b776-2e2f362d9394" begin
+                fn = joinpath(@__DIR__, "subdir", "anotherfile.jl")
+                include(fn)
+                @require Revise="295af30f-e4ad-537b-8983-00126c2a3abe" Revise.track(TrackRequires, fn)
+            end
         end
         end # module
         """)
@@ -2813,6 +2826,12 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         println(io, """
         struct NewType <: SuperType end
         h(::NewType) = 3
+        """)
+    end
+    sd = mkpath(joinpath(dn, "subdir"))
+    open(joinpath(sd, "anotherfile.jl"), "w") do io
+        println(io, """
+        ftrack() = 1
         """)
     end
     sleep(mtimedelay)
@@ -2844,6 +2863,22 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     end
     notified && @test TrackRequires.called_onearg[]
     @test isempty(read(warnfile, String))
+    # Issue #431
+    @test_throws UndefVarError TrackRequires.ftrack()
+    @eval using RoundingIntegers
+    sleep(2)  # allow time for the @async in all @require blocks to finish
+    if notified
+        @test TrackRequires.ftrack() == 1
+        id = Base.PkgId(TrackRequires)
+        pkgdata = Revise.pkgdatas[id]
+        sf = Revise.srcfiles(pkgdata)
+        @test count(name->occursin("@require", name), sf) == 1
+        @test count(name->occursin("anotherfile", name), sf) == 1
+        @test !any(isequal("."), sf)
+        idx = findfirst(name->occursin("anotherfile", name), sf)
+        @test !isabspath(sf[idx])
+    end
+
     # Ensure it also works if the Requires dependency is pre-loaded
     dn = joinpath(testdir, "TrackRequires2", "src")
     mkpath(dn)

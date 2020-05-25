@@ -154,10 +154,10 @@ Its job is to organize the files and expressions defining the module so that lat
 detect and process revisions.
 """
 function parse_pkg_files(id::PkgId)
-    if !haskey(pkgdatas, id)
-        pkgdatas[id] = PkgData(id)
+    pkgdata = get(pkgdatas, id, nothing)
+    if pkgdata === nothing
+        pkgdata = PkgData(id)
     end
-    pkgdata = pkgdatas[id]
     modsym = Symbol(id.name)
     if use_compiled_modules()
         cachefile, mods_files_mtimes = pkg_fileinfo(id)
@@ -172,14 +172,14 @@ function parse_pkg_files(id::PkgId)
                 push!(pkgdata, fname=>FileInfo(mod, cachefile))
             end
             CodeTracking._pkgfiles[id] = pkgdata.info
-            return srcfiles(pkgdata)
+            return pkgdata
         end
     end
     # Non-precompiled package(s). Here we rely on the `include` callbacks to have
     # already populated `included_files`; all we have to do is collect the relevant
     # files.
     queue_includes!(pkgdata, id)
-    return srcfiles(pkgdata)
+    return pkgdata
 end
 
 # The main trick here is that since `using` is recursive, `included_files`
@@ -213,19 +213,21 @@ function queue_includes!(pkgdata::PkgData, id::PkgId)
     end
     deleteat!(included_files, delids)
     CodeTracking._pkgfiles[id] = pkgdata.info
-    return srcfiles(pkgdata)
+    return pkgdata
 end
 
 function queue_includes(mod::Module)
     id = PkgId(mod)
-    if !haskey(pkgdatas, id)
-        pkgdatas[id] = PkgData(id)
+    pkgdata = get(pkgdatas, id, nothing)
+    if pkgdata === nothing
+        pkgdata = PkgData(id)
     end
-    pkgdata = pkgdatas[id]
-    files = queue_includes!(pkgdata, id)
+    queue_includes!(pkgdata, id)
     if has_writable_paths(pkgdata)
-        init_watching(pkgdata, files)
+        init_watching(pkgdata)
     end
+    pkgdatas[id] = pkgdata
+    return pkgdata
 end
 
 # A near-duplicate of some of the functionality of queue_includes!
@@ -280,39 +282,51 @@ end
 function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file, includes)
     for (mod, inc) in includes
         inc = joinpath(splitdir(file)[1], inc)
+        incrp = relpath(inc, pkgdata)
         hasfile = false
         for srcfile in srcfiles(pkgdata)
-            if srcfile == inc
+            if srcfile == incrp
                 hasfile = true
                 break
             end
         end
         if !hasfile
             # Add the file to pkgdata
-            push!(pkgdata.info.files, inc)
+            push!(pkgdata.info.files, incrp)
             fi = FileInfo(mod)
             push!(pkgdata.fileinfos, fi)
             # Parse the source of the new file
-            fullfile = joinpath(basedir(pkgdata), inc)
+            fullfile = joinpath(basedir(pkgdata), incrp)
             if isfile(fullfile)
                 parse_source!(fi.modexsigs, fullfile, mod)
                 instantiate_sigs!(fi.modexsigs; define=true)
             end
             # Add to watchlist
-            init_watching(pkgdata, (inc,))
+            init_watching(pkgdata, (incrp,))
         end
     end
 end
 
 function add_require(sourcefile, modcaller, idmod, modname, expr)
     expr isa Expr || return
+    arthunk = TaskThunk(_add_require, (sourcefile, modcaller, idmod, modname, expr))
+    schedule(Task(arthunk))
+    return nothing
+end
+
+# Use locking to prevent races between inner and outer @require blocks
+const requires_lock = ReentrantLock()
+
+function _add_require(sourcefile, modcaller, idmod, modname, expr)
     id = PkgId(modcaller)
-    @async begin
-        # If this fires when the module is first being loaded (because the dependency
-        # was already loaded), Revise may not yet have the pkgdata for this package.
-        while !haskey(pkgdatas, id)
-            sleep(0.1)
-        end
+    # If this fires when the module is first being loaded (because the dependency
+    # was already loaded), Revise may not yet have the pkgdata for this package.
+    while !haskey(pkgdatas, id)
+        sleep(0.1)
+    end
+
+    lock(requires_lock)
+    try
         # Get/create the FileInfo specifically for tracking @require blocks
         pkgdata = pkgdatas[id]
         filekey = relpath(sourcefile, pkgdata) * "__@require__"
@@ -348,8 +362,9 @@ function add_require(sourcefile, modcaller, idmod, modname, expr)
         # Add any new methods or `include`d files to tracked objects
         pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
         maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes)
+    finally
+        unlock(requires_lock)
     end
-    return nothing
 end
 
 function watch_files_via_dir(dirname)
@@ -406,11 +421,11 @@ end
         remove_from_included_files(modsym)
         return nothing
     end
-    files = parse_pkg_files(id)
-    pkgdata = pkgdatas[id]
+    pkgdata = parse_pkg_files(id)
     if has_writable_paths(pkgdata)
-        init_watching(pkgdata, files)
+        init_watching(pkgdata, srcfiles(pkgdata))
     end
+    pkgdatas[id] = pkgdata
 end
 
 function has_writable_paths(pkgdata::PkgData)
@@ -458,7 +473,7 @@ function manifest_paths!(pkgpaths::Dict, manifest_file::String)
                 uuid = name = path = hash = id = nothing
             elseif (m = match(Base.re_path_to_string, line)) != nothing
                 path = String(m.captures[1])
-                path = normpath(abspath(dirname(manifest_file), path))
+                path = abspath(dirname(manifest_file), path)
             elseif (m = match(Base.re_hash_to_string, line)) != nothing
                 hash = Base.SHA1(m.captures[1])
             end

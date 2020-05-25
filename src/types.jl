@@ -198,11 +198,11 @@ function Base.show(io::IO, pkgdata::PkgData)
         print(io, nparsed, '/', length(pkgdata.fileinfos), " parsed files, ", nexs, " expressions, ", nsigs, " signatures)")
     else
         show(io, pkgdata.info.id)
-        println(io, ':')
+        println(io, ", basedir \"", pkgdata.info.basedir, ':')
         for (f, fi) in zip(pkgdata.info.files, pkgdata.fileinfos)
             print(io, "  \"", f, "\": ")
             show(IOContext(io, :compact=>true), fi)
-            print('\n')
+            print(io, '\n')
         end
     end
 end
