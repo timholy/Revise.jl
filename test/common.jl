@@ -64,3 +64,9 @@ function get_code(f, typ)
 end
 
 do_test(name) = isempty(ARGS) || name in ARGS
+
+if !isempty(ARGS) && "REVISE_TESTS_WATCH_FILES" ∈ ARGS
+    Revise.watching_files[] = true
+    idx = findall(isequal("REVISE_TESTS_WATCH_FILES"), ARGS)
+    deleteat!(ARGS, idx)
+end
