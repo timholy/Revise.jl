@@ -2984,6 +2984,35 @@ do_test("entr") && @testset "entr" begin
         @test isa(err, LoadError)
         @test err.error.msg == "stop"
     end
+
+    # Watch directories (#470)
+    dn = joinpath(tempdir(), randtmp())
+    mkdir(dn)
+    fn = joinpath(dn, "trigger.txt")
+    open(fn, "w") do io
+        println(io, "blank")
+    end
+    counter = Ref(0)
+    stop = Ref(false)
+    try
+        @sync begin
+            @async begin
+                entr([dn]) do
+                    counter[] += 1
+                    stop[] && error("stopping")
+                end
+            end
+            sleep(mtimedelay)
+            touch(fn)
+            sleep(mtimedelay)
+            @test counter[] == 1
+            stop[] = true
+            touch(fn)
+            sleep(mtimedelay)
+        end
+    catch
+        @test counter[] == 2
+    end
 end
 
 const A354_result = Ref(0)
