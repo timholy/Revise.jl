@@ -3090,7 +3090,8 @@ GC.gc(); GC.gc()
                 end
             end
         end
-        isempty(ARGS) && @test occursin("is not an existing directory", read(warnfile, String))
+        msg = Revise.watching_files[] ? "is not an existing file" : "is not an existing directory"
+        isempty(ARGS) && @test occursin(msg, read(warnfile, String))
         rm(warnfile)
     end
 end

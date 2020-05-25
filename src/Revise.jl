@@ -679,7 +679,7 @@ function revise_file_queued(pkgdata::PkgData, file)
 
         # Check to see if we're still watching this file
         stillwatching = haskey(watched_files, dirfull)
-        push!(revision_queue, (pkgdata, relpath(file, pkgdata)))
+        PkgId(pkgdata) != NOPACKAGE && push!(revision_queue, (pkgdata, relpath(file, pkgdata)))
     end
     return
 end
