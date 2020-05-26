@@ -697,6 +697,7 @@ end
         sleep(mtimedelay)
         @test A339.f() == 1
         @test B339.f() == 1
+        sleep(mtimedelay)
         open(joinpath(testdir, "A339.jl"), "w") do io
             println(io, """
                         module A339
@@ -707,6 +708,7 @@ end
         yry()
         @test A339.f() == 2
         @test B339.f() == 1
+        sleep(mtimedelay)
         open(joinpath(testdir, "B339.jl"), "w") do io
             println(io, """
                         module B339
@@ -2367,11 +2369,6 @@ end
     end
 
     do_test("Git") && @testset "Git" begin
-        # if haskey(ENV, "CI")   # if we're doing CI testing (Travis, Appveyor, etc.)
-        #     # First do a full git checkout of a package (we'll use Revise itself)
-        #     @warn "checking out a development copy of Revise for testing purposes"
-        #     pkg = Pkg.develop("Revise")
-        # end
         loc = Base.find_package("Revise")
         if occursin("dev", loc)
             repo, path = Revise.git_repo(loc)
@@ -2606,6 +2603,7 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     empty!(DEPOT_PATH)
     push!(DEPOT_PATH, depot)
     # Skip cloning the General registry since that is slow and unnecessary
+    ENV["JULIA_PKG_SERVER"] = ""
     registries = Pkg.Types.DEFAULT_REGISTRIES
     old_registries = copy(registries)
     empty!(registries)
