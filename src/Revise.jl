@@ -661,7 +661,7 @@ function revise_file_queued(pkgdata::PkgData, file)
     dirfull, basename = splitdir(file)
     stillwatching = true
     while stillwatching
-        if !file_exists(file)
+        if !file_exists(file) && !isdir(file)
             with_logger(SimpleLogger(stderr)) do
                 @warn "$file is not an existing file, Revise is not watching"
             end

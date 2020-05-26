@@ -381,7 +381,12 @@ function watch_files_via_dir(dirname)
         wf = watched_files[dirname]
         for (file, id) in wf.trackedfiles
             fullpath = joinpath(dirname, file)
-            if !file_exists(fullpath)
+            if isdir(fullpath)
+                # Detected a modification in a directory that we're watching in
+                # itself (not as a container for watched files)
+                push!(latestfiles, file=>id)
+                continue
+            elseif !file_exists(fullpath)
                 # File may have been deleted. But be very sure.
                 sleep(0.1)
                 if !file_exists(fullpath)

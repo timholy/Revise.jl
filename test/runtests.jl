@@ -3003,32 +3003,70 @@ do_test("entr") && @testset "entr" begin
 
 
     # Watch directories (#470)
-    dn = joinpath(tempdir(), randtmp())
-    mkdir(dn)
-    fn = joinpath(dn, "trigger.txt")
-    open(fn, "w") do io
-        println(io, "blank")
-    end
-    counter = Ref(0)
-    stop = Ref(false)
     try
-        @sync begin
+        @sync let
+            srcdir = joinpath(tempdir(), randtmp())
+            mkdir(srcdir)
+
+            trigger = joinpath(srcdir, "trigger.txt")
+
+            counter = Ref(0)
+            stop = Ref(false)
+
             @async begin
-                entr([dn]) do
+                entr([srcdir]; pause=0.5) do
                     counter[] += 1
-                    stop[] && error("stopping")
+                    stop[] && error("stop watching directory")
                 end
             end
-            sleep(mtimedelay)
-            touch(fn)
-            sleep(mtimedelay)
-            @test counter[] == 1
+            sleep(1)
+            @test length(readdir(srcdir)) == 0 # directory should still be empty
+            @test counter[] == 1               # postpone=false
+
+            # File creation
+            touch(trigger)
+            sleep(1)
+            @test counter[] == 2
+
+            # File modification
+            touch(trigger)
+            sleep(1)
+            @test counter[] == 3
+
+            # File deletion -> the directory should be empty again
+            rm(trigger)
+            sleep(1)
+            @test length(readdir(srcdir)) == 0
+            @test counter[] == 4
+
+            # Two events in quick succession (w.r.t. the `pause` argument)
+            touch(trigger)       # creation
+            sleep(0.1)
+            touch(trigger)       # modification
+            sleep(1)
+            @test counter[] == 5 # Callback should have been called only once
+
+            # Stop
             stop[] = true
-            touch(fn)
-            sleep(mtimedelay)
+            touch(trigger)
         end
-    catch
-        @test counter[] == 2
+
+        # `entr` should have errored by now
+        @test false
+    catch err
+        while err isa CompositeException
+            err = err.exceptions[1]
+            @static if VERSION >= v"1.3.0-alpha.110"
+                if  err isa TaskFailedException
+                    err = err.task.exception
+                end
+            end
+            if err isa CapturedException
+                err = err.ex
+            end
+        end
+        @test isa(err, ErrorException)
+        @test err.msg == "stop watching directory"
     end
 end
 
