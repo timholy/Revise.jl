@@ -973,8 +973,9 @@ function entr(f::Function, files, modules=nothing; postpone=false, pause=0.02)
         end
     catch err
         isa(err, InterruptException) || rethrow(err)
+    finally
+        remove_callback(key)
     end
-    remove_callback(key)
     nothing
 end
 
