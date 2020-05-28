@@ -15,7 +15,7 @@ using CodeTracking: PkgFiles, basedir, srcfiles
 using JuliaInterpreter: whichtt, is_doc_expr, step_expr!, finish_and_return!, get_return
 using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr, prepare_thunk, split_expressions,
                         linetable, codelocs, LineTypes, is_GotoIfNot
-using LoweredCodeUtils: next_or_nothing!, isanonymous_typedef, define_anonymous
+using LoweredCodeUtils: next_or_nothing!, trackedheads, structheads, callee_matches
 
 export revise, includet, entr, MethodSummary
 
@@ -67,11 +67,12 @@ environment variable to customize it.
 """
 const tracking_Main_includes = Ref(false)
 
+const revise_mode = Ref(:evalmeth)
+
 include("relocatable_exprs.jl")
 include("types.jl")
 include("utils.jl")
 include("parsing.jl")
-include("backedges.jl")
 include("lowered.jl")
 include("pkgs.jl")
 include("git.jl")
@@ -435,7 +436,7 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
                 # ex is not present in old
                 @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
                 # try
-                    sigs, deps, _includes, thunk = eval_with_signatures(mod, ex)  # All signatures defined by `ex`
+                    sigs, deps, _includes, thunk = eval_with_signatures(mod, ex; mode=revise_mode[])  # All signatures defined by `ex`
                     append!(includes, _includes)
                     if VERSION < v"1.3.0" || !isexpr(thunk, :thunk)
                         thunk = ex
@@ -491,6 +492,26 @@ function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old)
     return mod_exs_sigs_new, includes
 end
 
+"""
+    CodeTrackingMethodInfo(ex::Expr)
+
+Create a cache for storing information about method definitions.
+Adding signatures to such an object inserts them into `CodeTracking.method_info`,
+which maps signature Tuple-types to `(lnn::LineNumberNode, ex::Expr)` pairs.
+Because method signatures are unique within a module, this is the foundation for
+identifying methods in a manner independent of source-code location.
+
+It also has the following fields:
+
+- `exprstack`: used when descending into `@eval` statements (via `push_expr` and `pop_expr!`)
+  `ex` (used in creating the `CodeTrackingMethodInfo` object) is the first entry in the stack.
+- `allsigs`: a list of all method signatures defined by a given expression
+- `deps`: list of top-level named objects (`Symbol`s and `GlobalRef`s) that method definitions
+  in this block depend on. For example, `if Sys.iswindows() f() = 1 else f() = 2 end` would
+  store `Sys.iswindows` here.
+- `includes`: a list of `module=>filename` for any `include` statements encountered while the
+  expression was parsed.
+"""
 struct CodeTrackingMethodInfo
     exprstack::Vector{Expr}
     allsigs::Vector{Any}
@@ -506,16 +527,19 @@ function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), 
 end
 push_expr!(methodinfo::CodeTrackingMethodInfo, mod::Module, ex::Expr) = (push!(methodinfo.exprstack, ex); methodinfo)
 pop_expr!(methodinfo::CodeTrackingMethodInfo) = (pop!(methodinfo.exprstack); methodinfo)
-function add_dependencies!(methodinfo::CodeTrackingMethodInfo, be::BackEdges, src, chunks)
+function add_dependencies!(methodinfo::CodeTrackingMethodInfo, edges::CodeEdges, src, musteval)
     isempty(src.code) && return methodinfo
     stmt1 = first(src.code)
-    if isexpr(stmt1, :gotoifnot) && isa(stmt1.args[1], Union{GlobalRef,Symbol})
-        if any(chunk->hastrackedexpr(src, chunk), chunks)
-            push!(methodinfo.deps, stmt1.args[1])
-        end
-    elseif is_GotoIfNot(stmt1) && isa(stmt1.cond, Union{GlobalRef,Symbol})
-        if any(chunk->hastrackedexpr(src, chunk), chunks)
-            push!(methodinfo.deps, stmt1.cond)
+    if (isexpr(stmt1, :gotoifnot) && (dep = (stmt1::Expr).args[1]; isa(dep, Union{GlobalRef,Symbol}))) ||
+       (is_GotoIfNot(stmt1) && (dep = stmt1.cond; isa(dep, Union{GlobalRef,Symbol})))
+        # This is basically a hack to look for symbols that control definition of methods via a conditional.
+        # It is aimed at solving #249, but this will have to be generalized for anything real.
+        for (stmt, me) in zip(src.code, musteval)
+            me || continue
+            if hastrackedexpr(stmt)[1]
+                push!(methodinfo.deps, dep)
+                break
+            end
         end
     end
     # for (dep, lines) in be.byname
@@ -536,18 +560,18 @@ function add_includes!(methodinfo::CodeTrackingMethodInfo, mod::Module, filename
 end
 
 # Eval and insert into CodeTracking data
-function eval_with_signatures(mod, ex::Expr; define=true, kwargs...)
+function eval_with_signatures(mod, ex::Expr; mode=:eval, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
     docexprs = DocExprs()
-    _, frame = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; define=define, kwargs...)
+    _, frame = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; mode=mode, kwargs...)
     return methodinfo.allsigs, methodinfo.deps, methodinfo.includes, frame
 end
 
-function instantiate_sigs!(modexsigs::ModuleExprsSigs; define=false, kwargs...)
+function instantiate_sigs!(modexsigs::ModuleExprsSigs; mode=:sigs, kwargs...)
     for (mod, exsigs) in modexsigs
         for rex in keys(exsigs)
             is_doc_expr(rex.ex) && continue
-            sigs, deps, _ = eval_with_signatures(mod, rex.ex; define=define, kwargs...)
+            sigs, deps, _ = eval_with_signatures(mod, rex.ex; mode=mode, kwargs...)
             exsigs[rex.ex] = sigs
             storedeps(deps, rex, mod)
         end
@@ -921,7 +945,7 @@ end
 
 Load `filename` and track any future changes to it. `includet` is essentially shorthand for
 
-    Revise.track(Main, filename; define=true, skip_include=false)
+    Revise.track(Main, filename; mode=:eval, skip_include=false)
 
 `includet` is intended for "user scripts," e.g., a file you use locally for a specific
 purpose such as loading a specific data set or performing a particular analysis.
@@ -945,7 +969,7 @@ function includet(mod::Module, file::AbstractString)
     tls = task_local_storage()
     tls[:SOURCE_PATH] = file
     try
-        track(mod, file; define=true, skip_include=false)
+        track(mod, file; mode=:eval, skip_include=false)
     finally
         if prev === nothing
             delete!(tls, :SOURCE_PATH)

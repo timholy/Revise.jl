@@ -83,6 +83,8 @@ unwrap(rex::RelocatableExpr) = unwrap(rex.ex)
 
 istrivial(a) = a === nothing || isa(a, LineNumberNode)
 
+isgoto(stmt) = isa(stmt, Core.GotoNode) | isexpr(stmt, :gotoifnot)
+
 ## WatchList utilities
 function systime()
     # It's important to use the same clock used by the filesystem

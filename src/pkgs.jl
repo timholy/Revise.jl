@@ -299,7 +299,7 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file, includes)
             fullfile = joinpath(basedir(pkgdata), incrp)
             if isfile(fullfile)
                 parse_source!(fi.modexsigs, fullfile, mod)
-                instantiate_sigs!(fi.modexsigs; define=true)
+                instantiate_sigs!(fi.modexsigs; mode=:eval)
             end
             # Add to watchlist
             init_watching(pkgdata, (incrp,))

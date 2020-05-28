@@ -13,9 +13,9 @@ do_test("Backedges") && @testset "Backedges" begin
     # Find the inner struct def for the anonymous function
     idtype = findall(stmt->isexpr(stmt, :thunk) && isa(stmt.args[1], Core.CodeInfo), src.code)[end]
     src2 = src.code[idtype].args[1]
-    be = Revise.BackEdges(src2)
-    chunks = Revise.toplevel_chunks(be)
-    @test chunks[1] == 1:length(src2.code)-1  # skips the `return` at the end
+    methodinfo = Revise.MethodInfo()
+    isrequired = Revise.minimal_evaluation!(methodinfo, src, :sigs)[1]
+    @test sum(isrequired) == length(src.code)-(1 + (VERSION>=v"1.2"))  # skips the `return` at the end
 
     src = """
     # issue #249

@@ -201,7 +201,7 @@ k(x) = 4
         mexs = Revise.ModuleExprsSigs(ReviseTestPrivate)
         mexs[ReviseTestPrivate][ex] = nothing
         logs, _ = Test.collect_test_logs() do
-            Revise.instantiate_sigs!(mexs; define=true)
+            Revise.instantiate_sigs!(mexs; mode=:eval)
         end
         @test isempty(logs)
         @test isdefined(ReviseTestPrivate, :nolineinfo)
@@ -936,7 +936,19 @@ end
         sleep(mtimedelay)
         @test ChangeDocstring.f() == 1
         ds = @doc(ChangeDocstring.f)
-        @test ds.content[1].content[1].content[1].content[1] == "f"
+        @test get_docstring(ds) == "f"
+        # Ordinary route
+        open(joinpath(dn, "ChangeDocstring.jl"), "w") do io
+            println(io, """
+            module ChangeDocstring
+            "h" f() = 1
+            end
+            """)
+        end
+        yry()
+        ds = @doc(ChangeDocstring.f)
+        @test get_docstring(ds) == "h"
+
         # Now manually change the docstring
         ex = quote "g" f() = 1 end
         lwr = Meta.lower(ChangeDocstring, ex)
@@ -944,9 +956,9 @@ end
         methodinfo = Revise.MethodInfo()
         docexprs = Revise.DocExprs()
         ret = Revise.methods_by_execution!(JuliaInterpreter.finish_and_return!, methodinfo,
-                                           docexprs, frame, trues(length(frame.framecode.src.code)); define=false)
+                                           docexprs, frame, trues(length(frame.framecode.src.code)); mode=:sigs)
         ds = @doc(ChangeDocstring.f)
-        @test ds.content[1].content[1].content[1].content[1] == "g"
+        @test get_docstring(ds) == "g"
 
         rm_precompile("ChangeDocstring")
         pop!(LOAD_PATH)
@@ -1856,7 +1868,7 @@ end
         @test occursin("Test301.jl:10", logs[1].message)
 
         logs, _ = Test.collect_test_logs() do
-            Revise.track("callee_error.jl"; define=true)
+            Revise.track("callee_error.jl"; mode=:eval)
         end
         @test length(logs) == 2
         @test occursin("(compiled mode) evaluation error", logs[1].message)
@@ -1937,36 +1949,15 @@ end
         @test RevisionInterrupt.f(0) == 2
 
         # Compiled mode
-        open(fn, "w") do io
-            println(io, """
-            module RevisionInterrupt
-            throw(InterruptException())
-            f(x) = 3
-            end
-            """)
-        end
+        # Due to selective evaluation we can't check compiled mode via high-level code: it will discover
+        # the method and run this expression in the interpreter.
+        # This requires low-level intervention
+        @test_throws InterruptException Revise.methods_by_execution!(Revise.MethodInfo(), Revise.DocExprs(), Main, :(throw(InterruptException())); mode=:eval)
         logs, _ = Test.collect_test_logs() do
-            yry()
+            Revise.methods_by_execution!(Revise.MethodInfo(), Revise.DocExprs(), Main, :(throw(ArgumentError("AA"))); mode=:eval)
         end
-        check_revision_interrupt(logs)
-        # @test RevisionInterrupt.f(0) == 2
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        check_revision_interrupt(logs)
-        # @test RevisionInterrupt.f(0) == 2
-        open(fn, "w") do io
-            println(io, """
-            module RevisionInterrupt
-            f(x) = 3
-            end
-            """)
-        end
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        @test isempty(logs)
-        @test RevisionInterrupt.f(0) == 3
+        @test length(logs) == 1
+        @test startswith(logs[1].message, "(compiled mode) evaluation error starting at")
     end
 
     do_test("get_def") && @testset "get_def" begin
@@ -2111,6 +2102,9 @@ end
         sleep(mtimedelay)
         lines = readlines(logfile)
         @test length(lines) == 1 && chomp(lines[1]) == "executed"
+        # In older versions of Revise, it would do the work again when the file
+        # changed. Starting with 3.0, Revise modifies methods and docstrings but
+        # does not "do work."
         open(srcfile, "w") do io
             print(io, """
             println("executed again")
@@ -2122,7 +2116,7 @@ end
             end
         end
         lines = readlines(logfile)
-        @test length(lines) == 1 && chomp(lines[1]) == "executed again"
+        @test isempty(lines)
 
         # tls path (issue #264)
         srcdir = joinpath(tempdir(), randtmp())

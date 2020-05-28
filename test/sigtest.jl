@@ -91,7 +91,8 @@ end
 
 basefiles = Set{String}()
 @time for (i, (mod, file)) in enumerate(Base._included_files)
-    (isdefinedmod(mod) && mod != Base.__toplevel__) || continue
+    # (isdefinedmod(mod) && mod != Base.__toplevel__) || continue
+    endswith(file, "FileWatching.jl") && continue
     endswith(file, "sysimg.jl") && continue
     file = Revise.fixpath(file)
     push!(basefiles, reljpath(file))

@@ -16,19 +16,27 @@ function _precompile_()
     @assert precompile(Tuple{typeof(setindex!), Dict{String,WatchList}, WatchList, String})
 
     MI = CodeTrackingMethodInfo
-    @assert precompile(Tuple{typeof(minimal_evaluation!), MI, Core.CodeInfo})
+    @assert precompile(Tuple{typeof(minimal_evaluation!), MI, Core.CodeInfo, Symbol})
     @assert precompile(Tuple{typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
     @assert precompile(Tuple{typeof(methods_by_execution!), Any, MI, DocExprs, JuliaInterpreter.Frame, Vector{Bool}})
     @assert precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
-                            NamedTuple{(:skip_include,),Tuple{Bool}},
-                            typeof(methods_by_execution!), Function, MI, DocExprs, Module, Expr})
+                             NamedTuple{(:mode,),Tuple{Symbol}},
+                             typeof(methods_by_execution!), Function, MI, DocExprs, Module, Expr})
     @assert precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
-                            NamedTuple{(:define, :skip_include),Tuple{Bool,Bool}},
-                            typeof(methods_by_execution!), Function, MI, DocExprs, Module, Expr})
+                             NamedTuple{(:skip_include,),Tuple{Bool}},
+                             typeof(methods_by_execution!), Function, MI, DocExprs, Module, Expr})
     @assert precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
-                            NamedTuple{(:define, :skip_include),Tuple{Bool,Bool}},
-                            typeof(methods_by_execution!), Function, MI, DocExprs, JuliaInterpreter.Frame, Vector{Bool}})
+                             NamedTuple{(:mode, :skip_include),Tuple{Symbol,Bool}},
+                             typeof(methods_by_execution!), Function, MI, DocExprs, Module, Expr})
+    @assert precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
+                             NamedTuple{(:mode, :skip_include),Tuple{Symbol,Bool}},
+                             typeof(methods_by_execution!), Function, MI, DocExprs, JuliaInterpreter.Frame, Vector{Bool}})
 
+    m = which(methods_by_execution!, (Function, MI, DocExprs, Module, Expr))
+    mbody = bodymethod(m)
+    @assert precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Iterators.Pairs{Symbol,Bool,Tuple{Symbol},NamedTuple{(:skip_include,),Tuple{Bool}}}, typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
+
+    @assert precompile(Tuple{typeof(hastrackedexpr), Expr})
     @assert precompile(Tuple{typeof(get_def), Method})
     @assert precompile(Tuple{typeof(parse_pkg_files), PkgId})
     @assert precompile(Tuple{typeof(Base.stale_cachefile), String, String})
