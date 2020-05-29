@@ -89,15 +89,17 @@ module Lowering end
     @test length(sigs) >= 2
 end
 
+for lib in Revise.stdlib_names
+    lib === :OldPkg && continue
+    @eval using $lib
+end
 basefiles = Set{String}()
 @time for (i, (mod, file)) in enumerate(Base._included_files)
-    # (isdefinedmod(mod) && mod != Base.__toplevel__) || continue
-    endswith(file, "FileWatching.jl") && continue
     endswith(file, "sysimg.jl") && continue
     file = Revise.fixpath(file)
     push!(basefiles, reljpath(file))
     mexs = Revise.parse_source(file, mod)
-    Revise.instantiate_sigs!(mexs)
+    Revise.instantiate_sigs!(mexs; always_rethrow=true)
 end
 failed, extras, nmethods = signature_diffs(Base, CodeTracking.method_info; filepredicate = filepredicate)
 # In some cases, the above doesn't really select the file-of-origin. For example, anything
