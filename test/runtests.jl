@@ -2939,29 +2939,44 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
 end
 
 do_test("entr") && @testset "entr" begin
-    srcfile = joinpath(tempdir(), randtmp()*".jl")
-    push!(to_remove, srcfile)
-    open(srcfile, "w") do io
+    srcfile1 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile1)
+    srcfile2 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile2)
+    open(srcfile1, "w") do io
         println(io, "Core.eval(Main, :(__entr__ = 1))")
     end
+    touch(srcfile2)
+    Core.eval(Main, :(__entr__ = 0))
     sleep(mtimedelay)
     try
         @sync begin
+            @test Main.__entr__ == 0
+
             @async begin
-                entr([srcfile]) do
-                    include(srcfile)
+                entr([srcfile1, srcfile2]; pause=0.5) do
+                    include(srcfile1)
                 end
             end
-            sleep(mtimedelay)
-            touch(srcfile)
-            sleep(mtimedelay)
-            @test Main.__entr__ == 1
-            open(srcfile, "w") do io
+            sleep(1)
+            @test Main.__entr__ == 1  # callback should have been run (postpone=false)
+
+            # File modification
+            open(srcfile1, "w") do io
                 println(io, "Core.eval(Main, :(__entr__ = 2))")
             end
-            sleep(mtimedelay)
-            @test Main.__entr__ == 2
-            open(srcfile, "w") do io
+            sleep(1)
+            @test Main.__entr__ == 2  # callback should have been called
+
+            # Two events in quick succession (w.r.t. the `pause` argument)
+            open(srcfile1, "w") do io
+                println(io, "Core.eval(Main, :(__entr__ += 1))")
+            end
+            sleep(0.1)
+            touch(srcfile2)
+            sleep(1)
+            @test Main.__entr__ == 3  # callback should have been called only once
+
+
+            open(srcfile1, "w") do io
                 println(io, "error(\"stop\")")
             end
             sleep(mtimedelay)
@@ -2982,6 +2997,9 @@ do_test("entr") && @testset "entr" begin
         @test isa(err, LoadError)
         @test err.error.msg == "stop"
     end
+
+    # Callback should have been removed
+    @test isempty(Revise.user_callbacks_by_file[srcfile1])
 end
 
 const A354_result = Ref(0)
