@@ -246,45 +246,45 @@ k(x) = 4
         dvs = collect(mexsnew[ReviseTest])
         @test length(dvs) == 3
         (def, val) = dvs[1]
-        @test isequal(def, Revise.RelocatableExpr(:(square(x) = x^2)))
+        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(square(x) = x^2)))
         @test val == [Tuple{typeof(ReviseTest.square),Any}]
         @test Revise.firstline(Revise.unwrap(def)).line == 5
         m = @which ReviseTest.square(1)
         @test m.line == 5
         @test whereis(m) == (tmpfile, 5)
-        @test Revise.RelocatableExpr(definition(m)) == def
+        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
         (def, val) = dvs[2]
-        @test isequal(def, Revise.RelocatableExpr(:(cube(x) = x^3)))
+        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(cube(x) = x^3)))
         @test val == [Tuple{typeof(ReviseTest.cube),Any}]
         m = @which ReviseTest.cube(1)
         @test m.line == 7
         @test whereis(m) == (tmpfile, 7)
-        @test Revise.RelocatableExpr(definition(m)) == def
+        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
         (def, val) = dvs[3]
-        @test isequal(def, Revise.RelocatableExpr(:(fourth(x) = x^4)))
+        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(fourth(x) = x^4)))
         @test val == [Tuple{typeof(ReviseTest.fourth),Any}]
         m = @which ReviseTest.fourth(1)
         @test m.line == 9
         @test whereis(m) == (tmpfile, 9)
-        @test Revise.RelocatableExpr(definition(m)) == def
+        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
 
         dvs = collect(mexsnew[ReviseTest.Internal])
         @test length(dvs) == 5
         (def, val) = dvs[1]
-        @test isequal(def,  Revise.RelocatableExpr(:(mult2(x) = 2*x)))
+        @test isequal(Revise.unwrap(def),  Revise.RelocatableExpr(:(mult2(x) = 2*x)))
         @test val == [Tuple{typeof(ReviseTest.Internal.mult2),Any}]
         @test Revise.firstline(Revise.unwrap(def)).line == 13
         m = @which ReviseTest.Internal.mult2(1)
         @test m.line == 11
         @test whereis(m) == (tmpfile, 13)
-        @test Revise.RelocatableExpr(definition(m)) == def
+        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
         (def, val) = dvs[2]
-        @test isequal(def, Revise.RelocatableExpr(:(mult3(x) = 3*x)))
+        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(mult3(x) = 3*x)))
         @test val == [Tuple{typeof(ReviseTest.Internal.mult3),Any}]
         m = @which ReviseTest.Internal.mult3(1)
         @test m.line == 14
         @test whereis(m) == (tmpfile, 14)
-        @test Revise.RelocatableExpr(definition(m)) == def
+        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
 
         @test_throws MethodError ReviseTest.Internal.mult4(2)
 
@@ -294,7 +294,7 @@ k(x) = 4
                 logval = record.kwargs[kw]
                 for (v, lv) in zip(val, logval)
                     isa(v, Expr) && (v = Revise.RelocatableExpr(v))
-                    isa(lv, Expr) && (lv = Revise.RelocatableExpr(lv))
+                    isa(lv, Expr) && (lv = Revise.RelocatableExpr(Revise.unwrap(lv)))
                     @test lv == v
                 end
             end
@@ -1102,7 +1102,7 @@ end
         # Now manually change the docstring
         ex = quote "g" f() = 1 end
         lwr = Meta.lower(ChangeDocstring, ex)
-        frame = JuliaInterpreter.prepare_thunk(ChangeDocstring, lwr, true)
+        frame = Frame(ChangeDocstring, lwr.args[1])
         methodinfo = Revise.MethodInfo()
         docexprs = Revise.DocExprs()
         ret = Revise.methods_by_execution!(JuliaInterpreter.finish_and_return!, methodinfo,
@@ -2012,10 +2012,15 @@ end
             end
             """)
         end
-        logs, _ = Test.collect_test_logs() do
+        try
             includet(testfile)
+        catch err
+            @test isa(err, UndefRefError)
+            st = stacktrace(catch_backtrace())
+            idx = findfirst(sf->endswith(String(sf.file), "Test301.jl") && sf.line == 8, st)
+            @test idx !== nothing
+            @test endswith(String(st[idx+1].file), "Test301.jl") && st[idx+1].line == 10
         end
-        @test occursin("Test301.jl:10", logs[1].message)
 
         logs, _ = Test.collect_test_logs() do
             Revise.track("callee_error.jl"; mode=:eval)
@@ -2423,6 +2428,19 @@ end
         end
 
         rm_precompile("LikePlots")
+
+        # Issue #475
+        srcfile = joinpath(tempdir(), randtmp()*".jl")
+        open(srcfile, "w") do io
+            print(io, """
+            a475 = 0.8
+            a475 = 0.7
+            a475 = 0.8
+            """)
+        end
+        includet(srcfile)
+        @test a475 == 0.8
+
     end
 
     do_test("Auto-track user scripts") && @testset "Auto-track user scripts" begin

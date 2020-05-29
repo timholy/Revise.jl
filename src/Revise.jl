@@ -13,8 +13,9 @@ using Core: CodeInfo
 using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
 using CodeTracking: PkgFiles, basedir, srcfiles
 using JuliaInterpreter: whichtt, is_doc_expr, step_expr!, finish_and_return!, get_return
-using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr, prepare_thunk, split_expressions,
-                        linetable, codelocs, LineTypes, is_GotoIfNot
+using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr,
+                        linetable, codelocs, LineTypes, is_GotoIfNot, isassign, isidentical
+
 using LoweredCodeUtils: next_or_nothing!, trackedheads, structheads, callee_matches
 
 export revise, includet, entr, MethodSummary
@@ -537,7 +538,7 @@ CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Set{Union
 function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), ln)
     locdefs = get(CodeTracking.method_info, sig, nothing)
     locdefs === nothing && (locdefs = CodeTracking.method_info[sig] = Tuple{LineNumberNode,Expr}[])
-    newdef = methodinfo.exprstack[end]
+    newdef = unwrap(methodinfo.exprstack[end])
     if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
         push!(locdefs, (fixpath(ln), newdef))
     end
@@ -914,7 +915,7 @@ it defaults to `Main`.
 
 If this produces many errors, check that you specified `mod` correctly.
 """
-function track(mod::Module, file::AbstractString; kwargs...)
+function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
     isfile(file) || error(file, " is not a file")
     # Determine whether we're already tracking this file
     id = PkgId(mod)
@@ -934,9 +935,12 @@ function track(mod::Module, file::AbstractString; kwargs...)
         file = abspath(file)
     end
     # Set up tracking
-    fm = parse_source(file, mod)
+    fm = parse_source(file, mod; mode=mode)
     if fm !== nothing
-        instantiate_sigs!(fm; kwargs...)
+        if mode === :includet
+            mode = :sigs   # we already handled evaluation in `parse_source`
+        end
+        instantiate_sigs!(fm; mode=mode, kwargs...)
         if !haskey(pkgdatas, id)
             # Wait a bit to see if `mod` gets initialized
             sleep(0.1)
@@ -989,7 +993,7 @@ function includet(mod::Module, file::AbstractString)
     tls = task_local_storage()
     tls[:SOURCE_PATH] = file
     try
-        track(mod, file; mode=:eval, skip_include=false)
+        track(mod, file; mode=:includet, skip_include=false)
     finally
         if prev === nothing
             delete!(tls, :SOURCE_PATH)

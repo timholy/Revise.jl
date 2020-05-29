@@ -165,13 +165,19 @@ The other keyword arguments are more straightforward:
   This is primarily useful for debugging.
 """
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr;
-                               mode::Symbol=:eval, disablebp::Bool=true, always_rethrow::Bool=false, kwargs...)
+                               mode::Symbol=:eval, disablebp::Bool=true, always_rethrow::Bool=false, recursed_toplevel::Bool=false, kwargs...)
+    mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
     lwr = Meta.lower(mod, ex)
-    # @show ex
     isa(lwr, Expr) || return nothing, nothing
-    frame = prepare_thunk(mod, copy(lwr), true)
-    frame === nothing && return nothing, nothing
-    mode===:eval || LoweredCodeUtils.rename_framemethods!(recurse, frame)
+    if lwr.head === :error || lwr.head === :incomplete
+        error("lowering returned an error, ", lwr)
+    end
+    if lwr.head !== :thunk
+        mode === :sigs && return nothing, nothing
+        return Core.eval(mod, lwr)
+    end
+    frame = JuliaInterpreter.Frame(mod, lwr.args[1])
+    mode === :eval || LoweredCodeUtils.rename_framemethods!(recurse, frame)
     # Determine whether we need interpreted mode
     isrequired, evalassign = minimal_evaluation!(methodinfo, frame, mode)
     # LoweredCodeUtils.print_with_code(stdout, frame.framecode.src, isrequired)
@@ -365,14 +371,12 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     # an @eval or eval block: this may contain method definitions, so intercept it.
                     evalmod = @lookup(frame, stmt.args[2])::Module
                     evalex = @lookup(frame, stmt.args[3])
-                    thismodexs, thisdocexprs = split_expressions(evalmod, evalex; extract_docexprs=true)
-                    for (m, docexs) in thisdocexprs
-                        for docex in docexs
-                            add_docexpr!(docexprs, m, docex)
-                        end
-                    end
                     value = nothing
-                    for (newmod, newex) in thismodexs
+                    for (newmod, newex) in ExprSplitter(evalmod, evalex)
+                        if is_doc_expr(newex)
+                            add_docexpr!(docexprs, newmod, newex)
+                            newex = newex.args[4]
+                        end
                         newex = unwrap(newex)
                         push_expr!(methodinfo, newmod, newex)
                         value = methods_by_execution!(recurse, methodinfo, docexprs, newmod, newex; mode=mode, skip_include=skip_include, disablebp=false)

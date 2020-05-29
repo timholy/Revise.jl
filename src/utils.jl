@@ -69,7 +69,7 @@ end
 
 # Return the only non-trivial expression in ex, or ex itself
 function unwrap(ex::Expr)
-    if ex.head == :block
+    if ex.head === :block || ex.head === :toplevel
         for (i, a) in enumerate(ex.args)
             if isa(a, Expr)
                 for j = i+1:length(ex.args)
@@ -84,7 +84,7 @@ function unwrap(ex::Expr)
     end
     return ex
 end
-unwrap(rex::RelocatableExpr) = unwrap(rex.ex)
+unwrap(rex::RelocatableExpr) = RelocatableExpr(unwrap(rex.ex))
 
 istrivial(a) = a === nothing || isa(a, LineNumberNode)
 
