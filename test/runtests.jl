@@ -745,6 +745,50 @@ end
         @test isempty(failedfiles)
     end
 
+    do_test("Multiple definitions") && @testset "Multiple definitions" begin
+        # This simulates a copy/paste/save "error" from one file to another
+        # ref https://github.com/timholy/CodeTracking.jl/issues/55
+        testdir = newtestdir()
+        dn = joinpath(testdir, "Multidef", "src")
+        mkpath(dn)
+        open(joinpath(dn, "Multidef.jl"), "w") do io
+            println(io, """
+            module Multidef
+            include("utils.jl")
+            end
+            """)
+        end
+        open(joinpath(dn, "utils.jl"), "w") do io
+            println(io, """
+            repeated(x) = x+1
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using Multidef
+        @test Multidef.repeated(3) == 4
+        sleep(mtimedelay)
+        open(joinpath(dn, "Multidef.jl"), "w") do io
+            println(io, """
+            module Multidef
+            include("utils.jl")
+            repeated(x) = x+1
+            end
+            """)
+        end
+        yry()
+        @test Multidef.repeated(3) == 4
+        sleep(mtimedelay)
+        open(joinpath(dn, "utils.jl"), "w") do io
+            println(io, """
+            """)
+        end
+        yry()
+        @test Multidef.repeated(3) == 4
+
+        rm_precompile("Multidef")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Recursive types (issue #417)") && @testset "Recursive types (issue #417)" begin
         testdir = newtestdir()
         fn = joinpath(testdir, "recursive.jl")

@@ -383,6 +383,20 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                     m = ret[end][3]::Method   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
                     methsig = m.sig
                     if sig <: methsig && methsig <: sig
+                        locdefs = get(CodeTracking.method_info, sig, nothing)
+                        if isa(locdefs, Vector{Tuple{LineNumberNode,Expr}})
+                            if length(locdefs) > 1
+                                # Just delete this reference but keep the method
+                                line = firstline(ex)
+                                ld = map(pr->linediff(line, pr[1]), locdefs)
+                                idx = argmin(ld)
+                                @assert ld[idx] < typemax(eltype(ld))
+                                deleteat!(locdefs, idx)
+                                continue
+                            else
+                                @assert length(locdefs) == 1
+                            end
+                        end
                         @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
                         # Delete the corresponding methods
                         for p in workers()
@@ -463,15 +477,15 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
                 if sigs !== nothing && !isempty(sigs) && ln != lno
                     @debug "LineOffset" _group="Action" time=time() deltainfo=(sigs, lno=>ln)
                     for sig in sigs
-                        local methloc, methdef
-                        # try
-                            methloc, methdef = CodeTracking.method_info[sig]
-                        # catch err
-                        #     @show sig sigs
-                        #     @show CodeTracking.method_info
-                        #     rethrow(err)
-                        # end
-                        CodeTracking.method_info[sig] = (newloc(methloc, ln, lno), methdef)
+                        locdefs = CodeTracking.method_info[sig]
+                        ld = map(pr->linediff(lno, pr[1]), locdefs)
+                        idx = argmin(ld)
+                        if ld[idx] === typemax(eltype(ld))
+                            println("Missing linediff for $lno and $(first.(locdefs)) with ", rex.ex)
+                            idx = length(locdefs)
+                        end
+                        methloc, methdef = locdefs[idx]
+                        locdefs[idx] = (newloc(methloc, ln, lno), methdef)
                     end
                 end
             end
@@ -521,7 +535,12 @@ end
 CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Set{Union{GlobalRef,Symbol}}(), Pair{Module,String}[])
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), ln)
-    CodeTracking.method_info[sig] = (fixpath(ln), methodinfo.exprstack[end])
+    locdefs = get(CodeTracking.method_info, sig, nothing)
+    locdefs === nothing && (locdefs = CodeTracking.method_info[sig] = Tuple{LineNumberNode,Expr}[])
+    newdef = methodinfo.exprstack[end]
+    if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
+        push!(locdefs, (fixpath(ln), newdef))
+    end
     push!(methodinfo.allsigs, sig)
     return methodinfo
 end
@@ -1169,7 +1188,7 @@ function update_stacktrace_lineno!(trace)
             # clever by recognizing that these entries exist only if there have been updates.
             updated = get(CodeTracking.method_info, sigt, nothing)
             if updated !== nothing
-                lnn = updated[1]
+                lnn = updated[1][1]     # choose the first entry by default
                 lineoffset = lnn.line - m.line
                 t = StackTraces.StackFrame(t.func, lnn.file, t.line+lineoffset, t.linfo, t.from_c, t.inlined, t.pointer)
                 trace[i] = has_nrep ? (t, nrep) : t
@@ -1184,7 +1203,7 @@ function method_location(method::Method)
     # clever by recognizing that these entries exist only if there have been updates.
     updated = get(CodeTracking.method_info, method.sig, nothing)
     if updated !== nothing
-        lnn = updated[1]
+        lnn = updated[1][1]
         return lnn.file, lnn.line
     end
     return method.file, method.line

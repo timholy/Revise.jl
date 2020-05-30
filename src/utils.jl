@@ -62,6 +62,11 @@ newloc(methloc::LineNumberNode, ln, lno) = fixpath(ln)
 location_string(file::AbstractString, line) = abspath(file)*':'*string(line)
 location_string(file::Symbol, line) = location_string(string(file), line)
 
+function linediff(la::LineNumberNode, lb::LineNumberNode)
+    (isa(la.file, Symbol) && isa(lb.file, Symbol) && (la.file::Symbol === lb.file::Symbol)) || return typemax(Int)
+    return abs(la.line - lb.line)
+end
+
 # Return the only non-trivial expression in ex, or ex itself
 function unwrap(ex::Expr)
     if ex.head == :block
