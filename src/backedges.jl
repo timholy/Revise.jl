@@ -1,6 +1,5 @@
 using Core.Compiler: CodeInfo, NewvarNode, GotoNode
 using Base.Meta: isexpr
-using JuliaInterpreter: is_global_ref
 
 const SSAValues = Union{Core.Compiler.SSAValue, JuliaInterpreter.SSAValue}
 
