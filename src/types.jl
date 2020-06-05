@@ -130,9 +130,10 @@ the corresponding `path` entry will be empty.
 mutable struct PkgData
     info::PkgFiles
     fileinfos::Vector{FileInfo}
+    requirements::Vector{PkgId}
 end
 
-PkgData(id::PkgId, path) = PkgData(PkgFiles(id, path), FileInfo[])
+PkgData(id::PkgId, path) = PkgData(PkgFiles(id, path), FileInfo[], PkgId[])
 PkgData(id::PkgId, ::Nothing) = PkgData(id, "")
 function PkgData(id::PkgId)
     bp = basepath(id)
@@ -205,6 +206,13 @@ function Base.show(io::IO, pkgdata::PkgData)
             print(io, '\n')
         end
     end
+end
+
+function pkgfileless((pkgdata1,file1)::Tuple{PkgData,String}, (pkgdata2,file2)::Tuple{PkgData,String})
+    # implements a partial order
+    PkgId(pkgdata1) ∈ pkgdata2.requirements && return true
+    PkgId(pkgdata1) == PkgId(pkgdata2) && return fileindex(pkgdata1, file1) < fileindex(pkgdata2, file2)
+    return false
 end
 
 struct GitRepoException <: Exception

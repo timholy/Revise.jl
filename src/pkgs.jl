@@ -41,9 +41,20 @@ function parse_cache_header(f::IO)
         totbytes -= 4 + 4 + n2 + 8
     end
     @assert totbytes == 12 "header of cache file appears to be corrupt"
+    srctextpos = read(f, Int64)
+    # read the list of modules that are required to be present during loading
+    # this helps us determine revision order
+    required_modules = Pair{PkgId, UInt64}[]
+    while true
+        n = read(f, Int32)
+        n == 0 && break
+        sym = String(read(f, n)) # module name
+        uuid = UUID((read(f, UInt64), read(f, UInt64))) # pkg UUID
+        build_id = read(f, UInt64) # build id
+        push!(required_modules, PkgId(uuid, sym) => build_id)
+    end
     # Determine which includes are included in the source-text cache.
     # These are the *.jl files that we need to track.
-    srctextpos = read(f, Int64)
     if srctextpos == 0
         empty!(includes)
     else
@@ -63,7 +74,8 @@ function parse_cache_header(f::IO)
         end
         deleteat!(includes, delids)
     end
-    return modules, (includes, requires)
+
+    return modules, (includes, requires), required_modules
 end
 
 function parse_cache_header(cachefile::String)
@@ -103,17 +115,17 @@ function pkg_fileinfo(id::PkgId)
         # to load the package.
         sort!(paths; by=path->mtime(path), rev=true)
     end
-    isempty(paths) && return nothing, nothing
+    isempty(paths) && return nothing, nothing, nothing
     path = first(paths)
-    provides, includes_requires = try
+    provides, includes_requires, required_modules = try
         parse_cache_header(path)
     catch
-        return nothing, nothing
+        return nothing, nothing, nothing
     end
     mods_files_mtimes, _ = includes_requires
     for (pkgid, buildid) in provides
         if pkgid.uuid === uuid && pkgid.name == name
-            return path, mods_files_mtimes
+            return path, mods_files_mtimes, first.(required_modules)
         end
     end
 end
@@ -139,7 +151,7 @@ function modulefiles(mod::Module)
         filedata = Base._included_files
     else
         use_compiled_modules() || return nothing, nothing   # FIXME: support non-precompiled packages
-        _, filedata = pkg_fileinfo(id)
+        _, filedata, reqs = pkg_fileinfo(id)
     end
     filedata === nothing && return nothing, nothing
     included_files = filter(mf->mf[1] == mod, filedata)
@@ -160,8 +172,9 @@ function parse_pkg_files(id::PkgId)
     end
     modsym = Symbol(id.name)
     if use_compiled_modules()
-        cachefile, mods_files_mtimes = pkg_fileinfo(id)
+        cachefile, mods_files_mtimes, reqs = pkg_fileinfo(id)
         if cachefile !== nothing
+            pkgdata.requirements = reqs
             for (mod, fname, _) in mods_files_mtimes
                 if mod === Main && !isdefined(mod, modsym)  # issue #312
                     mod = Base.root_module(PkgId(pkgdata))
@@ -415,6 +428,7 @@ function watch_package(id::PkgId)
     # we need to make sure this function is fast to compile. By hiding the real
     # work behind a @async, we truncate the chain of dependency.
     @async _watch_package(id)
+    sleep(0.01)
 end
 
 @noinline function _watch_package(id::PkgId)

@@ -819,10 +819,11 @@ function revise(; throw=false)
     # Do all the deletion first. This ensures that a method that moved from one file to another
     # won't get redefined first and deleted second.
     revision_errors = []
+    queue = sort!(collect(revision_queue); lt=pkgfileless)
     finished = eltype(revision_queue)[]
     mexsnews = ModuleExprsSigs[]
     interrupt = false
-    for (pkgdata, file) in revision_queue
+    for (pkgdata, file) in queue
         try
             push!(mexsnews, handle_deletions(pkgdata, file)[1])
             push!(finished, (pkgdata, file))

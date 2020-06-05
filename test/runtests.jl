@@ -898,6 +898,112 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Revision order") && @testset "Revision order" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "Order1", "src")
+        mkpath(dn)
+        open(joinpath(dn, "Order1.jl"), "w") do io
+            println(io, """
+            module Order1
+            include("file1.jl")
+            include("file2.jl")
+            end
+            """)
+        end
+        open(joinpath(dn, "file1.jl"), "w") do io
+            println(io, "# a comment")
+        end
+        open(joinpath(dn, "file2.jl"), "w") do io
+            println(io, "# a comment")
+        end
+        sleep(mtimedelay)
+        @eval using Order1
+        sleep(mtimedelay)
+        # we want Revise to process files the order file1.jl, file2.jl, but let's save them in the opposite order
+        open(joinpath(dn, "file2.jl"), "w") do io
+            println(io, """
+            f(::Ord1) = 1
+            """)
+        end
+        sleep(mtimedelay)
+        open(joinpath(dn, "file1.jl"), "w") do io
+            println(io, """
+            struct Ord1 end
+            """)
+        end
+        yry()
+        @test Order1.f(Order1.Ord1()) == 1
+
+        # A case in which order cannot be determined solely from file order
+        dn = joinpath(testdir, "Order2", "src")
+        mkpath(dn)
+        open(joinpath(dn, "Order2.jl"), "w") do io
+            println(io, """
+            module Order2
+            include("file.jl")
+            end
+            """)
+        end
+        open(joinpath(dn, "file.jl"), "w") do io
+            println(io, "# a comment")
+        end
+        sleep(mtimedelay)
+        @eval using Order2
+        sleep(mtimedelay)
+        open(joinpath(dn, "Order2.jl"), "w") do io
+            println(io, """
+            module Order2
+            include("file.jl")
+            f(::Ord2) = 1
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        open(joinpath(dn, "file.jl"), "w") do io
+            println(io, """
+            struct Ord2 end
+            """)
+        end
+        @info "The following error messge is expected for this broken test"
+        yry()
+        @test_broken Order2.f(Order2.Ord2()) == 1
+
+        # Cross-module dependencies
+        dn3 = joinpath(testdir, "Order3", "src")
+        mkpath(dn3)
+        open(joinpath(dn3, "Order3.jl"), "w") do io
+            println(io, """
+            module Order3
+            using Order2
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using Order3
+        sleep(mtimedelay)
+        open(joinpath(dn3, "Order3.jl"), "w") do io
+            println(io, """
+            module Order3
+            using Order2
+            g(::Order2.Ord2a) = 1
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        open(joinpath(dn, "file.jl"), "w") do io
+            println(io, """
+            struct Ord2 end
+            struct Ord2a end
+            """)
+        end
+        yry()
+        @test Order3.g(Order2.Ord2a()) == 1
+
+        rm_precompile("Order1")
+        rm_precompile("Order2")
+        pop!(LOAD_PATH)
+    end
+
     # issue #8
     do_test("Module docstring") && @testset "Module docstring" begin
         testdir = newtestdir()
