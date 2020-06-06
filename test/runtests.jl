@@ -2110,6 +2110,41 @@ end
         @test startswith(logs[1].message, "(compiled mode) evaluation error starting at")
     end
 
+    do_test("Modify @enum") && @testset "Modify @enum" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "ModifyEnum", "src")
+        mkpath(dn)
+        open(joinpath(dn, "ModifyEnum.jl"), "w") do io
+            println(io, """
+            module ModifyEnum
+            @enum Fruit apple=1 orange=2
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using ModifyEnum
+        sleep(mtimedelay)
+        @test Int(ModifyEnum.apple) == 1
+        @test ModifyEnum.apple isa ModifyEnum.Fruit
+        @test_throws UndefVarError Int(ModifyEnum.kiwi)
+        open(joinpath(dn, "ModifyEnum.jl"), "w") do io
+            println(io, """
+            module ModifyEnum
+            @enum Fruit apple=1 orange=2 kiwi=3
+            end
+            """)
+        end
+        oldmode = Revise.revise_mode[]
+        oldmode === :evalassign || @warn "Switching to mode=:evalassign so the next tests pass"
+        Revise.revise_mode[] = :evalassign
+        yry()
+        @test Int(ModifyEnum.kiwi) == 3
+        @test Base.instances(ModifyEnum.Fruit) === (ModifyEnum.apple, ModifyEnum.orange, ModifyEnum.kiwi)
+        Revise.revise_mode[] = oldmode
+        rm_precompile("ModifyEnum")
+        pop!(LOAD_PATH)
+    end
+
     do_test("get_def") && @testset "get_def" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "GetDef", "src")

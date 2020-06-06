@@ -57,7 +57,7 @@ function is_method_or_eval(stmt)
     ismeth, haseval, isinclude = false, false, false
     if isa(stmt, Expr)
         haseval = matches_eval(stmt)
-        ismeth = stmt.head === :method
+        ismeth = stmt.head === :method || stmt.head === :toplevel
         isinclude = stmt.head === :call && stmt.args[1] === :include
     end
     return ismeth | isinclude, haseval
@@ -81,13 +81,17 @@ function minimal_evaluation!(predicate, methodinfo, src::Core.CodeInfo, mode::Sy
     for (i, stmt) in enumerate(src.code)
         if !isrequired[i]
             isrequired[i], haseval = predicate(stmt)
-            if haseval                            # line `i` may be the equivalent of `f = Core.eval`, so...
+            if haseval                              # line `i` may be the equivalent of `f = Core.eval`, so...
                 isrequired[edges.succs[i]] .= true  # ...require each stmt that calls `eval` via `f(expr)`
                 isrequired[i] = true
             end
         end
         if mode === :evalassign && isexpr(stmt, :(=))
-            evalassign = true
+            evalassign = isrequired[i] = true
+            lhs = stmt.args[1]
+            if isa(lhs, Symbol)
+                isrequired[edges.byname[lhs].succs] .= true  # mark any `const` statements or other "uses" in this block
+            end
         end
     end
     # Check for docstrings
@@ -233,7 +237,15 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
         end
         if isa(stmt, Expr)
             head = stmt.head
-            if head ∈ structheads
+            if head === :toplevel
+                local value
+                for ex in stmt.args
+                    ex isa Expr || continue
+                    value = methods_by_execution!(recurse, methodinfo, docexprs, mod, ex; mode=mode, disablebp=false, skip_include=skip_include)
+                end
+                isassign(frame, pc) && assign_this!(frame, value)
+                pc = next_or_nothing!(frame)
+            elseif head ∈ structheads
                 if mode !== :sigs
                     pc = step_expr!(recurse, frame, stmt, true)  # This checks that they are unchanged
                 else
