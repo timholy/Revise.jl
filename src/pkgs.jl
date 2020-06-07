@@ -427,8 +427,8 @@ function watch_package(id::PkgId)
     # Because the callbacks are made with `invokelatest`, for reasons of performance
     # we need to make sure this function is fast to compile. By hiding the real
     # work behind a @async, we truncate the chain of dependency.
-    @async _watch_package(id)
-    sleep(0.01)
+    schedule(Task(TaskThunk(_watch_package, (id,))))
+    sleep(0.001)
 end
 
 @noinline function _watch_package(id::PkgId)
