@@ -1,4 +1,4 @@
-using Revise, Test, CodeTracking
+using Revise, Test, CodeTracking, LoweredCodeUtils
 
 function isdefinedmod(mod::Module)
     # Not all modules---e.g., LibGit2---are reachable without loading the stdlib
@@ -61,14 +61,16 @@ function in_module_or_core(T, mod::Module)
     if isa(T, UnionAll)
         T = Base.unwrap_unionall(T)
     end
+    T === Union{} && return true
     if isa(T, Union)
         in_module_or_core(T.a, mod) || return false
         return in_module_or_core(T.b, mod)
     end
-    if T.name.name == :Type
+    Tname = T.name
+    if Tname.name === :Type
         return in_module_or_core(extracttype(T), mod)
     end
-    Tmod = T.name.module
+    Tmod = Tname.module
     return Tmod === mod || Tmod === Core
 end
 
