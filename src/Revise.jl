@@ -956,9 +956,10 @@ includet(file::AbstractString) = includet(Main, file)
     entr(f, files, modules; all=false, postpone=false, pause=0.02)
 
 Execute `f()` whenever files or directories listed in `files`, or code in `modules`, updates.
+If `all` is `true`, also execute `f()` as soon as code updates are detected in
+any module tracked by Revise.
+
 `entr` will process updates (and block your command line) until you press Ctrl-C.
-If `all` is `true`, also execute `f()` whenever any file already monitored by
-Revise changes.
 Unless `postpone` is `true`, `f()` will be executed also when calling `entr`,
 regardless of file changes. The `pause` is the period (in seconds) that `entr`
 will wait between being triggered and actually calling `f()`, to handle
