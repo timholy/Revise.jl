@@ -144,9 +144,11 @@ You can use the return value `key` to remove the callback later
 to `Revise.add_callback` with `key=key`.
 """
 function add_callback(f, files, modules=nothing; key=gensym())
+    fix_trailing(path) = isdir(path) ? joinpath(path, "") : path   # insert a trailing '/' if missing, see https://github.com/timholy/Revise.jl/issues/470#issuecomment-633298553
+
     remove_callback(key)
 
-    files = map(abspath, files)
+    files = map(fix_trailing, map(abspath, files))
     init_watching(files)
 
     if modules !== nothing
@@ -659,7 +661,7 @@ function revise_file_queued(pkgdata::PkgData, file)
     dirfull, basename = splitdir(file)
     stillwatching = true
     while stillwatching
-        if !file_exists(file)
+        if !file_exists(file) && !isdir(file)
             with_logger(SimpleLogger(stderr)) do
                 @warn "$file is not an existing file, Revise is not watching"
             end
@@ -941,7 +943,7 @@ includet(file::AbstractString) = includet(Main, file)
     entr(f, files; postpone=false, pause=0.02)
     entr(f, files, modules; postpone=false, pause=0.02)
 
-Execute `f()` whenever files listed in `files`, or code in `modules`, updates.
+Execute `f()` whenever files or directories listed in `files`, or code in `modules`, updates.
 `entr` will process updates (and block your command line) until you press Ctrl-C.
 Unless `postpone` is `true`, `f()` will be executed also when calling `entr`,
 regardless of file changes. The `pause` is the period (in seconds) that `entr`
