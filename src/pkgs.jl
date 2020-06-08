@@ -455,6 +455,10 @@ function has_writable_paths(pkgdata::PkgData)
     return haswritable
 end
 
+function watch_includes(mod::Module, fn::AbstractString)
+    push!(included_files, (mod, normpath(abspath(fn))))
+end
+
 ## Working with Pkg and code-loading
 
 # Much of this is adapted from base/loading.jl

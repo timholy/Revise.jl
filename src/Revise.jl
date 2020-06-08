@@ -1324,9 +1324,6 @@ function __init__()
             push!(silence_pkgs, Symbol(pkg))
         end
     end
-    push!(Base.package_callbacks, watch_package)
-    push!(Base.include_callbacks,
-        (mod::Module, fn::AbstractString) -> push!(included_files, (mod, normpath(abspath(fn)))))
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
         if isdefined(Base, :active_repl_backend)
@@ -1360,13 +1357,6 @@ function __init__()
     if isdefined(Base, :methodloc_callback)
         Base.methodloc_callback[] = method_location
     end
-    # Populate CodeTracking data for dependencies and initialize watching
-    for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils)
-        id = PkgId(mod)
-        pkgdata = parse_pkg_files(id)
-        init_watching(pkgdata, srcfiles(pkgdata))
-        pkgdatas[id] = pkgdata
-    end
     # Add `includet` to the compiled_modules (fixes #302)
     for m in methods(includet)
         push!(JuliaInterpreter.compiled_methods, m)
@@ -1386,7 +1376,21 @@ function __init__()
         wmthunk = TaskThunk(watch_manifest, (mfile,))
         schedule(Task(wmthunk))
     end
+    push!(Base.include_callbacks, watch_includes)
+    push!(Base.package_callbacks, swap_watch_package)
     return nothing
+end
+
+function swap_watch_package(id::PkgId)
+    # `Base.package_callbacks` fire immediately after module initialization, and would fire
+    # on Revise itself. This is not necessary for most users, and has the downside that
+    # the user doesn't get to the REPL prompt until `watch_package` finishes compiling.
+    # To prevent this, Revise pushes a stub, `swap_watch_package`, which just replaces
+    # itself with `watch_package` in the list of package callbacks.
+    # This delays compilation of everything that `watch_package` requires, leading to
+    # faster perceived startup times.
+    idx = findfirst(isequal(swap_watch_package), Base.package_callbacks)
+    Base.package_callbacks[idx] = watch_package
 end
 
 function setup_atom(atommod::Module)::Nothing
@@ -1399,6 +1403,17 @@ function setup_atom(atommod::Module)::Nothing
                 old(data)
             end
         end
+    end
+    return nothing
+end
+
+function add_revise_deps()
+    # Populate CodeTracking data for dependencies and initialize watching on code that Revise depends on
+    for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils, Revise)
+        id = PkgId(mod)
+        pkgdata = parse_pkg_files(id)
+        init_watching(pkgdata, srcfiles(pkgdata))
+        pkgdatas[id] = pkgdata
     end
     return nothing
 end
