@@ -137,16 +137,26 @@ all without restarting your Julia session.
 Revise can be used to perform work when files update.
 For example, let's say you want to regenerate a set of web pages whenever your code changes.
 Suppose you've placed your Julia code in a package called `MyWebCode`,
-and the pages depend on "file1.css" and "file2.js"; then
+and the pages depend on "file.js" and all files in the "assets/" directory; then
 
 ```julia
-entr(["file1.css", "file2.js"], [MyWebCode]) do
+entr(["file.js", "assets"], [MyWebCode]) do
     build_webpages(args...)
 end
 ```
 
 will execute `build_webpages(args...)` whenever you save updates to the listed files
 or `MyWebCode`.
+
+If you want to regenerate the web page as soon as any change is detected, not
+only in `MyWebCode` but also in any package tracked by Revise, you can provide
+the `all` keyword argument to [`entr`](@ref):
+
+```julia
+entr(["file.js", "assets"]; all=true) do
+    build_webpages(args...)
+end
+```
 
 ## Taking advantage of Revise in other packages
 

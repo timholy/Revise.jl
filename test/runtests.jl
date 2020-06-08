@@ -3117,6 +3117,60 @@ do_test("entr with modules") && @testset "entr with modules" begin
 
 end
 
+# issue #469
+do_test("entr with all files") && @testset "entr with all files" begin
+    testdir = newtestdir()
+    modname = "A469"
+    srcfile = joinpath(testdir, modname * ".jl")
+    open(srcfile, "w") do io
+        print(io, "module $modname test() = 469 end")
+    end
+
+    sleep(mtimedelay)
+    @eval using A469
+    sleep(mtimedelay)
+    result = Ref(0)
+
+    try
+        @sync begin
+            @async begin
+                # Watch all files known to Revise
+                # (including `srcfile`)
+                entr([]; all=true, postpone=true) do
+                    result[] = 1
+                    error("stop")
+                end
+            end
+            sleep(mtimedelay)
+            @test result[] == 0
+
+            # Trigger the callback
+            touch(srcfile)
+        end
+        @test false
+    catch err
+        while err isa CompositeException
+            err = err.exceptions[1]
+            @static if VERSION >= v"1.3.0-alpha.110"
+                if  err isa TaskFailedException
+                    err = err.task.exception
+                end
+            end
+            if err isa CapturedException
+                err = err.ex
+            end
+        end
+        @test isa(err, ErrorException)
+        @test err.msg == "stop"
+    end
+
+    # If we got to this point, the callback should have been triggered. But
+    # let's check nonetheless
+    @test result[] == 1
+
+    rm_precompile(modname)
+end
+
 do_test("callbacks") && @testset "callbacks" begin
 
     append(path, x...) = open(path, append=true) do io

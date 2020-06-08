@@ -136,20 +136,30 @@ const user_callbacks_by_key = Dict{Any, Any}()
 
 Add a user-specified callback, to be executed during the first run of
 `revise()` after a file in `files` or a module in `modules` is changed on the
-file system. In an interactive session like the REPL, Juno or Jupyter, this
-means the callback executes immediately before executing a new command / cell.
+file system. If `all` is set to `true`, also execute the callback whenever any
+file already monitored by Revise changes. In an interactive session like the
+REPL, Juno or Jupyter, this means the callback executes immediately before
+executing a new command / cell.
 
 You can use the return value `key` to remove the callback later
 (`Revise.remove_callback`) or to update it using another call
 to `Revise.add_callback` with `key=key`.
 """
-function add_callback(f, files, modules=nothing; key=gensym())
+function add_callback(f, files, modules=nothing; all=false, key=gensym())
     fix_trailing(path) = isdir(path) ? joinpath(path, "") : path   # insert a trailing '/' if missing, see https://github.com/timholy/Revise.jl/issues/470#issuecomment-633298553
 
     remove_callback(key)
 
     files = map(fix_trailing, map(abspath, files))
     init_watching(files)
+
+    # in case the `all` kwarg was set:
+    # add all files which are already known to Revise
+    if all
+        for pkgdata in values(pkgdatas)
+            append!(files, joinpath.(Ref(basedir(pkgdata)), srcfiles(pkgdata)))
+        end
+    end
 
     if modules !== nothing
         for mod in modules
@@ -163,11 +173,13 @@ function add_callback(f, files, modules=nothing; key=gensym())
         end
     end
 
+    # There might be duplicate entries in `files`, but it shouldn't cause any
+    # problem with the sort of things we do here
     for file in files
         cb = get!(Set, user_callbacks_by_file, file)
         push!(cb, key)
-        user_callbacks_by_key[key] = f
     end
+    user_callbacks_by_key[key] = f
 
     return key
 end
@@ -940,10 +952,13 @@ end
 includet(file::AbstractString) = includet(Main, file)
 
 """
-    entr(f, files; postpone=false, pause=0.02)
-    entr(f, files, modules; postpone=false, pause=0.02)
+    entr(f, files; all=false, postpone=false, pause=0.02)
+    entr(f, files, modules; all=false, postpone=false, pause=0.02)
 
 Execute `f()` whenever files or directories listed in `files`, or code in `modules`, updates.
+If `all` is `true`, also execute `f()` as soon as code updates are detected in
+any module tracked by Revise.
+
 `entr` will process updates (and block your command line) until you press Ctrl-C.
 Unless `postpone` is `true`, `f()` will be executed also when calling `entr`,
 regardless of file changes. The `pause` is the period (in seconds) that `entr`
@@ -961,10 +976,10 @@ end
 This will print "update" every time `"/tmp/watched.txt"` or any of the code defining
 `Pkg1` or `Pkg2` gets updated.
 """
-function entr(f::Function, files, modules=nothing; postpone=false, pause=0.02)
+function entr(f::Function, files, modules=nothing; all=false, postpone=false, pause=0.02)
     yield()
     postpone || f()
-    key = add_callback(files, modules) do
+    key = add_callback(files, modules; all=all) do
         sleep(pause)
         f()
     end
