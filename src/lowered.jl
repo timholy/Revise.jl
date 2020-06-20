@@ -50,14 +50,15 @@ end
 function matches_eval(stmt::Expr)
     stmt.head === :call || return false
     f = stmt.args[1]
-    return f === :eval || (callee_matches(f, Base, :getproperty) && is_quotenode(stmt.args[end], :eval))
+    return f === :eval || (callee_matches(f, Base, :getproperty) && is_quotenode_egal(stmt.args[end], :eval))
 end
 
 function is_method_or_eval(stmt)
     ismeth, haseval, isinclude = false, false, false
     if isa(stmt, Expr)
         haseval = matches_eval(stmt)
-        ismeth = stmt.head === :method || stmt.head === :toplevel
+        ismeth = stmt.head === :method || stmt.head === :toplevel || stmt.head === :export || stmt.head === :import ||
+                 stmt.head === :using
         isinclude = stmt.head === :call && stmt.args[1] === :include
     end
     return ismeth | isinclude, haseval
@@ -88,7 +89,7 @@ function minimal_evaluation!(predicate, methodinfo, src::Core.CodeInfo, mode::Sy
         end
         if mode === :evalassign && isexpr(stmt, :(=))
             evalassign = isrequired[i] = true
-            lhs = stmt.args[1]
+            lhs = (stmt::Expr).args[1]
             if isa(lhs, Symbol)
                 isrequired[edges.byname[lhs].succs] .= true  # mark any `const` statements or other "uses" in this block
             end
@@ -225,7 +226,7 @@ end
 methods_by_execution!(methodinfo, docexprs, mod::Module, ex::Expr; kwargs...) =
     methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, docexprs, mod, ex; kwargs...)
 
-function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame, isrequired; mode::Symbol=:eval, skip_include::Bool=mode!==:eval)
+function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame, isrequired::AbstractVector{Bool}; mode::Symbol=:eval, skip_include::Bool=mode!==:eval)
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
 
     mod = moduleof(frame)
@@ -281,7 +282,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                 else
                     pc, pc3 = ret
                     # Get the line number from the body
-                    stmt3 = pc_expr(frame, pc3)
+                    stmt3 = pc_expr(frame, pc3)::Expr
                     lnn = nothing
                     if line_is_decl
                         sigcode = @lookup(frame, stmt3.args[2])::Core.SimpleVector

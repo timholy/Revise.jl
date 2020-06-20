@@ -329,7 +329,7 @@ k(x) = 4
         catch err
             @test isa(err, ErrorException) && err.msg == "cube"
             bt = throwing_function(stacktrace(catch_backtrace()))
-            @test bt.func == :cube && bt.file == Symbol(tmpfile) && bt.line == 7
+            @test bt.func === :cube && bt.file == Symbol(tmpfile) && bt.line == 7
         end
         try
             ReviseTest.Internal.mult2(2)
@@ -337,7 +337,7 @@ k(x) = 4
         catch err
             @test isa(err, ErrorException) && err.msg == "mult2"
             bt = throwing_function(stacktrace(catch_backtrace()))
-            @test bt.func == :mult2 && bt.file == Symbol(tmpfile) && bt.line == 13
+            @test bt.func === :mult2 && bt.file == Symbol(tmpfile) && bt.line == 13
         end
 
         logs = filter(r->r.level==Debug && r.group=="Action", rlogger.logs)
@@ -1217,7 +1217,7 @@ end
         code = get_code(PerfAnnotations.check_hasinline, Tuple{Int})
         @test length(code) == 1 && isreturning_slot(code[1], 2)
         code = get_code(PerfAnnotations.check_hasnoinline, Tuple{Int})
-        @test length(code) == 2 && code[1].head == :invoke
+        @test length(code) == 2 && code[1].head === :invoke
         code = get_code(PerfAnnotations.check_notannot1, Tuple{Int})
         @test length(code) == 1 && isreturning_slot(code[1], 2)
         code = get_code(PerfAnnotations.check_notannot2, Tuple{Int})
@@ -1253,7 +1253,7 @@ end
         code = get_code(PerfAnnotations.check_notannot1, Tuple{Int})
         @test length(code) == 1 && isreturning_slot(code[1], 2)
         code = get_code(PerfAnnotations.check_notannot2, Tuple{Int})
-        @test length(code) == 2 && code[1].head == :invoke
+        @test length(code) == 2 && code[1].head === :invoke
         rm_precompile("PerfAnnotations")
 
         pop!(LOAD_PATH)
@@ -2736,7 +2736,7 @@ end
         m = @which show([1,2,3])
         @test definition(m) isa Expr
         m = @which redirect_stdout()
-        @test definition(m).head == :function
+        @test definition(m).head === :function
 
         # Tracking stdlibs
         Revise.track(Unicode)
@@ -2790,7 +2790,7 @@ end
             histidx = length(hp.history) + 1 - hp.start_idx
             ex = Base.parse_input_line(fstr; filename="REPL[$histidx]")
             f = Core.eval(Main, ex)
-            if ex.head == :toplevel
+            if ex.head === :toplevel
                 ex = ex.args[end]
             end
             push!(hp.history, fstr)
@@ -2804,7 +2804,7 @@ end
             histidx = length(hp.history) + 1 - hp.start_idx
             ex = Base.parse_input_line(fstr; filename="REPL[$histidx]")
             f = Core.eval(Main, ex)
-            if ex.head == :toplevel
+            if ex.head === :toplevel
                 ex = ex.args[end]
             end
             push!(hp.history, fstr)

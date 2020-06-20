@@ -13,7 +13,7 @@ using Core: CodeInfo
 using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
 using CodeTracking: PkgFiles, basedir, srcfiles
 using JuliaInterpreter: whichtt, is_doc_expr, step_expr!, finish_and_return!, get_return
-using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr,
+using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr, is_quotenode_egal,
                         linetable, codelocs, LineTypes, is_GotoIfNot, isassign, isidentical
 
 using LoweredCodeUtils: next_or_nothing!, trackedheads, structheads, callee_matches
@@ -891,7 +891,7 @@ function revise(mod::Module)
             for def in keys(exsigs)
                 ex = def.ex
                 exuw = unwrap(ex)
-                isexpr(exuw, :call) && exuw.args[1] == :include && continue
+                isexpr(exuw, :call) && exuw.args[1] === :include && continue
                 try
                     Core.eval(mod, ex)
                 catch err
@@ -1082,7 +1082,7 @@ This is a callback function used by `CodeTracking.jl`'s `definition`.
 """
 function get_def(method::Method; modified_files=revision_queue)
     yield()   # magic bug fix for the OSX test failures. TODO: figure out why this works (prob. Julia bug)
-    if method.file == :none && String(method.name)[1] == '#'
+    if method.file === :none && String(method.name)[1] == '#'
         # This is likely to be a kwarg method, try to find something with location info
         method = bodymethod(method)
     end
@@ -1142,7 +1142,7 @@ function get_tracked_id(id::PkgId; modified_files=revision_queue)
     # Methods from Base or the stdlibs may require that we start tracking
     if !haskey(pkgdatas, id)
         recipe = id.name === "Compiler" ? :Compiler : Symbol(id.name)
-        recipe == :Core && return nothing
+        recipe === :Core && return nothing
         _track(id, recipe; modified_files=modified_files)
         @info "tracking $recipe"
         if !haskey(pkgdatas, id)
@@ -1165,12 +1165,12 @@ end
 
 function add_definitions_from_repl(filename)
     hist_idx = parse(Int, filename[6:end-1])
-    hp = Base.active_repl.interface.modes[1].hist
+    hp = (Base.active_repl::REPL.LineEditREPL).interface.modes[1].hist::REPL.REPLHistoryProvider
     src = hp.history[hp.start_idx+hist_idx]
     id = PkgId(nothing, "@REPL")
     pkgdata = pkgdatas[id]
-    mexs = ModuleExprsSigs(Main)
-    parse_source!(mexs, src, filename, Main)
+    mexs = ModuleExprsSigs(Main::Module)
+    parse_source!(mexs, src, filename, Main::Module)
     instantiate_sigs!(mexs)
     fi = FileInfo(mexs)
     push!(pkgdata, filename=>fi)
@@ -1389,7 +1389,7 @@ function swap_watch_package(id::PkgId)
     # itself with `watch_package` in the list of package callbacks.
     # This delays compilation of everything that `watch_package` requires, leading to
     # faster perceived startup times.
-    idx = findfirst(isequal(swap_watch_package), Base.package_callbacks)
+    idx = findfirst(isidentical(swap_watch_package), Base.package_callbacks)
     Base.package_callbacks[idx] = watch_package
 end
 

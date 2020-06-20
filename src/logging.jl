@@ -50,7 +50,7 @@ function Base.show(io::IO, l::LogRecord)
         print(io, ", (")
         prefix = ""
         for (kw, val) in l.kwargs
-            kw == :exception && (exc = val; continue)
+            kw === :exception && (exc = val; continue)
             print(io, prefix, kw, "=", val)
             prefix = ", "
         end

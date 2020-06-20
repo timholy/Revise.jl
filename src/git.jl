@@ -74,7 +74,7 @@ end
 function git_source(file::AbstractString, tree::LibGit2.GitTree)
     local blob
     blob = tree[file]
-    if blob == nothing
+    if blob === nothing
         # assume empty tree when tracking new files
         src = ""
     else
