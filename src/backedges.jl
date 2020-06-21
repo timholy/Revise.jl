@@ -3,6 +3,7 @@ using Base.Meta: isexpr
 using JuliaInterpreter: is_global_ref
 
 const SSAValues = Union{Core.Compiler.SSAValue, JuliaInterpreter.SSAValue}
+const SlotNumbers = Union{Core.Compiler.SlotNumber, JuliaInterpreter.SlotNumber}
 
 const structheads = VERSION >= v"1.5.0-DEV.702" ? () : (:struct_type, :abstract_type, :primitive_type)
 const trackedheads = (:method, structheads...)
@@ -24,18 +25,19 @@ function SlotDep(i::Int, stmt, slotdeps)
     deps = add_deps!(Int[], stmt, slotdeps)
     SlotDep(i, deps)
 end
-function add_deps!(linedeps, stmt, slotdeps)
+function add_deps!(linedeps, @nospecialize(stmt), slotdeps)
     if isssa(stmt)
-        push!(linedeps, stmt.id)
+        push!(linedeps, (stmt::SSAValues).id)
     elseif isslotnum(stmt)
+        stmt = stmt::SlotNumbers
         append!(linedeps, slotdeps[stmt.id].linedeps)
         push!(linedeps, slotdeps[stmt.id].lineassigned)
     elseif isa(stmt, Expr)
         for a in stmt.args
-            if isssa(a) || isslotnum(a) || isa(a, Expr)
-                add_deps!(linedeps, a, slotdeps)
-            end
+            add_deps!(linedeps, a, slotdeps)
         end
+    elseif is_GotoIfNot(stmt)
+        add_deps!(linedeps, (stmt::Core.GotoIfNot).cond, slotdeps)
     end
     return linedeps
 end
@@ -187,7 +189,7 @@ function BackEdges(ci::CodeInfo)
         if isa(stmt, Expr)
             head = stmt.head
             if head === :(=) && isslotnum(stmt.args[1])
-                id = stmt.args[1].id
+                id = (stmt.args[1]::SlotNumbers).id
                 slotdeps[id] = SlotDep(i, stmt.args[2], slotdeps)
                 i += 1
             elseif head === :gotoifnot
@@ -213,6 +215,13 @@ function BackEdges(ci::CodeInfo)
                 add_to_backedges!(backedges, slotdeps, i, stmt)
                 i += 1
             end
+        elseif is_GotoIfNot(stmt)
+            dep = (stmt::Core.GotoIfNot).cond
+            add_to_backedges!(backedges, slotdeps, i, dep)
+            # Add the non-toplevel successor basic blocks as dependents of this line
+            bbidx = searchsortedlast(bbs.index, i) + 1 # bb index of this line
+            add_block_dependents!(backedges, bbs, istoplevel, i, bbidx)
+            i += 1
         else
             add_to_backedges!(backedges, slotdeps, i, stmt)
             i += 1

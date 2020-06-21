@@ -71,6 +71,31 @@ function do_test(name)
     return runtest
 end
 
+if isdefined(Core, :ReturnNode)
+    function isreturning(stmt, val)
+        isa(stmt, Core.ReturnNode) || return false
+        return stmt.val == val
+    end
+    function isreturning_slot(stmt, val)
+        isa(stmt, Core.ReturnNode) || return false
+        v = stmt.val
+        isa(v, Core.SlotNumber) || isa(v, Core.Argument) || return false
+        return (isa(v, Core.SlotNumber) ? v.id : v.n) == val
+    end
+else
+    function isreturning(stmt, val)
+        isa(stmt, Expr) || return false
+        stmt.head === :return || return false
+        return stmt.args[1] == val
+    end
+    function isreturning_slot(stmt, val)
+        isa(stmt, Expr) || return false
+        stmt.head === :return || return false
+        v = stmt.args[1]
+        isa(v, Core.SlotNumber) || return false
+        return v.id == val
+    end
+end
 
 if !isempty(ARGS) && "REVISE_TESTS_WATCH_FILES" ∈ ARGS
     Revise.watching_files[] = true
