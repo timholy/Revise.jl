@@ -57,7 +57,7 @@ To create a `ModuleExprsSigs` from a source file, see [`Revise.parse_source`](@r
 const ModuleExprsSigs = OrderedDict{Module,ExprsSigs}
 
 if VERSION >= v"1.5.0-DEV.472"
-    Base.typeinfo_prefix(io::IO, mexs::ModuleExprsSigs) = string(typeof(mexs).name), true
+    Base.typeinfo_prefix(io::IO, mexs::ModuleExprsSigs) = string(typeof(mexs).name.wrapper), true
 else
     Base.typeinfo_prefix(io::IO, mexs::ModuleExprsSigs) = string(typeof(mexs).name)
 end

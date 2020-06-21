@@ -14,7 +14,7 @@ using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
 using CodeTracking: PkgFiles, basedir, srcfiles
 using JuliaInterpreter: whichtt, is_doc_expr, step_expr!, finish_and_return!, get_return
 using JuliaInterpreter: @lookup, moduleof, scopeof, pc_expr, prepare_thunk, split_expressions,
-                        linetable, codelocs, LineTypes
+                        linetable, codelocs, LineTypes, is_GotoIfNot
 using LoweredCodeUtils: next_or_nothing!, isanonymous_typedef, define_anonymous
 
 export revise, includet, entr, MethodSummary
@@ -510,6 +510,10 @@ function add_dependencies!(methodinfo::CodeTrackingMethodInfo, be::BackEdges, sr
     if isexpr(stmt1, :gotoifnot) && isa(stmt1.args[1], Union{GlobalRef,Symbol})
         if any(chunk->hastrackedexpr(src, chunk), chunks)
             push!(methodinfo.deps, stmt1.args[1])
+        end
+    elseif is_GotoIfNot(stmt1) && isa(stmt1.cond, Union{GlobalRef,Symbol})
+        if any(chunk->hastrackedexpr(src, chunk), chunks)
+            push!(methodinfo.deps, stmt1.cond)
         end
     end
     # for (dep, lines) in be.byname
