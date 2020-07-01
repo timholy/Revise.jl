@@ -1,9 +1,9 @@
 using Core.Compiler: CodeInfo, NewvarNode, GotoNode
 using Base.Meta: isexpr
-using JuliaInterpreter: is_global_ref
 
-const SSAValues = Union{Core.Compiler.SSAValue, JuliaInterpreter.SSAValue}
-const SlotNumbers = Union{Core.Compiler.SlotNumber, JuliaInterpreter.SlotNumber}
+
+const SSAValues = Union{Core.Compiler.SSAValue,JuliaInterpreter.SSAValue}
+const SlotNumbers = Union{Core.Compiler.SlotNumber,JuliaInterpreter.SlotNumber}
 
 const structheads = VERSION >= v"1.5.0-DEV.702" ? () : (:struct_type, :abstract_type, :primitive_type)
 const trackedheads = (:method, structheads...)
@@ -83,20 +83,20 @@ end
 
 function add_to_backedges!(backedges::BackEdges, slotdeps, loc, stmt)
     if isssa(stmt)
-        push!(backedges, stmt=>loc)
+        push!(backedges, stmt => loc)
     elseif isslotnum(stmt)
         isassigned(slotdeps, stmt.id) || return backedges # issue #428 (it's inside an `if false...end`)
         sd = slotdeps[stmt.id]
         if sd.lineassigned != 0
-            push!(backedges, sd.lineassigned=>loc)
+            push!(backedges, sd.lineassigned => loc)
         end
         for id in sd.linedeps
-            push!(backedges, id=>loc)
+            push!(backedges, id => loc)
         end
     elseif stmt isa GlobalRef
-        push!(backedges, stmt=>loc)
+        push!(backedges, stmt => loc)
     elseif stmt isa Symbol
-        push!(backedges, stmt=>loc)
+        push!(backedges, stmt => loc)
     elseif stmt isa Expr
         head = stmt.head
         if head === :call && !(isssa(stmt.args[1]) || isslotnum(stmt.args[1]))
@@ -104,7 +104,7 @@ function add_to_backedges!(backedges::BackEdges, slotdeps, loc, stmt)
                 add_to_backedges!(backedges, slotdeps, loc, a)
             end
         elseif head ∈ trackedheads && (name = stmt.args[1]; isa(name, Symbol) | isa(name, GlobalRef))
-            push!(backedges, name=>loc)
+            push!(backedges, name => loc)
             push!(backedges.byname[name].defined, loc)
             for a in Iterators.drop(stmt.args, 1)
                 add_to_backedges!(backedges, slotdeps, loc, a)
@@ -158,7 +158,7 @@ function add_block_dependents!(backedges::BackEdges, bbs, istoplevel, i, bbidx)
         istoplevel[s] && continue
         r = bbs.blocks[s].stmts
         for j = Core.Compiler.first(r):Core.Compiler.last(r)
-            push!(backedges, i=>j)
+            push!(backedges, i => j)
         end
         add_block_dependents!(backedges, bbs, istoplevel, i, s)
     end
@@ -250,7 +250,7 @@ function toplevel_chunks(backedges::BackEdges)
     i = 1
     while i <= n
         push!(chunks, i:chunkid[i])
-        i = chunkid[i]+1
+        i = chunkid[i] + 1
     end
     return chunks
 end

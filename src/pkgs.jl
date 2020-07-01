@@ -1,5 +1,4 @@
 using Base: PkgId
-using CodeTracking: basepath
 
 # A near-copy of the same method in `base/loading.jl`. However, this retains the full module path to the file.
 function parse_cache_header(f::IO)

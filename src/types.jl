@@ -67,7 +67,7 @@ end
 
 Initialize an empty `ModuleExprsSigs` for a file that is `include`d into `mod`.
 """
-ModuleExprsSigs(mod::Module) = ModuleExprsSigs(mod=>ExprsSigs())
+ModuleExprsSigs(mod::Module) = ModuleExprsSigs(mod => ExprsSigs())
 
 Base.isempty(fm::ModuleExprsSigs) = length(fm) == 1 && isempty(first(values(fm)))
 
@@ -201,7 +201,7 @@ function Base.show(io::IO, pkgdata::PkgData)
         println(io, ", basedir \"", pkgdata.info.basedir, ':')
         for (f, fi) in zip(pkgdata.info.files, pkgdata.fileinfos)
             print(io, "  \"", f, "\": ")
-            show(IOContext(io, :compact=>true), fi)
+            show(IOContext(io, :compact => true), fi)
             print(io, '\n')
         end
     end
