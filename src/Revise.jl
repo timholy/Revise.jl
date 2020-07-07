@@ -1288,7 +1288,10 @@ function __init__()
             pushfirst!(REPL.repl_ast_transforms, revise_first)
         end
         if isdefined(Main, :Atom)
-            setup_atom(getfield(Main, :Atom)::Module)
+            Atom = getfield(Main, :Atom)
+            if Atom isa Module && isdefined(Atom, :handlers)
+                setup_atom(Atom)
+            end
         end
     end
     polling = get(ENV, "JULIA_REVISE_POLL", "0")
