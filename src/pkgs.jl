@@ -447,7 +447,11 @@ end
 
 function manifest_file(project_file)
     if project_file isa String
-        mfile = Base.project_file_manifest_path(project_file)
+        mfile = @static if isdefined(Base, :TOMLCache)
+            Base.project_file_manifest_path(project_file, Base.TOMLCache())
+        else
+            Base.project_file_manifest_path(project_file)
+        end
         if mfile isa String
             return mfile
         end
@@ -456,6 +460,34 @@ function manifest_file(project_file)
 end
 manifest_file() = manifest_file(Base.active_project())
 
+if isdefined(Base, :TOMLCache)
+function manifest_paths!(pkgpaths::Dict, manifest_file::String)
+    c = Base.TOMLCache()
+    d = Base.parsed_toml(c, manifest_file)
+    for (name, entries) in d
+        entries::Vector{Any}
+        for info in entries
+            name::String
+            info::Dict{String, Any}
+            uuid = UUID(info["uuid"]::String)
+            hash = get(info, "git-tree-sha1", nothing)::Union{String, Nothing}
+            path = nothing
+            if hash !== nothing
+                path = find_from_hash(name, uuid, Base.SHA1(hash))
+                path === nothing && error("no path found for $id and hash $hash")
+            end
+            maybe_path = get(info, "path", nothing)::Union{String, Nothing}
+            if maybe_path !== nothing
+                path = abspath(dirname(manifest_file), maybe_path)
+            end
+            if path !== nothing
+                pkgpaths[PkgId(Base.UUID(uuid), name)] = path
+            end
+        end
+    end
+    return pkgpaths
+end
+else
 function manifest_paths!(pkgpaths::Dict, manifest_file::String)
     open(manifest_file) do io
         uuid = name = path = hash = id = nothing
@@ -486,11 +518,12 @@ function manifest_paths!(pkgpaths::Dict, manifest_file::String)
     end
     return pkgpaths
 end
+end
 
 manifest_paths(manifest_file::String) =
     manifest_paths!(Dict{PkgId,String}(), manifest_file)
 
-function find_from_hash(name, uuid, hash)
+function find_from_hash(name::String, uuid::Base.UUID, hash::Base.SHA1)
     for slug in (Base.version_slug(uuid, hash, 4), Base.version_slug(uuid, hash))
         for depot in DEPOT_PATH
             path = abspath(depot, "packages", name, slug)
