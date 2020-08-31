@@ -186,6 +186,9 @@ const stdlib_names = Set([
     :OldPkg, :Pkg, :Printf, :Profile, :Random, :REPL,
     :Serialization, :SHA, :SharedArrays, :Sockets, :SparseArrays,
     :Statistics, :SuiteSparse, :Test, :Unicode, :UUIDs])
+if VERSION >= v"1.6.0-DEV.734"
+    push!(stdlib_names, :TOML)
+end
 
 # This replacement is needed because the path written during compilation differs from
 # the git source path
