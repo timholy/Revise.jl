@@ -380,7 +380,7 @@ k(x) = 4
         # io = IOBuffer()
         print(IOContext(io, :compact=>true), mexs)
         str = String(take!(io))
-        @test str == "OrderedCollections.OrderedDict($mod$(pair_op_compact)ExprsSigs(<1 expressions>, <0 signatures>),$mod.ReviseTest$(pair_op_compact)ExprsSigs(<2 expressions>, <2 signatures>),$mod.ReviseTest.Internal$(pair_op_compact)ExprsSigs(<6 expressions>, <5 signatures>))"
+        @test str == "OrderedCollections.OrderedDict($mod$(pair_op_compact)ExprsSigs(<1 expressions>, <0 signatures>),$SP$mod.ReviseTest$(pair_op_compact)ExprsSigs(<2 expressions>, <2 signatures>),$SP$mod.ReviseTest.Internal$(pair_op_compact)ExprsSigs(<6 expressions>, <5 signatures>))"
         exs = mexs[getfield(mod, :ReviseTest)]
         # io = IOBuffer()
         print(IOContext(io, :compact=>true), exs)

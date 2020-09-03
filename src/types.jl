@@ -56,8 +56,13 @@ To create a `ModuleExprsSigs` from a source file, see [`Revise.parse_source`](@r
 """
 const ModuleExprsSigs = OrderedDict{Module,ExprsSigs}
 
-if VERSION >= v"1.5.0-DEV.472"
-    Base.typeinfo_prefix(io::IO, mexs::ModuleExprsSigs) = string(typeof(mexs).name.wrapper), true
+if VERSION >= v"1.6.0-DEV.262"
+    function Base.typeinfo_prefix(io::IO, mexs::ModuleExprsSigs)
+        tn = typeof(mexs).name
+        return string(tn.module, '.', tn.name), true
+    end
+elseif VERSION >= v"1.5.0-DEV.472"
+    Base.typeinfo_prefix(io::IO, mexs::ModuleExprsSigs) = string(typeof(mexs).name), true
 else
     Base.typeinfo_prefix(io::IO, mexs::ModuleExprsSigs) = string(typeof(mexs).name)
 end
@@ -199,7 +204,7 @@ function Base.show(io::IO, pkgdata::PkgData)
         print(io, nparsed, '/', length(pkgdata.fileinfos), " parsed files, ", nexs, " expressions, ", nsigs, " signatures)")
     else
         show(io, pkgdata.info.id)
-        println(io, ", basedir \"", pkgdata.info.basedir, ':')
+        println(io, ", basedir \"", pkgdata.info.basedir, "\":")
         for (f, fi) in zip(pkgdata.info.files, pkgdata.fileinfos)
             print(io, "  \"", f, "\": ")
             show(IOContext(io, :compact=>true), fi)

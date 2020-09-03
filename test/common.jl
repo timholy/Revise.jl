@@ -29,6 +29,8 @@ else
     const mtimedelay = 0.1
 end
 
+SP = VERSION >= v"1.6.0-DEV.771" ? " " : "" # JuliaLang/julia #37085
+
 yry() = (sleep(mtimedelay); revise(); sleep(mtimedelay))
 
 function collectexprs(rex::Revise.RelocatableExpr)
