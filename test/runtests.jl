@@ -2139,13 +2139,9 @@ end
             end
             """)
         end
-        oldmode = Revise.revise_mode[]
-        oldmode === :evalassign || @warn "Switching to mode=:evalassign so the next tests pass"
-        Revise.revise_mode[] = :evalassign
         yry()
         @test Int(ModifyEnum.kiwi) == 3
         @test Base.instances(ModifyEnum.Fruit) === (ModifyEnum.apple, ModifyEnum.orange, ModifyEnum.kiwi)
-        Revise.revise_mode[] = oldmode
         rm_precompile("ModifyEnum")
         pop!(LOAD_PATH)
     end

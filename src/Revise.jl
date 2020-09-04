@@ -68,8 +68,6 @@ environment variable to customize it.
 """
 const tracking_Main_includes = Ref(false)
 
-const revise_mode = Ref(:evalmeth)
-
 include("relocatable_exprs.jl")
 include("types.jl")
 include("utils.jl")
@@ -314,7 +312,7 @@ function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new)
     return mod_exs_sigs_old
 end
 
-function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
+function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Symbol=:eval)
     includes = Vector{Pair{Module,String}}()
     with_logger(_debug_logger) do
         for rex in keys(exs_sigs_new)
@@ -326,7 +324,7 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
                 # ex is not present in old
                 @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
                 # try
-                    sigs, deps, _includes, thunk = eval_with_signatures(mod, ex; mode=revise_mode[])  # All signatures defined by `ex`
+                    sigs, deps, _includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
                     append!(includes, _includes)
                     if VERSION < v"1.3.0" || !isexpr(thunk, :thunk)
                         thunk = ex
@@ -372,11 +370,15 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
     return exs_sigs_new, includes
 end
 
-function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old)
+function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old; mode::Symbol=:eval)
     includes = Vector{Pair{Module,String}}()
     for (mod, exs_sigs_new) in mod_exs_sigs_new
+        # Allow packages to override the supplied mode
+        if isdefined(mod, :__revise_mode__)
+            mode = getfield(mod, :__revise_mode__)::Symbol
+        end
         exs_sigs_old = get(mod_exs_sigs_old, mod, empty_exs_sigs)
-        _, _includes = eval_new!(exs_sigs_new, exs_sigs_old, mod)
+        _, _includes = eval_new!(exs_sigs_new, exs_sigs_old, mod; mode=mode)
         append!(includes, _includes)
     end
     return mod_exs_sigs_new, includes
@@ -711,10 +713,11 @@ function revise(; throw=false)
     end
     # Do the evaluation
     for ((pkgdata, file), mexsnew) in zip(finished, mexsnews)
+        mode = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
         i = fileindex(pkgdata, file)
         fi = fileinfo(pkgdata, i)
         try
-            _, includes = eval_new!(mexsnew, fi.modexsigs)
+            _, includes = eval_new!(mexsnew, fi.modexsigs; mode=mode)
             pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
             delete!(queue_errors, (pkgdata, file))
             maybe_add_includes_to_pkgdata!(pkgdata, file, includes)

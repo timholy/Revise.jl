@@ -233,7 +233,7 @@ end
 methods_by_execution!(methodinfo, docexprs, mod::Module, ex::Expr; kwargs...) =
     methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, docexprs, mod, ex; kwargs...)
 
-function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame, isrequired::AbstractVector{Bool}; mode::Symbol=:eval, skip_include::Bool=mode!==:eval)
+function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame::Frame, isrequired::AbstractVector{Bool}; mode::Symbol=:eval, skip_include::Bool=true)
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
 
     mod = moduleof(frame)
@@ -393,11 +393,12 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     assign_this!(frame, value)
                     pc = next_or_nothing!(frame)
                 elseif skip_include && (f === modinclude || f === Base.include || f === Core.include)
-                    # Skip include calls, otherwise we load new code
+                    # include calls need to be managed carefully from several standpoints, including
+                    # path management and parsing new expressions
                     add_includes!(methodinfo, mod, @lookup(frame, stmt.args[2]))
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
-                elseif mode !== :eval && f === Base.Docs.doc!
+                elseif f === Base.Docs.doc! # && mode !== :eval
                     fargs = JuliaInterpreter.collect_args(frame, stmt)
                     popfirst!(fargs)
                     length(fargs) == 3 && push!(fargs, Union{})  # add the default sig
