@@ -1899,10 +1899,8 @@ end
 
         # test errors are reported the the first time
         check_revision_error(logs[1], "missing comma or }", 2)
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        rec = logs[1]
+        # Check that there's an informative warning
+        rec = logs[2]
         @test startswith(rec.message, "Due to a previously reported error")
         @test occursin("RevisionErrors.jl", rec.message)
 
@@ -1910,7 +1908,7 @@ end
         logs, _ = Test.collect_test_logs() do
             yry()
         end
-        @test length(logs) == 1
+        @test isempty(logs)
 
         # test error re-reporting
         logs,_ = Test.collect_test_logs() do
@@ -2046,8 +2044,10 @@ end
             @test rec.message == "Failed to revise $fn"
             exc, bt = rec.kwargs[:exception]
             @test exc isa InterruptException
-            rec = logs[2]
-            @test startswith(rec.message, "Due to a previously reported error")
+            if length(logs) > 1
+                rec = logs[2]
+                @test startswith(rec.message, "Due to a previously reported error")
+            end
         end
 
         testdir = newtestdir()
@@ -3222,6 +3222,7 @@ end
 do_test("entr") && @testset "entr" begin
     srcfile1 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile1)
     srcfile2 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile2)
+    revise(throw=true)   # force compilation
     open(srcfile1, "w") do io
         println(io, "Core.eval(Main, :(__entr__ = 1))")
     end

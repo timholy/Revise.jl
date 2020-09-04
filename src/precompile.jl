@@ -14,6 +14,7 @@ function _precompile_()
     @assert precompile(Tuple{typeof(swap_watch_package), PkgId})
 
     @assert precompile(Tuple{typeof(revise)})
+    @assert precompile(Tuple{typeof(revise_first), Expr})
     @assert precompile(Tuple{typeof(includet), String})
     @assert precompile(Tuple{typeof(track), Module, String})
     # setindex! doesn't fully precompile, but it's still beneficial to do it

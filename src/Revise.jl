@@ -1048,7 +1048,10 @@ function method_location(method::Method)
 end
 
 # On Julia 1.5.0-DEV.282 and higher, we can just use an AST transformation
-revise_first(ex) = Expr(:toplevel, :($revise()), ex)
+# This uses invokelatest not for reasons of world age but to ensure that the call is made at runtime.
+# This allows `revise_first` to be compiled without compiling `revise` itself, and greatly
+# reduces the overhead of using Revise.
+revise_first(ex) = Expr(:toplevel, :(isempty($revision_queue) || Base.invokelatest($revise)), ex)
 
 @noinline function run_backend(backend)
     while true

@@ -191,7 +191,10 @@ function parse_pkg_files(id::PkgId)
     # Non-precompiled package(s). Here we rely on the `include` callbacks to have
     # already populated `included_files`; all we have to do is collect the relevant
     # files.
-    queue_includes!(pkgdata, id)
+    # To reduce compiler latency, use runtime dispatch for `queue_includes!`.
+    # `queue_includes!` requires compilation of the whole parsing/expression-splitting infrastructure,
+    # and it's better to wait to compile it until we actually need it.
+    Base.invokelatest(queue_includes!, pkgdata, id)
     return pkgdata
 end
 
