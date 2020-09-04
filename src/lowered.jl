@@ -53,15 +53,16 @@ function matches_eval(stmt::Expr)
     return f === :eval || (callee_matches(f, Base, :getproperty) && is_quotenode_egal(stmt.args[end], :eval))
 end
 
-function is_method_or_eval(stmt)
-    ismeth, haseval, isinclude = false, false, false
+function categorize_stmt(stmt)
+    ismeth, haseval, isinclude, isnamespace, istoplevel = false, false, false, false, false
     if isa(stmt, Expr)
         haseval = matches_eval(stmt)
-        ismeth = stmt.head === :method || stmt.head === :toplevel || stmt.head === :export || stmt.head === :import ||
-                 stmt.head === :using
+        ismeth = stmt.head === :method
+        istoplevel = stmt.head === :toplevel
+        isnamespace = stmt.head === :export || stmt.head === :import || stmt.head === :using
         isinclude = stmt.head === :call && stmt.args[1] === :include
     end
-    return ismeth | isinclude, haseval
+    return ismeth, haseval, isinclude, isnamespace, istoplevel
 end
 
 """
@@ -96,7 +97,7 @@ function minimal_evaluation!(predicate, methodinfo, src::Core.CodeInfo, mode::Sy
         end
     end
     # Check for docstrings
-    if length(src.code) > 1
+    if length(src.code) > 1 && mode !== :sigs
         stmt = src.code[end-1]
         if isexpr(stmt, :call) && (stmt::Expr).args[1] === Base.Docs.doc!
             isrequired[end-1] = true
@@ -105,14 +106,20 @@ function minimal_evaluation!(predicate, methodinfo, src::Core.CodeInfo, mode::Sy
     # All tracked expressions are marked. Now add their dependencies.
     # LoweredCodeUtils.print_with_code(stdout, src, isrequired)
     lines_required!(isrequired, src, edges; exclude_named_typedefs=mode===:sigs)
+    # LoweredCodeUtils.print_with_code(stdout, src, isrequired)
     add_dependencies!(methodinfo, edges, src, isrequired)
     return isrequired, evalassign
 end
 minimal_evaluation!(predicate, methodinfo, frame::JuliaInterpreter.Frame, mode::Symbol) =
     minimal_evaluation!(predicate, methodinfo, frame.framecode.src, mode)
 
-minimal_evaluation!(methodinfo, frame, mode::Symbol) = minimal_evaluation!(is_method_or_eval, methodinfo, frame, mode)
-
+function minimal_evaluation!(methodinfo, frame, mode::Symbol)
+    minimal_evaluation!(methodinfo, frame, mode) do stmt
+        ismeth, haseval, isinclude, isnamespace, istoplevel = categorize_stmt(stmt)
+        isreq = ismeth | isinclude | istoplevel
+        return mode === :sigs ? (isreq, haseval) : (isreq | isnamespace, haseval)
+    end
+end
 
 function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     methodinfo = MethodInfo()
@@ -140,7 +147,7 @@ The action depends on `mode`:
 - `:eval` evaluates the expression in `mod`, similar to `Core.eval(mod, ex)` except that `methodinfo` and `docexprs`
   will be populated with information about any signatures or docstrings. This mode is used to implement `includet`.
 - `:sigs` analyzes `ex` and extracts signatures of methods and docstrings (specifically, statements flagged by
-  [`Revise.hastrackedexpr`](@ref)), but does not evaluate `ex` in the traditional sense.
+  [`Revise.minimal_evaluation!`](@ref)), but does not evaluate `ex` in the traditional sense.
   It will selectively execute statements needed to form the signatures of defined methods.
   It will also expand any `@eval`ed expressions, since these might contain method definitions.
 - `:evalmeth` analyzes `ex` and extracts signatures and docstrings like `:sigs`, but takes the additional step of
