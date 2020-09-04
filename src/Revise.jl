@@ -79,7 +79,6 @@ include("pkgs.jl")
 include("git.jl")
 include("recipes.jl")
 include("logging.jl")
-include("deprecations.jl")
 
 ### Globals to keep track of state
 
