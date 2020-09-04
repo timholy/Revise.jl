@@ -173,7 +173,7 @@ The other keyword arguments are more straightforward:
   This is primarily useful for debugging.
 """
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr;
-                               mode::Symbol=:eval, disablebp::Bool=true, always_rethrow::Bool=false, recursed_toplevel::Bool=false, kwargs...)
+                               mode::Symbol=:eval, disablebp::Bool=true, always_rethrow::Bool=false, kwargs...)
     mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
     lwr = Meta.lower(mod, ex)
     isa(lwr, Expr) || return nothing, nothing
