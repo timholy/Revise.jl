@@ -4,7 +4,7 @@ using Revise.CodeTracking
 using Revise.JuliaInterpreter
 using Test
 
-@test isempty(detect_ambiguities(Revise, Base, Core))
+@test isempty(detect_ambiguities(Revise))
 
 using Pkg, Unicode, Distributed, InteractiveUtils, REPL, UUIDs
 import LibGit2
