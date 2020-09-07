@@ -14,8 +14,8 @@ packages that you want to modify and have tracked by `Revise` should be `dev`ed 
     In recent versions of Julia, the source files in `.julia/packages` are read-only,
     and you should leave them this way.
 
-    Revise is therefore designed to avoid tracking changes in such files.
-    The correct way to track modifications is to `dev` the package.
+    In keeping with this spirit, Revise is designed to avoid tracking changes in such files.
+    The correct way to make and track modifications is to `dev` the package.
 
 For creating packages, the author recommends [PkgTemplates.jl](https://github.com/invenia/PkgTemplates.jl).
 A fallback is to use "plain" `Pkg` commands.
@@ -60,7 +60,7 @@ Template:
   → Commit Manifest.toml: No
   → Plugins: None
 
-julia> generate("MyPkg", t)
+julia> t("MyPkg")
 Generating project MyPkg:
     /home/tim/.julia/dev/MyPkg/Project.toml
     /home/tim/.julia/dev/MyPkg/src/MyPkg.jl
@@ -116,7 +116,7 @@ end # module
 ```
 
 Now go back to that same Julia session, and try calling `greet` again.
-After a pause (the code of Revise and its dependencies is compiling), you should see
+After a pause (while Revise's internal code compiles), you should see
 
 ```julia
 julia> MyPkg.greet()
