@@ -693,6 +693,7 @@ otherwise these are only logged.
 """
 function revise(; throw=false)
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
+    have_queue_errors = !isempty(queue_errors)
 
     # Do all the deletion first. This ensures that a method that moved from one file to another
     # won't get redefined first and deleted second.
@@ -736,14 +737,19 @@ function revise(; throw=false)
     end
     errors(revision_errors)
     if !isempty(queue_errors)
-        io = IOBuffer()
-        println(io, "\n") # better here than in the triple-quoted literal, see https://github.com/JuliaLang/julia/issues/34105
-        for (pkgdata, file) in keys(queue_errors)
-            println(io, "  ", joinpath(basedir(pkgdata), file))
+        if !have_queue_errors    # only print on the first time errors occur
+            io = IOBuffer()
+            println(io, "\n") # better here than in the triple-quoted literal, see https://github.com/JuliaLang/julia/issues/34105
+            for (pkgdata, file) in keys(queue_errors)
+                println(io, "  ", joinpath(basedir(pkgdata), file))
+            end
+            str = String(take!(io))
+            @warn """Due to a previously reported error, the running code does not match saved version for the following files:$str
+            Use Revise.errors() to report errors again. Your prompt color may be yellow until the errors are resolved."""
+            maybe_set_prompt_color(:warn)
         end
-        str = String(take!(io))
-        @warn """Due to a previously reported error, the running code does not match saved version for the following files:$str
-        Use Revise.errors() to report errors again."""
+    else
+        maybe_set_prompt_color(:ok)
     end
     tracking_Main_includes[] && queue_includes(Main)
 
@@ -1045,6 +1051,29 @@ function method_location(method::Method)
         return lnn.file, lnn.line
     end
     return method.file, method.line
+end
+
+# Set the prompt color to indicate the presence of unhandled revision errors
+const original_repl_prefix = Ref{Union{String,Function,Nothing}}(nothing)
+function maybe_set_prompt_color(color)
+    if isdefined(Base, :active_repl)
+        repl = Base.active_repl
+        if isa(repl, REPL.LineEditREPL)
+            if color === :warn
+                # First save the original setting
+                if original_repl_prefix[] === nothing
+                    original_repl_prefix[] = repl.mistate.current_mode.prompt_prefix
+                end
+                repl.mistate.current_mode.prompt_prefix = "\e[33m"  # yellow
+            else
+                color = original_repl_prefix[]
+                color === nothing && return nothing
+                repl.mistate.current_mode.prompt_prefix = color
+                original_repl_prefix[] = nothing
+            end
+        end
+    end
+    return nothing
 end
 
 # On Julia 1.5.0-DEV.282 and higher, we can just use an AST transformation
