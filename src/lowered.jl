@@ -197,8 +197,8 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
             catch err
                 (always_rethrow || isa(err, InterruptException)) && rethrow(err)
                 loc = location_string(whereis(frame)...)
-                @error "(compiled mode) evaluation error starting at $loc" mod ex exception=(err, trim_toplevel!(catch_backtrace()))
-                nothing
+                bt = trim_toplevel!(catch_backtrace())
+                throw(ReviseEvalException(loc, err, Any[(sf, 1) for sf in stacktrace(bt)]))
             end
         else
             ret = nothing
@@ -221,8 +221,13 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
         catch err
             (always_rethrow || isa(err, InterruptException)) && (disablebp && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame)...)
-            @error "evaluation error starting at $loc" mod ex exception=(err, trim_toplevel!(catch_backtrace()))
-            nothing
+            sfs = []  # crafted for interaction with Base.show_backtrace
+            frame = JuliaInterpreter.leaf(frame)
+            while frame !== nothing
+                push!(sfs, (Base.StackTraces.StackFrame(frame), 1))
+                frame = frame.caller
+            end
+            throw(ReviseEvalException(loc, err, sfs))
         end
         if disablebp
             foreach(enable, active_bp_refs)

@@ -9,9 +9,8 @@ function outer(A)
     return s
 end
 
-s = outer([1,2,3])            # compiled mode
-s2 = eval(:(outer([1,2,3])))  # interpreted mode
+s = outer([1,2,3])
 
-foo(x::Float32) = 1   # this line is tested for being on line number 14
+foo(x::Float32) = 1
 
 end

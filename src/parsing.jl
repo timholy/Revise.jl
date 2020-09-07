@@ -46,7 +46,16 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
     end
     modexs, docexprs = Tuple{Module,Expr}[], DocExprs()
     for (mod, ex) in ExprSplitter(mod, ex)
-        mode === :includet && Core.eval(mod, ex)
+        if mode === :includet
+            try
+                Core.eval(mod, ex)
+            catch err
+                bt = trim_toplevel!(catch_backtrace())
+                lnn = firstline(ex)
+                loc = location_string(lnn.file, lnn.line)
+                throw(ReviseEvalException(loc, err, Any[(sf, 1) for sf in stacktrace(bt)]))
+            end
+        end
         exprs_sigs = get(mod_exprs_sigs, mod, nothing)
         if exprs_sigs === nothing
             mod_exprs_sigs[mod] = exprs_sigs = ExprsSigs()

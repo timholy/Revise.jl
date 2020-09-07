@@ -967,6 +967,7 @@ end
         @info "The following error messge is expected for this broken test"
         yry()
         @test_broken Order2.f(Order2.Ord2()) == 1
+        empty!(Revise.queue_errors)   # FIXME delete when test isn't broken
 
         # Cross-module dependencies
         dn3 = joinpath(testdir, "Order3", "src")
@@ -1886,22 +1887,31 @@ end
             yry()
         end
 
-        function check_revision_error(rec, msg, line)
+        function check_revision_error(rec, ErrorType, msg, line)
             @test rec.message == "Failed to revise $fn"
-            exc, bt = rec.kwargs[:exception]
-            @test exc isa LoadError
-            @test exc.file == fn
-            @test exc.line == line
-            @test occursin(msg, exc.error)
-            st = stacktrace(bt)
+            exc = rec.kwargs[:exception]
+            if exc isa Revise.ReviseEvalException
+                exc, st = exc.exc, exc.stacktrace
+            else
+                exc, bt = exc
+                st = stacktrace(bt)
+            end
+            @test exc isa ErrorType
+            if ErrorType === LoadError
+                @test exc.file == fn
+                @test exc.line == line
+                @test occursin(msg, exc.error)
+            elseif ErrorType === UndefVarError
+                @test msg == exc.var
+            end
             @test length(st) == 1
         end
 
         # test errors are reported the the first time
-        check_revision_error(logs[1], "missing comma or }", 2)
+        check_revision_error(logs[1], LoadError, "missing comma or }", 2)
         # Check that there's an informative warning
         rec = logs[2]
-        @test startswith(rec.message, "Due to a previously reported error")
+        @test startswith(rec.message, "The running code does not match")
         @test occursin("RevisionErrors.jl", rec.message)
 
         # test errors are not re-reported
@@ -1914,7 +1924,7 @@ end
         logs,_ = Test.collect_test_logs() do
             Revise.errors()
         end
-        check_revision_error(logs[1], "missing comma or }", 2)
+        check_revision_error(logs[1], LoadError, "missing comma or }", 2)
 
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
             println(io, """
@@ -1948,7 +1958,7 @@ end
         logs, _ = Test.collect_test_logs() do
             yry()
         end
-        check_revision_error(logs[1], "unexpected \"=\"", 6)
+        check_revision_error(logs[1], LoadError, "unexpected \"=\"", 6)
 
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
             println(io, """
@@ -1966,7 +1976,6 @@ end
         end
         @test isempty(logs)
 
-        # Also test that it ends up being reported to the user (issue #281)
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
             println(io, """
             module RevisionErrors
@@ -1979,14 +1988,10 @@ end
             end
             """)
         end
-        logfile = joinpath(tempdir(), randtmp()*".log")
-        open(logfile, "w") do io
-            redirect_stderr(io) do
-                yry()
-            end
+        logs, _ = Test.collect_test_logs() do
+            yry()
         end
-        str = read(logfile, String)
-        @test occursin("T not defined", str)
+        check_revision_error(logs[1], UndefVarError, :T, 6)
 
         rm_precompile("RevisionErrors")
 
@@ -2010,43 +2015,46 @@ end
             end
             """)
         end
-        try
-            includet(testfile)
-        catch err
-            @test isa(err, UndefRefError)
-            st = stacktrace(catch_backtrace())
-            idx = findfirst(sf->endswith(String(sf.file), "Test301.jl") && sf.line == 8, st)
-            @test idx !== nothing
-            @test endswith(String(st[idx+1].file), "Test301.jl") && st[idx+1].line == 10
+        logfile = joinpath(tempdir(), randtmp()*".log")
+        open(logfile, "w") do io
+            redirect_stderr(io) do
+                includet(testfile)
+            end
         end
+        sleep(mtimedelay)
+        lines = readlines(logfile)
+        @test lines[1] == "ERROR: UndefRefError: access to undefined reference"
+        @test any(str -> occursin(r"f\(.*Test301\.Struct301\)", str), lines)
+        @test any(str -> endswith(str, "Test301.jl:10"), lines)
 
-        logs, _ = Test.collect_test_logs() do
-            Revise.track("callee_error.jl"; mode=:eval)
+        logfile = joinpath(tempdir(), randtmp()*".log")
+        open(logfile, "w") do io
+            redirect_stderr(io) do
+                includet("callee_error.jl")
+            end
         end
-        @test length(logs) == 2
-        @test occursin("(compiled mode) evaluation error", logs[1].message)
-        @test occursin("callee_error.jl:12", logs[1].message)
-        exc = logs[1].kwargs[:exception]
-        @test exc[1] isa BoundsError
-        @test length(stacktrace(exc[2])) <= 5
-        @test occursin("evaluation error", logs[2].message)
-        @test occursin("callee_error.jl:13", logs[2].message)
-        exc = logs[2].kwargs[:exception]
-        @test exc[1] isa BoundsError
-        @test length(stacktrace(exc[2])) <= 5
-        m = @which CalleeError.foo(3.2f0)
-        @test whereis(m)[2] == 15
+        sleep(mtimedelay)
+        lines = readlines(logfile)
+        @test lines[1] == "ERROR: BoundsError: attempt to access 3-element $(Vector{Int}) at index [4]"
+        @test any(str -> endswith(str, "callee_error.jl:12"), lines)
+        @test_throws UndefVarError CalleeError.foo(0.1f0)
     end
 
     do_test("Retry on InterruptException") && @testset "Retry on InterruptException" begin
         function check_revision_interrupt(logs)
             rec = logs[1]
             @test rec.message == "Failed to revise $fn"
-            exc, bt = rec.kwargs[:exception]
+            exc = rec.kwargs[:exception]
+            if exc isa Revise.ReviseEvalException
+                exc, st = exc.exc, exc.stacktrace
+            else
+                exc, bt = exc
+                st = stacktrace(bt)
+            end
             @test exc isa InterruptException
             if length(logs) > 1
                 rec = logs[2]
-                @test startswith(rec.message, "Due to a previously reported error")
+                @test startswith(rec.message, "The running code does not match")
             end
         end
 
@@ -2066,53 +2074,47 @@ end
         sleep(mtimedelay)
         @test RevisionInterrupt.f(0) == 1
 
-        # Interpreted mode
-        open(fn, "w") do io
-            println(io, """
-            module RevisionInterrupt
-            eval(quote  # this forces interpreted mode
-                throw(InterruptException())
-            end)
-            f(x) = 2
+        # Interpreted & compiled mode
+        n = 1
+        for errthrow in ("throw(InterruptException())", """
+                         eval(quote  # this forces interpreted mode
+                             throw(InterruptException())
+                         end)""")
+            n += 1
+            open(fn, "w") do io
+                println(io, """
+                module RevisionInterrupt
+                $errthrow
+                f(x) = $n
+                end
+                """)
             end
-            """)
-        end
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        check_revision_interrupt(logs)
-        # This method gets deleted because it's redefined to f(x) = 2,
-        # but the error prevents it from getting that far.
-        # @test RevisionInterrupt.f(0) == 1
-        # Check that InterruptException triggers a retry (issue #418)
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        check_revision_interrupt(logs)
-        # @test RevisionInterrupt.f(0) == 1
-        open(fn, "w") do io
-            println(io, """
-            module RevisionInterrupt
-            f(x) = 2
+            logs, _ = Test.collect_test_logs() do
+                yry()
             end
-            """)
+            check_revision_interrupt(logs)
+            # This method gets deleted because it's redefined to f(x) = 2,
+            # but the error prevents it from getting that far.
+            # @test RevisionInterrupt.f(0) == 1
+            # Check that InterruptException triggers a retry (issue #418)
+            logs, _ = Test.collect_test_logs() do
+                yry()
+            end
+            check_revision_interrupt(logs)
+            # @test RevisionInterrupt.f(0) == 1
+            open(fn, "w") do io
+                println(io, """
+                module RevisionInterrupt
+                f(x) = $n
+                end
+                """)
+            end
+            logs, _ = Test.collect_test_logs() do
+                yry()
+            end
+            @test isempty(logs)
+            @test RevisionInterrupt.f(0) == n
         end
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        @test isempty(logs)
-        @test RevisionInterrupt.f(0) == 2
-
-        # Compiled mode
-        # Due to selective evaluation we can't check compiled mode via high-level code: it will discover
-        # the method and run this expression in the interpreter.
-        # This requires low-level intervention
-        @test_throws InterruptException Revise.methods_by_execution!(Revise.MethodInfo(), Revise.DocExprs(), Main, :(throw(InterruptException())); mode=:eval)
-        logs, _ = Test.collect_test_logs() do
-            Revise.methods_by_execution!(Revise.MethodInfo(), Revise.DocExprs(), Main, :(throw(ArgumentError("AA"))); mode=:eval)
-        end
-        @test length(logs) == 1
-        @test startswith(logs[1].message, "(compiled mode) evaluation error starting at")
     end
 
     do_test("Modify @enum") && @testset "Modify @enum" begin

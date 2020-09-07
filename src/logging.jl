@@ -42,25 +42,30 @@ end
 
 CoreLogging.catch_exceptions(::ReviseLogger) = false
 
-function Base.show(io::IO, l::LogRecord)
-    print(io, LogRecord)
-    print(io, '(', l.level, ", ", l.message, ", ", l.group, ", ", l.id, ", \"", l.file, "\", ", l.line)
+function Base.show(io::IO, l::LogRecord; verbose::Bool=true)
+    if verbose
+        print(io, LogRecord)
+        print(io, '(', l.level, ", ", l.message, ", ", l.group, ", ", l.id, ", \"", l.file, "\", ", l.line)
+    else
+        printstyled(io, "Revise ", l.message, '\n'; color=Base.error_color())
+    end
     exc = nothing
     if !isempty(l.kwargs)
-        print(io, ", (")
+        verbose && print(io, ", (")
         prefix = ""
         for (kw, val) in l.kwargs
             kw === :exception && (exc = val; continue)
-            print(io, prefix, kw, "=", val)
+            verbose && print(io, prefix, kw, "=", val)
             prefix = ", "
         end
-        print(io, ')')
+        verbose && print(io, ')')
     end
     if exc !== nothing
         ex, bt = exc
         showerror(io, ex, bt; backtrace = bt!==nothing)
+        verbose || println(io)
     end
-    print(io, ')')
+    verbose && println(io, ')')
 end
 
 const _debug_logger = ReviseLogger()

@@ -220,6 +220,36 @@ function pkgfileless((pkgdata1,file1)::Tuple{PkgData,String}, (pkgdata2,file2)::
     return false
 end
 
+"""
+    ReviseEvalException(loc::String, exc::Exception, stacktrace=nothing)
+
+Provide additional location information about `exc`.
+
+When running via the interpreter, the backtraces point to interpreter code rather than the original
+culprit. This makes it possible to use `loc` to provide information about the frame backtrace,
+and even to supply a fake backtrace.
+
+If `stacktrace` is supplied it must be a `Vector{Any}` containing `(::StackFrame, n)` pairs where `n`
+is the recursion count (typically 1).
+"""
+struct ReviseEvalException <: Exception
+    loc::String
+    exc::Exception
+    stacktrace::Union{Nothing,Vector{Any}}
+end
+ReviseEvalException(loc::AbstractString, exc::Exception) = ReviseEvalException(loc, exc, nothing)
+
+function Base.showerror(io::IO, ex::ReviseEvalException; blame_revise::Bool=true)
+    showerror(io, ex.exc)
+    st = ex.stacktrace
+    if st !== nothing
+        Base.show_backtrace(io, st)
+    end
+    if blame_revise
+        println(io, "Revise evaluation error at ", ex.loc)
+    end
+end
+
 struct GitRepoException <: Exception
     filename::String
 end

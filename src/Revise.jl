@@ -355,7 +355,7 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Sym
                         ld = map(pr->linediff(lno, pr[1]), locdefs)
                         idx = argmin(ld)
                         if ld[idx] === typemax(eltype(ld))
-                            println("Missing linediff for $lno and $(first.(locdefs)) with ", rex.ex)
+                            # println("Missing linediff for $lno and $(first.(locdefs)) with ", rex.ex)
                             idx = length(locdefs)
                         end
                         methloc, methdef = locdefs[idx]
@@ -677,10 +677,18 @@ Errors are automatically reported the first time they are encountered, but this 
 can be used to report errors again.
 """
 function errors(revision_errors=keys(queue_errors))
-    for (pkgdata, file) in revision_errors
+    printed = Set{eltype(revision_errors)}()
+    for item in revision_errors
+        item in printed && continue
+        push!(printed, item)
+        pkgdata, file = item
         (err, bt) = queue_errors[(pkgdata, file)]
         fullpath = joinpath(basedir(pkgdata), file)
-        @error "Failed to revise $fullpath" exception=(err, trim_toplevel!(bt))
+        if err isa ReviseEvalException
+            @error "Failed to revise $fullpath" exception=err
+        else
+            @error "Failed to revise $fullpath" exception=(err, trim_toplevel!(bt))
+        end
     end
 end
 
@@ -744,8 +752,10 @@ function revise(; throw=false)
                 println(io, "  ", joinpath(basedir(pkgdata), file))
             end
             str = String(take!(io))
-            @warn """Due to a previously reported error, the running code does not match saved version for the following files:$str
-            Use Revise.errors() to report errors again. Your prompt color may be yellow until the errors are resolved."""
+            @warn """The running code does not match the saved version for the following files:$str
+            If the error was due to evaluation order, it can sometimes be resolved by calling `revise()` manually.
+            Use Revise.errors() to report errors again. Only the first error in each file is shown.
+            Your prompt color may be yellow until the errors are resolved."""
             maybe_set_prompt_color(:warn)
         end
     else
@@ -878,11 +888,23 @@ function includet(mod::Module, file::AbstractString)
     tls[:SOURCE_PATH] = file
     try
         track(mod, file; mode=:includet, skip_include=false)
-    finally
         if prev === nothing
             delete!(tls, :SOURCE_PATH)
         else
             tls[:SOURCE_PATH] = prev
+        end
+    catch err
+        if prev === nothing
+            delete!(tls, :SOURCE_PATH)
+        else
+            tls[:SOURCE_PATH] = prev
+        end
+        if isa(err, ReviseEvalException)
+            printstyled(stderr, "ERROR: "; color=Base.error_color());
+            showerror(stderr, err; blame_revise=false)
+            println(stderr, "\nin expression starting at ", err.loc)
+        else
+            throw(err)
         end
     end
     return nothing
