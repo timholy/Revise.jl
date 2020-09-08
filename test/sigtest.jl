@@ -92,12 +92,13 @@ module Lowering end
 end
 
 for lib in Revise.stdlib_names
-    lib === :OldPkg && continue
+    (lib === :OldPkg || lib === :TOML) && continue   # in `Pkg.test` mode, TOML throws a weird error upon `using TOML`
     @eval using $lib
 end
 basefiles = Set{String}()
 @time for (i, (mod, file)) in enumerate(Base._included_files)
     endswith(file, "sysimg.jl") && continue
+    endswith(file, "TOML.jl") && continue
     file = Revise.fixpath(file)
     push!(basefiles, reljpath(file))
     mexs = Revise.parse_source(file, mod)
