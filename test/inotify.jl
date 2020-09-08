@@ -3,7 +3,7 @@ using Revise, Test
 
 @testset "inotify" begin
     logs, _ = Test.collect_test_logs() do
-        Revise.track("common.jl")
+        Revise.track("revisetest.jl")
     end
     sleep(0.1)
     @test !isempty(logs)

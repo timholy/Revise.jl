@@ -1528,7 +1528,7 @@ foo(y::Int) = y-51
         catch err
             stacktrace(catch_backtrace())
         end
-        targetstr = filename * ":3"
+        targetstr = basename(filename * ":3")
         Base.show_backtrace(io, st)
         @test occursin(targetstr, String(take!(io)))
         # Long stacktraces take a different path, test this too
@@ -1540,7 +1540,7 @@ foo(y::Int) = y-51
         if isdefined(Base, :methodloc_callback)
             print(io, methods(triggered))
             mline = line_is_decl ? 2 : 3
-            @test occursin(filename * ":$mline", String(take!(io)))
+            @test occursin(basename(filename * ":$mline"), String(take!(io)))
         end
 
         push!(to_remove, filename)

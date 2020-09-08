@@ -28,18 +28,13 @@ script:
     # We also need to pick up the Git tests, but for that we need to `dev` the package
     - julia --code-coverage=user -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); include(joinpath("test", "runtests.jl"))' "Git"
     # Running out of inotify storage (see #26)
-    - if [ "$TRAVIS_OS_NAME" = "linux" ]; then echo 4 | sudo tee -a /proc/sys/fs/inotify/max_user_watches; julia --project --code-coverage=user -e 'using Pkg, Revise; cd(joinpath(dirname(pathof(Revise)), "..", "test")); include("inotify.jl")'; fi
+    # - if [ "$TRAVIS_OS_NAME" = "linux" ]; then echo 4 | sudo tee -a /proc/sys/fs/inotify/max_user_watches; julia --project --code-coverage=user -e 'using Pkg, Revise; cd(joinpath(dirname(pathof(Revise)), "..", "test")); include("inotify.jl")'; fi
 
 after_success:
   - julia -e 'import Pkg; Pkg.add("Coverage"); using Coverage; Codecov.submit(Codecov.process_folder())'
 
 jobs:
   # OSX workers are in short supply, so test fewer versions
-  exclude:
-    - os: osx
-      julia: 1.1
-    - os: osx
-      julia: 1.3
   include:
     - stage: "Documentation"
       julia: 1.0
