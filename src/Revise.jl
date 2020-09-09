@@ -736,6 +736,7 @@ function revise(; throw=false)
                 if isdefined(mod, :__revise_mode__)
                     mode = getfield(mod, :__revise_mode__)::Symbol
                 end
+                mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
                 exsold = get(fi.modexsigs, mod, empty_exs_sigs)
                 for rex in keys(exsnew)
                     sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
