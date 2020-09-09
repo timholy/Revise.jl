@@ -110,7 +110,7 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
         return add_definitions_from_repl(file)
     end
     fi = fileinfo(pkgdata, file)
-    if isempty(fi.modexsigs) && !isempty(fi.cachefile)
+    if isempty(fi.modexsigs) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
         # Source was never parsed, get it from the precompile cache
         src = read_from_cache(pkgdata, file)
         filep = joinpath(basedir(pkgdata), file)
@@ -119,6 +119,14 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
         if parse_source!(fi.modexsigs, src, filec, topmod) === nothing
             @error "failed to parse cache file source text for $file"
         end
+        for (mod, rex) in fi.cacheexprs
+            exsigs = get(fi.modexsigs, mod, nothing)
+            if exsigs === nothing
+                fi.modexsigs[mod] = exsigs = ExprsSigs()
+            end
+            pushex!(exsigs, rex)
+        end
+        empty!(fi.cacheexprs)
         instantiate_sigs!(fi.modexsigs)
     end
     return fi
@@ -152,7 +160,7 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file, includes)
     end
 end
 
-function add_require(sourcefile, modcaller, idmod, modname, expr)
+function add_require(sourcefile::String, modcaller::Module, idmod::String, modname::String, expr::Expr)
     expr isa Expr || return
     arthunk = TaskThunk(_add_require, (sourcefile, modcaller, idmod, modname, expr))
     schedule(Task(arthunk))
@@ -187,29 +195,61 @@ function _add_require(sourcefile, modcaller, idmod, modname, expr)
         expr = Expr(:block, copy(expr))
         push!(expr.args, :(__pkguuid__ = $idmod))
         # Add the expression to the fileinfo
-        exsnew = ExprsSigs()
-        exsnew[expr] = nothing
-        mexsnew = ModuleExprsSigs(modcaller=>exsnew)
-        # Before executing the expression we need to set the load path appropriately
-        prev = Base.source_path(nothing)
-        tls = task_local_storage()
-        tls[:SOURCE_PATH] = sourcefile
-        # Now execute the expression
-        mexsnew, includes = try
-            eval_new!(mexsnew, fi.modexsigs)
-        finally
-            if prev === nothing
-                delete!(tls, :SOURCE_PATH)
-            else
-                tls[:SOURCE_PATH] = prev
-            end
+        if isempty(fi.modexsigs) && !has_include(expr)
+            push!(fi.cacheexprs, (modcaller, expr))
+        else
+            Base.invokelatest(eval_require_now, pkgdata, fileidx, filekey, sourcefile, modcaller, expr)
         end
-        # Add any new methods or `include`d files to tracked objects
-        pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
-        maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes)
     finally
         unlock(requires_lock)
     end
+end
+
+# Scan for `include` statements without paying a big compile-time cost
+function has_include(expr::Expr)
+    if expr.head === :call
+        if length(expr.args) >= 1
+            if expr.args[1] === :include
+                return true
+            end
+        end
+        # Any eval statement is suspicious
+        callee = expr.args[1]
+        if callee === :eval || (isa(callee, Expr) && callee.head === :. && is_quotenode_egal(callee.args[2], :eval))
+            return false
+        end
+    end
+    expr.head === :macrocall && expr.args[1] === Symbol("@eval") && return true
+    for a in expr.args
+        a isa Expr || continue
+        has_include(a) && return true
+    end
+    return false
+end
+
+function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourcefile::String, modcaller::Module, expr::Expr)
+    fi = pkgdata.fileinfos[fileidx]
+    exsnew = ExprsSigs()
+    exsnew[expr] = nothing
+    mexsnew = ModuleExprsSigs(modcaller=>exsnew)
+    # Before executing the expression we need to set the load path appropriately
+    prev = Base.source_path(nothing)
+    tls = task_local_storage()
+    tls[:SOURCE_PATH] = sourcefile
+    # Now execute the expression
+    mexsnew, includes = try
+        eval_new!(mexsnew, fi.modexsigs)
+    finally
+        if prev === nothing
+            delete!(tls, :SOURCE_PATH)
+        else
+            tls[:SOURCE_PATH] = prev
+        end
+    end
+    # Add any new methods or `include`d files to tracked objects
+    pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
+    ret = maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes)
+    return ret
 end
 
 function watch_files_via_dir(dirname)

@@ -60,19 +60,7 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
         if exprs_sigs === nothing
             mod_exprs_sigs[mod] = exprs_sigs = ExprsSigs()
         end
-        uex = unwrap(ex)
-        if is_doc_expr(uex)
-            body = uex.args[4]
-            if isa(body, Expr) && body.head !== :call   # don't trigger for docexprs like `"docstr" f(x::Int)`
-                exprs_sigs[body] = nothing
-            end
-            if length(uex.args) < 5
-                push!(uex.args, false)
-            else
-                uex.args[5] = false
-            end
-        end
-        exprs_sigs[ex] = nothing
+        pushex!(exprs_sigs, ex)
     end
     return mod_exprs_sigs
 end

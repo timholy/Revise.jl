@@ -96,8 +96,9 @@ Source cache files greatly reduce the overhead of using Revise.
 struct FileInfo
     modexsigs::ModuleExprsSigs
     cachefile::String
+    cacheexprs::Vector{Tuple{Module,RelocatableExpr}}  # "unprocessed" exprs, used to support @require
 end
-FileInfo(fm::ModuleExprsSigs) = FileInfo(fm, "")
+FileInfo(fm::ModuleExprsSigs, cachefile="") = FileInfo(fm, cachefile, Tuple{Module,RelocatableExpr}[])
 
 """
     FileInfo(mod::Module, cachefile="")

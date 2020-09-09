@@ -90,6 +90,23 @@ istrivial(a) = a === nothing || isa(a, LineNumberNode)
 
 isgoto(stmt) = isa(stmt, Core.GotoNode) | isexpr(stmt, :gotoifnot)
 
+function pushex!(exsigs::ExprsSigs, ex)
+    uex = unwrap(ex)
+    if is_doc_expr(uex)
+        body = uex.args[4]
+        if isa(body, Expr) && body.head !== :call   # don't trigger for docexprs like `"docstr" f(x::Int)`
+            exsigs[body] = nothing
+        end
+        if length(uex.args) < 5
+            push!(uex.args, false)
+        else
+            uex.args[5] = false
+        end
+    end
+    exsigs[ex] = nothing
+    return exsigs
+end
+
 ## WatchList utilities
 function systime()
     # It's important to use the same clock used by the filesystem
