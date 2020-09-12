@@ -1266,7 +1266,7 @@ function init_worker(p)
 end
 
 function __init__()
-    run_on_worker = get(ENV, "JULIA_REVISE_ON_WORKER", "0")
+    run_on_worker = get(ENV, "JULIA_REVISE_WORKER_ONLY", "0")
     if !(myid() == 1 || run_on_worker == "1")
         return nothing
     end

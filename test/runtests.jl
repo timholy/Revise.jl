@@ -2373,7 +2373,7 @@ end
         # https://github.com/timholy/Revise.jl/pull/527
         favorite_proc, boring_proc = addprocs(2)
 
-        Distributed.remotecall_eval(Main, [favorite_proc, boring_proc], :(ENV["JULIA_REVISE_ON_WORKER"] = "1"))
+        Distributed.remotecall_eval(Main, [favorite_proc, boring_proc], :(ENV["JULIA_REVISE_WORKER_ONLY"] = "1"))
 
         dirname = randtmp()
         mkdir(dirname)
