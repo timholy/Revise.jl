@@ -20,8 +20,6 @@ const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Any}}}
 const DepDictVals = Tuple{Module,RelocatableExpr}
 const DepDict = Dict{Symbol,Set{DepDictVals}}
 
-Base.setindex!(ex_sigs::ExprsSigs, val, ex::Expr) = setindex!(ex_sigs, val, RelocatableExpr(ex))
-
 function Base.show(io::IO, exsigs::ExprsSigs)
     compact = get(io, :compact, false)
     if compact
@@ -96,10 +94,10 @@ Source cache files greatly reduce the overhead of using Revise.
 struct FileInfo
     modexsigs::ModuleExprsSigs
     cachefile::String
-    cacheexprs::Vector{Tuple{Module,RelocatableExpr}}  # "unprocessed" exprs, used to support @require
+    cacheexprs::Vector{Tuple{Module,Expr}}             # "unprocessed" exprs, used to support @require
     extracted::Base.RefValue{Bool}                     # true if signatures have been processed from modexsigs
 end
-FileInfo(fm::ModuleExprsSigs, cachefile="") = FileInfo(fm, cachefile, Tuple{Module,RelocatableExpr}[], Ref(false))
+FileInfo(fm::ModuleExprsSigs, cachefile="") = FileInfo(fm, cachefile, Tuple{Module,Expr}[], Ref(false))
 
 """
     FileInfo(mod::Module, cachefile="")

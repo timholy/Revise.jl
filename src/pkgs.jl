@@ -124,14 +124,19 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
         if parse_source!(fi.modexsigs, src, filec, topmod) === nothing
             @error "failed to parse cache file source text for $file"
         end
-        for (mod, rex) in fi.cacheexprs
-            exsigs = get(fi.modexsigs, mod, nothing)
-            if exsigs === nothing
-                fi.modexsigs[mod] = exsigs = ExprsSigs()
-            end
-            pushex!(exsigs, rex)
-        end
+        add_modexs!(fi, fi.cacheexprs)
         empty!(fi.cacheexprs)
+    end
+    return fi
+end
+
+function add_modexs!(fi::FileInfo, modexs)
+    for (mod, rex) in modexs
+        exsigs = get(fi.modexsigs, mod, nothing)
+        if exsigs === nothing
+            fi.modexsigs[mod] = exsigs = ExprsSigs()
+        end
+        pushex!(exsigs, rex)
     end
     return fi
 end
@@ -145,7 +150,7 @@ function maybe_extract_sigs!(fi::FileInfo)
 end
 maybe_extract_sigs!(pkgdata::PkgData, file::AbstractString) = maybe_extract_sigs!(fileinfo(pkgdata, file))
 
-function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file, includes)
+function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, includes; eval_now::Bool=false)
     for (mod, inc) in includes
         inc = joinpath(splitdir(file)[1], inc)
         incrp = relpath(inc, pkgdata)
@@ -165,10 +170,14 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file, includes)
             fullfile = joinpath(basedir(pkgdata), incrp)
             if isfile(fullfile)
                 parse_source!(fi.modexsigs, fullfile, mod)
-                instantiate_sigs!(fi.modexsigs; mode=:eval)
+                if eval_now
+                    # Use runtime dispatch to reduce latency
+                    Base.invokelatest(instantiate_sigs!, fi.modexsigs; mode=:eval)
+                end
             end
             # Add to watchlist
             init_watching(pkgdata, (incrp,))
+            yield()
         end
     end
 end
@@ -208,9 +217,27 @@ function _add_require(sourcefile, modcaller, idmod, modname, expr)
         expr = Expr(:block, copy(expr))
         push!(expr.args, :(__pkguuid__ = $idmod))
         # Add the expression to the fileinfo
-        if isempty(fi.modexsigs) && !has_include(expr)
-            push!(fi.cacheexprs, (modcaller, expr))
-        else
+        complex = true     # is this too complex to delay?
+        if !fi.extracted[]
+            # If we haven't yet extracted signatures, do our best to avoid it now in case the
+            # signature-extraction code has not yet been compiled (latency reduction)
+            includes, complex = deferrable_require(expr)
+            if !complex
+                # [(modcaller, inc) for inc in includes] but without precompiling a Generator
+                modincludes = Tuple{Module,String}[]
+                for inc in includes
+                    push!(modincludes, (modcaller, inc))
+                end
+                maybe_add_includes_to_pkgdata!(pkgdata, filekey, modincludes)
+                if isempty(fi.modexsigs)
+                    # Source has not even been parsed
+                    push!(fi.cacheexprs, (modcaller, expr))
+                else
+                    add_modexs!(fi, [(modcaller, expr)])
+                end
+            end
+        end
+        if complex
             Base.invokelatest(eval_require_now, pkgdata, fileidx, filekey, sourcefile, modcaller, expr)
         end
     finally
@@ -218,24 +245,29 @@ function _add_require(sourcefile, modcaller, idmod, modname, expr)
     end
 end
 
-# Scan for `include` statements without paying a big compile-time cost
-function has_include(expr::Expr)
+function deferrable_require(expr)
+    includes = String[]
+    complex = deferrable_require!(includes, expr)
+    return includes, complex
+end
+function deferrable_require!(includes, expr::Expr)
     if expr.head === :call
-        if length(expr.args) >= 1
-            if expr.args[1] === :include
+        callee = expr.args[1]
+        if callee === :include
+            if isa(expr.args[2], AbstractString)
+                push!(includes, expr.args[2])
+            else
                 return true
             end
-        end
-        # Any eval statement is suspicious
-        callee = expr.args[1]
-        if callee === :eval || (isa(callee, Expr) && callee.head === :. && is_quotenode_egal(callee.args[2], :eval))
+        elseif callee === :eval || (isa(callee, Expr) && callee.head === :. && is_quotenode_egal(callee.args[2], :eval))
+            # Any eval statement is suspicious and requires immediate action
             return false
         end
     end
     expr.head === :macrocall && expr.args[1] === Symbol("@eval") && return true
     for a in expr.args
         a isa Expr || continue
-        has_include(a) && return true
+        deferrable_require!(includes, a) && return true
     end
     return false
 end
@@ -261,7 +293,7 @@ function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourc
     end
     # Add any new methods or `include`d files to tracked objects
     pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
-    ret = maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes)
+    ret = maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes; eval_now=true)
     return ret
 end
 
@@ -333,9 +365,13 @@ end
 end
 
 function has_writable_paths(pkgdata::PkgData)
+    dir = basedir(pkgdata)
+    isdir(dir) || return true
     haswritable = false
-    for file in srcfiles(pkgdata)
-        haswritable |= iswritable(joinpath(basedir(pkgdata), file))
+    cd(dir) do
+        for file in srcfiles(pkgdata)
+            haswritable |= iswritable(file)
+        end
     end
     return haswritable
 end

@@ -44,7 +44,6 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
         ln = count(isequal('\n'), SubString(src, 1, min(pos, length(src)))) + 1
         throw(LoadError(filename, ln, ex.args[1]))
     end
-    modexs, docexprs = Tuple{Module,Expr}[], DocExprs()
     for (mod, ex) in ExprSplitter(mod, ex)
         if mode === :includet
             try

@@ -20,6 +20,7 @@ end
 const ExLike = Union{Expr,RelocatableExpr}
 
 Base.convert(::Type{Expr}, rex::RelocatableExpr) = rex.ex
+Base.convert(::Type{RelocatableExpr}, ex::Expr) = RelocatableExpr(ex)
 # Expr(rex::RelocatableExpr) = rex.ex   # too costly (inference invalidation)
 
 Base.copy(rex::RelocatableExpr) = RelocatableExpr(copy(rex.ex))

@@ -199,7 +199,7 @@ k(x) = 4
             end
         end
         mexs = Revise.ModuleExprsSigs(ReviseTestPrivate)
-        mexs[ReviseTestPrivate][ex] = nothing
+        mexs[ReviseTestPrivate][Revise.RelocatableExpr(ex)] = nothing
         logs, _ = Test.collect_test_logs() do
             Revise.instantiate_sigs!(mexs; mode=:eval)
         end

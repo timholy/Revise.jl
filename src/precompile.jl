@@ -24,6 +24,7 @@ function _precompile_()
     @assert precompile(Tuple{typeof(setindex!), ExprsSigs, Vector{Any}, RelocatableExpr})
     @assert precompile(Tuple{typeof(setindex!), ModuleExprsSigs, ExprsSigs, Module})
     @assert precompile(Tuple{typeof(setindex!), Dict{PkgId,PkgData}, PkgData, PkgId})
+    @assert precompile(Tuple{Type{WatchList}})
     @assert precompile(Tuple{typeof(setindex!), Dict{String,WatchList}, WatchList, String})
 
     MI = CodeTrackingMethodInfo
@@ -62,6 +63,7 @@ function _precompile_()
     end
     @assert precompile(Tuple{typeof(pkg_fileinfo), PkgId})
     @assert precompile(Tuple{typeof(push!), WatchList, Pair{String,PkgId}})
+    @assert precompile(Tuple{typeof(pushex!), ExprsSigs, Expr})
     @assert precompile(Tuple{Type{ModuleExprsSigs}, Module})
     @assert precompile(Tuple{Type{FileInfo}, Module, String})
     @assert precompile(Tuple{Type{PkgData}, PkgId})
