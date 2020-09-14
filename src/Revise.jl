@@ -633,6 +633,7 @@ end
 # Because we delete first, we have to make sure we've parsed the file
 function handle_deletions(pkgdata, file)
     fi = maybe_parse_from_cache!(pkgdata, file)
+    maybe_extract_sigs!(fi)
     mexsold = fi.modexsigs
     filep = normpath(joinpath(basedir(pkgdata), file))
     topmod = first(keys(mexsold))
@@ -1015,7 +1016,7 @@ function get_def(method::Method; modified_files=revision_queue)
 end
 
 function get_def(method, pkgdata, filename)
-    maybe_parse_from_cache!(pkgdata, filename)
+    maybe_extract_sigs!(maybe_parse_from_cache!(pkgdata, filename))
     return get(CodeTracking.method_info, method.sig, nothing)
 end
 
@@ -1039,8 +1040,8 @@ get_tracked_id(mod::Module; modified_files=revision_queue) =
 function get_expressions(id::PkgId, filename)
     get_tracked_id(id)
     pkgdata = pkgdatas[id]
-    maybe_parse_from_cache!(pkgdata, filename)
-    fi = fileinfo(pkgdata, filename)
+    fi = maybe_parse_from_cache!(pkgdata, filename)
+    maybe_extract_sigs!(fi)
     return fi.modexsigs
 end
 

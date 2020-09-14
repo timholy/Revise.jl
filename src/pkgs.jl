@@ -27,6 +27,12 @@ All files are returned as absolute paths.
 """
 modulefiles(mod::Module)
 
+# This is primarily used to parse non-precompilable packages.
+# These lack a cache header that lists the files that constitute the package;
+# they also lack the source cache, and so have to parsed immediately or
+# we won't be able to compute a diff when a file is modified (we don't have a record
+# of what the source was before the modification).
+#
 # The main trick here is that since `using` is recursive, `included_files`
 # might contain files associated with many different packages. We have to figure
 # out which correspond to a particular module `mod`, which we do by:
@@ -49,7 +55,6 @@ function queue_includes!(pkgdata::PkgData, id::PkgId)
         if startswith(modname, modstring) || endswith(fname, modstring*".jl")
             modexsigs = parse_source(fname, mod)
             if modexsigs !== nothing
-                instantiate_sigs!(modexsigs)
                 fname = relpath(fname, pkgdata)
                 push!(pkgdata, fname=>FileInfo(modexsigs))
             end
@@ -127,10 +132,18 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
             pushex!(exsigs, rex)
         end
         empty!(fi.cacheexprs)
-        instantiate_sigs!(fi.modexsigs)
     end
     return fi
 end
+
+function maybe_extract_sigs!(fi::FileInfo)
+    if !fi.extracted[]
+        instantiate_sigs!(fi.modexsigs)
+        fi.extracted[] = true
+    end
+    return fi
+end
+maybe_extract_sigs!(pkgdata::PkgData, file::AbstractString) = maybe_extract_sigs!(fileinfo(pkgdata, file))
 
 function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file, includes)
     for (mod, inc) in includes
@@ -455,7 +468,7 @@ function watch_manifest(mfile)
                             # Revise code as needed
                             files = String[]
                             for file in srcfiles(pkgdata)
-                                maybe_parse_from_cache!(pkgdata, file)
+                                maybe_extract_sigs!(maybe_parse_from_cache!(pkgdata, file))
                                 push!(revision_queue, (pkgdata, file))
                                 push!(files, file)
                                 notify(revision_event)

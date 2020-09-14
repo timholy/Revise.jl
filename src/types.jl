@@ -97,8 +97,9 @@ struct FileInfo
     modexsigs::ModuleExprsSigs
     cachefile::String
     cacheexprs::Vector{Tuple{Module,RelocatableExpr}}  # "unprocessed" exprs, used to support @require
+    extracted::Base.RefValue{Bool}                     # true if signatures have been processed from modexsigs
 end
-FileInfo(fm::ModuleExprsSigs, cachefile="") = FileInfo(fm, cachefile, Tuple{Module,RelocatableExpr}[])
+FileInfo(fm::ModuleExprsSigs, cachefile="") = FileInfo(fm, cachefile, Tuple{Module,RelocatableExpr}[], Ref(false))
 
 """
     FileInfo(mod::Module, cachefile="")
