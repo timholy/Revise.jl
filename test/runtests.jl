@@ -2368,6 +2368,94 @@ end
         pop!(LOAD_PATH)
     end
 
+
+    do_test("Distributed on worker") && @testset "Distributed on worker" begin
+        # https://github.com/timholy/Revise.jl/pull/527
+        favorite_proc, boring_proc = addprocs(2)
+
+        Distributed.remotecall_eval(Main, [favorite_proc, boring_proc], :(ENV["JULIA_REVISE_WORKER_ONLY"] = "1"))
+
+        dirname = randtmp()
+        mkdir(dirname)
+        push!(to_remove, dirname)
+
+        @everywhere push_LOAD_PATH!(dirname) = push!(LOAD_PATH, dirname)  # Don't want to share this LOAD_PATH
+        remotecall_wait(push_LOAD_PATH!, favorite_proc, dirname)
+        
+        modname = "ReviseDistributedOnWorker"
+        dn = joinpath(dirname, modname, "src")
+        mkpath(dn)
+        
+        s527_old = """
+        module ReviseDistributedOnWorker
+        
+        f() = π
+        g(::Int) = 0
+        
+        end
+        """
+        open(joinpath(dn, modname*".jl"), "w") do io
+            println(io, s527_old)
+        end
+
+        # In the first tests, we only load Revise on our favorite process. The other (boring) process should be unaffected by the upcoming tests.
+        Distributed.remotecall_eval(Main, [favorite_proc], :(using Revise))
+        sleep(mtimedelay)
+        Distributed.remotecall_eval(Main, [favorite_proc], :(using ReviseDistributedOnWorker))
+        sleep(mtimedelay)
+        
+        @test Distributed.remotecall_eval(Main, favorite_proc, :(ReviseDistributedOnWorker.f())) == π
+        @test Distributed.remotecall_eval(Main, favorite_proc, :(ReviseDistributedOnWorker.g(1))) == 0
+        
+        # we only loaded ReviseDistributedOnWorker on our favorite process
+        @test_throws RemoteException Distributed.remotecall_eval(Main, boring_proc, :(ReviseDistributedOnWorker.f()))
+        @test_throws RemoteException Distributed.remotecall_eval(Main, boring_proc, :(ReviseDistributedOnWorker.g(1)))
+
+        s527_new = """
+        module ReviseDistributedOnWorker
+        
+        f() = 3.0
+        
+        end
+        """
+        open(joinpath(dn, modname*".jl"), "w") do io
+            println(io, s527_new)
+        end
+        sleep(mtimedelay)
+        Distributed.remotecall_eval(Main, [favorite_proc], :(Revise.revise()))
+        sleep(mtimedelay)
+
+
+        @test Distributed.remotecall_eval(Main, favorite_proc, :(ReviseDistributedOnWorker.f())) == 3.0
+        @test_throws RemoteException Distributed.remotecall_eval(Main, favorite_proc, :(ReviseDistributedOnWorker.g(1)))
+        
+        @test_throws RemoteException Distributed.remotecall_eval(Main, boring_proc, :(ReviseDistributedOnWorker.f()))
+        @test_throws RemoteException Distributed.remotecall_eval(Main, boring_proc, :(ReviseDistributedOnWorker.g(1)))
+
+        # In the second part, we'll also load Revise on the boring process, which should have no effect.
+        Distributed.remotecall_eval(Main, [boring_proc], :(using Revise))
+
+        open(joinpath(dn, modname*".jl"), "w") do io
+            println(io, s527_old)
+        end
+
+        sleep(mtimedelay)
+        @test !Distributed.remotecall_eval(Main, favorite_proc, :(Revise.revision_queue |> isempty))
+        @test Distributed.remotecall_eval(Main, boring_proc, :(Revise.revision_queue |> isempty))
+
+        Distributed.remotecall_eval(Main, [favorite_proc, boring_proc], :(Revise.revise()))
+        sleep(mtimedelay)
+
+        
+        @test Distributed.remotecall_eval(Main, favorite_proc, :(ReviseDistributedOnWorker.f())) == π
+        @test Distributed.remotecall_eval(Main, favorite_proc, :(ReviseDistributedOnWorker.g(1))) == 0
+        
+        @test_throws RemoteException Distributed.remotecall_eval(Main, boring_proc, :(ReviseDistributedOnWorker.f()))
+        @test_throws RemoteException Distributed.remotecall_eval(Main, boring_proc, :(ReviseDistributedOnWorker.g(1)))
+
+        rmprocs(favorite_proc, boring_proc; waitfor=10)
+    end
+
     do_test("Git") && @testset "Git" begin
         loc = Base.find_package("Revise")
         if occursin("dev", loc)

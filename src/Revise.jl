@@ -440,11 +440,13 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module)
                     if VERSION < v"1.3.0" || !isexpr(thunk, :thunk)
                         thunk = ex
                     end
-                    for p in workers()
-                        p == myid() && continue
-                        try   # don't error if `mod` isn't defined on the worker
-                            remotecall(Core.eval, p, mod, thunk)
-                        catch
+                    if myid() == 1
+                        for p in workers()
+                            p == myid() && continue
+                            try   # don't error if `mod` isn't defined on the worker
+                                remotecall(Core.eval, p, mod, thunk)
+                            catch
+                            end
                         end
                     end
                     storedeps(deps, rex, mod)
@@ -1264,7 +1266,10 @@ function init_worker(p)
 end
 
 function __init__()
-    myid() == 1 || return nothing
+    run_on_worker = get(ENV, "JULIA_REVISE_WORKER_ONLY", "0")
+    if !(myid() == 1 || run_on_worker == "1")
+        return nothing
+    end
     if isfile(silencefile[])
         pkgs = readlines(silencefile[])
         for pkg in pkgs
