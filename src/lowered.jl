@@ -39,7 +39,7 @@ function hastrackedexpr(stmt; heads=LoweredCodeUtils.trackedheads)
             callee_matches(f, Core, :_setsuper!) && return true, haseval
             f === :include && return true, haseval
         elseif stmt.head === :thunk
-            any(s->any(hastrackedexpr(s; heads=heads)), stmt.args[1].code) && return true, haseval
+            any(s->any(hastrackedexpr(s; heads=heads)), (stmt.args[1]::Core.CodeInfo).code) && return true, haseval
         elseif stmt.head ∈ heads
             return true, haseval
         end
