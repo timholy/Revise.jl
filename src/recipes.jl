@@ -189,6 +189,9 @@ const stdlib_names = Set([
 if VERSION >= v"1.6.0-DEV.734"
     push!(stdlib_names, :TOML)
 end
+if VERSION >= v"1.6.0-DEV.903"
+    push!(stdlib_names, :Artifacts)
+end
 
 # This replacement is needed because the path written during compilation differs from
 # the git source path
