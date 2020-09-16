@@ -708,6 +708,18 @@ function errors(revision_errors=keys(queue_errors))
 end
 
 """
+    Revise.retry()
+
+Attempt to perform previously-failed revisions. This can be useful in cases of order-dependent errors.
+"""
+function retry()
+    for (k, v) in queue_errors
+        push!(revision_queue, k)
+    end
+    revise()
+end
+
+"""
     revise(; throw=false)
 
 `eval` any changes in the revision queue. See [`Revise.revision_queue`](@ref).
@@ -785,7 +797,7 @@ function revise(; throw=false)
             end
             str = String(take!(io))
             @warn """The running code does not match the saved version for the following files:$str
-            If the error was due to evaluation order, it can sometimes be resolved by calling `revise()` manually.
+            If the error was due to evaluation order, it can sometimes be resolved by calling `Revise.retry()`.
             Use Revise.errors() to report errors again. Only the first error in each file is shown.
             Your prompt color may be yellow until the errors are resolved."""
             maybe_set_prompt_color(:warn)
