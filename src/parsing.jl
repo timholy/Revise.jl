@@ -59,7 +59,18 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
         if exprs_sigs === nothing
             mod_exprs_sigs[mod] = exprs_sigs = ExprsSigs()
         end
-        pushex!(exprs_sigs, ex)
+        if ex.head === :toplevel
+            lnn = nothing
+            for a in ex.args
+                if isa(a, LineNumberNode)
+                    lnn = a
+                else
+                    pushex!(exprs_sigs, Expr(:block, lnn, a))
+                end
+            end
+        else
+            pushex!(exprs_sigs, ex)
+        end
     end
     return mod_exprs_sigs
 end
