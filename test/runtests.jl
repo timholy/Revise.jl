@@ -967,7 +967,9 @@ end
         @info "The following error messge is expected for this broken test"
         yry()
         @test_broken Order2.f(Order2.Ord2()) == 1
-        empty!(Revise.queue_errors)   # FIXME delete when test isn't broken
+        # Resolve it with retry
+        Revise.retry()
+        @test Order2.f(Order2.Ord2()) == 1
 
         # Cross-module dependencies
         dn3 = joinpath(testdir, "Order3", "src")
