@@ -312,59 +312,63 @@ function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new)
     return mod_exs_sigs_old
 end
 
-function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Symbol=:eval)
-    includes = Vector{Pair{Module,String}}()
+function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
+    sigs, includes = nothing, nothing
     with_logger(_debug_logger) do
-        for rex in keys(exs_sigs_new)
-            rexo = getkey(exs_sigs_old, rex, nothing)
-            # extract the signatures and update the line info
-            local sigs
-            if rexo === nothing
-                ex = rex.ex
-                # ex is not present in old
-                @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
-                # try
-                    sigs, deps, _includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
-                    append!(includes, _includes)
-                    if VERSION < v"1.3.0" || !isexpr(thunk, :thunk)
-                        thunk = ex
-                    end
-                    if myid() == 1
-                        for p in workers()
-                            p == myid() && continue
-                            try   # don't error if `mod` isn't defined on the worker
-                                remotecall(Core.eval, p, mod, thunk)
-                            catch
-                            end
-                        end
-                    end
-                    storedeps(deps, rex, mod)
-                # catch err
-                #     @error "failure to evaluate changes in $mod"
-                #     showerror(stderr, err)
-                #     println_maxsize(stderr, "\n", ex; maxlines=20)
-                # end
-            else
-                sigs = exs_sigs_old[rexo]
-                # Update location info
-                ln, lno = firstline(unwrap(rex)), firstline(unwrap(rexo))
-                if sigs !== nothing && !isempty(sigs) && ln != lno
-                    @debug "LineOffset" _group="Action" time=time() deltainfo=(sigs, lno=>ln)
-                    for sig in sigs
-                        locdefs = CodeTracking.method_info[sig]
-                        ld = map(pr->linediff(lno, pr[1]), locdefs)
-                        idx = argmin(ld)
-                        if ld[idx] === typemax(eltype(ld))
-                            # println("Missing linediff for $lno and $(first.(locdefs)) with ", rex.ex)
-                            idx = length(locdefs)
-                        end
-                        methloc, methdef = locdefs[idx]
-                        locdefs[idx] = (newloc(methloc, ln, lno), methdef)
+        rexo = getkey(exs_sigs_old, rex, nothing)
+        # extract the signatures and update the line info
+        if rexo === nothing
+            ex = rex.ex
+            # ex is not present in old
+            @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
+            sigs, deps, includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
+            if VERSION < v"1.3.0" || !isexpr(thunk, :thunk)
+                thunk = ex
+            end
+            if myid() == 1
+                for p in workers()
+                    p == myid() && continue
+                    try   # don't error if `mod` isn't defined on the worker
+                        remotecall(Core.eval, p, mod, thunk)
+                    catch
                     end
                 end
             end
-            # @show rex rexo sigs
+            storedeps(deps, rex, mod)
+        else
+            sigs = exs_sigs_old[rexo]
+            # Update location info
+            ln, lno = firstline(unwrap(rex)), firstline(unwrap(rexo))
+            if sigs !== nothing && !isempty(sigs) && ln != lno
+                @debug "LineOffset" _group="Action" time=time() deltainfo=(sigs, lno=>ln)
+                for sig in sigs
+                    locdefs = CodeTracking.method_info[sig]
+                    ld = map(pr->linediff(lno, pr[1]), locdefs)
+                    idx = argmin(ld)
+                    if ld[idx] === typemax(eltype(ld))
+                        # println("Missing linediff for $lno and $(first.(locdefs)) with ", rex.ex)
+                        idx = length(locdefs)
+                    end
+                    methloc, methdef = locdefs[idx]
+                    locdefs[idx] = (newloc(methloc, ln, lno), methdef)
+                end
+            end
+        end
+    end
+    return sigs, includes
+end
+
+# These are typically bypassed in favor of expression-by-expression evaluation to
+# allow handling of new `include` statements.
+function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Symbol=:eval)
+    includes = Vector{Pair{Module,String}}()
+    for rex in keys(exs_sigs_new)
+        sigs, _includes = eval_rex(rex, exs_sigs_old, mod; mode=mode)
+        if sigs !== nothing
             exs_sigs_new[rex] = sigs
+        end
+        if _includes !== nothing
+            append!(includes, _includes)
         end
     end
     return exs_sigs_new, includes
@@ -722,14 +726,29 @@ function revise(; throw=false)
     end
     # Do the evaluation
     for ((pkgdata, file), mexsnew) in zip(finished, mexsnews)
-        mode = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
+        defaultmode = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
         i = fileindex(pkgdata, file)
         fi = fileinfo(pkgdata, i)
         try
-            _, includes = eval_new!(mexsnew, fi.modexsigs; mode=mode)
+            for (mod, exsnew) in mexsnew
+                mode = defaultmode
+                # Allow packages to override the supplied mode
+                if isdefined(mod, :__revise_mode__)
+                    mode = getfield(mod, :__revise_mode__)::Symbol
+                end
+                exsold = get(fi.modexsigs, mod, empty_exs_sigs)
+                for rex in keys(exsnew)
+                    sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
+                    if sigs !== nothing
+                        exsnew[rex] = sigs
+                    end
+                    if includes !== nothing
+                        maybe_add_includes_to_pkgdata!(pkgdata, file, includes)
+                    end
+                end
+            end
             pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
             delete!(queue_errors, (pkgdata, file))
-            maybe_add_includes_to_pkgdata!(pkgdata, file, includes)
         catch err
             interrupt |= isa(err, InterruptException)
             push!(revision_errors, (pkgdata, file))
