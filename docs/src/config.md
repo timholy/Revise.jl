@@ -3,11 +3,11 @@
 ## Using Revise by default
 
 If you like Revise, you can ensure that every Julia session uses it by
-launching it from your `.julia/config/startup.jl` file.
+launching it from your `~/.julia/config/startup.jl` file.
 
-### Revise 2.6+ and Julia 1.5+
+### Julia 1.5 and higher
 
-If you're using at least version 2.6 of Revise *and* version 1.5 or higher of Julia, this can be as simple as adding
+If you're using at least Julia 1.5, this can be as simple as adding
 
 ```julia
 using Revise
@@ -15,7 +15,7 @@ using Revise
 
 to your `startup.jl`.
 
-If you use different package depots and do not always have Revise available,
+If you use different package environments and do not always have Revise available,
 
 ```julia
 try
@@ -27,7 +27,7 @@ end
 
 is recommended instead.
 
-### Earlier versions of Revise and/or Julia
+### Earlier Julia versions
 
 If you sometimes use versions of Julia prior to 1.5, instead of the above add
 
@@ -56,24 +56,23 @@ catch e
 end
 ```
 
-## Optional package-specific configuration
+## Configuring the revise mode
 
-In packages, by default Revise will re-evaluate every changed expression.
-However, in packages that process a lot of "data" at toplevel, this is
-unlikely to be desirable. You can set the *mode* by defining a
-variable `__revise_mode__` in your package. The default setting corresponds to
+By default, in packages all changes are tracked, but with `includet` only method definitions are tracked.
+This behavior can be overridden by defining a variable `__revise_mode__` in the module(s) containing
+your methods and/or data. `__revise_mode__` must be a `Symbol` taking one of the following values:
 
-```
-const __revise_mode__ = :eval
-```
-
-(which re-evaluates everything) but you have other options:
-
-- `:evalmeth` will only evaluate those statements needed to redefine methods.
+- `:eval`: evaluate everything (the default for packages)
+- `:evalmeth`: evaluate changes to method definitions (the default for `includet`)
   This should work even for quite complicated method definitions, such as those that might
-  be made within an `@eval` block.
-- `:evalassign` additionally evaluates assignment statements. A top-level expression
+  be made within a `for`-loop and `@eval` block.
+- `:evalassign`: evaluate method definitions and assignment statements. A top-level expression
   `a = Int[]` would be evaluated, but `push!(a, 1)` would not because the latter is not an assignment.
+- `:sigs`: do not implement any changes, only scan method definitions for their signatures so that
+  their location can be updated as changes to the file(s) are made.
+
+If you're using `includet` from the REPL, you can enter `__revise_mode__ = :eval` to set
+it throughout `Main`. `__revise_mode__` can be set independently in each module.
 
 ## Optional global configuration
 
@@ -85,7 +84,7 @@ There are several ways to set these environment variables:
 
 - If you are [Using Revise by default](@ref) then you can include statements like
   `ENV["JULIA_REVISE"] = "manual"` in your `.julia/config/startup.jl` file prior to
-  the line `@eval using Revise`.
+  the line containing `using Revise`.
 - On Unix systems, you can set variables in your shell initialization script
   (e.g., put lines like `export JULIA_REVISE=manual` in your
   [`.bashrc` file](http://www.linuxfromscratch.org/blfs/view/svn/postlfs/profile.html)
@@ -103,9 +102,6 @@ However, there might be times where you'd prefer to exert manual control over
 the timing of revisions. `Revise` looks for an environment variable
 `JULIA_REVISE`, and if it is set to anything other than `"auto"` it
 will require that you manually call `revise()` to update code.
-
-Alternatively, you can omit the call to `Revise.async_steal_repl_backend()` from your
-`startup.jl` file (see [Using Revise by default](@ref)).
 
 ### User scripts: JULIA\_REVISE\_INCLUDE
 
@@ -169,3 +165,4 @@ string `"1"` (e.g., `JULIA_REVISE_POLL=1` in a bash script).
 !!! note
     NFS stands for [Network File System](https://en.wikipedia.org/wiki/Network_File_System) and is typically only used to mount shared network drives on *Unix* file systems.
     Despite similarities in the acronym, NTFS, the standard [filesystem on Windows](https://en.wikipedia.org/wiki/NTFS), is completely different from NFS; Revise's default configuration should work fine on Windows without polling.
+    However, WSL2 users currently need polling due to [this bug](https://github.com/JuliaLang/julia/issues/37029).

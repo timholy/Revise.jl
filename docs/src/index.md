@@ -14,9 +14,10 @@ debugger displays the source code of what you're actually debugging.
 
 !!! note "Automatically loading Revise"
 
-    Many users automatically load Revise on startup. This is slightly more involved
-    than just adding `using Revise` to `.julia/config/startup.jl`: see [Using Revise
-    by default](@ref) for details.
+    Many users automatically load Revise on startup.
+    On versions of Julia older than 1.5, this is slightly more involved
+    than just adding `using Revise` to `.julia/config/startup.jl`: see
+    [Using Revise by default](@ref) for details.
 
 ## Installation
 
@@ -30,10 +31,17 @@ or with `using Pkg; Pkg.add("Revise")`.
 
 ## Usage example
 
+We'll make changes to Julia's "Example" package (a trivial package designed to
+illustrate the file and directory organization of typical packages).
+We have to "develop" it in order to make changes:
+
 ```julia
 (v1.0) pkg> dev Example
 [...output related to installation...]
 
+```
+Now we load Revise (if we haven't already done so) and Example:
+```julia
 julia> using Revise        # importantly, this must come before `using Example`
 
 julia> using Example
@@ -42,14 +50,14 @@ julia> hello("world")
 "Hello, world"
 ```
 
-Now we're going to test that the `Example` module lacks a function named `f`:
+Now we're going to check that the `Example` module currently lacks a function named `f`:
 
 ```julia
 julia> Example.f()
 ERROR: UndefVarError: f not defined
 ```
 
-But we really want `f`, so let's add it.
+But say we really want `f`, so let's add it.
 You can either navigate to the source code (at `.julia/dev/Example/src/Example.jl`)
 in an editor manually, or you can use Julia to open it for you:
 
@@ -65,7 +73,10 @@ julia> Example.f()
 π = 3.1415926535897...
 ```
 
-Now suppose we realize we've made a horrible mistake: that `f` method will ruin everything.
+Voila! Even though we'd loaded Example before adding this function,
+Revise noticed the change and inserted it into our running session.
+
+Now suppose we realize we've made a horrible mistake: that `f` method will mess up everything, because it's part of a more complicated dispatch process and incorrectly intercepts certain `f` calls.
 No problem, just delete `f` in your editor, save the file, and you're back to this:
 
 ```julia
@@ -74,6 +85,8 @@ ERROR: UndefVarError: f not defined
 ```
 
 all without restarting Julia.
+While you can evalued *new* methods without Revise using [inline evaluation](https://www.julia-vscode.org/docs/stable/userguide/runningcode/#Julia:-Execute-Code-Block-(AltEnter)-1) through your IDE,
+method *deletion* is just one example of a change that can only be made easily by Revise.
 
 If you need more examples, see [Revise usage: a cookbook](@ref).
 
@@ -97,17 +110,17 @@ julia> Example.f()
 ```
 
 Revise is not tied to any particular editor.
-(The [EDITOR or JULIA_EDITOR](https://docs.julialang.org/en/latest/stdlib/InteractiveUtils/#InteractiveUtils.edit-Tuple{AbstractString,Integer}) environment variables can be used to specify your preference for which editor gets launched by Julia's `edit` function.)
+(The [EDITOR or JULIA_EDITOR](https://docs.julialang.org/en/v1/stdlib/InteractiveUtils/#InteractiveUtils.edit-Tuple{AbstractString,Integer}) environment variables can be used to specify your preference for which editor gets launched by Julia's `edit` function.)
 
 If you don't want to have to remember to say `using Revise` each time you start
 Julia, see [Using Revise by default](@ref).
 
 ## What Revise can track
 
-Revise is fairly ambitious: if all is working you should be able to track changes to
+Revise is fairly ambitious: if all is working, subject to a few [Limitations](@ref) you should be able to track changes to
 
 - any package that you load with `import` or `using`
-- any script you load with [`includet`](@ref)
+- any script you load with [`includet`](@ref) (see [Configuring the revise mode](@ref) for important default restrictions on `includet`)
 - any file defining `Base` julia itself (with `Revise.track(Base)`)
 - any of Julia's standard libraries (with, e.g., `using Unicode; Revise.track(Unicode)`)
 - any file defining `Core.Compiler` (with `Revise.track(Core.Compiler)`)
@@ -180,7 +193,7 @@ particularly relevant for them.
 If Revise isn't working for you, here are some steps to try:
 
 - See [Configuration](@ref) for information on customization options.
-  In particular, some file systems (like NFS) might require special options.
+  In particular, some file systems (like [NFS](https://en.wikipedia.org/wiki/Network_File_System)) and current users of [WSL2](https://devblogs.microsoft.com/commandline/announcing-wsl-2/) might require special options.
 - Revise can't handle all kinds of code changes; for more information,
   see the section on [Limitations](@ref).
 - Try running `test Revise` from the Pkg REPL-mode.

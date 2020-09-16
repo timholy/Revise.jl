@@ -28,7 +28,7 @@ Both options are described below.
     this approach might require you to do some configuration.
     (Once you get things set up, you shouldn't have to do this part ever again.)
     PkgTemplates needs you to configure your `git` user name and email.
-    Some instructions on configuration are [here](https://help.github.com/en/github/getting-started-with-github/set-up-git)
+    Some instructions on configuration are [here](https://docs.github.com/en/github/getting-started-with-github/set-up-git)
     and [here](https://git-scm.com/book/en/v2/Getting-Started-First-Time-Git-Setup).
     It's also helpful to sign up for a [GitHub account](https://github.com/)
     and set git's `github.user` variable.
@@ -173,7 +173,7 @@ control.
 ## `includet` usage
 
 The alternative to creating packages is to manually load individual source files.
-This approach is intended for quick-and-dirty development;
+This approach is intended for early stages of development;
 if you want to track multiple files and/or have some files include other files,
 you should consider switching to the package style above.
 

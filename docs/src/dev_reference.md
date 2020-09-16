@@ -45,13 +45,12 @@ Revise.user_callbacks_by_key
 
 ```@docs
 Revise.RelocatableExpr
-Revise.BackEdges
 Revise.ModuleExprsSigs
 Revise.FileInfo
 Revise.PkgData
 Revise.WatchList
-Revise.SlotDep
 Revise.TaskThunk
+Revise.ReviseEvalException
 MethodSummary
 ```
 
@@ -121,7 +120,9 @@ Much of the "brains" of Revise comes from doing analysis on lowered code.
 This part of the package is not as well documented.
 
 ```@docs
-Revise.hastrackedexpr
+Revise.minimal_evaluation!
+Revise.methods_by_execution!
+Revise.CodeTrackingMethodInfo
 ```
 
 ### Modules and paths

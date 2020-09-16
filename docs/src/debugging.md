@@ -4,7 +4,7 @@
 
 If Revise isn't behaving the way you expect it to, it can be useful to examine the
 decisions it made.
-Revise supports Julia's [Logging framework](https://docs.julialang.org/en/latest/stdlib/Logging/)
+Revise supports Julia's [Logging framework](https://docs.julialang.org/en/v1/stdlib/Logging/)
 and can optionally record its decisions in a format suitable for later inspection.
 What follows is a simple series of steps you can use to turn on logging, capture messages,
 and then submit them with a bug report.
