@@ -637,10 +637,20 @@ function handle_deletions(pkgdata, file)
     mexsold = fi.modexsigs
     filep = normpath(joinpath(basedir(pkgdata), file))
     topmod = first(keys(mexsold))
-    mexsnew = file_exists(filep) ? parse_source(filep, topmod) :
-              (@warn("$filep no longer exists, deleting all methods"); ModuleExprsSigs(topmod))
+    fileok = file_exists(filep)
+    mexsnew = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
     if mexsnew !== nothing
         delete_missing!(mexsold, mexsnew)
+    end
+    if !fileok
+        @warn("$filep no longer exists, deleted all methods")
+        idx = fileindex(pkgdata, file)
+        deleteat!(pkgdata.fileinfos, idx)
+        deleteat!(pkgdata.info.files, idx)
+        wl = get(watched_files, basedir(pkgdata), nothing)
+        if isa(wl, WatchList)
+            delete!(wl.trackedfiles, file)
+        end
     end
     return mexsnew, mexsold
 end
@@ -729,6 +739,7 @@ function revise(; throw=false)
     for ((pkgdata, file), mexsnew) in zip(finished, mexsnews)
         defaultmode = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
         i = fileindex(pkgdata, file)
+        i === nothing && continue   # file was deleted by `handle_deletions`
         fi = fileinfo(pkgdata, i)
         try
             for (mod, exsnew) in mexsnew
