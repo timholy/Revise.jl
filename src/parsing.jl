@@ -7,8 +7,8 @@ if `filename` defines more module(s) then these will all have separate entries i
 
 If parsing `filename` fails, `nothing` is returned.
 """
-parse_source(filename::AbstractString, mod::Module) =
-    parse_source!(ModuleExprsSigs(mod), filename, mod)
+parse_source(filename::AbstractString, mod::Module; kwargs...) =
+    parse_source!(ModuleExprsSigs(mod), filename, mod; kwargs...)
 
 """
     parse_source!(mexs::ModuleExprsSigs, filename, mod::Module)
@@ -19,12 +19,12 @@ Top-level parsing of `filename` as included into module
 
 See also [`Revise.parse_source`](@ref).
 """
-function parse_source!(mod_exprs_sigs::ModuleExprsSigs, filename::AbstractString, mod::Module)
+function parse_source!(mod_exprs_sigs::ModuleExprsSigs, filename::AbstractString, mod::Module; kwargs...)
     if !isfile(filename)
         @warn "$filename is not a file, omitting from revision tracking"
         return nothing
     end
-    parse_source!(mod_exprs_sigs, read(filename, String), filename, mod)
+    parse_source!(mod_exprs_sigs, read(filename, String), filename, mod; kwargs...)
 end
 
 """
@@ -35,7 +35,7 @@ string. `pos` is the 1-based byte offset from which to begin parsing `src`.
 
 See also [`Revise.parse_source`](@ref).
 """
-function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module)
+function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module; mode::Symbol=:sigs)
     startswith(src, "# REVISE: DO NOT PARSE") && return nothing
     ex = Base.parse_input_line(src; filename=filename)
     ex === nothing && return mod_exprs_sigs
@@ -44,27 +44,22 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
         ln = count(isequal('\n'), SubString(src, 1, min(pos, length(src)))) + 1
         throw(LoadError(filename, ln, ex.args[1]))
     end
-    modexs, docexprs = Tuple{Module,Expr}[], DocExprs()
-    JuliaInterpreter.split_expressions!(modexs, docexprs, mod, ex; extract_docexprs=true)
-    for (mod, ex) in modexs
+    for (mod, ex) in ExprSplitter(mod, ex)
+        if mode === :includet
+            try
+                Core.eval(mod, ex)
+            catch err
+                bt = trim_toplevel!(catch_backtrace())
+                lnn = firstline(ex)
+                loc = location_string(lnn.file, lnn.line)
+                throw(ReviseEvalException(loc, err, Any[(sf, 1) for sf in stacktrace(bt)]))
+            end
+        end
         exprs_sigs = get(mod_exprs_sigs, mod, nothing)
         if exprs_sigs === nothing
             mod_exprs_sigs[mod] = exprs_sigs = ExprsSigs()
         end
-        # exprs_sigs[unwrap(ex)] = nothing
-        exprs_sigs[ex] = nothing
-    end
-    for (mod, docexs) in docexprs
-        exprs_sigs = get(mod_exprs_sigs, mod, nothing)
-        for dex in docexs
-            if length(dex.args) < 5
-                push!(dex.args, false)  # Don't redefine
-            else
-                dex.args[5] = false
-            end
-            exprs_sigs[unwrap(dex)] = nothing
-            # exprs_sigs[dex] = nothing
-        end
+        pushex!(exprs_sigs, ex)
     end
     return mod_exprs_sigs
 end

@@ -24,10 +24,12 @@ function newtestdir()
 end
 
 @static if Sys.isapple()
-    const mtimedelay = 2.1  # so the defining files are old enough not to trigger mtime criterion
+    const mtimedelay = 3.1  # so the defining files are old enough not to trigger mtime criterion
 else
     const mtimedelay = 0.1
 end
+
+SP = VERSION >= v"1.6.0-DEV.771" ? " " : "" # JuliaLang/julia #37085
 
 yry() = (sleep(mtimedelay); revise(); sleep(mtimedelay))
 

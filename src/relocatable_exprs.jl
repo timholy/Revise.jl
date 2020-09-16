@@ -20,6 +20,7 @@ end
 const ExLike = Union{Expr,RelocatableExpr}
 
 Base.convert(::Type{Expr}, rex::RelocatableExpr) = rex.ex
+Base.convert(::Type{RelocatableExpr}, ex::Expr) = RelocatableExpr(ex)
 # Expr(rex::RelocatableExpr) = rex.ex   # too costly (inference invalidation)
 
 Base.copy(rex::RelocatableExpr) = RelocatableExpr(copy(rex.ex))
@@ -28,9 +29,9 @@ Base.copy(rex::RelocatableExpr) = RelocatableExpr(copy(rex.ex))
 function Base.:(==)(ra::RelocatableExpr, rb::RelocatableExpr)
     a, b = ra.ex, rb.ex
     if a.head == b.head
-    elseif a.head == :block
+    elseif a.head === :block
         a = unwrap(a)
-    elseif b.head == :block
+    elseif b.head === :block
         b = unwrap(b)
     end
     return a.head == b.head && isequal(LineSkippingIterator(a.args), LineSkippingIterator(b.args))
@@ -45,7 +46,7 @@ function Base.show(io::IO, rex::RelocatableExpr)
 end
 
 function striplines!(ex::Expr)
-    if ex.head == :macrocall
+    if ex.head === :macrocall
         # for macros, the show method in Base assumes the line number is there,
         # so don't strip it
         args3 = [a isa ExLike ? striplines!(a) : a for a in ex.args[3:end]]
@@ -76,13 +77,13 @@ function skip_to_nonline(args, i)
     while true
         i > length(args) && return i
         ex = args[i]
-        if isa(ex, Expr) && ex.head == :line
+        if isa(ex, Expr) && ex.head === :line
             i += 1
         elseif isa(ex, LineNumberNode)
             i += 1
-        elseif isa(ex, Pair) && (ex::Pair).first == :linenumber     # used in the doc system
+        elseif isa(ex, Pair) && (ex::Pair).first === :linenumber     # used in the doc system
             i += 1
-        elseif isa(ex, Base.RefValue) && !isdefined(ex, :x)         # also in the doc system
+        elseif isa(ex, Base.RefValue) && !isdefined(ex, :x)          # also in the doc system
             i += 1
         else
             return i
@@ -100,9 +101,11 @@ function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
         vala, ia = reta
         valb, ib = retb
         if isa(vala, Expr) && isa(valb, Expr)
+            vala, valb = vala::Expr, valb::Expr
             vala.head == valb.head || return false
             isequal(LineSkippingIterator(vala.args), LineSkippingIterator(valb.args)) || return false
         elseif isa(vala, Symbol) && isa(valb, Symbol)
+            vala, valb = vala::Symbol, valb::Symbol
             # two gensymed symbols do not need to match
             sa, sb = String(vala), String(valb)
             (startswith(sa, '#') && startswith(sb, '#')) || isequal(vala, valb) || return false
@@ -115,7 +118,7 @@ function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
     end
 end
 
-const hashlsi_seed = UInt == UInt64 ? 0x533cb920dedccdae : 0x2667c89b
+const hashlsi_seed = UInt === UInt64 ? 0x533cb920dedccdae : 0x2667c89b
 function Base.hash(iter::LineSkippingIterator, h::UInt)
     h += hashlsi_seed
     for x in iter
@@ -129,9 +132,9 @@ function Base.hash(iter::LineSkippingIterator, h::UInt)
                 h += hash(x, h)
             end
         elseif x isa Number
-            h += hash(typeof(x), hash(x, h))
+            h += hash(typeof(x), hash(x, h))::UInt
         else
-            h += hash(x, h)
+            h += hash(x, h)::UInt
         end
     end
     h

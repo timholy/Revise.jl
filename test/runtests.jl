@@ -4,7 +4,7 @@ using Revise.CodeTracking
 using Revise.JuliaInterpreter
 using Test
 
-@test isempty(detect_ambiguities(Revise, Base, Core))
+@test isempty(detect_ambiguities(Revise))
 
 using Pkg, Unicode, Distributed, InteractiveUtils, REPL, UUIDs
 import LibGit2
@@ -199,9 +199,9 @@ k(x) = 4
             end
         end
         mexs = Revise.ModuleExprsSigs(ReviseTestPrivate)
-        mexs[ReviseTestPrivate][ex] = nothing
+        mexs[ReviseTestPrivate][Revise.RelocatableExpr(ex)] = nothing
         logs, _ = Test.collect_test_logs() do
-            Revise.instantiate_sigs!(mexs; define=true)
+            Revise.instantiate_sigs!(mexs; mode=:eval)
         end
         @test isempty(logs)
         @test isdefined(ReviseTestPrivate, :nolineinfo)
@@ -246,45 +246,45 @@ k(x) = 4
         dvs = collect(mexsnew[ReviseTest])
         @test length(dvs) == 3
         (def, val) = dvs[1]
-        @test isequal(def, Revise.RelocatableExpr(:(square(x) = x^2)))
+        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(square(x) = x^2)))
         @test val == [Tuple{typeof(ReviseTest.square),Any}]
         @test Revise.firstline(Revise.unwrap(def)).line == 5
         m = @which ReviseTest.square(1)
         @test m.line == 5
         @test whereis(m) == (tmpfile, 5)
-        @test Revise.RelocatableExpr(definition(m)) == def
+        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
         (def, val) = dvs[2]
-        @test isequal(def, Revise.RelocatableExpr(:(cube(x) = x^3)))
+        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(cube(x) = x^3)))
         @test val == [Tuple{typeof(ReviseTest.cube),Any}]
         m = @which ReviseTest.cube(1)
         @test m.line == 7
         @test whereis(m) == (tmpfile, 7)
-        @test Revise.RelocatableExpr(definition(m)) == def
+        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
         (def, val) = dvs[3]
-        @test isequal(def, Revise.RelocatableExpr(:(fourth(x) = x^4)))
+        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(fourth(x) = x^4)))
         @test val == [Tuple{typeof(ReviseTest.fourth),Any}]
         m = @which ReviseTest.fourth(1)
         @test m.line == 9
         @test whereis(m) == (tmpfile, 9)
-        @test Revise.RelocatableExpr(definition(m)) == def
+        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
 
         dvs = collect(mexsnew[ReviseTest.Internal])
         @test length(dvs) == 5
         (def, val) = dvs[1]
-        @test isequal(def,  Revise.RelocatableExpr(:(mult2(x) = 2*x)))
+        @test isequal(Revise.unwrap(def),  Revise.RelocatableExpr(:(mult2(x) = 2*x)))
         @test val == [Tuple{typeof(ReviseTest.Internal.mult2),Any}]
         @test Revise.firstline(Revise.unwrap(def)).line == 13
         m = @which ReviseTest.Internal.mult2(1)
         @test m.line == 11
         @test whereis(m) == (tmpfile, 13)
-        @test Revise.RelocatableExpr(definition(m)) == def
+        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
         (def, val) = dvs[2]
-        @test isequal(def, Revise.RelocatableExpr(:(mult3(x) = 3*x)))
+        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(mult3(x) = 3*x)))
         @test val == [Tuple{typeof(ReviseTest.Internal.mult3),Any}]
         m = @which ReviseTest.Internal.mult3(1)
         @test m.line == 14
         @test whereis(m) == (tmpfile, 14)
-        @test Revise.RelocatableExpr(definition(m)) == def
+        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
 
         @test_throws MethodError ReviseTest.Internal.mult4(2)
 
@@ -294,7 +294,7 @@ k(x) = 4
                 logval = record.kwargs[kw]
                 for (v, lv) in zip(val, logval)
                     isa(v, Expr) && (v = Revise.RelocatableExpr(v))
-                    isa(lv, Expr) && (lv = Revise.RelocatableExpr(lv))
+                    isa(lv, Expr) && (lv = Revise.RelocatableExpr(Revise.unwrap(lv)))
                     @test lv == v
                 end
             end
@@ -329,7 +329,7 @@ k(x) = 4
         catch err
             @test isa(err, ErrorException) && err.msg == "cube"
             bt = throwing_function(stacktrace(catch_backtrace()))
-            @test bt.func == :cube && bt.file == Symbol(tmpfile) && bt.line == 7
+            @test bt.func === :cube && bt.file == Symbol(tmpfile) && bt.line == 7
         end
         try
             ReviseTest.Internal.mult2(2)
@@ -337,7 +337,7 @@ k(x) = 4
         catch err
             @test isa(err, ErrorException) && err.msg == "mult2"
             bt = throwing_function(stacktrace(catch_backtrace()))
-            @test bt.func == :mult2 && bt.file == Symbol(tmpfile) && bt.line == 13
+            @test bt.func === :mult2 && bt.file == Symbol(tmpfile) && bt.line == 13
         end
 
         logs = filter(r->r.level==Debug && r.group=="Action", rlogger.logs)
@@ -380,7 +380,7 @@ k(x) = 4
         # io = IOBuffer()
         print(IOContext(io, :compact=>true), mexs)
         str = String(take!(io))
-        @test str == "OrderedCollections.OrderedDict($mod$(pair_op_compact)ExprsSigs(<1 expressions>, <0 signatures>),$mod.ReviseTest$(pair_op_compact)ExprsSigs(<2 expressions>, <2 signatures>),$mod.ReviseTest.Internal$(pair_op_compact)ExprsSigs(<6 expressions>, <5 signatures>))"
+        @test str == "OrderedCollections.OrderedDict($mod$(pair_op_compact)ExprsSigs(<1 expressions>, <0 signatures>),$SP$mod.ReviseTest$(pair_op_compact)ExprsSigs(<2 expressions>, <2 signatures>),$SP$mod.ReviseTest.Internal$(pair_op_compact)ExprsSigs(<6 expressions>, <5 signatures>))"
         exs = mexs[getfield(mod, :ReviseTest)]
         # io = IOBuffer()
         print(IOContext(io, :compact=>true), exs)
@@ -745,6 +745,50 @@ end
         @test isempty(failedfiles)
     end
 
+    do_test("Multiple definitions") && @testset "Multiple definitions" begin
+        # This simulates a copy/paste/save "error" from one file to another
+        # ref https://github.com/timholy/CodeTracking.jl/issues/55
+        testdir = newtestdir()
+        dn = joinpath(testdir, "Multidef", "src")
+        mkpath(dn)
+        open(joinpath(dn, "Multidef.jl"), "w") do io
+            println(io, """
+            module Multidef
+            include("utils.jl")
+            end
+            """)
+        end
+        open(joinpath(dn, "utils.jl"), "w") do io
+            println(io, """
+            repeated(x) = x+1
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using Multidef
+        @test Multidef.repeated(3) == 4
+        sleep(mtimedelay)
+        open(joinpath(dn, "Multidef.jl"), "w") do io
+            println(io, """
+            module Multidef
+            include("utils.jl")
+            repeated(x) = x+1
+            end
+            """)
+        end
+        yry()
+        @test Multidef.repeated(3) == 4
+        sleep(mtimedelay)
+        open(joinpath(dn, "utils.jl"), "w") do io
+            println(io, """
+            """)
+        end
+        yry()
+        @test Multidef.repeated(3) == 4
+
+        rm_precompile("Multidef")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Recursive types (issue #417)") && @testset "Recursive types (issue #417)" begin
         testdir = newtestdir()
         fn = joinpath(testdir, "recursive.jl")
@@ -854,6 +898,113 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Revision order") && @testset "Revision order" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "Order1", "src")
+        mkpath(dn)
+        open(joinpath(dn, "Order1.jl"), "w") do io
+            println(io, """
+            module Order1
+            include("file1.jl")
+            include("file2.jl")
+            end
+            """)
+        end
+        open(joinpath(dn, "file1.jl"), "w") do io
+            println(io, "# a comment")
+        end
+        open(joinpath(dn, "file2.jl"), "w") do io
+            println(io, "# a comment")
+        end
+        sleep(mtimedelay)
+        @eval using Order1
+        sleep(mtimedelay)
+        # we want Revise to process files the order file1.jl, file2.jl, but let's save them in the opposite order
+        open(joinpath(dn, "file2.jl"), "w") do io
+            println(io, """
+            f(::Ord1) = 1
+            """)
+        end
+        sleep(mtimedelay)
+        open(joinpath(dn, "file1.jl"), "w") do io
+            println(io, """
+            struct Ord1 end
+            """)
+        end
+        yry()
+        @test Order1.f(Order1.Ord1()) == 1
+
+        # A case in which order cannot be determined solely from file order
+        dn = joinpath(testdir, "Order2", "src")
+        mkpath(dn)
+        open(joinpath(dn, "Order2.jl"), "w") do io
+            println(io, """
+            module Order2
+            include("file.jl")
+            end
+            """)
+        end
+        open(joinpath(dn, "file.jl"), "w") do io
+            println(io, "# a comment")
+        end
+        sleep(mtimedelay)
+        @eval using Order2
+        sleep(mtimedelay)
+        open(joinpath(dn, "Order2.jl"), "w") do io
+            println(io, """
+            module Order2
+            include("file.jl")
+            f(::Ord2) = 1
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        open(joinpath(dn, "file.jl"), "w") do io
+            println(io, """
+            struct Ord2 end
+            """)
+        end
+        @info "The following error messge is expected for this broken test"
+        yry()
+        @test_broken Order2.f(Order2.Ord2()) == 1
+        empty!(Revise.queue_errors)   # FIXME delete when test isn't broken
+
+        # Cross-module dependencies
+        dn3 = joinpath(testdir, "Order3", "src")
+        mkpath(dn3)
+        open(joinpath(dn3, "Order3.jl"), "w") do io
+            println(io, """
+            module Order3
+            using Order2
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using Order3
+        sleep(mtimedelay)
+        open(joinpath(dn3, "Order3.jl"), "w") do io
+            println(io, """
+            module Order3
+            using Order2
+            g(::Order2.Ord2a) = 1
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        open(joinpath(dn, "file.jl"), "w") do io
+            println(io, """
+            struct Ord2 end
+            struct Ord2a end
+            """)
+        end
+        yry()
+        @test Order3.g(Order2.Ord2a()) == 1
+
+        rm_precompile("Order1")
+        rm_precompile("Order2")
+        pop!(LOAD_PATH)
+    end
+
     # issue #8
     do_test("Module docstring") && @testset "Module docstring" begin
         testdir = newtestdir()
@@ -936,17 +1087,29 @@ end
         sleep(mtimedelay)
         @test ChangeDocstring.f() == 1
         ds = @doc(ChangeDocstring.f)
-        @test ds.content[1].content[1].content[1].content[1] == "f"
+        @test get_docstring(ds) == "f"
+        # Ordinary route
+        open(joinpath(dn, "ChangeDocstring.jl"), "w") do io
+            println(io, """
+            module ChangeDocstring
+            "h" f() = 1
+            end
+            """)
+        end
+        yry()
+        ds = @doc(ChangeDocstring.f)
+        @test get_docstring(ds) == "h"
+
         # Now manually change the docstring
         ex = quote "g" f() = 1 end
         lwr = Meta.lower(ChangeDocstring, ex)
-        frame = JuliaInterpreter.prepare_thunk(ChangeDocstring, lwr, true)
+        frame = Frame(ChangeDocstring, lwr.args[1])
         methodinfo = Revise.MethodInfo()
         docexprs = Revise.DocExprs()
         ret = Revise.methods_by_execution!(JuliaInterpreter.finish_and_return!, methodinfo,
-                                           docexprs, frame, trues(length(frame.framecode.src.code)); define=false)
+                                           docexprs, frame, trues(length(frame.framecode.src.code)); mode=:sigs)
         ds = @doc(ChangeDocstring.f)
-        @test ds.content[1].content[1].content[1].content[1] == "g"
+        @test get_docstring(ds) == "g"
 
         rm_precompile("ChangeDocstring")
         pop!(LOAD_PATH)
@@ -1055,7 +1218,7 @@ end
         code = get_code(PerfAnnotations.check_hasinline, Tuple{Int})
         @test length(code) == 1 && isreturning_slot(code[1], 2)
         code = get_code(PerfAnnotations.check_hasnoinline, Tuple{Int})
-        @test length(code) == 2 && code[1].head == :invoke
+        @test length(code) == 2 && code[1].head === :invoke
         code = get_code(PerfAnnotations.check_notannot1, Tuple{Int})
         @test length(code) == 1 && isreturning_slot(code[1], 2)
         code = get_code(PerfAnnotations.check_notannot2, Tuple{Int})
@@ -1091,7 +1254,7 @@ end
         code = get_code(PerfAnnotations.check_notannot1, Tuple{Int})
         @test length(code) == 1 && isreturning_slot(code[1], 2)
         code = get_code(PerfAnnotations.check_notannot2, Tuple{Int})
-        @test length(code) == 2 && code[1].head == :invoke
+        @test length(code) == 2 && code[1].head === :invoke
         rm_precompile("PerfAnnotations")
 
         pop!(LOAD_PATH)
@@ -1365,7 +1528,7 @@ foo(y::Int) = y-51
         catch err
             stacktrace(catch_backtrace())
         end
-        targetstr = filename * ":3"
+        targetstr = basename(filename * ":3")
         Base.show_backtrace(io, st)
         @test occursin(targetstr, String(take!(io)))
         # Long stacktraces take a different path, test this too
@@ -1377,7 +1540,7 @@ foo(y::Int) = y-51
         if isdefined(Base, :methodloc_callback)
             print(io, methods(triggered))
             mline = line_is_decl ? 2 : 3
-            @test occursin(filename * ":$mline", String(take!(io)))
+            @test occursin(basename(filename * ":$mline"), String(take!(io)))
         end
 
         push!(to_remove, filename)
@@ -1724,37 +1887,44 @@ end
             yry()
         end
 
-        function check_revision_error(rec, msg, line)
+        function check_revision_error(rec, ErrorType, msg, line)
             @test rec.message == "Failed to revise $fn"
-            exc, bt = rec.kwargs[:exception]
-            @test exc isa LoadError
-            @test exc.file == fn
-            @test exc.line == line
-            @test occursin(msg, exc.error)
-            st = stacktrace(bt)
+            exc = rec.kwargs[:exception]
+            if exc isa Revise.ReviseEvalException
+                exc, st = exc.exc, exc.stacktrace
+            else
+                exc, bt = exc
+                st = stacktrace(bt)
+            end
+            @test exc isa ErrorType
+            if ErrorType === LoadError
+                @test exc.file == fn
+                @test exc.line == line
+                @test occursin(msg, exc.error)
+            elseif ErrorType === UndefVarError
+                @test msg == exc.var
+            end
             @test length(st) == 1
         end
 
         # test errors are reported the the first time
-        check_revision_error(logs[1], "missing comma or }", 2)
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        rec = logs[1]
-        @test startswith(rec.message, "Due to a previously reported error")
+        check_revision_error(logs[1], LoadError, "missing comma or }", 2)
+        # Check that there's an informative warning
+        rec = logs[2]
+        @test startswith(rec.message, "The running code does not match")
         @test occursin("RevisionErrors.jl", rec.message)
 
         # test errors are not re-reported
         logs, _ = Test.collect_test_logs() do
             yry()
         end
-        @test length(logs) == 1
+        @test isempty(logs)
 
         # test error re-reporting
         logs,_ = Test.collect_test_logs() do
             Revise.errors()
         end
-        check_revision_error(logs[1], "missing comma or }", 2)
+        check_revision_error(logs[1], LoadError, "missing comma or }", 2)
 
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
             println(io, """
@@ -1788,7 +1958,7 @@ end
         logs, _ = Test.collect_test_logs() do
             yry()
         end
-        check_revision_error(logs[1], "unexpected \"=\"", 6)
+        check_revision_error(logs[1], LoadError, "unexpected \"=\"", 6)
 
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
             println(io, """
@@ -1806,7 +1976,6 @@ end
         end
         @test isempty(logs)
 
-        # Also test that it ends up being reported to the user (issue #281)
         open(joinpath(dn, "RevisionErrors.jl"), "w") do io
             println(io, """
             module RevisionErrors
@@ -1819,14 +1988,10 @@ end
             end
             """)
         end
-        logfile = joinpath(tempdir(), randtmp()*".log")
-        open(logfile, "w") do io
-            redirect_stderr(io) do
-                yry()
-            end
+        logs, _ = Test.collect_test_logs() do
+            yry()
         end
-        str = read(logfile, String)
-        @test occursin("T not defined", str)
+        check_revision_error(logs[1], UndefVarError, :T, 6)
 
         rm_precompile("RevisionErrors")
 
@@ -1850,37 +2015,47 @@ end
             end
             """)
         end
-        logs, _ = Test.collect_test_logs() do
-            includet(testfile)
+        logfile = joinpath(tempdir(), randtmp()*".log")
+        open(logfile, "w") do io
+            redirect_stderr(io) do
+                includet(testfile)
+            end
         end
-        @test occursin("Test301.jl:10", logs[1].message)
+        sleep(mtimedelay)
+        lines = readlines(logfile)
+        @test lines[1] == "ERROR: UndefRefError: access to undefined reference"
+        @test any(str -> occursin(r"f\(.*Test301\.Struct301\)", str), lines)
+        @test any(str -> endswith(str, "Test301.jl:10"), lines)
 
-        logs, _ = Test.collect_test_logs() do
-            Revise.track("callee_error.jl"; define=true)
+        logfile = joinpath(tempdir(), randtmp()*".log")
+        open(logfile, "w") do io
+            redirect_stderr(io) do
+                includet("callee_error.jl")
+            end
         end
-        @test length(logs) == 2
-        @test occursin("(compiled mode) evaluation error", logs[1].message)
-        @test occursin("callee_error.jl:12", logs[1].message)
-        exc = logs[1].kwargs[:exception]
-        @test exc[1] isa BoundsError
-        @test length(stacktrace(exc[2])) <= 5
-        @test occursin("evaluation error", logs[2].message)
-        @test occursin("callee_error.jl:13", logs[2].message)
-        exc = logs[2].kwargs[:exception]
-        @test exc[1] isa BoundsError
-        @test length(stacktrace(exc[2])) <= 5
-        m = @which CalleeError.foo(3.2f0)
-        @test whereis(m)[2] == 15
+        sleep(mtimedelay)
+        lines = readlines(logfile)
+        @test lines[1] == "ERROR: BoundsError: attempt to access 3-element $(Vector{Int}) at index [4]"
+        @test any(str -> endswith(str, "callee_error.jl:12"), lines)
+        @test_throws UndefVarError CalleeError.foo(0.1f0)
     end
 
     do_test("Retry on InterruptException") && @testset "Retry on InterruptException" begin
         function check_revision_interrupt(logs)
             rec = logs[1]
             @test rec.message == "Failed to revise $fn"
-            exc, bt = rec.kwargs[:exception]
+            exc = rec.kwargs[:exception]
+            if exc isa Revise.ReviseEvalException
+                exc, st = exc.exc, exc.stacktrace
+            else
+                exc, bt = exc
+                st = stacktrace(bt)
+            end
             @test exc isa InterruptException
-            rec = logs[2]
-            @test startswith(rec.message, "Due to a previously reported error")
+            if length(logs) > 1
+                rec = logs[2]
+                @test startswith(rec.message, "The running code does not match")
+            end
         end
 
         testdir = newtestdir()
@@ -1899,74 +2074,78 @@ end
         sleep(mtimedelay)
         @test RevisionInterrupt.f(0) == 1
 
-        # Interpreted mode
-        open(fn, "w") do io
-            println(io, """
-            module RevisionInterrupt
-            eval(quote  # this forces interpreted mode
-                throw(InterruptException())
-            end)
-            f(x) = 2
+        # Interpreted & compiled mode
+        n = 1
+        for errthrow in ("throw(InterruptException())", """
+                         eval(quote  # this forces interpreted mode
+                             throw(InterruptException())
+                         end)""")
+            n += 1
+            open(fn, "w") do io
+                println(io, """
+                module RevisionInterrupt
+                $errthrow
+                f(x) = $n
+                end
+                """)
             end
-            """)
-        end
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        check_revision_interrupt(logs)
-        # This method gets deleted because it's redefined to f(x) = 2,
-        # but the error prevents it from getting that far.
-        # @test RevisionInterrupt.f(0) == 1
-        # Check that InterruptException triggers a retry (issue #418)
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        check_revision_interrupt(logs)
-        # @test RevisionInterrupt.f(0) == 1
-        open(fn, "w") do io
-            println(io, """
-            module RevisionInterrupt
-            f(x) = 2
+            logs, _ = Test.collect_test_logs() do
+                yry()
             end
-            """)
+            check_revision_interrupt(logs)
+            # This method gets deleted because it's redefined to f(x) = 2,
+            # but the error prevents it from getting that far.
+            # @test RevisionInterrupt.f(0) == 1
+            # Check that InterruptException triggers a retry (issue #418)
+            logs, _ = Test.collect_test_logs() do
+                yry()
+            end
+            check_revision_interrupt(logs)
+            # @test RevisionInterrupt.f(0) == 1
+            open(fn, "w") do io
+                println(io, """
+                module RevisionInterrupt
+                f(x) = $n
+                end
+                """)
+            end
+            logs, _ = Test.collect_test_logs() do
+                yry()
+            end
+            @test isempty(logs)
+            @test RevisionInterrupt.f(0) == n
         end
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        @test isempty(logs)
-        @test RevisionInterrupt.f(0) == 2
+    end
 
-        # Compiled mode
-        open(fn, "w") do io
+    do_test("Modify @enum") && @testset "Modify @enum" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "ModifyEnum", "src")
+        mkpath(dn)
+        open(joinpath(dn, "ModifyEnum.jl"), "w") do io
             println(io, """
-            module RevisionInterrupt
-            throw(InterruptException())
-            f(x) = 3
+            module ModifyEnum
+            @enum Fruit apple=1 orange=2
             end
             """)
         end
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        check_revision_interrupt(logs)
-        # @test RevisionInterrupt.f(0) == 2
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        check_revision_interrupt(logs)
-        # @test RevisionInterrupt.f(0) == 2
-        open(fn, "w") do io
+        sleep(mtimedelay)
+        @eval using ModifyEnum
+        sleep(mtimedelay)
+        @test Int(ModifyEnum.apple) == 1
+        @test ModifyEnum.apple isa ModifyEnum.Fruit
+        @test_throws UndefVarError Int(ModifyEnum.kiwi)
+        open(joinpath(dn, "ModifyEnum.jl"), "w") do io
             println(io, """
-            module RevisionInterrupt
-            f(x) = 3
+            module ModifyEnum
+            @enum Fruit apple=1 orange=2 kiwi=3
             end
             """)
         end
-        logs, _ = Test.collect_test_logs() do
-            yry()
-        end
-        @test isempty(logs)
-        @test RevisionInterrupt.f(0) == 3
+        yry()
+        @test Int(ModifyEnum.kiwi) == 3
+        @test Base.instances(ModifyEnum.Fruit) === (ModifyEnum.apple, ModifyEnum.orange, ModifyEnum.kiwi)
+        rm_precompile("ModifyEnum")
+        pop!(LOAD_PATH)
     end
 
     do_test("get_def") && @testset "get_def" begin
@@ -2111,6 +2290,9 @@ end
         sleep(mtimedelay)
         lines = readlines(logfile)
         @test length(lines) == 1 && chomp(lines[1]) == "executed"
+        # In older versions of Revise, it would do the work again when the file
+        # changed. Starting with 3.0, Revise modifies methods and docstrings but
+        # does not "do work."
         open(srcfile, "w") do io
             print(io, """
             println("executed again")
@@ -2122,7 +2304,7 @@ end
             end
         end
         lines = readlines(logfile)
-        @test length(lines) == 1 && chomp(lines[1]) == "executed again"
+        @test isempty(lines)
 
         # tls path (issue #264)
         srcdir = joinpath(tempdir(), randtmp())
@@ -2244,6 +2426,19 @@ end
         end
 
         rm_precompile("LikePlots")
+
+        # Issue #475
+        srcfile = joinpath(tempdir(), randtmp()*".jl")
+        open(srcfile, "w") do io
+            print(io, """
+            a475 = 0.8
+            a475 = 0.7
+            a475 = 0.8
+            """)
+        end
+        includet(srcfile)
+        @test a475 == 0.8
+
     end
 
     do_test("Auto-track user scripts") && @testset "Auto-track user scripts" begin
@@ -2539,7 +2734,7 @@ end
         m = @which show([1,2,3])
         @test definition(m) isa Expr
         m = @which redirect_stdout()
-        @test definition(m).head == :function
+        @test definition(m).head === :function
 
         # Tracking stdlibs
         Revise.track(Unicode)
@@ -2593,7 +2788,7 @@ end
             histidx = length(hp.history) + 1 - hp.start_idx
             ex = Base.parse_input_line(fstr; filename="REPL[$histidx]")
             f = Core.eval(Main, ex)
-            if ex.head == :toplevel
+            if ex.head === :toplevel
                 ex = ex.args[end]
             end
             push!(hp.history, fstr)
@@ -2607,7 +2802,7 @@ end
             histidx = length(hp.history) + 1 - hp.start_idx
             ex = Base.parse_input_line(fstr; filename="REPL[$histidx]")
             f = Core.eval(Main, ex)
-            if ex.head == :toplevel
+            if ex.head === :toplevel
                 ex = ex.args[end]
             end
             push!(hp.history, fstr)
@@ -3029,6 +3224,7 @@ end
 do_test("entr") && @testset "entr" begin
     srcfile1 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile1)
     srcfile2 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile2)
+    revise(throw=true)   # force compilation
     open(srcfile1, "w") do io
         println(io, "Core.eval(Main, :(__entr__ = 1))")
     end

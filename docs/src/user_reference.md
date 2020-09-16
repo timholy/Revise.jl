@@ -1,9 +1,9 @@
 # User reference
 
-There are really only five functions that a user would be expected to call manually:
+There are really only five functions that most users would be expected to call manually:
 `revise`, `includet`, `Revise.track`, `entr`, and `Revise.errors`.
 Other user-level constructs might apply if you want to debug Revise or
-prevent it from watching specific packages.
+prevent it from watching specific packages, or for fine-grained handling of callbacks.
 
 ```@docs
 revise

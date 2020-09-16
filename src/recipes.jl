@@ -39,7 +39,7 @@ end
 
 function _track(id, modname; modified_files=revision_queue)
     haskey(pkgdatas, id) && return nothing  # already tracked
-    isbase = modname == :Base
+    isbase = modname === :Base
     isstdlib = !isbase && modname ∈ stdlib_names
     if isbase || isstdlib
         # Test whether we know where to find the files
@@ -93,7 +93,7 @@ function _track(id, modname; modified_files=revision_queue)
         init_watching(pkgdata, srcfiles(pkgdata))
         # Save the result (unnecessary if already in pkgdatas, but doesn't hurt either)
         pkgdatas[id] = pkgdata
-    elseif modname == :Compiler
+    elseif modname === :Compiler
         compilerdir = normpath(joinpath(juliadir, "base", "compiler"))
         pkgdata = get(pkgdatas, id, nothing)
         if pkgdata === nothing
@@ -188,6 +188,9 @@ const stdlib_names = Set([
     :Statistics, :SuiteSparse, :Test, :Unicode, :UUIDs])
 if VERSION >= v"1.6.0-DEV.734"
     push!(stdlib_names, :TOML)
+end
+if VERSION >= v"1.6.0-DEV.890"   # https://github.com/JuliaLang/julia/pull/37320
+    push!(stdlib_names, :Artifacts)
 end
 
 # This replacement is needed because the path written during compilation differs from

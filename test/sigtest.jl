@@ -1,4 +1,4 @@
-using Revise, Test, CodeTracking
+using Revise, Test, CodeTracking, LoweredCodeUtils
 
 function isdefinedmod(mod::Module)
     # Not all modules---e.g., LibGit2---are reachable without loading the stdlib
@@ -61,14 +61,16 @@ function in_module_or_core(T, mod::Module)
     if isa(T, UnionAll)
         T = Base.unwrap_unionall(T)
     end
+    T === Union{} && return true
     if isa(T, Union)
         in_module_or_core(T.a, mod) || return false
         return in_module_or_core(T.b, mod)
     end
-    if T.name.name == :Type
+    Tname = T.name
+    if Tname.name === :Type
         return in_module_or_core(extracttype(T), mod)
     end
-    Tmod = T.name.module
+    Tmod = Tname.module
     return Tmod === mod || Tmod === Core
 end
 
@@ -89,14 +91,20 @@ module Lowering end
     @test length(sigs) >= 2
 end
 
+for lib in Revise.stdlib_names
+    lib in (:OldPkg, :TOML, :Artifacts) && continue
+    @eval using $lib
+end
 basefiles = Set{String}()
 @time for (i, (mod, file)) in enumerate(Base._included_files)
-    (isdefinedmod(mod) && mod != Base.__toplevel__) || continue
     endswith(file, "sysimg.jl") && continue
+    # https://github.com/JuliaLang/julia/issues/37590
+    endswith(file, "Artifacts.jl") && continue
+    endswith(file, "TOML.jl") && continue
     file = Revise.fixpath(file)
     push!(basefiles, reljpath(file))
     mexs = Revise.parse_source(file, mod)
-    Revise.instantiate_sigs!(mexs)
+    Revise.instantiate_sigs!(mexs; always_rethrow=true)
 end
 failed, extras, nmethods = signature_diffs(Base, CodeTracking.method_info; filepredicate = filepredicate)
 # In some cases, the above doesn't really select the file-of-origin. For example, anything

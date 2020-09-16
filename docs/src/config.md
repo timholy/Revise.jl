@@ -56,7 +56,26 @@ catch e
 end
 ```
 
-## Optional configuration
+## Optional package-specific configuration
+
+In packages, by default Revise will re-evaluate every changed expression.
+However, in packages that process a lot of "data" at toplevel, this is
+unlikely to be desirable. You can set the *mode* by defining a
+variable `__revise_mode__` in your package. The default setting corresponds to
+
+```
+const __revise_mode__ = :eval
+```
+
+(which re-evaluates everything) but you have other options:
+
+- `:evalmeth` will only evaluate those statements needed to redefine methods.
+  This should work even for quite complicated method definitions, such as those that might
+  be made within an `@eval` block.
+- `:evalassign` additionally evaluates assignment statements. A top-level expression
+  `a = Int[]` would be evaluated, but `push!(a, 1)` would not because the latter is not an assignment.
+
+## Optional global configuration
 
 Revise can be configured by setting environment variables. These variables have to be
 set before you execute `using Revise`, because these environment variables are parsed

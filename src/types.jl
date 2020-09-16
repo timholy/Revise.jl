@@ -20,8 +20,6 @@ const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Any}}}
 const DepDictVals = Tuple{Module,RelocatableExpr}
 const DepDict = Dict{Symbol,Set{DepDictVals}}
 
-Base.setindex!(ex_sigs::ExprsSigs, val, ex::Expr) = setindex!(ex_sigs, val, RelocatableExpr(ex))
-
 function Base.show(io::IO, exsigs::ExprsSigs)
     compact = get(io, :compact, false)
     if compact
@@ -56,8 +54,13 @@ To create a `ModuleExprsSigs` from a source file, see [`Revise.parse_source`](@r
 """
 const ModuleExprsSigs = OrderedDict{Module,ExprsSigs}
 
-if VERSION >= v"1.5.0-DEV.472"
-    Base.typeinfo_prefix(io::IO, mexs::ModuleExprsSigs) = string(typeof(mexs).name.wrapper), true
+if VERSION >= v"1.6.0-DEV.262"
+    function Base.typeinfo_prefix(io::IO, mexs::ModuleExprsSigs)
+        tn = typeof(mexs).name
+        return string(tn.module, '.', tn.name), true
+    end
+elseif VERSION >= v"1.5.0-DEV.472"
+    Base.typeinfo_prefix(io::IO, mexs::ModuleExprsSigs) = string(typeof(mexs).name), true
 else
     Base.typeinfo_prefix(io::IO, mexs::ModuleExprsSigs) = string(typeof(mexs).name)
 end
@@ -91,8 +94,10 @@ Source cache files greatly reduce the overhead of using Revise.
 struct FileInfo
     modexsigs::ModuleExprsSigs
     cachefile::String
+    cacheexprs::Vector{Tuple{Module,Expr}}             # "unprocessed" exprs, used to support @require
+    extracted::Base.RefValue{Bool}                     # true if signatures have been processed from modexsigs
 end
-FileInfo(fm::ModuleExprsSigs) = FileInfo(fm, "")
+FileInfo(fm::ModuleExprsSigs, cachefile="") = FileInfo(fm, cachefile, Tuple{Module,Expr}[], Ref(false))
 
 """
     FileInfo(mod::Module, cachefile="")
@@ -130,9 +135,10 @@ the corresponding `path` entry will be empty.
 mutable struct PkgData
     info::PkgFiles
     fileinfos::Vector{FileInfo}
+    requirements::Vector{PkgId}
 end
 
-PkgData(id::PkgId, path) = PkgData(PkgFiles(id, path), FileInfo[])
+PkgData(id::PkgId, path) = PkgData(PkgFiles(id, path), FileInfo[], PkgId[])
 PkgData(id::PkgId, ::Nothing) = PkgData(id, "")
 function PkgData(id::PkgId)
     bp = basepath(id)
@@ -198,12 +204,49 @@ function Base.show(io::IO, pkgdata::PkgData)
         print(io, nparsed, '/', length(pkgdata.fileinfos), " parsed files, ", nexs, " expressions, ", nsigs, " signatures)")
     else
         show(io, pkgdata.info.id)
-        println(io, ", basedir \"", pkgdata.info.basedir, ':')
+        println(io, ", basedir \"", pkgdata.info.basedir, "\":")
         for (f, fi) in zip(pkgdata.info.files, pkgdata.fileinfos)
             print(io, "  \"", f, "\": ")
             show(IOContext(io, :compact=>true), fi)
             print(io, '\n')
         end
+    end
+end
+
+function pkgfileless((pkgdata1,file1)::Tuple{PkgData,String}, (pkgdata2,file2)::Tuple{PkgData,String})
+    # implements a partial order
+    PkgId(pkgdata1) ∈ pkgdata2.requirements && return true
+    PkgId(pkgdata1) == PkgId(pkgdata2) && return fileindex(pkgdata1, file1) < fileindex(pkgdata2, file2)
+    return false
+end
+
+"""
+    ReviseEvalException(loc::String, exc::Exception, stacktrace=nothing)
+
+Provide additional location information about `exc`.
+
+When running via the interpreter, the backtraces point to interpreter code rather than the original
+culprit. This makes it possible to use `loc` to provide information about the frame backtrace,
+and even to supply a fake backtrace.
+
+If `stacktrace` is supplied it must be a `Vector{Any}` containing `(::StackFrame, n)` pairs where `n`
+is the recursion count (typically 1).
+"""
+struct ReviseEvalException <: Exception
+    loc::String
+    exc::Exception
+    stacktrace::Union{Nothing,Vector{Any}}
+end
+ReviseEvalException(loc::AbstractString, exc::Exception) = ReviseEvalException(loc, exc, nothing)
+
+function Base.showerror(io::IO, ex::ReviseEvalException; blame_revise::Bool=true)
+    showerror(io, ex.exc)
+    st = ex.stacktrace
+    if st !== nothing
+        Base.show_backtrace(io, st)
+    end
+    if blame_revise
+        println(io, "Revise evaluation error at ", ex.loc)
     end
 end
 

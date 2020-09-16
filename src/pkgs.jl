@@ -1,122 +1,20 @@
 using Base: PkgId
 using CodeTracking: basepath
 
-# A near-copy of the same method in `base/loading.jl`. However, this retains the full module path to the file.
-function parse_cache_header(f::IO)
-    modules = Vector{Pair{PkgId, UInt64}}()
-    while true
-        n = read(f, Int32)
-        n == 0 && break
-        sym = String(read(f, n)) # module name
-        uuid = UUID((read(f, UInt64), read(f, UInt64))) # pkg UUID
-        build_id = read(f, UInt64) # build UUID (mostly just a timestamp)
-        push!(modules, PkgId(uuid, sym) => build_id)
-    end
-    totbytes = read(f, Int64) # total bytes for file dependencies
-    # read the list of requirements
-    # and split the list into include and requires statements
-    includes = Tuple{Module, String, Float64}[]
-    requires = Pair{Module, PkgId}[]
-    while true
-        n2 = read(f, Int32)
-        n2 == 0 && break
-        depname = String(read(f, n2))
-        mtime = read(f, Float64)
-        n1 = read(f, Int32)
-        mod = (n1 == 0) ? Main : Base.root_module(modules[n1].first)
-        if n1 != 0
-            # determine the complete module path
-            while true
-                n1 = read(f, Int32)
-                totbytes -= 4
-                n1 == 0 && break
-                submodname = String(read(f, n1))
-                mod = getfield(mod, Symbol(submodname))
-                totbytes -= n1
-            end
-        end
-        if depname[1] != '\0'
-            push!(includes, (mod, depname, mtime))
-        end
-        totbytes -= 4 + 4 + n2 + 8
-    end
-    @assert totbytes == 12 "header of cache file appears to be corrupt"
-    # Determine which includes are included in the source-text cache.
-    # These are the *.jl files that we need to track.
-    srctextpos = read(f, Int64)
-    if srctextpos == 0
-        empty!(includes)
-    else
-        seek(f, srctextpos)
-        keep = Set{String}()
-        while !eof(f)
-            filenamelen = read(f, Int32)
-            filenamelen == 0 && break
-            fn = String(read(f, filenamelen))
-            len = read(f, UInt64)
-            push!(keep, fn)
-            seek(f, position(f) + len)
-        end
-        delids = Int[]
-        for (i, inc) in enumerate(includes)
-            inc[2] ∈ keep || push!(delids, i)
-        end
-        deleteat!(includes, delids)
-    end
-    return modules, (includes, requires)
+if isdefined(Base, :pkgorigins)
+    include("loading.jl")
+else
+    include("legacy_loading.jl")
 end
 
-function parse_cache_header(cachefile::String)
-    io = open(cachefile, "r")
-    try
-        !Base.isvalid_cache_header(io) && throw(ArgumentError("Invalid header in cache file $cachefile."))
-        return parse_cache_header(io)
-    finally
-        close(io)
-    end
-end
+"""
+    parse_pkg_files(id::PkgId)
 
-# This is an implementation of
-#   filter(path->Base.stale_cachefile(sourcepath, path) !== true, paths)
-# that's easier to precompile. (This is a hotspot in loading Revise.)
-function filter_valid_cachefiles(sourcepath, paths)
-    fpaths = String[]
-    sourcepath === nothing && return fpaths
-    for path in paths
-        if Base.stale_cachefile(sourcepath, path) !== true
-            push!(fpaths, path)
-        end
-    end
-    return fpaths
-end
-
-function pkg_fileinfo(id::PkgId)
-    uuid, name = id.uuid, id.name
-    # Try to find the matching cache file
-    paths = Base.find_all_in_cache_path(id)
-    sourcepath = Base.locate_package(id)
-    if length(paths) > 1
-        fpaths = filter_valid_cachefiles(sourcepath, paths)
-        paths = isempty(fpaths) ? paths : fpaths
-        # Work-around for #371 (broken dependency prevents tracking):
-        # find the most recent cache file. Presumably this is the one built
-        # to load the package.
-        sort!(paths; by=path->mtime(path), rev=true)
-    end
-    isempty(paths) && return nothing, nothing
-    path = first(paths)
-    provides, includes_requires = try
-        parse_cache_header(path)
-    catch
-        return nothing, nothing
-    end
-    mods_files_mtimes, _ = includes_requires
-    for (pkgid, buildid) in provides
-        if pkgid.uuid === uuid && pkgid.name == name
-            return path, mods_files_mtimes
-        end
-    end
-end
+This function gets called by `watch_package` and runs when a package is first loaded.
+Its job is to organize the files and expressions defining the module so that later we can
+detect and process revisions.
+"""
+parse_pkg_files(id::PkgId)
 
 """
     parentfile, included_files = modulefiles(mod::Module)
@@ -127,61 +25,14 @@ other files that were `include`d to define `mod`. If this operation is unsuccess
 
 All files are returned as absolute paths.
 """
-function modulefiles(mod::Module)
-    function keypath(filename)
-        filename = fixpath(filename)
-        return get(src_file_key, filename, filename)
-    end
-    parentfile = String(first(methods(getfield(mod, :eval))).file)
-    id = PkgId(mod)
-    if id.name == "Base" || Symbol(id.name) ∈ stdlib_names
-        parentfile = normpath(Base.find_source_file(parentfile))
-        filedata = Base._included_files
-    else
-        use_compiled_modules() || return nothing, nothing   # FIXME: support non-precompiled packages
-        _, filedata = pkg_fileinfo(id)
-    end
-    filedata === nothing && return nothing, nothing
-    included_files = filter(mf->mf[1] == mod, filedata)
-    return keypath(parentfile), [keypath(mf[2]) for mf in included_files]
-end
+modulefiles(mod::Module)
 
-"""
-    parse_pkg_files(id::PkgId)
-
-This function gets called by `watch_package` and runs when a package is first loaded.
-Its job is to organize the files and expressions defining the module so that later we can
-detect and process revisions.
-"""
-function parse_pkg_files(id::PkgId)
-    pkgdata = get(pkgdatas, id, nothing)
-    if pkgdata === nothing
-        pkgdata = PkgData(id)
-    end
-    modsym = Symbol(id.name)
-    if use_compiled_modules()
-        cachefile, mods_files_mtimes = pkg_fileinfo(id)
-        if cachefile !== nothing
-            for (mod, fname, _) in mods_files_mtimes
-                if mod === Main && !isdefined(mod, modsym)  # issue #312
-                    mod = Base.root_module(PkgId(pkgdata))
-                end
-                fname = relpath(fname, pkgdata)
-                # For precompiled packages, we can read the source later (whenever we need it)
-                # from the *.ji cachefile.
-                push!(pkgdata, fname=>FileInfo(mod, cachefile))
-            end
-            CodeTracking._pkgfiles[id] = pkgdata.info
-            return pkgdata
-        end
-    end
-    # Non-precompiled package(s). Here we rely on the `include` callbacks to have
-    # already populated `included_files`; all we have to do is collect the relevant
-    # files.
-    queue_includes!(pkgdata, id)
-    return pkgdata
-end
-
+# This is primarily used to parse non-precompilable packages.
+# These lack a cache header that lists the files that constitute the package;
+# they also lack the source cache, and so have to parsed immediately or
+# we won't be able to compute a diff when a file is modified (we don't have a record
+# of what the source was before the modification).
+#
 # The main trick here is that since `using` is recursive, `included_files`
 # might contain files associated with many different packages. We have to figure
 # out which correspond to a particular module `mod`, which we do by:
@@ -204,7 +55,6 @@ function queue_includes!(pkgdata::PkgData, id::PkgId)
         if startswith(modname, modstring) || endswith(fname, modstring*".jl")
             modexsigs = parse_source(fname, mod)
             if modexsigs !== nothing
-                instantiate_sigs!(modexsigs)
                 fname = relpath(fname, pkgdata)
                 push!(pkgdata, fname=>FileInfo(modexsigs))
             end
@@ -265,7 +115,7 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
         return add_definitions_from_repl(file)
     end
     fi = fileinfo(pkgdata, file)
-    if isempty(fi.modexsigs) && !isempty(fi.cachefile)
+    if isempty(fi.modexsigs) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
         # Source was never parsed, get it from the precompile cache
         src = read_from_cache(pkgdata, file)
         filep = joinpath(basedir(pkgdata), file)
@@ -274,12 +124,33 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
         if parse_source!(fi.modexsigs, src, filec, topmod) === nothing
             @error "failed to parse cache file source text for $file"
         end
-        instantiate_sigs!(fi.modexsigs)
+        add_modexs!(fi, fi.cacheexprs)
+        empty!(fi.cacheexprs)
     end
     return fi
 end
 
-function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file, includes)
+function add_modexs!(fi::FileInfo, modexs)
+    for (mod, rex) in modexs
+        exsigs = get(fi.modexsigs, mod, nothing)
+        if exsigs === nothing
+            fi.modexsigs[mod] = exsigs = ExprsSigs()
+        end
+        pushex!(exsigs, rex)
+    end
+    return fi
+end
+
+function maybe_extract_sigs!(fi::FileInfo)
+    if !fi.extracted[]
+        instantiate_sigs!(fi.modexsigs)
+        fi.extracted[] = true
+    end
+    return fi
+end
+maybe_extract_sigs!(pkgdata::PkgData, file::AbstractString) = maybe_extract_sigs!(fileinfo(pkgdata, file))
+
+function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, includes; eval_now::Bool=false)
     for (mod, inc) in includes
         inc = joinpath(splitdir(file)[1], inc)
         incrp = relpath(inc, pkgdata)
@@ -299,15 +170,19 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file, includes)
             fullfile = joinpath(basedir(pkgdata), incrp)
             if isfile(fullfile)
                 parse_source!(fi.modexsigs, fullfile, mod)
-                instantiate_sigs!(fi.modexsigs; define=true)
+                if eval_now
+                    # Use runtime dispatch to reduce latency
+                    Base.invokelatest(instantiate_sigs!, fi.modexsigs; mode=:eval)
+                end
             end
             # Add to watchlist
             init_watching(pkgdata, (incrp,))
+            yield()
         end
     end
 end
 
-function add_require(sourcefile, modcaller, idmod, modname, expr)
+function add_require(sourcefile::String, modcaller::Module, idmod::String, modname::String, expr::Expr)
     expr isa Expr || return
     arthunk = TaskThunk(_add_require, (sourcefile, modcaller, idmod, modname, expr))
     schedule(Task(arthunk))
@@ -342,29 +217,84 @@ function _add_require(sourcefile, modcaller, idmod, modname, expr)
         expr = Expr(:block, copy(expr))
         push!(expr.args, :(__pkguuid__ = $idmod))
         # Add the expression to the fileinfo
-        exsnew = ExprsSigs()
-        exsnew[expr] = nothing
-        mexsnew = ModuleExprsSigs(modcaller=>exsnew)
-        # Before executing the expression we need to set the load path appropriately
-        prev = Base.source_path(nothing)
-        tls = task_local_storage()
-        tls[:SOURCE_PATH] = sourcefile
-        # Now execute the expression
-        mexsnew, includes = try
-            eval_new!(mexsnew, fi.modexsigs)
-        finally
-            if prev === nothing
-                delete!(tls, :SOURCE_PATH)
-            else
-                tls[:SOURCE_PATH] = prev
+        complex = true     # is this too complex to delay?
+        if !fi.extracted[]
+            # If we haven't yet extracted signatures, do our best to avoid it now in case the
+            # signature-extraction code has not yet been compiled (latency reduction)
+            includes, complex = deferrable_require(expr)
+            if !complex
+                # [(modcaller, inc) for inc in includes] but without precompiling a Generator
+                modincludes = Tuple{Module,String}[]
+                for inc in includes
+                    push!(modincludes, (modcaller, inc))
+                end
+                maybe_add_includes_to_pkgdata!(pkgdata, filekey, modincludes)
+                if isempty(fi.modexsigs)
+                    # Source has not even been parsed
+                    push!(fi.cacheexprs, (modcaller, expr))
+                else
+                    add_modexs!(fi, [(modcaller, expr)])
+                end
             end
         end
-        # Add any new methods or `include`d files to tracked objects
-        pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
-        maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes)
+        if complex
+            Base.invokelatest(eval_require_now, pkgdata, fileidx, filekey, sourcefile, modcaller, expr)
+        end
     finally
         unlock(requires_lock)
     end
+end
+
+function deferrable_require(expr)
+    includes = String[]
+    complex = deferrable_require!(includes, expr)
+    return includes, complex
+end
+function deferrable_require!(includes, expr::Expr)
+    if expr.head === :call
+        callee = expr.args[1]
+        if callee === :include
+            if isa(expr.args[2], AbstractString)
+                push!(includes, expr.args[2])
+            else
+                return true
+            end
+        elseif callee === :eval || (isa(callee, Expr) && callee.head === :. && is_quotenode_egal(callee.args[2], :eval))
+            # Any eval statement is suspicious and requires immediate action
+            return false
+        end
+    end
+    expr.head === :macrocall && expr.args[1] === Symbol("@eval") && return true
+    for a in expr.args
+        a isa Expr || continue
+        deferrable_require!(includes, a) && return true
+    end
+    return false
+end
+
+function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourcefile::String, modcaller::Module, expr::Expr)
+    fi = pkgdata.fileinfos[fileidx]
+    exsnew = ExprsSigs()
+    exsnew[expr] = nothing
+    mexsnew = ModuleExprsSigs(modcaller=>exsnew)
+    # Before executing the expression we need to set the load path appropriately
+    prev = Base.source_path(nothing)
+    tls = task_local_storage()
+    tls[:SOURCE_PATH] = sourcefile
+    # Now execute the expression
+    mexsnew, includes = try
+        eval_new!(mexsnew, fi.modexsigs)
+    finally
+        if prev === nothing
+            delete!(tls, :SOURCE_PATH)
+        else
+            tls[:SOURCE_PATH] = prev
+        end
+    end
+    # Add any new methods or `include`d files to tracked objects
+    pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
+    ret = maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes; eval_now=true)
+    return ret
 end
 
 function watch_files_via_dir(dirname)
@@ -414,7 +344,8 @@ function watch_package(id::PkgId)
     # Because the callbacks are made with `invokelatest`, for reasons of performance
     # we need to make sure this function is fast to compile. By hiding the real
     # work behind a @async, we truncate the chain of dependency.
-    @async _watch_package(id)
+    schedule(Task(TaskThunk(_watch_package, (id,))))
+    sleep(0.001)
 end
 
 @noinline function _watch_package(id::PkgId)
@@ -434,11 +365,19 @@ end
 end
 
 function has_writable_paths(pkgdata::PkgData)
+    dir = basedir(pkgdata)
+    isdir(dir) || return true
     haswritable = false
-    for file in srcfiles(pkgdata)
-        haswritable |= iswritable(joinpath(basedir(pkgdata), file))
+    cd(dir) do
+        for file in srcfiles(pkgdata)
+            haswritable |= iswritable(file)
+        end
     end
     return haswritable
+end
+
+function watch_includes(mod::Module, fn::AbstractString)
+    push!(included_files, (mod, normpath(abspath(fn))))
 end
 
 ## Working with Pkg and code-loading
@@ -565,7 +504,7 @@ function watch_manifest(mfile)
                             # Revise code as needed
                             files = String[]
                             for file in srcfiles(pkgdata)
-                                maybe_parse_from_cache!(pkgdata, file)
+                                maybe_extract_sigs!(maybe_parse_from_cache!(pkgdata, file))
                                 push!(revision_queue, (pkgdata, file))
                                 push!(files, file)
                                 notify(revision_event)

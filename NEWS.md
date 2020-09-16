@@ -3,6 +3,26 @@
 This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
+## Revise 3.0
+
+* Latencies at startup and upon first subsequent package load are greatly reduced.
+* Support for selective evaluation: by default, `includet` will use a mode in which only
+  method definitions, not "data," are revised. By default, packages still
+  re-evaluate every changed expression, but packages can opt out of this behavior
+  by defining `__revise_mode__ = :evalmeth`. See the documentation for details.
+  This change should make `includet` more resistant to long latencies and other bad behavior.
+* Evaluations now happen in order of dependency: if PkgA depends on PkgB,
+  PkgB's evaluations will occur before PkgA's. Likewise, if a package loads `"file1.jl"` before
+  `"file2.jl"`, `"file1.jl`"'s evaluations will be processed first.
+* Duplicating a method and then deleting one copy no longer risks deleting the method from your
+  session--method deletion happens only when the final copy is removed.
+* Error handling has been extensively reworked. Messages and stacktraces should be more consistent
+  with the error reporting of Julia itself. Only the first error in each file is shown.
+  Users are reminded of outstanding revision errors only by changing the prompt color to yellow.
+* By default, Revise no longer tracks its own code or that of its dependencies.
+  Call `Revise.add_revise_deps()` (before making any changes) if you want Revise to track its
+  own code.
+
 ## Revise 2.7
 
 * Add framework for user callbacks

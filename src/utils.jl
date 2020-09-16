@@ -62,9 +62,14 @@ newloc(methloc::LineNumberNode, ln, lno) = fixpath(ln)
 location_string(file::AbstractString, line) = abspath(file)*':'*string(line)
 location_string(file::Symbol, line) = location_string(string(file), line)
 
+function linediff(la::LineNumberNode, lb::LineNumberNode)
+    (isa(la.file, Symbol) && isa(lb.file, Symbol) && (la.file::Symbol === lb.file::Symbol)) || return typemax(Int)
+    return abs(la.line - lb.line)
+end
+
 # Return the only non-trivial expression in ex, or ex itself
 function unwrap(ex::Expr)
-    if ex.head == :block
+    if ex.head === :block || ex.head === :toplevel
         for (i, a) in enumerate(ex.args)
             if isa(a, Expr)
                 for j = i+1:length(ex.args)
@@ -79,9 +84,28 @@ function unwrap(ex::Expr)
     end
     return ex
 end
-unwrap(rex::RelocatableExpr) = unwrap(rex.ex)
+unwrap(rex::RelocatableExpr) = RelocatableExpr(unwrap(rex.ex))
 
 istrivial(a) = a === nothing || isa(a, LineNumberNode)
+
+isgoto(stmt) = isa(stmt, Core.GotoNode) | isexpr(stmt, :gotoifnot)
+
+function pushex!(exsigs::ExprsSigs, ex::Expr)
+    uex = unwrap(ex)
+    if is_doc_expr(uex)
+        body = uex.args[4]
+        if isa(body, Expr) && body.head !== :call   # don't trigger for docexprs like `"docstr" f(x::Int)`
+            exsigs[RelocatableExpr(body)] = nothing
+        end
+        if length(uex.args) < 5
+            push!(uex.args, false)
+        else
+            uex.args[5] = false
+        end
+    end
+    exsigs[RelocatableExpr(ex)] = nothing
+    return exsigs
+end
 
 ## WatchList utilities
 function systime()
@@ -164,7 +188,7 @@ function trim_toplevel!(bt)
     for (i, t) in enumerate(bt)
         sfs = StackTraces.lookup(t)
         for sf in sfs
-            if sf.func === Symbol("top-level scope") || (isa(sf.linfo, Core.MethodInstance) && isa(sf.linfo.def, Method) && sf.linfo.def.module ∈ (JuliaInterpreter, LoweredCodeUtils, Revise))
+            if sf.func === Symbol("top-level scope") || (isa(sf.linfo, Core.MethodInstance) && isa(sf.linfo.def, Method) && ((sf.linfo::Core.MethodInstance).def::Method).module ∈ (JuliaInterpreter, LoweredCodeUtils, Revise))
                 itoplevel = i
                 break
             end
