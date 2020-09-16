@@ -1994,6 +1994,7 @@ end
         check_revision_error(logs[1], UndefVarError, :T, 6)
 
         rm_precompile("RevisionErrors")
+        empty!(Revise.queue_errors)
 
         testfile = joinpath(testdir, "Test301.jl")
         open(testfile, "w") do io
@@ -2576,17 +2577,17 @@ end
 
         @everywhere push_LOAD_PATH!(dirname) = push!(LOAD_PATH, dirname)  # Don't want to share this LOAD_PATH
         remotecall_wait(push_LOAD_PATH!, favorite_proc, dirname)
-        
+
         modname = "ReviseDistributedOnWorker"
         dn = joinpath(dirname, modname, "src")
         mkpath(dn)
-        
+
         s527_old = """
         module ReviseDistributedOnWorker
-        
+
         f() = π
         g(::Int) = 0
-        
+
         end
         """
         open(joinpath(dn, modname*".jl"), "w") do io
@@ -2598,19 +2599,19 @@ end
         sleep(mtimedelay)
         Distributed.remotecall_eval(Main, [favorite_proc], :(using ReviseDistributedOnWorker))
         sleep(mtimedelay)
-        
+
         @test Distributed.remotecall_eval(Main, favorite_proc, :(ReviseDistributedOnWorker.f())) == π
         @test Distributed.remotecall_eval(Main, favorite_proc, :(ReviseDistributedOnWorker.g(1))) == 0
-        
+
         # we only loaded ReviseDistributedOnWorker on our favorite process
         @test_throws RemoteException Distributed.remotecall_eval(Main, boring_proc, :(ReviseDistributedOnWorker.f()))
         @test_throws RemoteException Distributed.remotecall_eval(Main, boring_proc, :(ReviseDistributedOnWorker.g(1)))
 
         s527_new = """
         module ReviseDistributedOnWorker
-        
+
         f() = 3.0
-        
+
         end
         """
         open(joinpath(dn, modname*".jl"), "w") do io
@@ -2623,7 +2624,7 @@ end
 
         @test Distributed.remotecall_eval(Main, favorite_proc, :(ReviseDistributedOnWorker.f())) == 3.0
         @test_throws RemoteException Distributed.remotecall_eval(Main, favorite_proc, :(ReviseDistributedOnWorker.g(1)))
-        
+
         @test_throws RemoteException Distributed.remotecall_eval(Main, boring_proc, :(ReviseDistributedOnWorker.f()))
         @test_throws RemoteException Distributed.remotecall_eval(Main, boring_proc, :(ReviseDistributedOnWorker.g(1)))
 
@@ -2641,10 +2642,10 @@ end
         Distributed.remotecall_eval(Main, [favorite_proc, boring_proc], :(Revise.revise()))
         sleep(mtimedelay)
 
-        
+
         @test Distributed.remotecall_eval(Main, favorite_proc, :(ReviseDistributedOnWorker.f())) == π
         @test Distributed.remotecall_eval(Main, favorite_proc, :(ReviseDistributedOnWorker.g(1))) == 0
-        
+
         @test_throws RemoteException Distributed.remotecall_eval(Main, boring_proc, :(ReviseDistributedOnWorker.f()))
         @test_throws RemoteException Distributed.remotecall_eval(Main, boring_proc, :(ReviseDistributedOnWorker.g(1)))
 

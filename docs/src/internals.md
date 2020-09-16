@@ -201,7 +201,7 @@ init_c_library()     # library crashes if we call this twice
 Starting with version 2.3, Revise attempts to avoid interpreting any code not necessary for signature computation.
 If you are just tracking changes, Revise will skip over such blocks; if you're loading a file with `includet` for the first time, Revise will execute such blocks in compiled mode.
 
-Revise achieves this by computing [`Revise.BackEdges`](@ref), essentially a set of links encoding the dependencies among different lines of the lowered code.
+Revise achieves this by computing [backedges](https://juliadebug.github.io/LoweredCodeUtils.jl/stable/edges/), essentially a set of links encoding the dependencies among different lines of the lowered code.
 For the `floatwins` example above, the backedges would represent the fact that line 2 has one direct dependant, line 3 (which uses `%2`), that lines 3 and 4 both have line 5 as their dependents, and line 5 has line 6 as a dependent.  As a consequence, to (nearly) execute line 6, we have to execute lines 2-5, because they set up the signature. If an interdependent block doesn't contain any `:method` or related (`:struct_type`, `:eval`) expressions, then it doesn't need to interpret the block at all.
 
 As should be evident, the lowered code makes it much easier to analyze the graph of these dependencies.  There are, however, a few tricky cases.
@@ -209,7 +209,7 @@ For example, any code inside an `@eval` might, or might not, expand into lowered
 
 !!! note
 
-    If Revise executes code that still shouldn't be run twice, one good solution is to put all initialization inside your module's [`__init__` function](https://docs.julialang.org/en/latest/manual/modules/#Module-initialization-and-precompilation-1).
+    If Revise executes code that still shouldn't be run twice, one good solution is to put all initialization inside your module's [`__init__` function](https://docs.julialang.org/en/v1/manual/modules/#Module-initialization-and-precompilation-1).
     For files that you track with `includet`, you can also split "code that defines methods" into a separate file from "code that does work," and have Revise track only the method-defining file.
     However, starting with version 2.3 Revise should be fairly good at doing this on its own; such manual interventions should not be necessary in most cases.
 
