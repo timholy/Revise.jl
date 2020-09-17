@@ -399,80 +399,98 @@ function manifest_file(project_file)
 end
 manifest_file() = manifest_file(Base.active_project())
 
-if isdefined(Base, :TOMLCache)
-function manifest_paths!(pkgpaths::Dict, manifest_file::String)
-    c = Base.TOMLCache()
-    d = Base.parsed_toml(c, manifest_file)
-    for (name, entries) in d
-        entries::Vector{Any}
-        for info in entries
-            name::String
-            info::Dict{String, Any}
-            uuid = UUID(info["uuid"]::String)
-            hash = get(info, "git-tree-sha1", nothing)::Union{String, Nothing}
-            path = nothing
-            if hash !== nothing
-                path = find_from_hash(name, uuid, Base.SHA1(hash))
-                path === nothing && error("no path found for $id and hash $hash")
-            end
-            maybe_path = get(info, "path", nothing)::Union{String, Nothing}
-            if maybe_path !== nothing
-                path = abspath(dirname(manifest_file), maybe_path)
-            end
-            if path !== nothing
-                pkgpaths[PkgId(Base.UUID(uuid), name)] = path
-            end
-        end
-    end
-    return pkgpaths
-end
-else
-function manifest_paths!(pkgpaths::Dict, manifest_file::String)
-    open(manifest_file) do io
-        uuid = name = path = hash = id = nothing
-        for line in eachline(io)
-            if (m = match(Base.re_section_capture, line)) != nothing
-                name = String(m.captures[1])
-                path = hash = nothing
-            elseif (m = match(Base.re_uuid_to_string, line)) != nothing
-                uuid = UUID(m.captures[1])
-                name === nothing && error("name not set for $uuid")
-                id = PkgId(uuid, name)
-                # UUID is last, so time to store
+if isdefined(Base, :explicit_manifest_entry_path)
+    function manifest_paths!(pkgpaths::Dict, manifest_file::String)
+        c = Base.TOMLCache()
+        d = Base.parsed_toml(c, manifest_file)
+        for (name, entries) in d
+            entries::Vector{Any}
+            for entry in entries
+                id = PkgId(UUID(entry["uuid"]::String), name)
+                path = Base.explicit_manifest_entry_path(manifest_file, id, entry)
                 if path !== nothing
                     pkgpaths[id] = path
-                elseif hash !== nothing
-                    path = find_from_hash(name, uuid, hash)
-                    path === nothing && error("no path found for $id and hash $hash")
-                    pkgpaths[id] = path
                 end
-                uuid = name = path = hash = id = nothing
-            elseif (m = match(Base.re_path_to_string, line)) != nothing
-                path = String(m.captures[1])
-                path = abspath(dirname(manifest_file), path)
-            elseif (m = match(Base.re_hash_to_string, line)) != nothing
-                hash = Base.SHA1(m.captures[1])
             end
         end
+        return pkgpaths
     end
-    return pkgpaths
-end
+else
+    # Legacy (delete when Julia 1.6 or higher is the minimum supported version)
+    if isdefined(Base, :TOMLCache)
+        function manifest_paths!(pkgpaths::Dict, manifest_file::String)
+            c = Base.TOMLCache()
+            d = Base.parsed_toml(c, manifest_file)
+            for (name, entries) in d
+                entries::Vector{Any}
+                for info in entries
+                    name::String
+                    info::Dict{String, Any}
+                    uuid = UUID(info["uuid"]::String)
+                    hash = get(info, "git-tree-sha1", nothing)::Union{String, Nothing}
+                    path = nothing
+                    if hash !== nothing
+                        path = find_from_hash(name, uuid, Base.SHA1(hash))
+                        path === nothing && error("no path found for $id and hash $hash")
+                    end
+                    maybe_path = get(info, "path", nothing)::Union{String, Nothing}
+                    if maybe_path !== nothing
+                        path = abspath(dirname(manifest_file), maybe_path)
+                    end
+                    if path !== nothing
+                        pkgpaths[PkgId(Base.UUID(uuid), name)] = path
+                    end
+                end
+            end
+            return pkgpaths
+        end
+    else
+        function manifest_paths!(pkgpaths::Dict, manifest_file::String)
+            open(manifest_file) do io
+                uuid = name = path = hash = id = nothing
+                for line in eachline(io)
+                    if (m = match(Base.re_section_capture, line)) != nothing
+                        name = String(m.captures[1])
+                        path = hash = nothing
+                    elseif (m = match(Base.re_uuid_to_string, line)) != nothing
+                        uuid = UUID(m.captures[1])
+                        name === nothing && error("name not set for $uuid")
+                        id = PkgId(uuid, name)
+                        # UUID is last, so time to store
+                        if path !== nothing
+                            pkgpaths[id] = path
+                        elseif hash !== nothing
+                            path = find_from_hash(name, uuid, hash)
+                            path === nothing && error("no path found for $id and hash $hash")
+                            pkgpaths[id] = path
+                        end
+                        uuid = name = path = hash = id = nothing
+                    elseif (m = match(Base.re_path_to_string, line)) != nothing
+                        path = String(m.captures[1])
+                        path = abspath(dirname(manifest_file), path)
+                    elseif (m = match(Base.re_hash_to_string, line)) != nothing
+                        hash = Base.SHA1(m.captures[1])
+                    end
+                end
+            end
+            return pkgpaths
+        end
+    end
+    function find_from_hash(name::String, uuid::Base.UUID, hash::Base.SHA1)
+        for slug in (Base.version_slug(uuid, hash, 4), Base.version_slug(uuid, hash))
+            for depot in DEPOT_PATH
+                path = abspath(depot, "packages", name, slug)
+                if ispath(path)
+                    return path
+                end
+            end
+        end
+        return nothing
+    end
 end
 
 manifest_paths(manifest_file::String) =
     manifest_paths!(Dict{PkgId,String}(), manifest_file)
-
-function find_from_hash(name::String, uuid::Base.UUID, hash::Base.SHA1)
-    for slug in (Base.version_slug(uuid, hash, 4), Base.version_slug(uuid, hash))
-        for depot in DEPOT_PATH
-            path = abspath(depot, "packages", name, slug)
-            if ispath(path)
-                return path
-            end
-        end
-    end
-    return nothing
-end
 
 function watch_manifest(mfile)
     while true
