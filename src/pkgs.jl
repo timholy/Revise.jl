@@ -389,7 +389,7 @@ function manifest_file(project_file)
         mfile = @static if isdefined(Base, :TOMLCache)
             Base.project_file_manifest_path(project_file, Base.TOMLCache())
         else
-            Base.project_file_manifest_path(project_file)
+            isfile(project_file) ? Base.project_file_manifest_path(project_file) : nothing
         end
         if mfile isa String
             return mfile
