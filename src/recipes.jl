@@ -192,6 +192,12 @@ end
 if VERSION >= v"1.6.0-DEV.890"   # https://github.com/JuliaLang/julia/pull/37320
     push!(stdlib_names, :Artifacts)
 end
+if VERSION >= v"1.6.0-DEV.938"   # https://github.com/JuliaLang/julia/pull/37340
+    push!(stdlib_names, :LibCURL_jll)
+    push!(stdlib_names, :LibCURL)
+    push!(stdlib_names, :MozillaCACerts_jll)
+    push!(stdlib_names, :Downloads)
+end
 
 # This replacement is needed because the path written during compilation differs from
 # the git source path
