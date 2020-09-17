@@ -20,8 +20,8 @@ to run Revise automatically, as described in the "Configuration" section of the 
 ## Credits
 
 Revise became possible because of Jameson Nash's fix of [Julia issue 265](https://github.com/JuliaLang/julia/issues/265).
-[Juno](http://junolab.org/) is an IDE that offers an editor-based mechanism for achieving some
-of the same aims.
+[Julia for VSCode](https://www.julia-vscode.org/) and [Juno](http://junolab.org/) are IDEs that offer an editor-based mechanism for achieving a subset of
+Revise's aims.
 
 ## Major releases
 
