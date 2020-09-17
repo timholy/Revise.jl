@@ -58,6 +58,7 @@ function _precompile_()
     @assert precompile(Tuple{typeof(hastrackedexpr), Expr})
     @assert precompile(Tuple{typeof(get_def), Method})
     @assert precompile(Tuple{typeof(parse_pkg_files), PkgId})
+    @assert precompile(Tuple{typeof(has_writable_paths), PkgData})
     if isdefined(Revise, :filter_valid_cachefiles)
         @assert precompile(Tuple{typeof(filter_valid_cachefiles), String, Vector{String}})
     end

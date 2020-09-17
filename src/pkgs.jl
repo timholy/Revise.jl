@@ -403,6 +403,7 @@ if isdefined(Base, :TOMLCache)
 function manifest_paths!(pkgpaths::Dict, manifest_file::String)
     c = Base.TOMLCache()
     d = Base.parsed_toml(c, manifest_file)
+    isdefined(CodeTracking, :tomlcache) && (CodeTracking.tomlcache[] = c; println("stashed"))
     for (name, entries) in d
         entries::Vector{Any}
         for info in entries
@@ -481,6 +482,10 @@ function watch_manifest(mfile)
         catch e
             # issue #459
             (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+        end
+        # invalidate the tomlcache
+        if isdefined(CodeTracking, :tomlcache)
+            CodeTracking.tomlcache[] = nothing
         end
         try
             with_logger(_debug_logger) do
