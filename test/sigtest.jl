@@ -92,7 +92,7 @@ module Lowering end
 end
 
 for lib in Revise.stdlib_names
-    lib in (:OldPkg, :TOML, :Artifacts) && continue
+    lib in (:OldPkg, :TOML, :Artifacts, :LibCURL, :LibCURL_jll, :MozillaCACerts_jll, :Downloads) && continue
     @eval using $lib
 end
 basefiles = Set{String}()
@@ -101,6 +101,7 @@ basefiles = Set{String}()
     # https://github.com/JuliaLang/julia/issues/37590
     endswith(file, "Artifacts.jl") && continue
     endswith(file, "TOML.jl") && continue
+    endswith(file, "Downloads.jl") && continue
     file = Revise.fixpath(file)
     push!(basefiles, reljpath(file))
     mexs = Revise.parse_source(file, mod)
