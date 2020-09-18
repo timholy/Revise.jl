@@ -14,9 +14,15 @@ using Base.CoreLogging: Debug,Info
 
 using Revise.CodeTracking: line_is_decl
 
+@show VERSION
+@show pkgdir(JuliaInterpreter)
+@show Base.pkgorigins
+
 # In addition to using this for the "More arg-modifying macros" test below,
 # this package is used on Travis to test what happens when you have multiple
 # *.ji files for the package.
+
+#=
 using EponymTuples
 
 include("common.jl")
@@ -3604,3 +3610,4 @@ do_test("Base signatures") && @testset "Base signatures" begin
     # Using the extensive repository of code in Base as a testbed
     include("sigtest.jl")
 end
+=#
