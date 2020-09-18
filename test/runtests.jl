@@ -16,6 +16,8 @@ using Revise.CodeTracking: line_is_decl
 
 @show VERSION
 @show pkgdir(JuliaInterpreter)
+@show pkgdir(Revise.CodeTracking)
+@show pkgdir(OrderedCollections)
 @show Base.pkgorigins
 
 # In addition to using this for the "More arg-modifying macros" test below,
