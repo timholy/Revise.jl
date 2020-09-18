@@ -3565,3 +3565,43 @@ do_test("Base signatures") && @testset "Base signatures" begin
     # Using the extensive repository of code in Base as a testbed
     include("sigtest.jl")
 end
+
+
+# see #532 Fix InitError opening none existent Project.toml
+function load_in_empty_project_test()
+
+    # This will try to load Revise in a julia seccion
+    # with an empty enviroment (missing Project.toml)
+
+    julia = Base.julia_cmd()
+    revise_proj = Base.active_project()
+    @assert isfile(Base.active_project())
+
+    src = """
+    
+        import Pkg
+        Pkg.activate("fake_env")
+        @assert !isfile(Base.active_project())
+        
+        # force to load the package env Revise version
+        empty!(LOAD_PATH)
+        push!(LOAD_PATH, "$revise_proj")
+        
+        @info "A warning about no Manifest.toml file found is expected"
+        try; using Revise
+            catch err
+                # just fail for this error (see #532)
+                err isa InitError && rethrow(err)
+        end
+        
+    """
+    cmd = `$julia --project=@. -E $src`
+
+    @test begin
+        wait(run(cmd))
+        true
+    end
+end
+@testset "Import in empty enviroment (issue #532)" begin
+    load_in_empty_project_test();
+end
