@@ -3575,7 +3575,7 @@ function load_in_empty_project_test()
 
     julia = Base.julia_cmd()
     revise_proj = Base.active_project()
-    @assert isfile(Base.active_project())
+    @assert isfile(revise_proj)
 
     src = """
     
