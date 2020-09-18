@@ -3558,15 +3558,6 @@ end
 
 GC.gc(); GC.gc(); GC.gc()   # work-around for https://github.com/JuliaLang/julia/issues/28306
 
-include("backedges.jl")
-
-do_test("Base signatures") && @testset "Base signatures" begin
-    println("beginning signatures tests")
-    # Using the extensive repository of code in Base as a testbed
-    include("sigtest.jl")
-end
-
-
 # see #532 Fix InitError opening none existent Project.toml
 function load_in_empty_project_test()
 
@@ -3574,26 +3565,26 @@ function load_in_empty_project_test()
     # with an empty enviroment (missing Project.toml)
 
     julia = Base.julia_cmd()
-    revise_proj = Base.active_project()
+    revise_proj = escape_string(Base.active_project())
     @assert isfile(revise_proj)
 
     src = """
-    
+
         import Pkg
         Pkg.activate("fake_env")
         @assert !isfile(Base.active_project())
-        
+
         # force to load the package env Revise version
         empty!(LOAD_PATH)
         push!(LOAD_PATH, "$revise_proj")
-        
+
         @info "A warning about no Manifest.toml file found is expected"
         try; using Revise
             catch err
                 # just fail for this error (see #532)
                 err isa InitError && rethrow(err)
         end
-        
+
     """
     cmd = `$julia --project=@. -E $src`
 
@@ -3604,4 +3595,12 @@ function load_in_empty_project_test()
 end
 @testset "Import in empty enviroment (issue #532)" begin
     load_in_empty_project_test();
+end
+
+include("backedges.jl")
+
+do_test("Base signatures") && @testset "Base signatures" begin
+    println("beginning signatures tests")
+    # Using the extensive repository of code in Base as a testbed
+    include("sigtest.jl")
 end
