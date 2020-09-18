@@ -385,11 +385,11 @@ end
 # Much of this is adapted from base/loading.jl
 
 function manifest_file(project_file)
-    if project_file isa String
+    if project_file isa String && isfile(project_file)
         mfile = @static if isdefined(Base, :TOMLCache)
             Base.project_file_manifest_path(project_file, Base.TOMLCache())
         else
-            isfile(project_file) ? Base.project_file_manifest_path(project_file) : nothing
+            Base.project_file_manifest_path(project_file)
         end
         if mfile isa String
             return mfile
