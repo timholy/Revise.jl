@@ -1,5 +1,4 @@
 using Base: PkgId
-using CodeTracking: basepath
 
 if isdefined(Base, :pkgorigins)
     include("loading.jl")
