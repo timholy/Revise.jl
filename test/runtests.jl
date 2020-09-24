@@ -1007,7 +1007,7 @@ end
         pop!(LOAD_PATH)
     end
 
-    # issue #8
+    # issue #8 and #197
     do_test("Module docstring") && @testset "Module docstring" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "ModDocstring", "src")
@@ -1068,6 +1068,44 @@ end
         ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Hello! "
         rm_precompile("ModDocstring")
+
+        # issue #197
+        dn = joinpath(testdir, "ModDocstring2", "src")
+        mkpath(dn)
+        open(joinpath(dn, "ModDocstring2.jl"), "w") do io
+            println(io, """
+            "docstring"
+            module ModDocstring2
+                "docstring for .Sub"
+                module Sub
+                end
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using ModDocstring2
+        sleep(mtimedelay)
+        ds = @doc(ModDocstring2)
+        @test get_docstring(ds) == "docstring"
+        ds = @doc(ModDocstring2.Sub)
+        @test get_docstring(ds) == "docstring for .Sub"
+        open(joinpath(dn, "ModDocstring2.jl"), "w") do io
+            println(io, """
+            "updated docstring"
+            module ModDocstring2
+                "updated docstring for .Sub"
+                module Sub
+                end
+            end
+            """)
+        end
+        yry()
+        ds = @doc(ModDocstring2)
+        @test get_docstring(ds) == "updated docstring"
+        ds = @doc(ModDocstring2.Sub)
+        @test get_docstring(ds) == "updated docstring for .Sub"
+        rm_precompile("ModDocstring2")
+
         pop!(LOAD_PATH)
     end
 
