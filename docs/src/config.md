@@ -4,6 +4,8 @@
 
 If you like Revise, you can ensure that every Julia session uses it by
 launching it from your `~/.julia/config/startup.jl` file.
+Note that using Revise adds a small latency at Julia startup, generally about 0.7s when you first launch Julia and another 0.25s for your first package load.
+Users should weigh this penalty against whatever benefit they may derive from not having to restart their entire session.
 
 ### Julia 1.5 and higher
 
