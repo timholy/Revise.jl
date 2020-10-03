@@ -2033,6 +2033,40 @@ end
         end
         check_revision_error(logs[1], UndefVarError, :T, 6)
 
+        # issue #541
+        sleep(mtimedelay)
+        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
+            println(io, """
+            module RevisionErrors
+            f(x) = 2
+            struct Vec{N, T <: Union{Float32,Float64}}
+                data::NTuple{N, T}
+            end
+            g(x} = 2
+            end
+            """)
+        end
+        @test try
+            revise(throw=true)
+            false
+        catch err
+            isa(err, LoadError) && occursin("""unexpected "}" """, err.error)
+        end
+        sleep(mtimedelay)
+        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
+            println(io, """
+            module RevisionErrors
+            f(x) = 2
+            struct Vec{N, T <: Union{Float32,Float64}}
+                data::NTuple{N, T}
+            end
+            g(x) = 2
+            end
+            """)
+        end
+        yry()
+        @test RevisionErrors.g(0) == 2
+
         rm_precompile("RevisionErrors")
         empty!(Revise.queue_errors)
 
