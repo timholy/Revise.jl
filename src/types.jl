@@ -246,7 +246,7 @@ function Base.showerror(io::IO, ex::ReviseEvalException; blame_revise::Bool=true
         Base.show_backtrace(io, st)
     end
     if blame_revise
-        println(io, "Revise evaluation error at ", ex.loc)
+        println(io, "\nRevise evaluation error at ", ex.loc)
     end
 end
 
