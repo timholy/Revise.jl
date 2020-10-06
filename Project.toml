@@ -21,7 +21,7 @@ CodeTracking = "1"
 JuliaInterpreter = "0.8"
 LoweredCodeUtils = "1.2"
 OrderedCollections = "1"
-Requires = "~1.0"
+Requires = "~1.0, 1.1"
 julia = "1"
 
 [extras]
