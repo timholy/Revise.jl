@@ -193,7 +193,7 @@ This is used to make stacktraces obtained with Revise more similar to those obta
 without Revise, while retaining one entry to reveal Revise's involvement.
 """
 function trim_toplevel!(bt)
-    # return bt       # uncomment this line if you're debugging Revise itself
+    return bt
     n = itoplevel = length(bt)
     for (i, t) in enumerate(bt)
         sfs = StackTraces.lookup(t)

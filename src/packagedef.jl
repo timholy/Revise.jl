@@ -198,6 +198,11 @@ const silence_pkgs = Set{Symbol}()
 const depsdir = joinpath(dirname(@__DIR__), "deps")
 const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
 
+"""
+    world age
+"""
+const worldage = Ref{Union{Nothing,UInt}}(nothing)
+
 ##
 ## The inputs are sets of expressions found in each file.
 ## Some of those expressions will generate methods which are identified via their signatures.
@@ -1178,7 +1183,7 @@ end
 # This uses invokelatest not for reasons of world age but to ensure that the call is made at runtime.
 # This allows `revise_first` to be compiled without compiling `revise` itself, and greatly
 # reduces the overhead of using Revise.
-revise_first(ex) = Expr(:toplevel, :(isempty($revision_queue) || Base.invokelatest($revise)), ex)
+revise_first(ex) = Expr(:toplevel, :(isempty($revision_queue) || Base.invoke_in_world($(worldage[]), $revise)), ex)
 
 @noinline function run_backend(backend)
     while true
@@ -1277,6 +1282,7 @@ function init_worker(p)
 end
 
 function __init__()
+    worldage[] = Base.get_world_counter()
     run_on_worker = get(ENV, "JULIA_REVISE_WORKER_ONLY", "0")
     if !(myid() == 1 || run_on_worker == "1")
         return nothing
