@@ -184,6 +184,7 @@ println_maxsize(io::IO, args...; kwargs...) = printf_maxsize(println, io, args..
 
 # Trimming backtraces
 function trim_toplevel!(bt)
+    return bt
     n = itoplevel = length(bt)
     for (i, t) in enumerate(bt)
         sfs = StackTraces.lookup(t)
