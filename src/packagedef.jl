@@ -267,10 +267,13 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                         @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
                         # Delete the corresponding methods
                         for p in workers()
-                            try  # guard against serialization errors if the type isn't defined on the worker
-                                remotecall(Core.eval, p, Main, :(delete_method_by_sig($sig)))
-                            catch
-                            end
+                            #try  # guard against serialization errors if the type isn't defined on the worker
+                                future = remotecall(Core.eval, p, Main, :(delete_method_by_sig($sig)))
+                                finalizer(future) do f
+                                    Base.invoke_in_world(worldage[], Distributed.finalize_ref, f)
+                                end
+                            #catch
+                            #end
                         end
                         Base.delete_method(m)
                         # Remove the entries from CodeTracking data

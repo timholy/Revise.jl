@@ -128,6 +128,8 @@ function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     return methodinfo, docexprs, frame
 end
 
+_lower(m::Module, ex, world::UInt) = ccall(:jl_expand_in_world, Any, (Any, Module, Cstring, Cint, Csize_t), ex, m, "none", 0, world)
+
 """
     methods_by_execution!(recurse=JuliaInterpreter.Compiled(), methodinfo, docexprs, mod::Module, ex::Expr;
                           mode=:eval, disablebp=true, skip_include=mode!==:eval, always_rethrow=false)
@@ -175,7 +177,7 @@ The other keyword arguments are more straightforward:
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr;
                                mode::Symbol=:eval, disablebp::Bool=true, always_rethrow::Bool=false, kwargs...)
     mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
-    lwr = Meta.lower(mod, ex)
+    lwr = _lower(mod, ex, worldage[])
     isa(lwr, Expr) || return nothing, nothing
     if lwr.head === :error || lwr.head === :incomplete
         error("lowering returned an error, ", lwr)
