@@ -1,5 +1,12 @@
 # Debugging Revise
 
+## Handling errors
+
+Revise attempts to make error reports mimic Julia's own stacktraces, and as a consequence it has
+to prevent stacktraces from containing lots of lines pointing to Revise's own code.
+If you're trying to debug a Revise error, you'd probably prefer to see the entire stacktrace.
+You can uncomment the obvious commented-out line in [`Revise.trim_toplevel!`](@ref).
+
 ## The logging framework
 
 If Revise isn't behaving the way you expect it to, it can be useful to examine the

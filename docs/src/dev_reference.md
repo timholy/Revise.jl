@@ -133,6 +133,10 @@ Revise.modulefiles
 
 ### Handling errors
 
+```@docs
+Revise.trim_toplevel!
+```
+
 In current releases of Julia, hitting Ctrl-C from the REPL can stop tasks running in the background.
 This risks stopping Revise's ability to watch for changes in files and directories.
 Revise has a work-around for this problem.

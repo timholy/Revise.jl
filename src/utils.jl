@@ -182,8 +182,18 @@ end
 println_maxsize(args...; kwargs...) = println_maxsize(stdout, args...; kwargs...)
 println_maxsize(io::IO, args...; kwargs...) = printf_maxsize(println, io, args...; kwargs...)
 
-# Trimming backtraces
+"""
+    trim_toplevel!(bt)
+
+Truncate a list of instruction pointers, as obtained from `backtrace()` or `catch_backtrace()`,
+at the first "top-level" call (e.g., as executed from the REPL prompt) or the
+first entry corresponding to a method in Revise or its dependencies.
+
+This is used to make stacktraces obtained with Revise more similar to those obtained
+without Revise, while retaining one entry to reveal Revise's involvement.
+"""
 function trim_toplevel!(bt)
+    # return bt       # uncomment this line if you're debugging Revise itself
     n = itoplevel = length(bt)
     for (i, t) in enumerate(bt)
         sfs = StackTraces.lookup(t)
