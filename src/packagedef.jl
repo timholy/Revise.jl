@@ -199,7 +199,10 @@ const depsdir = joinpath(dirname(@__DIR__), "deps")
 const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
 
 """
-    world age
+    Revise.worldage
+
+The world age Revise was started in. Needed so that Revise doesn't delete methods
+from under itself.
 """
 const worldage = Ref{Union{Nothing,UInt}}(nothing)
 
@@ -270,7 +273,7 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                             #try  # guard against serialization errors if the type isn't defined on the worker
                                 future = remotecall(Core.eval, p, Main, :(delete_method_by_sig($sig)))
                                 finalizer(future) do f
-                                    Base.invoke_in_world(worldage[], Distributed.finalize_ref, f)
+                                    Base.invoke_revisefunc(worldage[], Distributed.finalize_ref, f)
                                 end
                             #catch
                             #end
@@ -1182,11 +1185,26 @@ function maybe_set_prompt_color(color)
     return nothing
 end
 
+if VERSION < v"1.6.0-DEV.1162"
+    const invoke_revisefunc = Base.invokelatest
+    const lower_in_reviseworld = Meta.lower
+else
+    function invoke_revisefunc(f, args...; kwargs...)
+        return Base.invoke_in_world(worldage[], f, args...; kwargs...)
+    end
+    function lower_in_reviseworld(m::Module, @nospecialize(ex))
+        return ccall(:jl_expand_in_world, Any,
+            (Any, Ref{Module}, Cstring, Cint, Csize_t),
+            ex, m, "none", 0, world,
+        )
+    end
+end
+
 # On Julia 1.5.0-DEV.282 and higher, we can just use an AST transformation
 # This uses invokelatest not for reasons of world age but to ensure that the call is made at runtime.
 # This allows `revise_first` to be compiled without compiling `revise` itself, and greatly
 # reduces the overhead of using Revise.
-revise_first(ex) = Expr(:toplevel, :(isempty($revision_queue) || Base.invoke_in_world($(worldage[]), $revise)), ex)
+revise_first(ex) = Expr(:toplevel, :(isempty($revision_queue) || Base.invoke_revisefunc($revise)), ex)
 
 @noinline function run_backend(backend)
     while true

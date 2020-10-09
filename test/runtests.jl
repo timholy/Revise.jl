@@ -4,6 +4,8 @@ using Revise.CodeTracking
 using Revise.JuliaInterpreter
 using Test
 
+@show VERSION
+
 @test isempty(detect_ambiguities(Revise))
 
 using Pkg, Unicode, Distributed, InteractiveUtils, REPL, UUIDs
