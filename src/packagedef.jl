@@ -273,7 +273,7 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                             #try  # guard against serialization errors if the type isn't defined on the worker
                                 future = remotecall(Core.eval, p, Main, :(delete_method_by_sig($sig)))
                                 finalizer(future) do f
-                                    Base.invoke_revisefunc(worldage[], Distributed.finalize_ref, f)
+                                    invoke_revisefunc(Distributed.finalize_ref, f)
                                 end
                             #catch
                             #end
@@ -1204,7 +1204,7 @@ end
 # This uses invokelatest not for reasons of world age but to ensure that the call is made at runtime.
 # This allows `revise_first` to be compiled without compiling `revise` itself, and greatly
 # reduces the overhead of using Revise.
-revise_first(ex) = Expr(:toplevel, :(isempty($revision_queue) || Base.invoke_revisefunc($revise)), ex)
+revise_first(ex) = Expr(:toplevel, :(isempty($revision_queue) || (worldage[] = Base.get_world_counter(); invoke_revisefunc($revise))), ex)
 
 @noinline function run_backend(backend)
     while true
@@ -1355,8 +1355,8 @@ function __init__()
     id = PkgId(nothing, "@REPL")
     pkgdatas[id] = pkgdata = PkgData(id, nothing)
     # Set the lookup callbacks
-    CodeTracking.method_lookup_callback[] = get_def
-    CodeTracking.expressions_callback[] = get_expressions
+    CodeTracking.method_lookup_callback[] = x -> (worldage[] = Base.get_world_counter(); invoke_revisefunc(get_def, x))
+    CodeTracking.expressions_callback[] = x -> (worldage[] = Base.get_world_counter(); invoke_revisefunc(get_expressions, x))
 
     # Watch the manifest file for changes
     mfile = manifest_file()
