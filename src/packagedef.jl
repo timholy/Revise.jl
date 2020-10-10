@@ -198,13 +198,14 @@ const silence_pkgs = Set{Symbol}()
 const depsdir = joinpath(dirname(@__DIR__), "deps")
 const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
 
-"""
-    Revise.worldage
-
-The world age Revise was started in. Needed so that Revise doesn't delete methods
-from under itself.
-"""
-const worldage = Ref{Union{Nothing,UInt}}(nothing)
+#"""
+#    Revise.worldage
+#
+#The world age Revise was started in. Needed so that Revise doesn't delete methods
+#from under itself.
+#"""
+#const worldage = Ref{Union{Nothing,UInt}}(nothing)
+using CodeTracking: worldage
 
 ##
 ## The inputs are sets of expressions found in each file.
@@ -1190,12 +1191,16 @@ if VERSION < v"1.6.0-DEV.1162"
     const lower_in_reviseworld = Meta.lower
 else
     function invoke_revisefunc(f, args...; kwargs...)
+        @show worldage[]
+        Base.show_backtrace(backtrace[1:2])
         return Base.invoke_in_world(worldage[], f, args...; kwargs...)
     end
     function lower_in_reviseworld(m::Module, @nospecialize(ex))
+        @show worldage[]
+        Base.show_backtrace(backtrace[1:2])
         return ccall(:jl_expand_in_world, Any,
             (Any, Ref{Module}, Cstring, Cint, Csize_t),
-            ex, m, "none", 0, world,
+            ex, m, "none", 0, worldage[],
         )
     end
 end

@@ -29,6 +29,7 @@ Base64 = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 CRC32c = "8bf52ea8-c179-5cab-976a-9e18b702a9bc"
 CatIndices = "aafaddc9-749c-510e-ac4f-586e18779b91"
 Dates = "ade2ca70-3891-5945-98fb-dc099432e06a"
+Debugger = "31a5f54b-26ea-5ae9-a837-f05ce5417438"
 DelimitedFiles = "8bb1440f-4735-579b-a4ab-409b98df4dab"
 EndpointRanges = "340492b5-2a47-5f55-813d-aca7ddf97656"
 EponymTuples = "97e2ac4a-e175-5f49-beb1-4d6866a6cdc3"
@@ -57,4 +58,4 @@ SuiteSparse = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "Base64", "CRC32c", "CatIndices", "Dates", "DelimitedFiles", "EndpointRanges", "EponymTuples", "Example", "Future", "IndirectArrays", "InteractiveUtils", "Libdl", "LinearAlgebra", "Logging", "MappedArrays", "Markdown", "Mmap", "Printf", "Profile", "Random", "Requires", "RoundingIntegers", "SHA", "Serialization", "SharedArrays", "Sockets", "SparseArrays", "Statistics", "SuiteSparse"]
+test = ["Test", "Base64", "CRC32c", "CatIndices", "Dates", "DelimitedFiles", "EndpointRanges", "EponymTuples", "Example", "Future", "IndirectArrays", "InteractiveUtils", "Libdl", "LinearAlgebra", "Logging", "MappedArrays", "Markdown", "Mmap", "Printf", "Profile", "Random", "Requires", "RoundingIntegers", "SHA", "Serialization", "SharedArrays", "Sockets", "SparseArrays", "Statistics", "SuiteSparse", "Debugger"]
