@@ -4,8 +4,6 @@ using Revise.CodeTracking
 using Revise.JuliaInterpreter
 using Test
 
-@show VERSION
-
 @test isempty(detect_ambiguities(Revise))
 
 using Pkg, Unicode, Distributed, InteractiveUtils, REPL, UUIDs
@@ -473,8 +471,8 @@ end
                 @eval @test $(fn4)() == 4
                 @eval @test $(fn5)() == 5
                 @eval @test $(fn6)() == 6
-                m = @show @eval first(methods($fn1))
-                rex = Revise.RelocatableExpr(@show definition(m))
+                m = @eval first(methods($fn1))
+                rex = Revise.RelocatableExpr(definition(m))
                 @test rex == Revise.RelocatableExpr(:( $fn1() = 1 ))
                 # Check that definition returns copies
                 rex2 = deepcopy(rex)

@@ -177,7 +177,7 @@ The other keyword arguments are more straightforward:
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod::Module, ex::Expr;
                                mode::Symbol=:eval, disablebp::Bool=true, always_rethrow::Bool=false, kwargs...)
     mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
-    lwr = _lower(mod, ex, worldage[])
+    lwr = lower_in_reviseworld(mod, ex)
     isa(lwr, Expr) || return nothing, nothing
     if lwr.head === :error || lwr.head === :incomplete
         error("lowering returned an error, ", lwr)

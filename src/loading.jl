@@ -48,7 +48,6 @@ function parse_pkg_files(id::PkgId)
     # To reduce compiler latency, use runtime dispatch for `queue_includes!`.
     # `queue_includes!` requires compilation of the whole parsing/expression-splitting infrastructure,
     # and it's better to wait to compile it until we actually need it.
-    worldage[] = Base.get_world_counter()
     invoke_revisefunc(queue_includes!, pkgdata, id)
     return pkgdata
 end
