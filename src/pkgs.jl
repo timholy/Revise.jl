@@ -385,11 +385,7 @@ end
 
 function manifest_file(project_file)
     if project_file isa String && isfile(project_file)
-        mfile = @static if isdefined(Base, :TOMLCache)
-            Base.project_file_manifest_path(project_file, Base.TOMLCache())
-        else
-            Base.project_file_manifest_path(project_file)
-        end
+        mfile = Base.project_file_manifest_path(project_file)
         if mfile isa String
             return mfile
         end
@@ -400,8 +396,7 @@ manifest_file() = manifest_file(Base.active_project())
 
 if isdefined(Base, :explicit_manifest_entry_path)
     function manifest_paths!(pkgpaths::Dict, manifest_file::String)
-        c = Base.TOMLCache()
-        d = Base.parsed_toml(c, manifest_file)
+        d = Base.parsed_toml(manifest_file)
         for (name, entries) in d
             entries::Vector{Any}
             for entry in entries
@@ -418,8 +413,7 @@ else
     # Legacy (delete when Julia 1.6 or higher is the minimum supported version)
     if isdefined(Base, :TOMLCache)
         function manifest_paths!(pkgpaths::Dict, manifest_file::String)
-            c = Base.TOMLCache()
-            d = Base.parsed_toml(c, manifest_file)
+            d = Base.parsed_toml(manifest_file)
             for (name, entries) in d
                 entries::Vector{Any}
                 for info in entries
