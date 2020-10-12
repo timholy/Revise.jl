@@ -44,10 +44,10 @@ jobs:
         TERM="xterm" julia --project --code-coverage=user -e 'using InteractiveUtils, REPL, Revise; @async(Base.run_main_repl(true, true, false, true, false)); sleep(2); Revise.async_steal_repl_backend(); include(joinpath("test", "runtests.jl")); REPL.eval_user_input(:(exit()), Base.active_repl_backend)' "Methods at REPL"
         # We also need to pick up the Git tests, but for that we need to `dev` the package
         julia --code-coverage=user -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); include(joinpath("test", "runtests.jl"))' "Git"
-    # Running out of inotify storage (see #26)
-    - name: inotify
-      if: ${{ matrix.os == 'ubuntu-latest' }}
-      run: echo 4 | sudo tee -a /proc/sys/fs/inotify/max_user_watches; julia --project --code-coverage=user -e 'using Pkg, Revise; cd(joinpath(dirname(pathof(Revise)), "..", "test")); include("inotify.jl")'
+    # # Running out of inotify storage (see #26)
+    # - name: inotify
+    #   if: ${{ matrix.os == 'ubuntu-latest' }}
+    #   run: echo 4 | sudo tee -a /proc/sys/fs/inotify/max_user_watches; julia --project --code-coverage=user -e 'using Pkg, Revise; cd(joinpath(dirname(pathof(Revise)), "..", "test")); include("inotify.jl")'
     - name: codecov
       env:
         CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
