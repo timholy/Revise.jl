@@ -3057,7 +3057,7 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     function make_a2d(path, val, mode="r"; generate=true)
         # Create a new "read-only package" (which mimics how Pkg works when you `add` a package)
         cd(path) do
-            pkgpath = joinpath(path, "A2D")
+            pkgpath = normpath(joinpath(path, "A2D"))
             srcpath = joinpath(pkgpath, "src")
             if generate
                 Pkg.generate("A2D")
@@ -3094,6 +3094,7 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
         println(io, "[deps]")
     end
     ropkgpath = make_a2d(depot, 1)
+    @show ropkgpath
     Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)  # like pkg> dev $pkgpath; unfortunately, Pkg.develop(pkgpath) doesn't work
     sleep(mtimedelay)
     @eval using A2D
