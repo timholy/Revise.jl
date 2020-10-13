@@ -198,6 +198,15 @@ const silence_pkgs = Set{Symbol}()
 const depsdir = joinpath(dirname(@__DIR__), "deps")
 const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
 
+"""
+    Revise.worldage
+
+The world age Revise was started in. Needed so that Revise doesn't delete methods
+from under itself.
+"""
+const worldage = Ref{Union{Nothing,UInt}}(nothing)
+#using CodeTracking: worldage
+
 ##
 ## The inputs are sets of expressions found in each file.
 ## Some of those expressions will generate methods which are identified via their signatures.
@@ -262,10 +271,13 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                         @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
                         # Delete the corresponding methods
                         for p in workers()
-                            try  # guard against serialization errors if the type isn't defined on the worker
-                                remotecall(Core.eval, p, Main, :(delete_method_by_sig($sig)))
-                            catch
-                            end
+                            #try  # guard against serialization errors if the type isn't defined on the worker
+                                future = remotecall(Core.eval, p, Main, :(delete_method_by_sig($sig)))
+                                finalizer(future) do f
+                                    invoke_revisefunc(Distributed.finalize_ref, f)
+                                end
+                            #catch
+                            #end
                         end
                         Base.delete_method(m)
                         # Remove the entries from CodeTracking data
@@ -627,6 +639,7 @@ function handle_deletions(pkgdata, file)
     topmod = first(keys(mexsold))
     fileok = file_exists(filep)
     mexsnew = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
+    worldage[] = Base.get_world_counter()
     if mexsnew !== nothing
         delete_missing!(mexsold, mexsnew)
     end
@@ -720,6 +733,7 @@ function revise(; throw=false)
 
     # Do all the deletion first. This ensures that a method that moved from one file to another
     # won't get redefined first and deleted second.
+    @show worldage[] = Base.get_world_counter()
     revision_errors = []
     queue = sort!(collect(revision_queue); lt=pkgfileless)
     finished = eltype(revision_queue)[]
@@ -752,6 +766,7 @@ function revise(; throw=false)
                 mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
                 exsold = get(fi.modexsigs, mod, empty_exs_sigs)
                 for rex in keys(exsnew)
+                    @show Base.get_world_counter()
                     sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
                     if sigs !== nothing
                         exsnew[rex] = sigs
@@ -1174,11 +1189,34 @@ function maybe_set_prompt_color(color)
     return nothing
 end
 
+if VERSION < v"1.6.0-DEV.1162"
+    const invoke_revisefunc = Base.invokelatest
+    const lower_in_reviseworld = Meta.lower
+else
+    function invoke_revisefunc(f, args...; kwargs...)
+        #@show worldage[]
+        #@show Base.get_world_counter()
+        #Base.show_backtrace(stdout, backtrace()[1:4])
+        #println()
+        return Base.invoke_in_world(worldage[], f, args...; kwargs...)
+    end
+    function lower_in_reviseworld(m::Module, @nospecialize(ex))
+        #@show worldage[]
+        #@show Base.get_world_counter()
+        #Base.show_backtrace(stdout, backtrace()[1:1])
+        #println()
+        return ccall(:jl_expand_in_world, Any,
+            (Any, Ref{Module}, Cstring, Cint, Csize_t),
+            ex, m, "none", 0, worldage[],
+        )
+    end
+end
+
 # On Julia 1.5.0-DEV.282 and higher, we can just use an AST transformation
 # This uses invokelatest not for reasons of world age but to ensure that the call is made at runtime.
 # This allows `revise_first` to be compiled without compiling `revise` itself, and greatly
 # reduces the overhead of using Revise.
-revise_first(ex) = Expr(:toplevel, :(isempty($revision_queue) || Base.invokelatest($revise)), ex)
+revise_first(ex) = Expr(:toplevel, :(isempty($revision_queue) || (#=worldage[] = Base.get_world_counter(); =#invoke_revisefunc($revise))), ex)
 
 @noinline function run_backend(backend)
     while true
@@ -1277,6 +1315,7 @@ function init_worker(p)
 end
 
 function __init__()
+    worldage[] = Base.get_world_counter()
     run_on_worker = get(ENV, "JULIA_REVISE_WORKER_ONLY", "0")
     if !(myid() == 1 || run_on_worker == "1")
         return nothing
@@ -1328,6 +1367,8 @@ function __init__()
     id = PkgId(nothing, "@REPL")
     pkgdatas[id] = pkgdata = PkgData(id, nothing)
     # Set the lookup callbacks
+    CodeTracking.method_lookup_callback[] = x -> (worldage[] = Base.get_world_counter(); invoke_revisefunc(get_def, x))
+    CodeTracking.expressions_callback[] = x -> (worldage[] = Base.get_world_counter(); invoke_revisefunc(get_expressions, x))
     CodeTracking.method_lookup_callback[] = get_def
     CodeTracking.expressions_callback[] = get_expressions
 

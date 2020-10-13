@@ -171,6 +171,7 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
                 parse_source!(fi.modexsigs, fullfile, mod)
                 if eval_now
                     # Use runtime dispatch to reduce latency
+                    #Base.invoke_in_world(worldage[], instantiate_sigs!, fi.modexsigs; mode=:eval)
                     Base.invokelatest(instantiate_sigs!, fi.modexsigs; mode=:eval)
                 end
             end
@@ -237,6 +238,7 @@ function _add_require(sourcefile, modcaller, idmod, modname, expr)
             end
         end
         if complex
+            #Base.invoke_in_world(worldage[], eval_require_now, pkgdata, fileidx, filekey, sourcefile, modcaller, expr)
             Base.invokelatest(eval_require_now, pkgdata, fileidx, filekey, sourcefile, modcaller, expr)
         end
     finally
