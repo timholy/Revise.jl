@@ -50,7 +50,9 @@ end
 function matches_eval(stmt::Expr)
     stmt.head === :call || return false
     f = stmt.args[1]
-    return f === :eval || (callee_matches(f, Base, :getproperty) && is_quotenode_egal(stmt.args[end], :eval))
+    return f === :eval ||
+           (callee_matches(f, Base, :getproperty) && is_quotenode_egal(stmt.args[end], :eval)) ||
+           (isa(f, GlobalRef) && f.name === :eval)
 end
 
 function categorize_stmt(stmt)
