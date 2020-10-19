@@ -52,7 +52,7 @@ function matches_eval(stmt::Expr)
     f = stmt.args[1]
     return f === :eval ||
            (callee_matches(f, Base, :getproperty) && is_quotenode_egal(stmt.args[end], :eval)) ||
-           (isa(f, GlobalRef) && f.name === :eval)
+           (isa(f, GlobalRef) && f.name === :eval) || is_quotenode_egal(f, Core.eval)
 end
 
 function categorize_stmt(stmt)
