@@ -1178,7 +1178,13 @@ end
 # This uses invokelatest not for reasons of world age but to ensure that the call is made at runtime.
 # This allows `revise_first` to be compiled without compiling `revise` itself, and greatly
 # reduces the overhead of using Revise.
-revise_first(ex) = Expr(:toplevel, :(isempty($revision_queue) || Base.invokelatest($revise)), ex)
+function revise_first(ex)
+    # Special-case `exit()` (issue #562)
+    exu = unwrap(ex)
+    isa(exu, Expr) && exu.head === :call && length(exu.args) == 1 && exu.args[1] === :exit && return ex
+    # Check for queued revisions, and if so call `revise` first before executing the expression
+    return Expr(:toplevel, :(isempty($revision_queue) || Base.invokelatest($revise)), ex)
+end
 
 @noinline function run_backend(backend)
     while true
