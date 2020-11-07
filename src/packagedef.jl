@@ -593,8 +593,10 @@ function revise_file_queued(pkgdata::PkgData, file)
     stillwatching = true
     while stillwatching
         if !file_exists(file) && !isdir(file)
-            with_logger(SimpleLogger(stderr)) do
-                @warn "$file is not an existing file, Revise is not watching"
+            let file=file
+                with_logger(SimpleLogger(stderr)) do
+                    @warn "$file is not an existing file, Revise is not watching"
+                end
             end
             notify(revision_event)
             break
@@ -720,7 +722,7 @@ function revise(; throw=false)
 
     # Do all the deletion first. This ensures that a method that moved from one file to another
     # won't get redefined first and deleted second.
-    revision_errors = []
+    revision_errors = Tuple{PkgData,String}[]
     queue = sort!(collect(revision_queue); lt=pkgfileless)
     finished = eltype(revision_queue)[]
     mexsnews = ModuleExprsSigs[]

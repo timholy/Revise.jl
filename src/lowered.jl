@@ -210,10 +210,9 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
         local active_bp_refs
         if disablebp
             # We have to turn off all active breakpoints, https://github.com/timholy/CodeTracking.jl/issues/27
-            bp_refs = JuliaInterpreter.breakpoints()
-            if eltype(bp_refs) !== JuliaInterpreter.BreakpointRef
-                bp_refs = JuliaInterpreter.BreakpointRef[]
-                foreach(bp -> append!(bp_refs, bp.instances), bp_refs)
+            bp_refs = JuliaInterpreter.BreakpointRef[]
+            for bp in JuliaInterpreter.breakpoints()
+                append!(bp_refs, bp.instances)
             end
             active_bp_refs = filter(bp->bp[].isactive, bp_refs)
             foreach(disable, active_bp_refs)
