@@ -25,8 +25,8 @@ Revise's aims.
 
 ## Major releases
 
-- The current 2.x release cycle uses JuliaInterpreter to step through your module-defining code.
-- The 1.x release cycle does not use JuliaInterpreter, but does integrate with Pkg.jl. Try this if the 2.x releases give you trouble. (But please report the problems first!)
-- For Julia 0.6 [see this branch](https://github.com/timholy/Revise.jl/tree/v0.6)
+- Both the current 3.x and 2.x release cycles use JuliaInterpreter to step through your module-defining code.
+- The 1.x release cycle does not use JuliaInterpreter, but does integrate with Pkg.jl. Try this if the more recent releases give you trouble. (But please report the problems first!)
+- For Julia 0.6 [see this branch](https://github.com/timholy/Revise.jl/tree/v0.6). However, you really shouldn't be using Julia 0.6 anymore!
 
 See the [NEWS](NEWS.md) for additional information.
