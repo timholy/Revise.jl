@@ -23,7 +23,7 @@ If you use different package environments and do not always have Revise availabl
 try
     using Revise
 catch e
-    @warn(e.msg)
+    @warn "Error initializing Revise" exception=(e, catch_backtrace())
 end
 ```
 
@@ -39,7 +39,7 @@ atreplinit() do repl
         @eval using Revise
         @async Revise.wait_steal_repl_backend()
     catch e
-        @warn(e.msg)
+        @warn "Error initializing Revise" exception=(e, catch_backtrace())
     end
 end
 ```
@@ -54,7 +54,7 @@ If you want Revise to launch automatically within IJulia, then you should also c
 try
     @eval using Revise
 catch e
-    @warn(e.msg)
+    @warn "Error initializing Revise" exception=(e, catch_backtrace())
 end
 ```
 
