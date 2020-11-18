@@ -510,14 +510,20 @@ function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
     for file in files
         dir, basename = splitdir(file)
         dirfull = joinpath(basedir(pkgdata), dir)
-        already_watching = haskey(watched_files, dirfull)
-        already_watching || (watched_files[dirfull] = WatchList())
-        push!(watched_files[dirfull], basename=>pkgdata)
-        if watching_files[]
-            fwatcher = TaskThunk(revise_file_queued, (pkgdata, file))
-            schedule(Task(fwatcher))
-        else
-            already_watching || push!(udirs, dir)
+        already_watching_dir = haskey(watched_files, dirfull)
+        already_watching_dir || (watched_files[dirfull] = WatchList())
+        watchlist = watched_files[dirfull]
+        current_id = get(watchlist.trackedfiles, basename, nothing)
+        new_id = pkgdata.info.id
+        if new_id != NOPACKAGE || current_id === nothing
+            # Allow the package id to be updated
+            push!(watchlist, basename=>pkgdata)
+            if watching_files[]
+                fwatcher = TaskThunk(revise_file_queued, (pkgdata, file))
+                schedule(Task(fwatcher))
+            else
+                already_watching_dir || push!(udirs, dir)
+            end
         end
     end
     for dir in udirs

@@ -3599,6 +3599,39 @@ do_test("callbacks") && @testset "callbacks" begin
 
     rm_precompile(modname)
 
+    # Issue 574 - ad-hoc revision of a file, combined with add_callback()
+    A574_path = joinpath(testdir, "A574.jl")
+
+    function set_foo_A574(x)
+        open(A574_path, "w") do io
+            println(io, "foo_574() = $x")
+        end
+    end
+
+    set_foo_A574(1)
+    includet(@__MODULE__, A574_path)
+    @test Base.invokelatest(foo_574) == 1
+
+    foo_A574_result = Ref(0)
+    key = Revise.add_callback([A574_path]) do
+        foo_A574_result[] = foo_574()
+    end
+
+    sleep(mtimedelay)
+    set_foo_A574(2)
+    sleep(mtimedelay)
+    revise()
+    @test Base.invokelatest(foo_574) == 2
+    @test foo_A574_result[] == 2
+
+    Revise.remove_callback(key)
+
+    sleep(mtimedelay)
+    set_foo_A574(3)
+    sleep(mtimedelay)
+    revise()
+    @test Base.invokelatest(foo_574) == 3
+    @test foo_A574_result[] == 2 # <- callback removed - no longer updated
 end
 
 println("beginning cleanup")
