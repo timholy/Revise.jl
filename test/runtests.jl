@@ -3618,6 +3618,7 @@ do_test("callbacks") && @testset "callbacks" begin
     end
 
     set_foo_A574(2)
+    sleep(mtimedelay)
     revise()
     @test Base.invokelatest(foo_574) == 2
     @test foo_A574_result[] == 2
@@ -3625,6 +3626,7 @@ do_test("callbacks") && @testset "callbacks" begin
     Revise.remove_callback(key)
 
     set_foo_A574(3)
+    sleep(mtimedelay)
     revise()
     @test Base.invokelatest(foo_574) == 3
     @test foo_A574_result[] == 2 # <- callback removed - no longer updated
