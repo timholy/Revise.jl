@@ -3617,6 +3617,7 @@ do_test("callbacks") && @testset "callbacks" begin
         foo_A574_result[] = foo_574()
     end
 
+    sleep(mtimedelay)
     set_foo_A574(2)
     sleep(mtimedelay)
     revise()
@@ -3625,6 +3626,7 @@ do_test("callbacks") && @testset "callbacks" begin
 
     Revise.remove_callback(key)
 
+    sleep(mtimedelay)
     set_foo_A574(3)
     sleep(mtimedelay)
     revise()
