@@ -1392,6 +1392,54 @@ end
         @test haskey(CodeTracking.method_info, (@which MacroSigs.blah()).sig)
         rm_precompile("MacroSigs")
 
+        # Issue #568 (a macro *execution* bug)
+        dn = joinpath(testdir, "MacroLineNos568", "src")
+        mkpath(dn)
+        open(joinpath(dn, "MacroLineNos568.jl"), "w") do io
+            println(io, """
+            module MacroLineNos568
+            using MacroTools: @q
+
+            function my_fun end
+
+            macro some_macro(value)
+                println("running with ", value)
+                display(stacktrace(backtrace()))
+                return esc(@q \$MacroLineNos568.my_fun() = \$value)
+            end
+
+            @some_macro 20
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using MacroLineNos568
+        sleep(mtimedelay)
+        @test MacroLineNos568.my_fun() == 20
+        println("initial def is done")
+        open(joinpath(dn, "MacroLineNos568.jl"), "w") do io
+            println(io, """
+            module MacroLineNos568
+            using MacroTools: @q
+
+            function my_fun end
+
+            macro some_macro(value)
+                println("running with ", value)
+                display(stacktrace(backtrace()))
+                return esc(@q \$MacroLineNos568.my_fun() = \$value)
+            end
+
+            @some_macro 30
+            end
+            """)
+        end
+        println("about to revise")
+        yry()
+        println("done revising")
+        @test MacroLineNos568.my_fun() == 30
+        rm_precompile("MacroLineNos568")
+
         pop!(LOAD_PATH)
     end
 
