@@ -40,6 +40,7 @@ InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 Libdl = "8f399da3-3557-5675-b5ff-fb832c97cbdb"
 LinearAlgebra = "37e2e46d-f89d-539d-b4ee-838fcccc9c8e"
 Logging = "56ddb016-857b-54e1-b83d-db4d58db5568"
+MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 MappedArrays = "dbb5928d-eab1-5f90-85c2-b9b0edb7c900"
 Markdown = "d6f4376e-aef5-505a-96c1-9c027394607a"
 Mmap = "a63ad114-7e13-5084-954f-fe012c677804"
@@ -58,4 +59,7 @@ SuiteSparse = "4607b0f0-06f3-5cda-b6b1-a6196a1729e9"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 
 [targets]
-test = ["Test", "Base64", "CRC32c", "CatIndices", "Dates", "DelimitedFiles", "EndpointRanges", "EponymTuples", "Example", "Future", "IndirectArrays", "InteractiveUtils", "Libdl", "LinearAlgebra", "Logging", "MappedArrays", "Markdown", "Mmap", "Printf", "Profile", "Random", "Requires", "RoundingIntegers", "SHA", "Serialization", "SharedArrays", "Sockets", "SparseArrays", "Statistics", "SuiteSparse"]
+test = ["Test", "Base64", "CRC32c", "CatIndices", "Dates", "DelimitedFiles", "EndpointRanges", "EponymTuples", "Example",
+        "Future", "IndirectArrays", "InteractiveUtils", "Libdl", "LinearAlgebra", "Logging", "MacroTools", "MappedArrays",
+        "Markdown", "Mmap", "Printf", "Profile", "Random", "Requires", "RoundingIntegers", "SHA", "Serialization",
+        "SharedArrays", "Sockets", "SparseArrays", "Statistics", "SuiteSparse"]
