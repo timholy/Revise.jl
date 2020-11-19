@@ -156,6 +156,13 @@ k(x) = 4
         end
     end
 
+    do_test("REPL input") && @testset "REPL input" begin
+        # issue #573
+        retex = Revise.revise_first(nothing)
+        @test retex.head === :toplevel
+        @test length(retex.args) == 2 && retex.args[end] === nothing
+    end
+
     do_test("Signature extraction") && @testset "Signature extraction" begin
         jidir = dirname(dirname(pathof(JuliaInterpreter)))
         scriptfile = joinpath(jidir, "test", "toplevel_script.jl")
