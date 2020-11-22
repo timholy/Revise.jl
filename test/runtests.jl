@@ -752,6 +752,43 @@ end
         @test isempty(failedfiles)
     end
 
+    do_test("Namespace") && @testset "Namespace" begin
+        # Issues #579 and #239
+        testdir = newtestdir()
+        dn = joinpath(testdir, "Namespace", "src")
+        mkpath(dn)
+        open(joinpath(dn, "Namespace.jl"), "w") do io
+            println(io, """
+            module Namespace
+            struct X end
+            cos(::X) = 20
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using Namespace
+        @test Namespace.cos(Namespace.X()) == 20
+        @test_throws MethodError Base.cos(Namespace.X())
+        sleep(mtimedelay)
+        open(joinpath(dn, "Namespace.jl"), "w") do io
+            println(io, """
+            module Namespace
+            struct X end
+            sin(::Int) = 10
+            Base.cos(::X) = 20
+            end
+            """)
+        end
+        yry()
+        @test Namespace.sin(0) == 10
+        @test Base.sin(0) == 0
+        @test Base.cos(Namespace.X()) == 20
+        @test_throws MethodError Namespace.cos(Namespace.X())
+
+        rm_precompile("Namespace")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Multiple definitions") && @testset "Multiple definitions" begin
         # This simulates a copy/paste/save "error" from one file to another
         # ref https://github.com/timholy/CodeTracking.jl/issues/55
@@ -1403,8 +1440,6 @@ end
             function my_fun end
 
             macro some_macro(value)
-                println("running with ", value)
-                display(stacktrace(backtrace()))
                 return esc(@q \$MacroLineNos568.my_fun() = \$value)
             end
 
@@ -1416,7 +1451,6 @@ end
         @eval using MacroLineNos568
         sleep(mtimedelay)
         @test MacroLineNos568.my_fun() == 20
-        println("initial def is done")
         open(joinpath(dn, "MacroLineNos568.jl"), "w") do io
             println(io, """
             module MacroLineNos568
@@ -1425,8 +1459,6 @@ end
             function my_fun end
 
             macro some_macro(value)
-                println("running with ", value)
-                display(stacktrace(backtrace()))
                 return esc(@q \$MacroLineNos568.my_fun() = \$value)
             end
 
@@ -1434,9 +1466,7 @@ end
             end
             """)
         end
-        println("about to revise")
         yry()
-        println("done revising")
         @test MacroLineNos568.my_fun() == 30
         rm_precompile("MacroLineNos568")
 
@@ -3753,7 +3783,7 @@ function load_in_empty_project_test()
         true
     end
 end
-@testset "Import in empty enviroment (issue #532)" begin
+do_test("Import in empty enviroment (issue #532)") && @testset "Import in empty enviroment (issue #532)" begin
     load_in_empty_project_test();
 end
 
