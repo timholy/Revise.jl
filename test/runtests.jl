@@ -1440,8 +1440,6 @@ end
             function my_fun end
 
             macro some_macro(value)
-                println("running with ", value)
-                display(stacktrace(backtrace()))
                 return esc(@q \$MacroLineNos568.my_fun() = \$value)
             end
 
@@ -1453,7 +1451,6 @@ end
         @eval using MacroLineNos568
         sleep(mtimedelay)
         @test MacroLineNos568.my_fun() == 20
-        println("initial def is done")
         open(joinpath(dn, "MacroLineNos568.jl"), "w") do io
             println(io, """
             module MacroLineNos568
@@ -1462,8 +1459,6 @@ end
             function my_fun end
 
             macro some_macro(value)
-                println("running with ", value)
-                display(stacktrace(backtrace()))
                 return esc(@q \$MacroLineNos568.my_fun() = \$value)
             end
 
@@ -1471,9 +1466,7 @@ end
             end
             """)
         end
-        println("about to revise")
         yry()
-        println("done revising")
         @test MacroLineNos568.my_fun() == 30
         rm_precompile("MacroLineNos568")
 
