@@ -3790,7 +3790,7 @@ function load_in_empty_project_test()
         true
     end
 end
-@testset "Import in empty enviroment (issue #532)" begin
+do_test("Import in empty enviroment (issue #532)") && @testset "Import in empty enviroment (issue #532)" begin
     load_in_empty_project_test();
 end
 
