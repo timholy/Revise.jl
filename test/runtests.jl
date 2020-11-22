@@ -752,6 +752,43 @@ end
         @test isempty(failedfiles)
     end
 
+    do_test("Namespace") && @testset "Namespace" begin
+        # Issues #579 and #239
+        testdir = newtestdir()
+        dn = joinpath(testdir, "Namespace", "src")
+        mkpath(dn)
+        open(joinpath(dn, "Namespace.jl"), "w") do io
+            println(io, """
+            module Namespace
+            struct X end
+            cos(::X) = 20
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using Namespace
+        @test Namespace.cos(Namespace.X()) == 20
+        @test_throws MethodError Base.cos(Namespace.X())
+        sleep(mtimedelay)
+        open(joinpath(dn, "Namespace.jl"), "w") do io
+            println(io, """
+            module Namespace
+            struct X end
+            sin(::Int) = 10
+            Base.cos(::X) = 20
+            end
+            """)
+        end
+        yry()
+        @test Namespace.sin(0) == 10
+        @test Base.sin(0) == 0
+        @test Base.cos(Namespace.X()) == 20
+        @test_throws MethodError Namespace.cos(Namespace.X())
+
+        rm_precompile("Namespace")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Multiple definitions") && @testset "Multiple definitions" begin
         # This simulates a copy/paste/save "error" from one file to another
         # ref https://github.com/timholy/CodeTracking.jl/issues/55
