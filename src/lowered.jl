@@ -415,6 +415,10 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             dmod = tmpvar
                         end
                     end
+                    # Workaround for julia#38819 on older Julia versions
+                    if !isdefined(dmod, Base.Docs.META)
+                        Base.Docs.initmeta(dmod)
+                    end
                     m = get!(Base.Docs.meta(dmod), b, Base.Docs.MultiDoc())::Base.Docs.MultiDoc
                     if haskey(m.docs, sig)
                         currentstr = m.docs[sig]::Base.Docs.DocStr

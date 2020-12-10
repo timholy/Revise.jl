@@ -1163,6 +1163,7 @@ end
             println(io, """
             module ChangeDocstring
             "f" f() = 1
+            g() = 1
             end
             """)
         end
@@ -1172,17 +1173,23 @@ end
         @test ChangeDocstring.f() == 1
         ds = @doc(ChangeDocstring.f)
         @test get_docstring(ds) == "f"
+        @test ChangeDocstring.g() == 1
+        ds = @doc(ChangeDocstring.g)
+        @test get_docstring(ds) == "No documentation found."
         # Ordinary route
         open(joinpath(dn, "ChangeDocstring.jl"), "w") do io
             println(io, """
             module ChangeDocstring
             "h" f() = 1
+            "g" g() = 1
             end
             """)
         end
         yry()
         ds = @doc(ChangeDocstring.f)
         @test get_docstring(ds) == "h"
+        ds = @doc(ChangeDocstring.g)
+        @test get_docstring(ds) == "g"
 
         # Now manually change the docstring
         ex = quote "g" f() = 1 end
@@ -1196,6 +1203,35 @@ end
         @test get_docstring(ds) == "g"
 
         rm_precompile("ChangeDocstring")
+
+        # Test for #583
+        dn = joinpath(testdir, "FirstDocstring", "src")
+        mkpath(dn)
+        open(joinpath(dn, "FirstDocstring.jl"), "w") do io
+            println(io, """
+            module FirstDocstring
+            g() = 1
+            end
+            """)
+        end
+        sleep(mtimedelay)
+        @eval using FirstDocstring
+        sleep(mtimedelay)
+        @test FirstDocstring.g() == 1
+        ds = @doc(FirstDocstring.g)
+        @test get_docstring(ds) == "No documentation found."
+        open(joinpath(dn, "FirstDocstring.jl"), "w") do io
+            println(io, """
+            module FirstDocstring
+            "g" g() = 1
+            end
+            """)
+        end
+        yry()
+        ds = @doc(FirstDocstring.g)
+        @test get_docstring(ds) == "g"
+
+        rm_precompile("FirstDocstring")
         pop!(LOAD_PATH)
     end
 
