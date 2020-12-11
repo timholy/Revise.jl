@@ -3097,7 +3097,8 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     @show ropkgpath "$ropkgpath"
     @show isdir(ropkgpath)
     @show isdir("$ropkgpath")
-    Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)  # like pkg> dev $pkgpath; unfortunately, Pkg.develop(pkgpath) doesn't work
+    Pkg.develop(PackageSpec(path=ropkgpath))
+    # Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)  # like pkg> dev $pkgpath; unfortunately, Pkg.develop(pkgpath) doesn't work
     sleep(mtimedelay)
     @eval using A2D
     sleep(mtimedelay)
@@ -3112,10 +3113,12 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     sleep(mtimedelay)
     pkgdevpath = make_a2d(devpath, 2, "w"; generate=false)
     cp(joinpath(ropkgpath, "Project.toml"), joinpath(devpath, "A2D/Project.toml"))
-    Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $pkgdevpath"; do_rethrow=true)
+    Pkg.develop(PackageSpec(path=pkgdevpath))
+    # Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $pkgdevpath"; do_rethrow=true)
     yry()
     @test Base.invokelatest(A2D.f) == 2
-    Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)
+    Pkg.develop(PackageSpec(path=ropkgpath))
+    # Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)
     yry()
     @test Base.invokelatest(A2D.f) == 1
     for dir in keys(Revise.watched_files)
