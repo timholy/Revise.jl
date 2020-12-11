@@ -3094,7 +3094,9 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
         println(io, "[deps]")
     end
     ropkgpath = make_a2d(depot, 1)
-    @show ropkgpath
+    @show ropkgpath "$ropkgpath"
+    @show isdir(ropkgpath)
+    @show isdir("$ropkgpath")
     Pkg.REPLMode.do_cmd(Pkg.REPLMode.minirepl[], "dev $ropkgpath"; do_rethrow=true)  # like pkg> dev $pkgpath; unfortunately, Pkg.develop(pkgpath) doesn't work
     sleep(mtimedelay)
     @eval using A2D
