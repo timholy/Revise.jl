@@ -45,6 +45,9 @@ jobs:
       if: ${{ matrix.os != 'windows-latest' }}
       run: julia -e 'include(joinpath("test", "populate_compiled.jl"))'
     - uses: julia-actions/julia-runtest@latest
+    - name: filewatching
+      if: ${{ matrix.os == 'ubuntu-latest' && matrix.version != '1.0' }}
+      run: julia --project -e 'using Pkg; Pkg.build(); Pkg.test(; test_args=["REVISE_TESTS_WATCH_FILES"], coverage=true)'
     - name: extra tests
       if: ${{ matrix.os != 'windows-latest' }}
       run: |
