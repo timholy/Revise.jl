@@ -21,4 +21,5 @@ makedocs(
 
 deploydocs(
     repo = "github.com/timholy/Revise.jl.git",
+    push_preview = true,
 )
