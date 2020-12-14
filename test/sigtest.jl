@@ -19,10 +19,10 @@ function reljpath(path)
     end
     return path
 end
-function filepredicate(file)
+function filepredicate(file, reffiles)
     bfile = Base.find_source_file(file)
     bfile === nothing && return false  # when the file is "none"
-    return reljpath(bfile) ∈ basefiles
+    return reljpath(bfile) ∈ reffiles
 end
 function signature_diffs(mod::Module, signatures; filepredicate=nothing)
     extras = copy(signatures)
@@ -91,28 +91,15 @@ module Lowering end
     @test length(sigs) >= 2
 end
 
-for lib in Revise.stdlib_names
-    lib in (
-        :OldPkg, :TOML, :Artifacts, :LibCURL, :LibCURL_jll, :MozillaCACerts_jll,
-        :Downloads, :Tar, :ArgTools,
-    ) && continue
-    @eval using $lib
-end
 basefiles = Set{String}()
 @time for (i, (mod, file)) in enumerate(Base._included_files)
     endswith(file, "sysimg.jl") && continue
-    # https://github.com/JuliaLang/julia/issues/37590
-    endswith(file, "Artifacts.jl") && continue
-    endswith(file, "TOML.jl") && continue
-    endswith(file, "Downloads.jl") && continue
-    endswith(file, "Tar.jl") && continue
-    endswith(file, "ArgTools.jl") && continue
     file = Revise.fixpath(file)
     push!(basefiles, reljpath(file))
     mexs = Revise.parse_source(file, mod)
     Revise.instantiate_sigs!(mexs; always_rethrow=true)
 end
-failed, extras, nmethods = signature_diffs(Base, CodeTracking.method_info; filepredicate = filepredicate)
+failed, extras, nmethods = signature_diffs(Base, CodeTracking.method_info; filepredicate = fn->filepredicate(fn, basefiles))
 # In some cases, the above doesn't really select the file-of-origin. For example, anything
 # defined with an @enum gets attributed to Enum.jl rather than the file in which @enum is used.
 realfailed = similar(failed, 0)
