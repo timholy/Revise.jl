@@ -232,6 +232,12 @@ const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests d
 ## now this is the right strategy.) From the standpoint of CodeTracking, we should
 ## link the signature to the actual method-defining expression (either :(f() = 1) or :(g() = 2)).
 
+if isdefined(Core, :MethodMatch)
+    get_method_from_match(mm::Core.MethodMatch) = mm.method
+else
+    get_method_from_match(mm::Core.SimpleVector) = mm[3]::Method
+end
+
 function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
     with_logger(_debug_logger) do
         for (ex, sigs) in exs_sigs_old
@@ -242,7 +248,7 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                 ret = Base._methods_by_ftype(sig, -1, typemax(UInt))
                 success = false
                 if !isempty(ret)
-                    m = ret[end][3]::Method   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
+                    m = get_method_from_match(ret[end])   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
                     methsig = m.sig
                     if sig <: methsig && methsig <: sig
                         locdefs = get(CodeTracking.method_info, sig, nothing)
@@ -408,10 +414,12 @@ function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), 
     locdefs = get(CodeTracking.method_info, sig, nothing)
     locdefs === nothing && (locdefs = CodeTracking.method_info[sig] = Tuple{LineNumberNode,Expr}[])
     newdef = unwrap(methodinfo.exprstack[end])
-    if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
-        push!(locdefs, (fixpath(ln), newdef))
+    if newdef !== nothing
+        if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
+            push!(locdefs, (fixpath(ln), newdef))
+        end
+        push!(methodinfo.allsigs, sig)
     end
-    push!(methodinfo.allsigs, sig)
     return methodinfo
 end
 push_expr!(methodinfo::CodeTrackingMethodInfo, mod::Module, ex::Expr) = (push!(methodinfo.exprstack, ex); methodinfo)
@@ -452,7 +460,7 @@ end
 function eval_with_signatures(mod, ex::Expr; mode=:eval, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
     docexprs = DocExprs()
-    _, frame = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; mode=mode, kwargs...)
+    frame = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; mode=mode, kwargs...)[2]
     return methodinfo.allsigs, methodinfo.deps, methodinfo.includes, frame
 end
 

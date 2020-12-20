@@ -98,8 +98,8 @@ function Base.isequal(itera::LineSkippingIterator, iterb::LineSkippingIterator)
     while true
         reta === nothing && retb === nothing && return true
         (reta === nothing || retb === nothing) && return false
-        vala, ia = reta
-        valb, ib = retb
+        vala, ia = reta::Tuple{Any,Int}
+        valb, ib = retb::Tuple{Any,Int}
         if isa(vala, Expr) && isa(valb, Expr)
             vala, valb = vala::Expr, valb::Expr
             vala.head == valb.head || return false
