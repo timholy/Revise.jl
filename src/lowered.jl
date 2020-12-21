@@ -55,7 +55,7 @@ function matches_eval(stmt::Expr)
            (isa(f, GlobalRef) && f.name === :eval) || is_quotenode_egal(f, Core.eval)
 end
 
-function categorize_stmt(stmt)
+function categorize_stmt(@nospecialize(stmt))
     ismeth, haseval, isinclude, isnamespace, istoplevel = false, false, false, false, false
     if isa(stmt, Expr)
         haseval = matches_eval(stmt)
@@ -77,7 +77,7 @@ to `Revise.is_method_or_eval`.
 Since the contents of such expression are difficult to analyze, it is generally
 safest to execute all such evals.
 """
-function minimal_evaluation!(predicate, methodinfo, src::Core.CodeInfo, mode::Symbol)
+function minimal_evaluation!(@nospecialize(predicate), methodinfo, src::Core.CodeInfo, mode::Symbol)
     edges = CodeEdges(src)
     # LoweredCodeUtils.print_with_code(stdout, src, edges)
     isrequired = fill(false, length(src.code))
@@ -112,11 +112,11 @@ function minimal_evaluation!(predicate, methodinfo, src::Core.CodeInfo, mode::Sy
     add_dependencies!(methodinfo, edges, src, isrequired)
     return isrequired, evalassign
 end
-minimal_evaluation!(predicate, methodinfo, frame::JuliaInterpreter.Frame, mode::Symbol) =
+minimal_evaluation!(@nospecialize(predicate), methodinfo, frame::JuliaInterpreter.Frame, mode::Symbol) =
     minimal_evaluation!(predicate, methodinfo, frame.framecode.src, mode)
 
 function minimal_evaluation!(methodinfo, frame, mode::Symbol)
-    minimal_evaluation!(methodinfo, frame, mode) do stmt
+    minimal_evaluation!(methodinfo, frame, mode) do @nospecialize(stmt)
         ismeth, haseval, isinclude, isnamespace, istoplevel = categorize_stmt(stmt)
         isreq = ismeth | isinclude | istoplevel
         return mode === :sigs ? (isreq, haseval) : (isreq | isnamespace, haseval)
@@ -184,7 +184,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
     end
     if lwr.head !== :thunk
         mode === :sigs && return nothing, nothing
-        return Core.eval(mod, lwr)
+        return Core.eval(mod, lwr), nothing
     end
     frame = JuliaInterpreter.Frame(mod, lwr.args[1])
     mode === :eval || LoweredCodeUtils.rename_framemethods!(recurse, frame)
