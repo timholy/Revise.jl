@@ -2930,7 +2930,7 @@ end
         m = @which show([1,2,3])
         @test definition(m) isa Expr
         m = @which redirect_stdout()
-        @test definition(m).head === :function
+        @test definition(m).head ∈ (:function, :(=))
 
         # Tracking stdlibs
         Revise.track(Unicode)

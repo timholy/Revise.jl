@@ -1,4 +1,6 @@
-using Revise, Test, CodeTracking, LoweredCodeUtils
+using Revise, Test
+using Revise.CodeTracking
+using Revise.LoweredCodeUtils
 
 function isdefinedmod(mod::Module)
     # Not all modules---e.g., LibGit2---are reachable without loading the stdlib
