@@ -1,7 +1,6 @@
 <div align="center"> <img src="images/revise-wordmark.svg" alt="Revise.jl"></img></div>
 
-[![Build Status](https://travis-ci.org/timholy/Revise.jl.svg?branch=master)](https://travis-ci.org/timholy/Revise.jl)
-[![Build status](https://ci.appveyor.com/api/projects/status/e1xnsj4e5q9308y6/branch/master?svg=true)](https://ci.appveyor.com/project/timholy/revise-jl/branch/master)
+[![Build Status](https://github.com/timholy/Revise.jl/workflows/CI/badge.svg)](https://github.com/timholy/Revise.jl/actions?query=workflow%3A%22CI%22+branch%3Amaster)
 [![codecov.io](http://codecov.io/github/timholy/Revise.jl/coverage.svg?branch=master)](http://codecov.io/github/timholy/Revise.jl?branch=master)
 
 `Revise.jl` allows you to modify code and use the changes without restarting Julia.
