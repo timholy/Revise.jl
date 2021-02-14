@@ -106,7 +106,7 @@ Initialze an empty FileInfo for a file that is `include`d into `mod`.
 """
 FileInfo(mod::Module, cachefile::AbstractString="") = FileInfo(ModuleExprsSigs(mod), cachefile)
 
-FileInfo(fm::ModuleExprsSigs, fi::FileInfo) = FileInfo(fm, fi.cachefile)
+FileInfo(fm::ModuleExprsSigs, fi::FileInfo) = FileInfo(fm, fi.cachefile, copy(fi.cacheexprs), Ref(fi.extracted[]))
 
 function Base.show(io::IO, fi::FileInfo)
     print(io, "FileInfo(")

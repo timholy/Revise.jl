@@ -493,6 +493,9 @@ end
                 @test signatures_at(m3file, 1) == [m3.sig]
                 @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [m3.sig]
 
+                id = Base.PkgId(eval(Symbol(modname)))   # for testing #596
+                pkgdata = Revise.pkgdatas[id]
+
                 # Change the definition of function 1 (easiest to just rewrite the whole file)
                 open(joinpath(dn, modname*".jl"), "w") do io
                     println(io, """
@@ -515,6 +518,8 @@ end
 """)  # just for fun we skipped the whitespace
                 end
                 yry()
+                fi = pkgdata.fileinfos[1]
+                @test fi.extracted[]          # issue 596
                 @eval @test $(fn1)() == -1
                 @eval @test $(fn2)() == 2
                 @eval @test $(fn3)() == 3
