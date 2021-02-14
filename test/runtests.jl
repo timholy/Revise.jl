@@ -3083,7 +3083,7 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     push!(DEPOT_PATH, depot)
     # Skip cloning the General registry since that is slow and unnecessary
     ENV["JULIA_PKG_SERVER"] = ""
-    registries = Pkg.Types.DEFAULT_REGISTRIES
+    registries = isdefined(Pkg.Types, :DEFAULT_REGISTRIES) ? Pkg.Types.DEFAULT_REGISTRIES : Pkg.Registry.DEFAULT_REGISTRIES
     old_registries = copy(registries)
     empty!(registries)
     # Ensure we start fresh with no dependencies
