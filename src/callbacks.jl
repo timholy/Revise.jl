@@ -95,6 +95,7 @@ function remove_callback(key)
     for cbs in values(user_callbacks_by_file)
         delete!(cbs, key)
     end
+    delete!(user_callbacks_queue, key)
     delete!(user_callbacks_by_key, key)
 
     # possible future work: we may stop watching (some of) these files
@@ -170,4 +171,3 @@ function entr(f::Function, files, modules=nothing; all=false, postpone=false, pa
     end
     nothing
 end
-
