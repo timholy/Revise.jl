@@ -221,6 +221,8 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
             methods_by_execution!(recurse, methodinfo, docexprs, frame, isrequired; mode=mode, kwargs...)
         catch err
             @show mod ex mode
+            LoweredCodeUtils.print_with_code(stdout, frame.framecode.src, isrequired)
+            @show frame.pc
             (always_rethrow || isa(err, InterruptException)) && (disablebp && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame)...)
             sfs = []  # crafted for interaction with Base.show_backtrace
