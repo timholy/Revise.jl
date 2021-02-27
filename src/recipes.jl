@@ -44,17 +44,17 @@ function _track(id, modname; modified_files=revision_queue)
     if isbase || isstdlib
         # Test whether we know where to find the files
         if isbase
-            srcdir = fixpath(joinpath(juliadir, "base"))
+            srcdir = fixpath(joinpath(juliadir[], "base"))
             dirs = ["base"]
         else
             stdlibv = joinpath("stdlib", vstring, String(modname))
-            srcdir = fixpath(joinpath(juliadir, stdlibv))
+            srcdir = fixpath(joinpath(juliadir[], stdlibv))
             if !isdir(srcdir)
-                srcdir = fixpath(joinpath(juliadir, "stdlib", String(modname)))
+                srcdir = fixpath(joinpath(juliadir[], "stdlib", String(modname)))
             end
             if !isdir(srcdir)
                 # This can happen for Pkg, since it's developed out-of-tree
-                srcdir = joinpath(juliadir, "usr", "share", "julia", stdlibv)  # omit fixpath deliberately
+                srcdir = joinpath(juliadir[], "usr", "share", "julia", stdlibv)  # omit fixpath deliberately
             end
             dirs = ["stdlib", String(modname)]
         end
@@ -62,7 +62,7 @@ function _track(id, modname; modified_files=revision_queue)
             @error "unable to find path containing source for $modname, tracking is not possible"
         end
         # Determine when the basesrccache was built
-        mtcache = mtime(basesrccache)
+        mtcache = mtime(basesrccache[])
         # Initialize expression-tracking for files, and
         # note any modified since Base was built
         pkgdata = get(pkgdatas, id, nothing)
@@ -79,7 +79,7 @@ function _track(id, modname; modified_files=revision_queue)
                 cache_file_key[fullpath] = filename
                 src_file_key[filename] = fullpath
             end
-            push!(pkgdata, rpath=>FileInfo(submod, basesrccache))
+            push!(pkgdata, rpath=>FileInfo(submod, basesrccache[]))
             if mtime(ffilename) > mtcache
                 with_logger(_debug_logger) do
                     @debug "Recipe for Base/StdLib" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
@@ -94,7 +94,7 @@ function _track(id, modname; modified_files=revision_queue)
         # Save the result (unnecessary if already in pkgdatas, but doesn't hurt either)
         pkgdatas[id] = pkgdata
     elseif modname === :Compiler
-        compilerdir = normpath(joinpath(juliadir, "base", "compiler"))
+        compilerdir = normpath(joinpath(juliadir[], "base", "compiler"))
         pkgdata = get(pkgdatas, id, nothing)
         if pkgdata === nothing
             pkgdata = PkgData(id, compilerdir)
@@ -108,7 +108,7 @@ function _track(id, modname; modified_files=revision_queue)
 end
 
 # Fix paths to files that define Julia (base and stdlibs)
-function fixpath(filename::AbstractString; badpath=basebuilddir, goodpath=juliadir)
+function fixpath(filename::AbstractString; badpath=basebuilddir[], goodpath=juliadir[])
     startswith(filename, badpath) || return normpath(filename)
     filec = filename
     relfilename = relpath(filename, badpath)

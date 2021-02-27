@@ -99,10 +99,10 @@ end
 function read_from_cache(pkgdata::PkgData, file::AbstractString)
     fi = fileinfo(pkgdata, file)
     filep = joinpath(basedir(pkgdata), file)
-    if fi.cachefile == basesrccache
+    if fi.cachefile == basesrccache[]
         # Get the original path
         filec = get(cache_file_key, filep, filep)
-        return open(basesrccache) do io
+        return open(basesrccache[]) do io
             Base._read_dependency_src(io, filec)
         end
     end

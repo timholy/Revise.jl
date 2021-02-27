@@ -739,7 +739,7 @@ end
 
     # issue #131
     do_test("Base & stdlib file paths") && @testset "Base & stdlib file paths" begin
-        @test isfile(Revise.basesrccache)
+        @test isfile(Revise.basesrccache[])
         targetfn = Base.Filesystem.path_separator * joinpath("good", "path", "mydir", "myfile.jl")
         @test Revise.fixpath("/some/bad/path/mydir/myfile.jl"; badpath="/some/bad/path", goodpath="/good/path") == targetfn
         @test Revise.fixpath("/some/bad/path/mydir/myfile.jl"; badpath="/some/bad/path/", goodpath="/good/path") == targetfn
@@ -2926,7 +2926,7 @@ end
 
         # Tracking Base
         # issue #250
-        @test_throws ErrorException("use Revise.track(Base) or Revise.track(<stdlib module>)") Revise.track(joinpath(Revise.juliadir, "base", "intfuncs.jl"))
+        @test_throws ErrorException("use Revise.track(Base) or Revise.track(<stdlib module>)") Revise.track(joinpath(Revise.juliadir[], "base", "intfuncs.jl"))
 
         id = Base.PkgId(Base)
         pkgdata = Revise.pkgdatas[id]
@@ -2961,8 +2961,8 @@ end
         Revise.get_tracked_id(Core)   # just test that this doesn't error
 
         # Determine whether a git repo is available. Travis & Appveyor do not have this.
-        repo, path = Revise.git_repo(Revise.juliadir)
-        if repo != nothing
+        repo, path = Revise.git_repo(Revise.juliadir[])
+        if repo !== nothing
             # Tracking Core.Compiler
             Revise.track(Core.Compiler)
             id = Base.PkgId(Core.Compiler)

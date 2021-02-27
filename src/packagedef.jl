@@ -134,53 +134,28 @@ It's used to track non-precompiled packages and, optionally, user scripts (see d
 const included_files = Tuple{Module,String}[]  # (module, filename)
 
 """
-    Revise.basesrccache
+    Revise.basesrccache[]
 
 Full path to the running Julia's cache of source code defining `Base`.
 """
-const basesrccache = normpath(joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache"))
+const basesrccache = Ref("")
 
 """
-    Revise.basebuilddir
+    Revise.basebuilddir[]
 
 Julia's top-level directory when Julia was built, as recorded by the entries in
 `Base._included_files`.
 """
-const basebuilddir = begin
-    sysimg = filter(x->endswith(x[2], "sysimg.jl"), Base._included_files)[1][2]
-    dirname(dirname(sysimg))
-end
+const basebuilddir = Ref("")
 
 """
-    Revise.juliadir
+    Revise.juliadir[]
 
 Constant specifying full path to julia top-level source directory.
 This should be reliable even for local builds, cross-builds, and binary installs.
 """
-const juliadir = begin
-    local jldir = basebuilddir
-    try
-        isdir(joinpath(jldir, "base")) || throw(ErrorException("$(jldir) does not have \"base\""))
-    catch
-        # Binaries probably end up here. We fall back on Sys.BINDIR
-        jldir = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
-        if !isdir(joinpath(jldir, "base"))
-            while true
-                trydir = joinpath(jldir, "base")
-                isdir(trydir) && break
-                trydir = joinpath(jldir, "share", "julia", "base")
-                if isdir(trydir)
-                    jldir = joinpath(jldir, "share", "julia")
-                    break
-                end
-                jldirnext = dirname(jldir)
-                jldirnext == jldir && break
-                jldir = jldirnext
-            end
-        end
-    end
-    normpath(jldir)
-end
+const juliadir = Ref("")
+
 const cache_file_key = Dict{String,String}() # corrected=>uncorrected filenames
 const src_file_key   = Dict{String,String}() # uncorrected=>corrected filenames
 
@@ -904,7 +879,7 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
 end
 
 function track(file::AbstractString; kwargs...)
-    startswith(file, juliadir) && error("use Revise.track(Base) or Revise.track(<stdlib module>)")
+    startswith(file, juliadir[]) && error("use Revise.track(Base) or Revise.track(<stdlib module>)")
     track(Main, file; kwargs...)
 end
 
@@ -1305,6 +1280,32 @@ function __init__()
     if !(myid() == 1 || run_on_worker == "1")
         return nothing
     end
+    # Set up Base paths. We do this in __init__ because of #601
+    basesrccache[] = normpath(joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache"))
+    sysimg = filter(x->endswith(x[2], "sysimg.jl"), Base._included_files)[1][2]
+    jldir = basebuilddir[] = dirname(dirname(sysimg))
+    try
+        isdir(joinpath(jldir, "base")) || throw(ErrorException("$(jldir) does not have \"base\""))
+    catch
+        # Binaries probably end up here. We fall back on Sys.BINDIR
+        jldir = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
+        if !isdir(joinpath(jldir, "base"))
+            while true
+                trydir = joinpath(jldir, "base")
+                isdir(trydir) && break
+                trydir = joinpath(jldir, "share", "julia", "base")
+                if isdir(trydir)
+                    jldir = joinpath(jldir, "share", "julia")
+                    break
+                end
+                jldirnext = dirname(jldir)
+                jldirnext == jldir && break
+                jldir = jldirnext
+            end
+        end
+    end
+    juliadir[] = normpath(jldir)
+
     if isfile(silencefile[])
         pkgs = readlines(silencefile[])
         for pkg in pkgs
