@@ -2018,6 +2018,46 @@ end
         rm_precompile("ToplevelC")
     end
 
+    do_test("struct inner functions") && @testset "struct inner functions" begin
+        # issue #599
+        testdir = newtestdir()
+        dn = joinpath(testdir, "StructInnerFuncs", "src"); mkpath(dn)
+        open(joinpath(dn, "StructInnerFuncs.jl"), "w") do io
+            println(io, """
+            module StructInnerFuncs
+            mutable struct A
+                x::Int
+
+                A(x) = new(f(x))
+                f(x) = x^2
+            end
+            g(x) = 1
+            end""")
+        end
+        sleep(mtimedelay)
+        using StructInnerFuncs
+        sleep(mtimedelay)
+        @test StructInnerFuncs.A(2).x == 4
+        @test StructInnerFuncs.g(3) == 1
+        open(joinpath(dn, "StructInnerFuncs.jl"), "w") do io
+            println(io, """
+            module StructInnerFuncs
+            mutable struct A
+                x::Int
+
+                A(x) = new(f(x))
+                f(x) = x^2
+            end
+            g(x) = 2
+            end""")
+        end
+        yry()
+        @test StructInnerFuncs.A(2).x == 4
+        @test StructInnerFuncs.g(3) == 2
+
+        rm_precompile("StructInnerFuncs")
+    end
+
     do_test("Revision errors") && @testset "Revision errors" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "RevisionErrors", "src")
