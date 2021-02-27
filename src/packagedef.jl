@@ -1305,6 +1305,14 @@ function __init__()
     if !(myid() == 1 || run_on_worker == "1")
         return nothing
     end
+    # Check Julia paths (issue #601)
+    if !isdir(juliadir)
+        major, minor = Base.VERSION.major, Base.VERSION.minor
+        @warn """Expected non-existent $juliadir to be your Julia directory.
+                 Certain functionality will be disabled.
+                 To fix this, try deleting Revise's cache files in ~/.julia/compiled/v$major.$minor/Revise, then restart Julia and load Revise.
+                 If this doesn't fix the problem, please report an issue at https://github.com/timholy/Revise.jl/issues."""
+    end
     if isfile(silencefile[])
         pkgs = readlines(silencefile[])
         for pkg in pkgs
