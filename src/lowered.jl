@@ -220,6 +220,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
         ret = try
             methods_by_execution!(recurse, methodinfo, docexprs, frame, isrequired; mode=mode, kwargs...)
         catch err
+            @show mod ex mode
             (always_rethrow || isa(err, InterruptException)) && (disablebp && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame)...)
             sfs = []  # crafted for interaction with Base.show_backtrace

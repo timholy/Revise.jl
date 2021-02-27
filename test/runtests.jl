@@ -74,7 +74,7 @@ const pair_op_compact = let io = IOBuffer()
     print(IOContext(io, :compact=>true), Dict(1=>2))
     String(take!(io))[7:end-2]
 end
-
+#=
 @testset "Revise" begin
     do_test("PkgData") && @testset "PkgData" begin
         # Related to #358
@@ -3829,7 +3829,7 @@ do_test("Import in empty enviroment (issue #532)") && @testset "Import in empty 
 end
 
 include("backedges.jl")
-
+=#
 do_test("Base signatures") && @testset "Base signatures" begin
     println("beginning signatures tests")
     # Using the extensive repository of code in Base as a testbed
