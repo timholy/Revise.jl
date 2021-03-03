@@ -2058,6 +2058,77 @@ end
         rm_precompile("StructInnerFuncs")
     end
 
+    do_test("Issue 606") && @testset "Issue 606" begin
+        # issue #606
+        testdir = newtestdir()
+        dn = joinpath(testdir, "Issue606", "src"); mkpath(dn)
+        open(joinpath(dn, "Issue606.jl"), "w") do io
+            println(io, """
+            module Issue606
+            function convert_output_relations()
+                function add_default_zero!(dict::Dict{K, V})::Dict{K, V} where
+                        {K <: Tuple, V}
+                    if K == Tuple{} && isempty(dict)
+                        dict[()] = 0.0
+                    end
+                    return dict
+                end
+
+                function convert_to_sorteddict(
+                    relation::Union{Dict{K, Tuple{Float64}}}
+                ) where K <: Tuple
+                    return add_default_zero!(Dict{K, Float64}((k, v[1]) for (k, v) in relation))
+                end
+
+                function convert_to_sorteddict(relation::Dict{<:Tuple, Float64})
+                    return add_default_zero!(relation)
+                end
+
+                return "HELLO"
+            end
+            end""")
+        end
+        sleep(mtimedelay)
+        using Issue606
+        sleep(mtimedelay)
+        @test Issue606.convert_output_relations() == "HELLO"
+        open(joinpath(dn, "Issue606.jl"), "w") do io
+            println(io, """
+            module Issue606
+            function convert_output_relations()
+                function add_default_zero!(dict::Dict{K, V})::Dict{K, V} where
+                        {K <: Tuple, V}
+                    if K == Tuple{} && isempty(dict)
+                        dict[()] = 0.0
+                    end
+                    return dict
+                end
+
+                function convert_to_sorteddict(
+                    relation::Union{Dict{K, Tuple{Float64}}}
+                ) where K <: Tuple
+                    return add_default_zero!(Dict{K, Float64}((k, v[1]) for (k, v) in relation))
+                end
+
+                function convert_to_sorteddict(relation::Dict{<:Tuple, Float64})
+                    return add_default_zero!(relation)
+                end
+
+                return "HELLO2"
+            end
+            end""")
+        end
+        yry()
+        if Base.VERSION < v"1.1" || Base.VERSION >= v"1.6.0-rc1"
+            @test Issue606.convert_output_relations() == "HELLO2"
+        else
+            @test_broken Issue606.convert_output_relations() == "HELLO2"
+            empty!(Revise.queue_errors)
+        end
+
+        rm_precompile("Issue606")
+    end
+
     do_test("Revision errors") && @testset "Revision errors" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "RevisionErrors", "src")
