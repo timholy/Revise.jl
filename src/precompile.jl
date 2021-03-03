@@ -50,8 +50,10 @@ function _precompile_()
 
     mex = which(methods_by_execution!, (Function, MI, DocExprs, Module, Expr))
     mbody = bodymethod(mex)
-    @assert precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Iterators.Pairs{Union{},Union{},Tuple{},NamedTuple{(),Tuple{}}}, typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
-    @assert precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Iterators.Pairs{Symbol,Bool,Tuple{Symbol},NamedTuple{(:skip_include,),Tuple{Bool}}}, typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
+    if Sys.islinux() || Base.VERSION <= v"1.7.0-DEV"
+        @assert precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Iterators.Pairs{Union{},Union{},Tuple{},NamedTuple{(),Tuple{}}}, typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
+        @assert precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Iterators.Pairs{Symbol,Bool,Tuple{Symbol},NamedTuple{(:skip_include,),Tuple{Bool}}}, typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
+    end
     mfr = which(methods_by_execution!, (Function, MI, DocExprs, Frame, Vector{Bool}))
     mbody = bodymethod(mfr)
     @assert precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, typeof(methods_by_execution!), Any, MI, DocExprs, Frame, Vector{Bool}})
