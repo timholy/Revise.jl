@@ -109,12 +109,21 @@ function remove_callback(key)
     nothing
 end
 
-function process_user_callbacks!(keys = user_callbacks_queue; throw=false)
+function process_user_callbacks!(keys = user_callbacks_queue; throw=false, changed_exs=[])
     try
         # use (a)sync so any exceptions get nicely collected into CompositeException
         @sync for key in keys
-            f = user_callbacks_by_key[key]
-            @async Base.invokelatest(f)
+            if VERSION >= v"1.2"
+                f = user_callbacks_by_key[key]
+                if hasmethod(f, Tuple{}, (:changed_exs,))
+                    @async Base.invokelatest(f; changed_exs=changed_exs)
+                else
+                    @async Base.invokelatest(f)
+                end
+            else
+                f = user_callbacks_by_key[key]
+                @async Base.invokelatest(f)
+            end
         end
     catch err
         if throw

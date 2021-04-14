@@ -329,6 +329,7 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
                 end
             end
             storedeps(deps, rex, mod)
+            return sigs, includes, ex
         else
             sigs = exs_sigs_old[rexo]
             # Update location info
@@ -347,9 +348,9 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
                     locdefs[idx] = (newloc(methloc, ln, lno), methdef)
                 end
             end
+            return sigs, includes, nothing
         end
     end
-    return sigs, includes
 end
 
 # These are typically bypassed in favor of expression-by-expression evaluation to
@@ -357,7 +358,7 @@ end
 function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Symbol=:eval)
     includes = Vector{Pair{Module,String}}()
     for rex in keys(exs_sigs_new)
-        sigs, _includes = eval_rex(rex, exs_sigs_old, mod; mode=mode)
+        sigs, _includes, _ = eval_rex(rex, exs_sigs_old, mod; mode=mode)
         if sigs !== nothing
             exs_sigs_new[rex] = sigs
         end
@@ -753,6 +754,7 @@ function revise(; throw=false)
         end
     end
     # Do the evaluation
+    changed_exs = []
     for ((pkgdata, file), mexsnew) in zip(finished, mexsnews)
         defaultmode = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
         i = fileindex(pkgdata, file)
@@ -768,12 +770,15 @@ function revise(; throw=false)
                 mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
                 exsold = get(fi.modexsigs, mod, empty_exs_sigs)
                 for rex in keys(exsnew)
-                    sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
+                    sigs, includes, changed_ex = eval_rex(rex, exsold, mod; mode=mode)
                     if sigs !== nothing
                         exsnew[rex] = sigs
                     end
                     if includes !== nothing
                         maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
+                    end
+                    if changed_ex !== nothing
+                        push!(changed_exs, changed_ex)
                     end
                 end
             end
@@ -813,7 +818,7 @@ function revise(; throw=false)
     end
     tracking_Main_includes[] && queue_includes(Main)
 
-    process_user_callbacks!(throw=throw)
+    process_user_callbacks!(throw=throw, changed_exs=changed_exs)
 
     nothing
 end
