@@ -107,7 +107,8 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, src::Core.Cod
     end
     # All tracked expressions are marked. Now add their dependencies.
     # LoweredCodeUtils.print_with_code(stdout, src, isrequired)
-    lines_required!(isrequired, src, edges; exclude_named_typedefs=mode===:sigs)
+    lines_required!(isrequired, src, edges;
+                    norequire=mode===:sigs ? LoweredCodeUtils.exclude_named_typedefs(src, edges) : ())
     # LoweredCodeUtils.print_with_code(stdout, src, isrequired)
     add_dependencies!(methodinfo, edges, src, isrequired)
     return isrequired, evalassign
