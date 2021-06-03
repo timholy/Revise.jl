@@ -396,7 +396,11 @@ manifest_file() = manifest_file(Base.active_project())
 
 if isdefined(Base, :explicit_manifest_entry_path)
     function manifest_paths!(pkgpaths::Dict, manifest_file::String)
-        d = Base.parsed_toml(manifest_file)
+        d = if isdefined(Base, :get_deps) # `get_deps` is present in versions that support new manifest formats
+            Base.get_deps(Base.parsed_toml(manifest_file))
+        else
+            Base.parsed_toml(manifest_file)
+        end
         for (name, entries) in d
             entries::Vector{Any}
             for entry in entries
@@ -413,7 +417,11 @@ else
     # Legacy (delete when Julia 1.6 or higher is the minimum supported version)
     if isdefined(Base, :TOMLCache)
         function manifest_paths!(pkgpaths::Dict, manifest_file::String)
-            d = Base.parsed_toml(manifest_file)
+            d = if isdefined(Base, :get_deps) # `get_deps` is present in versions that support new manifest formats
+                Base.get_deps(Base.parsed_toml(manifest_file))
+            else
+                Base.parsed_toml(manifest_file)
+            end
             for (name, entries) in d
                 entries::Vector{Any}
                 for info in entries
