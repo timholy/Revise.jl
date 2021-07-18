@@ -16,7 +16,7 @@ using Revise
 ```
 to your `startup.jl`.
 
-or simply run
+or (if you have a Unix terminal available) simply run
 ```bash
 mkdir -p ~/.julia/config/ && echo "using Revise" >> ~/.julia/config/startup.jl
 ```
