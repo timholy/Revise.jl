@@ -14,7 +14,7 @@ See the [documentation](https://timholy.github.io/Revise.jl/stable):
 [![](https://img.shields.io/badge/docs-stable-blue.svg)](https://timholy.github.io/Revise.jl/stable)
 
 In particular, most users will probably want to alter their `.julia/config/startup.jl` file
-to run Revise automatically, as described in the "Configuration" section of the documentation.
+to run Revise automatically, as described in the [Configuration section](https://timholy.github.io/Revise.jl/stable/config/#Using-Revise-by-default-1) of the documentation.
 
 ## Credits
 
