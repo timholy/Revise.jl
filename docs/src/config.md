@@ -14,8 +14,12 @@ If you're using at least Julia 1.5, this can be as simple as adding
 ```julia
 using Revise
 ```
-
 to your `startup.jl`.
+
+or (if you have a Unix terminal available) simply run
+```bash
+mkdir -p ~/.julia/config/ && echo "using Revise" >> ~/.julia/config/startup.jl
+```
 
 If you use different package environments and do not always have Revise available,
 
@@ -56,6 +60,16 @@ try
 catch e
     @warn "Error initializing Revise" exception=(e, catch_backtrace())
 end
+```
+or simply run
+```bash
+mkdir -p ~/.julia/config/ && tee -a  ~/.julia/config/startup_ijulia.jl << END  
+try
+    @eval using Revise
+catch e
+    @warn "Error initializing Revise" exception=(e, catch_backtrace())
+end  
+END
 ```
 
 ## Configuring the revise mode
