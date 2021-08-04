@@ -3408,6 +3408,10 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
                 include(fn)
                 @require Revise="295af30f-e4ad-537b-8983-00126c2a3abe" Revise.track(TrackRequires, fn)
             end
+            @require UnsafeArrays="c4a57d5a-5b31-53a6-b365-19f8c011fbd6" begin
+                fn = joinpath(@__DIR__, "subdir", "yetanotherfile.jl")
+                include(fn)
+            end
         end
         end # module
         """)
@@ -3425,6 +3429,11 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     open(joinpath(sd, "anotherfile.jl"), "w") do io
         println(io, """
         ftrack() = 1
+        """)
+    end
+    open(joinpath(sd, "yetanotherfile.jl"), "w") do io
+        println(io, """
+        fauto() = 1
         """)
     end
     sleep(mtimedelay)
@@ -3469,6 +3478,20 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         @test count(name->occursin("anotherfile", name), sf) == 1
         @test !any(isequal("."), sf)
         idx = findfirst(name->occursin("anotherfile", name), sf)
+        @test !isabspath(sf[idx])
+    end
+    @test_throws UndefVarError TrackRequires.fauto()
+    @eval using UnsafeArrays
+    sleep(2)  # allow time for the @async in all @require blocks to finish
+    if notified
+        @test TrackRequires.fauto() == 1
+        id = Base.PkgId(TrackRequires)
+        pkgdata = Revise.pkgdatas[id]
+        sf = Revise.srcfiles(pkgdata)
+        @test count(name->occursin("@require", name), sf) == 1
+        @test count(name->occursin("yetanotherfile", name), sf) == 1
+        @test !any(isequal("."), sf)
+        idx = findfirst(name->occursin("yetanotherfile", name), sf)
         @test !isabspath(sf[idx])
     end
 
