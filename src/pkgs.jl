@@ -274,7 +274,7 @@ end
 function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourcefile::String, modcaller::Module, expr::Expr)
     fi = pkgdata.fileinfos[fileidx]
     exsnew = ExprsSigs()
-    exsnew[expr] = nothing
+    exsnew[RelocatableExpr(expr)] = nothing
     mexsnew = ModuleExprsSigs(modcaller=>exsnew)
     # Before executing the expression we need to set the load path appropriately
     prev = Base.source_path(nothing)

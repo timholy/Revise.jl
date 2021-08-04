@@ -1,6 +1,6 @@
 name = "Revise"
 uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
-version = "3.1.17"
+version = "3.1.18"
 
 [deps]
 CodeTracking = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
@@ -38,6 +38,7 @@ Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 RoundingIntegers = "d5f540fe-1c90-5db3-b776-2e2f362d9394"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+UnsafeArrays = "c4a57d5a-5b31-53a6-b365-19f8c011fbd6"
 
 [targets]
-test = ["CatIndices", "EndpointRanges", "EponymTuples", "Example", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Random", "Requires", "RoundingIntegers", "Test"]
+test = ["CatIndices", "EndpointRanges", "EponymTuples", "Example", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Random", "Requires", "RoundingIntegers", "Test", "UnsafeArrays"]
