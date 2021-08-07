@@ -758,7 +758,7 @@ end
     end
 
     do_test("Namespace") && @testset "Namespace" begin
-        # Issues #579 and #239
+        # Issues #579, #239, and #627
         testdir = newtestdir()
         dn = joinpath(testdir, "Namespace", "src")
         mkpath(dn)
@@ -781,6 +781,11 @@ end
             struct X end
             sin(::Int) = 10
             Base.cos(::X) = 20
+            # From #627
+            module Foos
+                struct Foo end
+            end
+            using .Foos: Foo
             end
             """)
         end

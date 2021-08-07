@@ -758,28 +758,40 @@ function revise(; throw=false)
         i = fileindex(pkgdata, file)
         i === nothing && continue   # file was deleted by `handle_deletions`
         fi = fileinfo(pkgdata, i)
-        try
+        modsremaining = Set(keys(mexsnew))
+        changed, err = true, nothing
+        while changed
+            changed = false
             for (mod, exsnew) in mexsnew
-                mode = defaultmode
-                # Allow packages to override the supplied mode
-                if isdefined(mod, :__revise_mode__)
-                    mode = getfield(mod, :__revise_mode__)::Symbol
-                end
-                mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
-                exsold = get(fi.modexsigs, mod, empty_exs_sigs)
-                for rex in keys(exsnew)
-                    sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
-                    if sigs !== nothing
-                        exsnew[rex] = sigs
+                mod ∈ modsremaining || continue
+                try
+                    mode = defaultmode
+                    # Allow packages to override the supplied mode
+                    if isdefined(mod, :__revise_mode__)
+                        mode = getfield(mod, :__revise_mode__)::Symbol
                     end
-                    if includes !== nothing
-                        maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
+                    mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
+                    exsold = get(fi.modexsigs, mod, empty_exs_sigs)
+                    for rex in keys(exsnew)
+                        sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
+                        if sigs !== nothing
+                            exsnew[rex] = sigs
+                        end
+                        if includes !== nothing
+                            maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
+                        end
                     end
+                    delete!(modsremaining, mod)
+                    changed = true
+                catch _err
+                    err = _err
                 end
             end
+        end
+        if isempty(modsremaining)
             pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
             delete!(queue_errors, (pkgdata, file))
-        catch err
+        else
             throw && Base.throw(err)
             interrupt |= isa(err, InterruptException)
             push!(revision_errors, (pkgdata, file))
