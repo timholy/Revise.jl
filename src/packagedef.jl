@@ -991,7 +991,7 @@ function includet(mod::Module, file::AbstractString)
     tls = task_local_storage()
     tls[:SOURCE_PATH] = file
     try
-        track(mod, file; mode=:includet, skip_include=false)
+        track(mod, file; mode=:includet, skip_include=true)
         if prev === nothing
             delete!(tls, :SOURCE_PATH)
         else
@@ -1425,5 +1425,7 @@ function add_revise_deps()
     return nothing
 end
 
-include("precompile.jl")
-_precompile_()
+if Base.VERSION >= v"1.4.0"
+    include("precompile.jl")
+    _precompile_()
+end
