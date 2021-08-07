@@ -1413,5 +1413,7 @@ function add_revise_deps()
     return nothing
 end
 
-include("precompile.jl")
-_precompile_()
+if Base.VERSION >= v"1.4.0"
+    include("precompile.jl")
+    _precompile_()
+end
