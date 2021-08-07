@@ -2700,9 +2700,10 @@ end
         empty!(issue639report)
         srcfile1 = joinpath(testdir, "file1.jl")
         srcfile2 = joinpath(testdir, "file2.jl")
+        srcfile2i = Sys.iswindows() ? srcfile2 : "\"$srcfile2\""
         open(srcfile1, "w") do io
             print(io, """
-            include(\"$srcfile2\")
+            include($srcfile2i)
             push!($(@__MODULE__).issue639report, '1')
             """)
         end
