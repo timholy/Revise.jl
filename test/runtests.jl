@@ -75,6 +75,8 @@ const pair_op_compact = let io = IOBuffer()
     String(take!(io))[7:end-2]
 end
 
+const issue639report = []
+
 @testset "Revise" begin
     do_test("PkgData") && @testset "PkgData" begin
         # Related to #358
@@ -2693,6 +2695,25 @@ end
         end
         yry()
         @test p() == 0
+
+        # Double-execution prevention (issue #639)
+        empty!(issue639report)
+        srcfile1 = joinpath(testdir, "file1.jl")
+        srcfile2 = joinpath(testdir, "file2.jl")
+        open(srcfile1, "w") do io
+            print(io, """
+            include(\"$srcfile2\")
+            push!($(@__MODULE__).issue639report, '1')
+            """)
+        end
+        open(srcfile2, "w") do io
+            print(io, """
+            push!($(@__MODULE__).issue639report, '2')
+            """)
+        end
+        sleep(mtimedelay)
+        includet(srcfile1)
+        @test issue639report == ['2', '1']
 
         # Non-included dependency (issue #316)
         testdir = newtestdir()

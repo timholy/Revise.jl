@@ -979,7 +979,7 @@ function includet(mod::Module, file::AbstractString)
     tls = task_local_storage()
     tls[:SOURCE_PATH] = file
     try
-        track(mod, file; mode=:includet, skip_include=false)
+        track(mod, file; mode=:includet, skip_include=true)
         if prev === nothing
             delete!(tls, :SOURCE_PATH)
         else
