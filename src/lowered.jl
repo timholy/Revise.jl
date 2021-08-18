@@ -84,7 +84,7 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, src::Core.Cod
     evalassign = false
     for (i, stmt) in enumerate(src.code)
         if !isrequired[i]
-            isrequired[i], haseval = predicate(stmt)
+            isrequired[i], haseval = predicate(stmt)::Tuple{Bool,Bool}
             if haseval                              # line `i` may be the equivalent of `f = Core.eval`, so...
                 isrequired[edges.succs[i]] .= true  # ...require each stmt that calls `eval` via `f(expr)`
                 isrequired[i] = true
