@@ -1384,20 +1384,23 @@ function __init__()
         schedule(Task(wmthunk))
     end
     push!(Base.include_callbacks, watch_includes)
-    push!(Base.package_callbacks, swap_watch_package)
+    push!(Base.package_callbacks, watch_package_callback)
     return nothing
 end
 
-function swap_watch_package(id::PkgId)
-    # `Base.package_callbacks` fire immediately after module initialization, and would fire
-    # on Revise itself. This is not necessary for most users, and has the downside that
-    # the user doesn't get to the REPL prompt until `watch_package` finishes compiling.
-    # To prevent this, Revise pushes a stub, `swap_watch_package`, which just replaces
-    # itself with `watch_package` in the list of package callbacks.
-    # This delays compilation of everything that `watch_package` requires, leading to
-    # faster perceived startup times.
-    idx = findfirst(isidentical(swap_watch_package), Base.package_callbacks)
-    Base.package_callbacks[idx] = watch_package
+const REVISE_ID = Base.PkgId(Base.UUID("295af30f-e4ad-537b-8983-00126c2a3abe"), "Revise")
+function watch_package_callback(id::PkgId)
+    # `Base.package_callbacks` fire immediately after module initialization, and
+    # would fire on Revise itself. This is not necessary for most users, and has
+    # the downside that the user doesn't get to the REPL prompt until
+    # `watch_package` finishes compiling.  To prevent this, Revise hides the
+    # actual `watch_package` method behind an `invokelatest`. This delays
+    # compilation of everything that `watch_package` requires, leading to faster
+    # perceived startup times.
+    if id != REVISE_ID
+        Base.invokelatest(watch_package, id)
+    end
+    return
 end
 
 function setup_atom(atommod::Module)::Nothing
