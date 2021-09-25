@@ -22,7 +22,7 @@ function _precompile_()
     @warnpcfail precompile(Tuple{typeof(revise_file_queued), PkgData, String})
     @warnpcfail precompile(Tuple{typeof(init_watching), PkgData, Vector{String}})
     @warnpcfail precompile(Tuple{typeof(add_revise_deps)})
-    @warnpcfail precompile(Tuple{typeof(swap_watch_package), PkgId})
+    @warnpcfail precompile(Tuple{typeof(watch_package_callback), PkgId})
 
     @warnpcfail precompile(Tuple{typeof(revise)})
     @warnpcfail precompile(Tuple{typeof(revise_first), Expr})
