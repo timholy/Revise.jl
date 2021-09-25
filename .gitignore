@@ -11,3 +11,4 @@ docs/src/figures/diagram.pdf
 Manifest.toml
 src/aliasnewstruct.jl
 .vscode
+test/envs/use_exputils/Project.toml

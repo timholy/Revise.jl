@@ -501,6 +501,7 @@ function watch_manifest(mfile)
             # issue #459
             (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
         end
+        manifest_file() == mfile || continue   # process revisions only if this is the active manifest
         try
             with_logger(_debug_logger) do
                 @debug "Pkg" _group="manifest_update" manifest_file=mfile
@@ -522,12 +523,20 @@ function watch_manifest(mfile)
                             end
                             # Revise code as needed
                             files = String[]
+                            mustnotify = false
                             for file in srcfiles(pkgdata)
-                                maybe_extract_sigs!(maybe_parse_from_cache!(pkgdata, file))
+                                fi = try
+                                    maybe_parse_from_cache!(pkgdata, file)
+                                catch err
+                                    @error "error parsing cache for $(basedir(pkgdata)) : $file" exception=(err, trim_toplevel!(catch_backtrace()))
+                                    fileinfo(pkgdata, file)
+                                end
+                                maybe_extract_sigs!(fi)
                                 push!(revision_queue, (pkgdata, file))
                                 push!(files, file)
-                                notify(revision_event)
+                                mustnotify = true
                             end
+                            mustnotify && notify(revision_event)
                             # Update the directory
                             pkgdata.info.basedir = pkgdir
                             # Restart watching, if applicable
@@ -539,11 +548,17 @@ function watch_manifest(mfile)
                 end
             end
         catch err
-            @static if VERSION >= v"1.2.0-DEV.253"
-                put!(Base.active_repl_backend.response_channel, (Base.catch_stack(), true))
-            else
-                put!(Base.active_repl_backend.response_channel, (err, catch_backtrace()))
-            end
+            @error "Error watching manifest" exception=(err, trim_toplevel!(catch_backtrace()))
         end
     end
+end
+
+function active_project_watcher()
+    mfile = manifest_file()
+    if mfile ∉ watched_manifests
+        push!(watched_manifests, mfile)
+        wmthunk = TaskThunk(watch_manifest, (mfile,))
+        schedule(Task(wmthunk))
+    end
+    return
 end
