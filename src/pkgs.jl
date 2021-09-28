@@ -528,8 +528,20 @@ function watch_manifest(mfile)
                                 fi = try
                                     maybe_parse_from_cache!(pkgdata, file)
                                 catch err
-                                    @error "error parsing cache for $(basedir(pkgdata)) : $file" exception=(err, trim_toplevel!(catch_backtrace()))
-                                    fileinfo(pkgdata, file)
+                                    # https://github.com/JuliaLang/julia/issues/42404
+                                    # Get the source-text from the package source instead
+                                    fi = fileinfo(pkgdata, file)
+                                    if isempty(fi.modexsigs) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
+                                        filep = joinpath(basedir(pkgdata), file)
+                                        src = read(filep, String)
+                                        topmod = first(keys(fi.modexsigs))
+                                        if parse_source!(fi.modexsigs, src, filep, topmod) === nothing
+                                            @error "failed to parse source text for $filep"
+                                        end
+                                        add_modexs!(fi, fi.cacheexprs)
+                                        empty!(fi.cacheexprs)
+                                    end
+                                    fi
                                 end
                                 maybe_extract_sigs!(fi)
                                 push!(revision_queue, (pkgdata, file))

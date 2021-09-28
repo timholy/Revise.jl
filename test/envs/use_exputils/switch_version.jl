@@ -14,17 +14,12 @@ pkgdata = Revise.pkgdatas[id]
 A = rand(3, 3); A = A'*A; A = A' + A;
 @test_throws UndefVarError exponential!(A)   # not present on v1.9
 # From a different process, switch the active version of ExponentialUtilities
-#### TODO: get rid of the `ENV["JULIA_PKG_PRECOMPILE_AUTO"]=0`
-#### The issue is that the cache file name is *not* version-dependent!
-#### Consequently the cache file gets overwritten before we have a chance to
-#### retrieve the source-text of the previous version.
-#### This needs to be fixed in Julia itself.
-run(Cmd(`julia -e 'ENV["JULIA_PKG_PRECOMPILE_AUTO"]=0; using Pkg; Pkg.activate("."); Pkg.add(name="ExponentialUtilities", version="1.10.0")'`; dir=thisdir))
+run(Cmd(`julia -e 'using Pkg; Pkg.activate("."); Pkg.add(name="ExponentialUtilities", version="1.10.0")'`; dir=thisdir))
 sleep(0.2)
 revise()
 @test exponential!(A) isa Matrix   # present on v1.9
 # ...and then switch back (check that it's bidirectional and also to reset state)
-run(Cmd(`julia -e 'ENV["JULIA_PKG_PRECOMPILE_AUTO"]=0; using Pkg; Pkg.activate("."); Pkg.add(name="ExponentialUtilities", version="1.9.0")'`; dir=thisdir))
+run(Cmd(`julia -e 'using Pkg; Pkg.activate("."); Pkg.add(name="ExponentialUtilities", version="1.9.0")'`; dir=thisdir))
 sleep(0.2)
 revise()
 @test_throws MethodError exponential!(A)   # not present on v1.9
