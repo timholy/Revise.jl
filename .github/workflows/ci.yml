@@ -57,6 +57,9 @@ jobs:
         julia --project --code-coverage=user -e 'ENV["JULIA_REVISE_POLL"]="1"; using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "test", "polling.jl"))'
         # The REPL wasn't initialized, so the "Methods at REPL" tests didn't run. Pick those up now.
         TERM="xterm" julia --project --code-coverage=user -e 'using InteractiveUtils, REPL, Revise; @async(Base.run_main_repl(true, true, false, true, false)); sleep(2); Revise.async_steal_repl_backend(); include(joinpath("test", "runtests.jl")); REPL.eval_user_input(:(exit()), Base.active_repl_backend)' "Methods at REPL"
+        # Tests for out-of-process updates to manifest
+        bash test/envs/use_exputils/setup.sh
+        julia --project --code-coverage=user test/envs/use_exputils/switch_version.jl
         # We also need to pick up the Git tests, but for that we need to `dev` the package
         julia --code-coverage=user -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); include(joinpath("test", "runtests.jl"))' "Git"
     # # Running out of inotify storage (see #26)

@@ -2,7 +2,7 @@ if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optle
     @eval Base.Experimental.@optlevel 1
 end
 
-using FileWatching, REPL, Distributed, UUIDs
+using FileWatching, REPL, Distributed, UUIDs, Pkg
 import LibGit2
 using Base: PkgId
 using Base.Meta: isexpr
@@ -79,6 +79,13 @@ This variable allows us to watch directories rather than files, reducing the bur
 the OS.
 """
 const watched_files = Dict{String,WatchList}()
+
+"""
+    Revise.watched_manifests
+
+Global variable, a set of `Manifest.toml` files from the active projects used during this session.
+"""
+const watched_manifests = Set{String}()
 
 """
     Revise.revision_queue
@@ -1375,11 +1382,15 @@ function __init__()
     CodeTracking.method_lookup_callback[] = get_def
     CodeTracking.expressions_callback[] = get_expressions
 
+    # Register the active-project watcher
+    if isdefined(Pkg.Types, :active_project_watcher_thunks)
+        push!(Pkg.Types.active_project_watcher_thunks, active_project_watcher)
+    end
+
     # Watch the manifest file for changes
     mfile = manifest_file()
-    if mfile === nothing
-        @warn "no Manifest.toml file found, static paths used"
-    else
+    if mfile !== nothing
+        push!(watched_manifests, mfile)
         wmthunk = TaskThunk(watch_manifest, (mfile,))
         schedule(Task(wmthunk))
     end
