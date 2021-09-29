@@ -8,6 +8,34 @@ There are some kinds of changes that Revise (or often, Julia itself) cannot inco
 
 These kinds of changes require that you restart your Julia session.
 
+During early stages of development, it's quite common to want to change type definitions. You can work around Julia's/Revise's limitations by temporary renaming:
+
+```julia
+# 1st version
+struct FooStruct1
+    bar::Int
+end
+FooStruct = FooStruct1
+function processFoo(foo::FooStruct)
+    @info foo.bar
+end
+```
+and then the type can be updated like
+```julia
+# 2nd version
+struct FooStruct2  # change version here
+    bar::Int
+    str::String
+end
+FooStruct = FooStruct2   # change version here
+function processFoo(foo::FooStruct)  # no need to change this
+    @info foo.bar
+end
+```
+This works as long as the new type name doesn't conflict with an existing name; within a session you need to change the name each time you change the definition.
+
+Once your development has converged on a solution, it's best to switch to the "permanent" name: in the example above, `FooStruct` is a non-constant global variable, and if used internally in a function there will be consequent performance penalties. Switching to the permanent name will force you to restart your session.
+
 In addition, some situations may require special handling:
 
 ### Macros and generated functions
