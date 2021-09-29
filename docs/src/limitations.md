@@ -6,28 +6,28 @@ There are some kinds of changes that Revise (or often, Julia itself) cannot inco
 - conflicts between variables and functions sharing the same name
 - removal of `export`s
 
-These kinds of changes require that you restart your Julia session. 
+These kinds of changes require that you restart your Julia session.
 
 During early stages of development, it's quite common to want to change type definitions. You can work around Julia's/Revise's limitations by temporary renaming:
 
-```jl
+```julia
 # 1st version
 struct FooStruct1
     bar::Int
 end
-FooStruct=FooStruct1
+FooStruct = FooStruct1
 function processFoo(foo::FooStruct)
     @info foo.bar
 end
 ```
 and then the type can be updated like
-```jl
+```julia
 # 2nd version
 struct FooStruct2  # change version here
     bar::Int
     str::String
 end
-FooStruct=FooStruct2   # change version here
+FooStruct = FooStruct2   # change version here
 function processFoo(foo::FooStruct)  # no need to change this
     @info foo.bar
 end
