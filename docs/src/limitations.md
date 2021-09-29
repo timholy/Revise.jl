@@ -32,7 +32,7 @@ function processFoo(foo::FooStruct)  # no need to change this
     @info foo.bar
 end
 ```
-This works as long as the new type name doesn' t conflict with an existing name; within a session you need to change the name each time you change the definition.
+This works as long as the new type name doesn't conflict with an existing name; within a session you need to change the name each time you change the definition.
 
 Once your development has converged on a solution, it's best to switch to the "permanent" name: in the example above, `FooStruct` is a non-constant global variable, and if used internally in a function there will be consequent performance penalties. Switching to the permanent name will force you to restart your session.
 
