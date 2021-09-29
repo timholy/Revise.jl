@@ -6,7 +6,33 @@ There are some kinds of changes that Revise (or often, Julia itself) cannot inco
 - conflicts between variables and functions sharing the same name
 - removal of `export`s
 
-These kinds of changes require that you restart your Julia session.
+These kinds of changes require that you restart your Julia session. 
+
+For type changes, you can use the workaround of renaming types with version number like:
+
+```jl
+# 1st version
+struct FooStruct1
+    bar::Int
+end
+FooStruct=FooStruct1
+function processFoo(foo::FooStruct)
+    @info foo.bar
+end
+```
+and update type like
+```jl
+# 2nd version
+struct FooStruct2  # change version here
+    bar::Int
+    str::String
+end
+FooStruct=FooStruct2   # change version here
+function processFoo(foo::FooStruct)  # no need changing this
+    @info foo.bar
+end
+```
+Then it could be used properly as long as the new type name don' t conflict with existing type name. So you can restart from version number 1 if you restart the REPL.
 
 In addition, some situations may require special handling:
 
