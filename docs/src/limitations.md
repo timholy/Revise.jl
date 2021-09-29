@@ -28,7 +28,7 @@ struct FooStruct2  # change version here
     str::String
 end
 FooStruct=FooStruct2   # change version here
-function processFoo(foo::FooStruct)  # no need changing this
+function processFoo(foo::FooStruct)  # no need to change this
     @info foo.bar
 end
 ```
