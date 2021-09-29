@@ -20,7 +20,7 @@ function processFoo(foo::FooStruct)
     @info foo.bar
 end
 ```
-and update type like
+and then the type can be updated like
 ```jl
 # 2nd version
 struct FooStruct2  # change version here
