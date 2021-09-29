@@ -8,7 +8,7 @@ There are some kinds of changes that Revise (or often, Julia itself) cannot inco
 
 These kinds of changes require that you restart your Julia session. 
 
-For type changes, you can use the workaround of renaming types with version number like:
+During early stages of development, it's quite common to want to change type definitions. You can work around Julia's/Revise's limitations by temporary renaming:
 
 ```jl
 # 1st version
