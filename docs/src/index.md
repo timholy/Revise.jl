@@ -76,7 +76,7 @@ julia> Example.f()
 Voila! Even though we'd loaded Example before adding this function,
 Revise noticed the change and inserted it into our running session.
 
-!!! warn
+!!! warning
     Revise's first revision has latency of several seconds--it's compiling all of its internal code, which includes a complete [Julia interpreter](https://github.com/JuliaDebug/JuliaInterpreter.jl) and all of Revise's parse/diff/patch/cache machinery.
     After your first revision, future revisions will generally be fast enough that they will seem nearly instantaneous. (There are exceptions, but they occur
     only in specific circumstances, for example when Revise's own code gets [invalidated](https://julialang.org/blog/2020/08/invalidations/) by your changes.)
