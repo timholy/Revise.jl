@@ -170,7 +170,7 @@ but [you can also change it permanently](https://askubuntu.com/questions/716431/
 On most operating systems, Revise can work "passively" and wait to be signaled
 that one or more watched directories has changed.
 
-Unfortunately, a few file systems systems (notably, the Unix-based Network File System NFS) don't support this approach. In such cases, Revise needs to "actively" check each file periodically to see whether it has changed since the last check. This active process is called [polling](https://en.wikipedia.org/wiki/Polling_(computer_science)).
+Unfortunately, a few file systems (notably, the Unix-based Network File System NFS) don't support this approach. In such cases, Revise needs to "actively" check each file periodically to see whether it has changed since the last check. This active process is called [polling](https://en.wikipedia.org/wiki/Polling_(computer_science)).
 You turn on polling by setting the environment variable `JULIA_REVISE_POLL` to the
 string `"1"` (e.g., `JULIA_REVISE_POLL=1` in a bash script).
 
