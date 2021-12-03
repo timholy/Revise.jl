@@ -181,22 +181,16 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
     end
 end
 
-function add_require(sourcefile::String, modcaller::Module, idmod::String, modname::String, expr::Expr)
-    expr isa Expr || return
-    arthunk = TaskThunk(_add_require, (sourcefile, modcaller, idmod, modname, expr))
-    schedule(Task(arthunk))
-    return nothing
-end
-
 # Use locking to prevent races between inner and outer @require blocks
 const requires_lock = ReentrantLock()
 
-function _add_require(sourcefile, modcaller, idmod, modname, expr)
+function add_require(sourcefile::String, modcaller::Module, idmod::String, modname::String, expr::Expr)
+    expr isa Expr || return
     id = PkgId(modcaller)
     # If this fires when the module is first being loaded (because the dependency
     # was already loaded), Revise may not yet have the pkgdata for this package.
-    while !haskey(pkgdatas, id)
-        sleep(0.1)
+    if !haskey(pkgdatas, id)
+        _watch_package(id)
     end
 
     lock(requires_lock)
@@ -348,6 +342,8 @@ function watch_package(id::PkgId)
 end
 
 @noinline function _watch_package(id::PkgId)
+    pkgdata = get(pkgdatas, id, nothing)
+    pkgdata !== nothing && return pkgdata
     modsym = Symbol(id.name)
     if modsym ∈ dont_watch_pkgs
         if modsym ∉ silence_pkgs
