@@ -185,12 +185,11 @@ end
 const requires_lock = ReentrantLock()
 
 function add_require(sourcefile::String, modcaller::Module, idmod::String, modname::String, expr::Expr)
-    expr isa Expr || return
     id = PkgId(modcaller)
     # If this fires when the module is first being loaded (because the dependency
     # was already loaded), Revise may not yet have the pkgdata for this package.
     if !haskey(pkgdatas, id)
-        _watch_package(id)
+        watch_package(id)
     end
 
     lock(requires_lock)
@@ -326,6 +325,8 @@ function watch_files_via_dir(dirname)
     return latestfiles, stillwatching
 end
 
+const wplock = ReentrantLock()
+
 """
     watch_package(id::Base.PkgId)
 
@@ -334,29 +335,27 @@ This function gets called via a callback registered with `Base.require`, at the 
 of module-loading by `using` or `import`.
 """
 function watch_package(id::PkgId)
-    # Because the callbacks are made with `invokelatest`, for reasons of performance
-    # we need to make sure this function is fast to compile. By hiding the real
-    # work behind a @async, we truncate the chain of dependency.
-    schedule(Task(TaskThunk(_watch_package, (id,))))
-    sleep(0.001)
-end
-
-@noinline function _watch_package(id::PkgId)
     pkgdata = get(pkgdatas, id, nothing)
     pkgdata !== nothing && return pkgdata
-    modsym = Symbol(id.name)
-    if modsym ∈ dont_watch_pkgs
-        if modsym ∉ silence_pkgs
-            @warn "$modsym is excluded from watching by Revise. Use Revise.silence(\"$modsym\") to quiet this warning."
+    lock(wplock)
+    try
+        modsym = Symbol(id.name)
+        if modsym ∈ dont_watch_pkgs
+            if modsym ∉ silence_pkgs
+                @warn "$modsym is excluded from watching by Revise. Use Revise.silence(\"$modsym\") to quiet this warning."
+            end
+            remove_from_included_files(modsym)
+            return nothing
         end
-        remove_from_included_files(modsym)
-        return nothing
+        pkgdata = parse_pkg_files(id)
+        if has_writable_paths(pkgdata)
+            init_watching(pkgdata, srcfiles(pkgdata))
+        end
+        pkgdatas[id] = pkgdata
+    finally
+        unlock(wplock)
     end
-    pkgdata = parse_pkg_files(id)
-    if has_writable_paths(pkgdata)
-        init_watching(pkgdata, srcfiles(pkgdata))
-    end
-    pkgdatas[id] = pkgdata
+    return pkgdata
 end
 
 function has_writable_paths(pkgdata::PkgData)
