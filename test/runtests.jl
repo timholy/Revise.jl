@@ -2717,9 +2717,6 @@ end
             """)
         end
         sleep(mtimedelay)
-        display(read(srcfile1, String))
-        println()
-        display(read(srcfile2, String))
         includet(srcfile1)
         @test issue639report == ['2', '1']
 
