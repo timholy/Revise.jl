@@ -9,11 +9,6 @@ function add_docexpr!(docexprs::AbstractDict{Module,V}, mod::Module, ex) where V
     return docexprs
 end
 
-function lookup_callexpr(frame, stmt)
-    fargs = JuliaInterpreter.collect_args(frame, stmt)
-    return Expr(:call, fargs...)
-end
-
 function assign_this!(frame, value)
     frame.framedata.ssavalues[frame.pc] = value
 end
@@ -187,7 +182,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
         mode === :sigs && return nothing, nothing
         return Core.eval(mod, lwr), nothing
     end
-    frame = JuliaInterpreter.Frame(mod, lwr.args[1])
+    frame = JuliaInterpreter.Frame(mod, lwr.args[1]::CodeInfo)
     mode === :eval || LoweredCodeUtils.rename_framemethods!(recurse, frame)
     # Determine whether we need interpreted mode
     isrequired, evalassign = minimal_evaluation!(methodinfo, frame, mode)
@@ -406,7 +401,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
                 elseif f === Base.Docs.doc! # && mode !== :eval
-                    fargs = JuliaInterpreter.collect_args(frame, stmt)
+                    fargs = JuliaInterpreter.collect_args(recurse, frame, stmt)
                     popfirst!(fargs)
                     length(fargs) == 3 && push!(fargs, Union{})  # add the default sig
                     dmod::Module, b::Base.Docs.Binding, str::Base.Docs.DocStr, sig = fargs
