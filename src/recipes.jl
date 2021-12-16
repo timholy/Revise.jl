@@ -202,6 +202,9 @@ if VERSION >= v"1.6.0-DEV.1087"  # https://github.com/JuliaLang/julia/pull/37763
     push!(stdlib_names, :Tar)
     push!(stdlib_names, :ArgTools)
 end
+if VERSION >= v"1.6.0-DEV.1468"  # https://github.com/JuliaLang/julia/pull/38362
+    push!(stdlib_names, :NetworkOptions)
+end
 
 # This replacement is needed because the path written during compilation differs from
 # the git source path
