@@ -261,12 +261,6 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                 end
                 isassign(frame, pc) && assign_this!(frame, value)
                 pc = next_or_nothing!(frame)
-            elseif head ∈ structheads
-                if mode !== :sigs
-                    pc = step_expr!(recurse, frame, stmt, true)  # This checks that they are unchanged
-                else
-                    pc = next_or_nothing!(frame)
-                end
             # elseif head === :thunk && isanonymous_typedef(stmt.args[1])
             #     # Anonymous functions should just be defined anew, since there does not seem to be a practical
             #     # way to find them within the already-defined module.

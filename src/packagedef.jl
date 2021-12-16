@@ -1,6 +1,4 @@
-if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optlevel"))
-    @eval Base.Experimental.@optlevel 1
-end
+@eval Base.Experimental.@optlevel 1
 
 using FileWatching, REPL, Distributed, UUIDs, Pkg
 import LibGit2
@@ -239,11 +237,7 @@ const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests d
 ## now this is the right strategy.) From the standpoint of CodeTracking, we should
 ## link the signature to the actual method-defining expression (either :(f() = 1) or :(g() = 2)).
 
-if isdefined(Core, :MethodMatch)
-    get_method_from_match(mm::Core.MethodMatch) = mm.method
-else
-    get_method_from_match(mm::Core.SimpleVector) = mm[3]::Method
-end
+get_method_from_match(mm::Core.MethodMatch) = mm.method
 
 function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
     with_logger(_debug_logger) do
@@ -323,7 +317,7 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
             # ex is not present in old
             @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
             sigs, deps, includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
-            if VERSION < v"1.3.0" || !isexpr(thunk, :thunk)
+            if !isexpr(thunk, :thunk)
                 thunk = ex
             end
             if myid() == 1
@@ -1251,17 +1245,8 @@ Replace the REPL's normal backend with one that calls [`revise`](@ref) before ex
 any REPL input.
 """
 function steal_repl_backend(backend = Base.active_repl_backend)
-    if VERSION >= v"1.5.0-DEV.282"
-        # @warn "See Revise documentation for recommended configuration changes"
-        pushfirst!(backend.ast_transforms, revise_first)
-    else
-        @async begin
-            # When we return back to the backend loop, tell it to start
-            # running our backend loop next, which differs only
-            # by processing the revision queue before evaluating each input.
-            put!(backend.repl_channel, (:($run_backend($backend)), 1))
-        end
-    end
+    # @warn "See Revise documentation for recommended configuration changes"
+    pushfirst!(backend.ast_transforms, revise_first)
     nothing
 end
 
@@ -1341,14 +1326,10 @@ function __init__()
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
         if isdefined(Base, :active_repl_backend)
-            if VERSION >= v"1.5.0-DEV.282"
-                pushfirst!(Base.active_repl_backend.ast_transforms, revise_first)
-            else
-                steal_repl_backend(Base.active_repl_backend::REPL.REPLBackend)
-            end
+            steal_repl_backend(Base.active_repl_backend::REPL.REPLBackend)
         elseif isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
-        elseif VERSION >= v"1.5.0-DEV.282"
+        else
             pushfirst!(REPL.repl_ast_transforms, revise_first)
         end
         if isdefined(Main, :Atom)
@@ -1439,7 +1420,5 @@ function add_revise_deps()
     return nothing
 end
 
-if Base.VERSION >= v"1.4.0"
-    include("precompile.jl")
-    _precompile_()
-end
+include("precompile.jl")
+_precompile_()
