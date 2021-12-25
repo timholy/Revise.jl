@@ -3,6 +3,17 @@
 This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
+## Revise 3.3
+
+* Upgrade to JuliaInterpreter 0.9 and drop support for Julia prior to 1.6 (the new LTS).
+
+## Revise 3.2
+
+* Switch to synchronous processing of new packages and `@require` blocks.
+  This is motivated by changes in Julia designed to make code-loading threadsafe.
+  There are small (100-200ms) increases in latency on first use, but more guarantees that
+  Revise's workqueue will finish before new operations commence.
+
 ## Revise 3.0
 
 * Latencies at startup and upon first subsequent package load are greatly reduced.

@@ -56,13 +56,6 @@ MethodSummary
 
 ## Function reference
 
-### Functions called during initialization of Revise
-
-```@docs
-Revise.async_steal_repl_backend
-Revise.steal_repl_backend
-```
-
 ### Functions called when you load a new package
 
 ```@docs
