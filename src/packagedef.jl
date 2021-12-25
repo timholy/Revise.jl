@@ -1,6 +1,4 @@
-if isdefined(Base, :Experimental) && isdefined(Base.Experimental, Symbol("@optlevel"))
-    @eval Base.Experimental.@optlevel 1
-end
+@eval Base.Experimental.@optlevel 1
 
 using FileWatching, REPL, Distributed, UUIDs, Pkg
 import LibGit2
@@ -239,11 +237,7 @@ const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests d
 ## now this is the right strategy.) From the standpoint of CodeTracking, we should
 ## link the signature to the actual method-defining expression (either :(f() = 1) or :(g() = 2)).
 
-if isdefined(Core, :MethodMatch)
-    get_method_from_match(mm::Core.MethodMatch) = mm.method
-else
-    get_method_from_match(mm::Core.SimpleVector) = mm[3]::Method
-end
+get_method_from_match(mm::Core.MethodMatch) = mm.method
 
 function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
     with_logger(_debug_logger) do
@@ -323,7 +317,7 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
             # ex is not present in old
             @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
             sigs, deps, includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
-            if VERSION < v"1.3.0" || !isexpr(thunk, :thunk)
+            if !isexpr(thunk, :thunk)
                 thunk = ex
             end
             if myid() == 1
@@ -1209,7 +1203,8 @@ function maybe_set_prompt_color(color)
     return nothing
 end
 
-# On Julia 1.5.0-DEV.282 and higher, we can just use an AST transformation
+# `revise_first` gets called by the REPL prior to executing the next command (by having been pushed
+# onto the `ast_transform` list).
 # This uses invokelatest not for reasons of world age but to ensure that the call is made at runtime.
 # This allows `revise_first` to be compiled without compiling `revise` itself, and greatly
 # reduces the overhead of using Revise.
@@ -1223,78 +1218,9 @@ function revise_first(ex)
     return Expr(:toplevel, :(isempty($revision_queue) || Base.invokelatest($revise)), ex)
 end
 
-@noinline function run_backend(backend)
-    while true
-        tls = task_local_storage()
-        tls[:SOURCE_PATH] = nothing
-        ast, show_value = take!(backend.repl_channel)
-        if show_value == -1
-            # exit flag
-            break
-        end
-        # Process revisions, skipping `exit()` (issue #327)
-        if !isa(ast, Expr) || length(ast.args) < 2 || (ex = ast.args[2]; !isexpr(ex, :call)) || length(ex.args) != 1 || ex.args[1] != :exit
-            revise(backend)
-        end
-        # Now eval the input
-        REPL.eval_user_input(ast, backend)
-    end
-    # tell outer backend loop to exit as well
-    put!(backend.repl_channel, (nothing, -1))
-    nothing
-end
-
-"""
-    steal_repl_backend(backend = Base.active_repl_backend)
-
-Replace the REPL's normal backend with one that calls [`revise`](@ref) before executing
-any REPL input.
-"""
-function steal_repl_backend(backend = Base.active_repl_backend)
-    if VERSION >= v"1.5.0-DEV.282"
-        # @warn "See Revise documentation for recommended configuration changes"
-        pushfirst!(backend.ast_transforms, revise_first)
-    else
-        @async begin
-            # When we return back to the backend loop, tell it to start
-            # running our backend loop next, which differs only
-            # by processing the revision queue before evaluating each input.
-            put!(backend.repl_channel, (:($run_backend($backend)), 1))
-        end
-    end
-    nothing
-end
-
-function wait_steal_repl_backend()
-    iter = 0
-    # wait for active_repl_backend to exist
-    while !isdefined(Base, :active_repl_backend) && iter < 20
-        sleep(0.05)
-        iter += 1
-    end
-    if isdefined(Base, :active_repl_backend)
-        steal_repl_backend(Base.active_repl_backend)
-    else
-        @warn "REPL initialization failed, Revise is not in automatic mode. Call `revise()` manually."
-    end
-end
-
-"""
-    Revise.async_steal_repl_backend()
-
-Wait for the REPL to complete its initialization, and then call [`Revise.steal_repl_backend`](@ref).
-This is necessary because code registered with `atreplinit` runs before the REPL is
-initialized, and there is no corresponding way to register code to run after it is complete.
-"""
-function async_steal_repl_backend()
-    mode = get(ENV, "JULIA_REVISE", "auto")
-    if mode == "auto"
-        atreplinit() do repl
-            @async wait_steal_repl_backend()
-        end
-    end
-    return nothing
-end
+steal_repl_backend(args...) = @warn "`steal_repl_backend` has been removed from Revise, please update your `~/.julia/config/startup.jl`.\nSee https://timholy.github.io/Revise.jl/stable/config/"
+wait_steal_repl_backend() = steal_repl_backend()
+async_steal_repl_backend() = steal_repl_backend()
 
 """
     Revise.init_worker(p)
@@ -1340,15 +1266,9 @@ function __init__()
     end
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
-        if isdefined(Base, :active_repl_backend)
-            if VERSION >= v"1.5.0-DEV.282"
-                pushfirst!(Base.active_repl_backend.ast_transforms, revise_first)
-            else
-                steal_repl_backend(Base.active_repl_backend::REPL.REPLBackend)
-            end
-        elseif isdefined(Main, :IJulia)
+        if isdefined(Main, :IJulia)
             Main.IJulia.push_preexecute_hook(revise)
-        elseif VERSION >= v"1.5.0-DEV.282"
+        else
             pushfirst!(REPL.repl_ast_transforms, revise_first)
         end
         if isdefined(Main, :Atom)
@@ -1439,7 +1359,5 @@ function add_revise_deps()
     return nothing
 end
 
-if Base.VERSION >= v"1.4.0"
-    include("precompile.jl")
-    _precompile_()
-end
+include("precompile.jl")
+_precompile_()

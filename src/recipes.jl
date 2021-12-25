@@ -14,14 +14,6 @@ end
 
 const vstring = "v$(VERSION.major).$(VERSION.minor)"
 
-if !isdefined(Base.Filesystem, :splitpath)
-    function splitpath(path)
-        drv, pth = splitdrive(path)
-        parts = split(pth, Base.Filesystem.pathsep())
-        return isempty(drv) ? parts : vcat([drv], parts)
-    end
-end
-
 function inpath(path, dirs)
     spath = splitpath(path)
     idx = findfirst(isequal(first(dirs)), spath)
@@ -185,26 +177,9 @@ const stdlib_names = Set([
     :LibGit2, :LinearAlgebra, :Logging, :Markdown, :Mmap,
     :OldPkg, :Pkg, :Printf, :Profile, :Random, :REPL,
     :Serialization, :SHA, :SharedArrays, :Sockets, :SparseArrays,
-    :Statistics, :SuiteSparse, :Test, :Unicode, :UUIDs])
-if VERSION >= v"1.6.0-DEV.734"
-    push!(stdlib_names, :TOML)
-end
-if VERSION >= v"1.6.0-DEV.890"   # https://github.com/JuliaLang/julia/pull/37320
-    push!(stdlib_names, :Artifacts)
-end
-if VERSION >= v"1.6.0-DEV.938"   # https://github.com/JuliaLang/julia/pull/37340
-    push!(stdlib_names, :LibCURL_jll)
-    push!(stdlib_names, :LibCURL)
-    push!(stdlib_names, :MozillaCACerts_jll)
-    push!(stdlib_names, :Downloads)
-end
-if VERSION >= v"1.6.0-DEV.1087"  # https://github.com/JuliaLang/julia/pull/37763
-    push!(stdlib_names, :Tar)
-    push!(stdlib_names, :ArgTools)
-end
-if VERSION >= v"1.6.0-DEV.1468"  # https://github.com/JuliaLang/julia/pull/38362
-    push!(stdlib_names, :NetworkOptions)
-end
+    :Statistics, :SuiteSparse, :Test, :Unicode, :UUIDs,
+    :TOML, :Artifacts, :LibCURL_jll, :LibCURL, :MozillaCACerts_jll,
+    :Downloads, :Tar, :ArgTools, :NetworkOptions])
 
 # This replacement is needed because the path written during compilation differs from
 # the git source path

@@ -1,5 +1,8 @@
 # Configuration
 
+!!! compat
+    These instructions are applicable only for Julia 1.5 and higher. If you are running an older version of Julia, upgrading to at least 1.6 is recommended. If you cannot upgrade, see the documentation for Revise 3.2.x or earlier.
+
 ## Using Revise by default
 
 If you like Revise, you can ensure that every Julia session uses it by
@@ -7,16 +10,12 @@ launching it from your `~/.julia/config/startup.jl` file.
 Note that using Revise adds a small latency at Julia startup, generally about 0.7s when you first launch Julia and another 0.25s for your first package load.
 Users should weigh this penalty against whatever benefit they may derive from not having to restart their entire session.
 
-### Julia 1.5 and higher
-
-If you're using at least Julia 1.5, this can be as simple as adding
+This can be as simple as adding
 
 ```julia
 using Revise
 ```
-to your `startup.jl`.
-
-or (if you have a Unix terminal available) simply run
+to your `startup.jl`. If you have a Unix terminal available, simply run
 ```bash
 mkdir -p ~/.julia/config/ && echo "using Revise" >> ~/.julia/config/startup.jl
 ```
@@ -33,23 +32,6 @@ end
 
 is recommended instead.
 
-### Earlier Julia versions
-
-If you sometimes use versions of Julia prior to 1.5, instead of the above add
-
-```julia
-atreplinit() do repl
-    try
-        @eval using Revise
-        @async Revise.wait_steal_repl_backend()
-    catch e
-        @warn "Error initializing Revise" exception=(e, catch_backtrace())
-    end
-end
-```
-
-to your `startup.jl`.
-
 ### Using Revise automatically within Jupyter/IJulia
 
 If you want Revise to launch automatically within IJulia, then you should also create a `.julia/config/startup_ijulia.jl` file with the contents
@@ -63,12 +45,12 @@ end
 ```
 or simply run
 ```bash
-mkdir -p ~/.julia/config/ && tee -a  ~/.julia/config/startup_ijulia.jl << END  
+mkdir -p ~/.julia/config/ && tee -a  ~/.julia/config/startup_ijulia.jl << END
 try
     @eval using Revise
 catch e
     @warn "Error initializing Revise" exception=(e, catch_backtrace())
-end  
+end
 END
 ```
 

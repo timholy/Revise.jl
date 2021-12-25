@@ -13,8 +13,8 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - '1.0'
-          - '1'
+          - '1.6'     # LTS
+          - '1'       # current stable
           - 'nightly'
         os:
           - ubuntu-latest
@@ -56,7 +56,7 @@ jobs:
         # Tests for when using polling
         julia --project --code-coverage=user -e 'ENV["JULIA_REVISE_POLL"]="1"; using Pkg, Revise; include(joinpath(dirname(pathof(Revise)), "..", "test", "polling.jl"))'
         # The REPL wasn't initialized, so the "Methods at REPL" tests didn't run. Pick those up now.
-        TERM="xterm" julia --project --code-coverage=user -e 'using InteractiveUtils, REPL, Revise; @async(Base.run_main_repl(true, true, false, true, false)); sleep(2); Revise.async_steal_repl_backend(); include(joinpath("test", "runtests.jl")); REPL.eval_user_input(:(exit()), Base.active_repl_backend)' "Methods at REPL"
+        TERM="xterm" julia --project --code-coverage=user -e 'using InteractiveUtils, REPL, Revise; @async(Base.run_main_repl(true, true, false, true, false)); while !isdefined(Base, :active_repl_backend) sleep(0.1) end; pushfirst!(Base.active_repl_backend.ast_transforms, Revise.revise_first); include(joinpath("test", "runtests.jl")); REPL.eval_user_input(:(exit()), Base.active_repl_backend)' "Methods at REPL"
         # Tests for out-of-process updates to manifest
         bash test/envs/use_exputils/setup.sh
         julia --project --code-coverage=user test/envs/use_exputils/switch_version.jl

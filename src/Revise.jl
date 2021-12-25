@@ -1,16 +1,16 @@
 """
-Revise.jl tracks source code changes and incorporates the changes to a running Julia session. 
+Revise.jl tracks source code changes and incorporates the changes to a running Julia session.
 
 Revise.jl works behind-the-scenes. To track a package, e.g. `Example`:
 ```julia
 (@v1.6) pkg> dev Example        # make a development copy of the package
 [...pkg output omitted...]
 
-julia> using Revise             # this must come before the package under development 
+julia> using Revise             # this must come before the package under development
 
-julia> using Example            
+julia> using Example
 
-[...develop the package...]     # Revise.jl will automatically update package functionality to match code changes  
+[...develop the package...]     # Revise.jl will automatically update package functionality to match code changes
 
 ```
 
@@ -39,7 +39,7 @@ using CodeTracking: PkgFiles, basedir, srcfiles, line_is_decl, basepath
 using JuliaInterpreter: whichtt, is_doc_expr, step_expr!, finish_and_return!, get_return,
                         @lookup, moduleof, scopeof, pc_expr, is_quotenode_egal,
                         linetable, codelocs, LineTypes, is_GotoIfNot, isassign, isidentical
-using LoweredCodeUtils: next_or_nothing!, trackedheads, structheads, callee_matches
+using LoweredCodeUtils: next_or_nothing!, trackedheads, callee_matches
 
 include("packagedef.jl")
 

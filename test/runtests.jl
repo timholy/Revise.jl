@@ -389,7 +389,7 @@ k(x) = 4
         # io = IOBuffer()
         print(IOContext(io, :compact=>true), mexs)
         str = String(take!(io))
-        @test str == "OrderedCollections.OrderedDict($mod$(pair_op_compact)ExprsSigs(<1 expressions>, <0 signatures>),$SP$mod.ReviseTest$(pair_op_compact)ExprsSigs(<2 expressions>, <2 signatures>),$SP$mod.ReviseTest.Internal$(pair_op_compact)ExprsSigs(<6 expressions>, <5 signatures>))"
+        @test str == "OrderedCollections.OrderedDict($mod$(pair_op_compact)ExprsSigs(<1 expressions>, <0 signatures>), $mod.ReviseTest$(pair_op_compact)ExprsSigs(<2 expressions>, <2 signatures>), $mod.ReviseTest.Internal$(pair_op_compact)ExprsSigs(<6 expressions>, <5 signatures>))"
         exs = mexs[getfield(mod, :ReviseTest)]
         # io = IOBuffer()
         print(IOContext(io, :compact=>true), exs)
@@ -2126,12 +2126,7 @@ end
             end""")
         end
         yry()
-        if Base.VERSION < v"1.1" || Base.VERSION >= v"1.6.0-rc1"
-            @test Issue606.convert_output_relations() == "HELLO2"
-        else
-            @test_broken Issue606.convert_output_relations() == "HELLO2"
-            empty!(Revise.queue_errors)
-        end
+        @test Issue606.convert_output_relations() == "HELLO2"
 
         rm_precompile("Issue606")
     end
@@ -2873,7 +2868,7 @@ end
             @test remotecall_fetch(ReviseDistributed.g, p, 1) == 0
         end
         @test ReviseDistributed.d31474() == 2.0
-        s31474 = VERSION < v"1.3.0" ? s31474 : """
+        s31474 = """
         function d31474()
             r = @spawnat $newproc sqrt(9)
             fetch(r)
@@ -2895,7 +2890,7 @@ end
             @test remotecall_fetch(ReviseDistributed.f, p) == 3.0
             @test_throws RemoteException remotecall_fetch(ReviseDistributed.g, p, 1)
         end
-        @test ReviseDistributed.d31474() == (VERSION < v"1.3.0" ? 2.0 : 3.0)
+        @test ReviseDistributed.d31474() == 3.0
         rmprocs(allworkers[2:3]...; waitfor=10)
         rm_precompile("ReviseDistributed")
         pop!(LOAD_PATH)
@@ -3630,10 +3625,8 @@ do_test("entr") && @testset "entr" begin
     catch err
         while err isa CompositeException
             err = err.exceptions[1]
-            @static if VERSION >= v"1.3.0-alpha.110"
-                if  err isa TaskFailedException
-                    err = err.task.exception
-                end
+            if err isa TaskFailedException
+                err = err.task.exception
             end
             if err isa CapturedException
                 err = err.ex
@@ -3701,10 +3694,8 @@ do_test("entr") && @testset "entr" begin
     catch err
         while err isa CompositeException
             err = err.exceptions[1]
-            @static if VERSION >= v"1.3.0-alpha.110"
-                if  err isa TaskFailedException
-                    err = err.task.exception
-                end
+            if err isa TaskFailedException
+                err = err.task.exception
             end
             if err isa CapturedException
                 err = err.ex
@@ -3796,10 +3787,8 @@ do_test("entr with all files") && @testset "entr with all files" begin
     catch err
         while err isa CompositeException
             err = err.exceptions[1]
-            @static if VERSION >= v"1.3.0-alpha.110"
-                if  err isa TaskFailedException
-                    err = err.task.exception
-                end
+            if err isa TaskFailedException
+                err = err.task.exception
             end
             if err isa CapturedException
                 err = err.ex
