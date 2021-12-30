@@ -62,6 +62,8 @@ jobs:
         julia --project --code-coverage=user test/envs/use_exputils/switch_version.jl
         # We also need to pick up the Git tests, but for that we need to `dev` the package
         julia --code-coverage=user -e 'using Pkg; Pkg.develop(PackageSpec(path=".")); include(joinpath("test", "runtests.jl"))' "Git"
+        # Check #664
+        TERM="xterm" julia --startup-file=no --project test/start_late.jl
     # # Running out of inotify storage (see #26)
     # - name: inotify
     #   if: ${{ matrix.os == 'ubuntu-latest' }}
