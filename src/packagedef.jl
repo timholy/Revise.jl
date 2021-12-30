@@ -1264,20 +1264,6 @@ function __init__()
             push!(silence_pkgs, Symbol(pkg))
         end
     end
-    mode = get(ENV, "JULIA_REVISE", "auto")
-    if mode == "auto"
-        if isdefined(Main, :IJulia)
-            Main.IJulia.push_preexecute_hook(revise)
-        else
-            pushfirst!(REPL.repl_ast_transforms, revise_first)
-        end
-        if isdefined(Main, :Atom)
-            Atom = getfield(Main, :Atom)
-            if Atom isa Module && isdefined(Atom, :handlers)
-                setup_atom(Atom)
-            end
-        end
-    end
     polling = get(ENV, "JULIA_REVISE_POLL", "0")
     if polling == "1"
         polling_files[] = watching_files[] = true
@@ -1316,6 +1302,31 @@ function __init__()
     end
     push!(Base.include_callbacks, watch_includes)
     push!(Base.package_callbacks, watch_package_callback)
+
+    mode = get(ENV, "JULIA_REVISE", "auto")
+    if mode == "auto"
+        if isdefined(Main, :IJulia)
+            Main.IJulia.push_preexecute_hook(revise)
+        else
+            pushfirst!(REPL.repl_ast_transforms, revise_first)
+            # #664: once a REPL is started, it no longer interacts with REPL.repl_ast_transforms
+            iter = 0
+            # wait for active_repl_backend to exist
+            while !isdefined(Base, :active_repl_backend) && iter < 20
+                sleep(0.05)
+                iter += 1
+            end
+            if isdefined(Base, :active_repl_backend)
+                push!(Base.active_repl_backend.ast_transforms, revise_first)
+            end
+        end
+        if isdefined(Main, :Atom)
+            Atom = getfield(Main, :Atom)
+            if Atom isa Module && isdefined(Atom, :handlers)
+                setup_atom(Atom)
+            end
+        end
+    end
     return nothing
 end
 

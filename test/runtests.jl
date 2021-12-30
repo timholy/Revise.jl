@@ -23,15 +23,6 @@ include("common.jl")
 
 throwing_function(bt) = bt[2]
 
-function rm_precompile(pkgname::AbstractString)
-    filepath = Base.cache_file_entry(Base.PkgId(pkgname))
-    isa(filepath, Tuple) && (filepath = filepath[1]*filepath[2])  # Julia 1.3+
-    for depot in DEPOT_PATH
-        fullpath = joinpath(depot, filepath)
-        isfile(fullpath) && rm(fullpath)
-    end
-end
-
 # A junk module that we can evaluate into
 module ReviseTestPrivate
 struct Inner

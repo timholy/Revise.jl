@@ -71,6 +71,15 @@ function do_test(name)
     return runtest
 end
 
+function rm_precompile(pkgname::AbstractString)
+    filepath = Base.cache_file_entry(Base.PkgId(pkgname))
+    isa(filepath, Tuple) && (filepath = filepath[1]*filepath[2])  # Julia 1.3+
+    for depot in DEPOT_PATH
+        fullpath = joinpath(depot, filepath)
+        isfile(fullpath) && rm(fullpath)
+    end
+end
+
 function isreturning(stmt, val)
     isa(stmt, Core.ReturnNode) || return false
     return stmt.val == val
