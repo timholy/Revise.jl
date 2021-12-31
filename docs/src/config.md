@@ -15,7 +15,7 @@ This can be as simple as adding
 ```julia
 using Revise
 ```
-to your `startup.jl`. If you have a Unix terminal available, simply run
+as the first line in your `startup.jl`. If you have a Unix terminal available, simply run
 ```bash
 mkdir -p ~/.julia/config/ && echo "using Revise" >> ~/.julia/config/startup.jl
 ```
