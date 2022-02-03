@@ -1,90 +1,38 @@
-macro warnpcfail(ex::Expr)
-    modl = __module__
-    file = __source__.file === nothing ? "?" : String(__source__.file)
-    line = __source__.line
-    quote
-        $(esc(ex)) || @warn """precompile directive
-     $($(Expr(:quote, ex)))
- failed. Please report an issue in $($modl) (after checking for duplicates) or remove this directive.""" _file=$file _line=$line
-    end
+module __RInternal__
+ftmp() = 1
 end
 
 function _precompile_()
     ccall(:jl_generating_output, Cint, ()) == 1 || return nothing
+    # These are blocking so don't actually call them
+    precompile(Tuple{TaskThunk})
+    precompile(Tuple{typeof(wait_changed), String})
+    precompile(Tuple{typeof(revise_dir_queued), String})
+    precompile(Tuple{typeof(revise_file_queued), PkgData, String})
+    precompile(Tuple{typeof(watch_manifest), String})
+    # This excludes Revise itself
+    precompile(Tuple{typeof(watch_package_callback), PkgId})
+    # Too complicated to bother
+    precompile(Tuple{typeof(includet), String})
+    precompile(Tuple{typeof(track), Module, String})
+    precompile(Tuple{typeof(get_def), Method})
+    precompile(Tuple{typeof(entr), Any, Vector{String}})
 
-    @warnpcfail precompile(Tuple{TaskThunk})
-    @warnpcfail precompile(Tuple{typeof(wait_changed), String})
-    @warnpcfail precompile(Tuple{typeof(watch_package), PkgId})
-    @warnpcfail precompile(Tuple{typeof(watch_includes), Module, String})
-    @warnpcfail precompile(Tuple{typeof(watch_manifest), String})
-    @warnpcfail precompile(Tuple{typeof(revise_dir_queued), String})
-    @warnpcfail precompile(Tuple{typeof(revise_file_queued), PkgData, String})
-    @warnpcfail precompile(Tuple{typeof(init_watching), PkgData, Vector{String}})
-    @warnpcfail precompile(Tuple{typeof(add_revise_deps)})
-    @warnpcfail precompile(Tuple{typeof(watch_package_callback), PkgId})
-
-    @warnpcfail precompile(Tuple{typeof(revise)})
-    @warnpcfail precompile(Tuple{typeof(revise_first), Expr})
-    @warnpcfail precompile(Tuple{typeof(includet), String})
-    @warnpcfail precompile(Tuple{typeof(track), Module, String})
-    # setindex! doesn't fully precompile, but it's still beneficial to do it
-    # (it shaves off a bit of the time)
-    # See https://github.com/JuliaLang/julia/pull/31466
-    @warnpcfail precompile(Tuple{typeof(setindex!), ExprsSigs, Nothing, RelocatableExpr})
-    @warnpcfail precompile(Tuple{typeof(setindex!), ExprsSigs, Vector{Any}, RelocatableExpr})
-    @warnpcfail precompile(Tuple{typeof(setindex!), ModuleExprsSigs, ExprsSigs, Module})
-    @warnpcfail precompile(Tuple{typeof(setindex!), Dict{PkgId,PkgData}, PkgData, PkgId})
-    @warnpcfail precompile(Tuple{Type{WatchList}})
-    @warnpcfail precompile(Tuple{typeof(setindex!), Dict{String,WatchList}, WatchList, String})
-
-    MI = CodeTrackingMethodInfo
-    @warnpcfail precompile(Tuple{typeof(minimal_evaluation!), MI, Core.CodeInfo, Symbol})
-    @warnpcfail precompile(Tuple{typeof(minimal_evaluation!), Any, MI, Core.CodeInfo, Symbol})
-    @warnpcfail precompile(Tuple{typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
-    @warnpcfail precompile(Tuple{typeof(methods_by_execution!), Any, MI, DocExprs, JuliaInterpreter.Frame, Vector{Bool}})
-    @warnpcfail precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
-                             NamedTuple{(:mode,),Tuple{Symbol}},
-                             typeof(methods_by_execution!), Function, MI, DocExprs, Module, Expr})
-    @warnpcfail precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
-                             NamedTuple{(:skip_include,),Tuple{Bool}},
-                             typeof(methods_by_execution!), Function, MI, DocExprs, Module, Expr})
-    @warnpcfail precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
-                             NamedTuple{(:mode, :skip_include),Tuple{Symbol,Bool}},
-                             typeof(methods_by_execution!), Function, MI, DocExprs, Module, Expr})
-    @warnpcfail precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
-                             NamedTuple{(:mode,),Tuple{Symbol}},
-                             typeof(methods_by_execution!), Function, MI, DocExprs, Frame, Vector{Bool}})
-    @warnpcfail precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
-                             NamedTuple{(:mode, :skip_include),Tuple{Symbol,Bool}},
-                             typeof(methods_by_execution!), Function, MI, DocExprs, Frame, Vector{Bool}})
-
-    mex = which(methods_by_execution!, (Function, MI, DocExprs, Module, Expr))
-    mbody = bodymethod(mex)
-    # use `typeof(pairs(NamedTuple()))` here since it actually differs between Julia versions
-    @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, typeof(pairs(NamedTuple())), typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
-    @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Iterators.Pairs{Symbol,Bool,Tuple{Symbol},NamedTuple{(:skip_include,),Tuple{Bool}}}, typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
-    mfr = which(methods_by_execution!, (Function, MI, DocExprs, Frame, Vector{Bool}))
-    mbody = bodymethod(mfr)
-    @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, typeof(methods_by_execution!), Any, MI, DocExprs, Frame, Vector{Bool}})
-
-    @warnpcfail precompile(Tuple{typeof(hastrackedexpr), Expr})
-    @warnpcfail precompile(Tuple{typeof(get_def), Method})
-    @warnpcfail precompile(Tuple{typeof(parse_pkg_files), PkgId})
-    if isdefined(Revise, :filter_valid_cachefiles)
-        @warnpcfail precompile(Tuple{typeof(filter_valid_cachefiles), String, Vector{String}})
-    end
-    @warnpcfail precompile(Tuple{typeof(pkg_fileinfo), PkgId})
-    @warnpcfail precompile(Tuple{typeof(push!), WatchList, Pair{String,PkgId}})
-    @warnpcfail precompile(Tuple{typeof(pushex!), ExprsSigs, Expr})
-    @warnpcfail precompile(Tuple{Type{ModuleExprsSigs}, Module})
-    @warnpcfail precompile(Tuple{Type{FileInfo}, Module, String})
-    @warnpcfail precompile(Tuple{Type{PkgData}, PkgId})
-    @warnpcfail precompile(Tuple{typeof(Base._deleteat!), Vector{Tuple{Module,String,Float64}}, Vector{Int}})
-    @warnpcfail precompile(Tuple{typeof(add_require), String, Module, String, String, Expr})
-    @warnpcfail precompile(Tuple{Core.kwftype(typeof(maybe_add_includes_to_pkgdata!)),NamedTuple{(:eval_now,), Tuple{Bool}},typeof(maybe_add_includes_to_pkgdata!),PkgData,String,Vector{Pair{Module, String}}})
-
-    for TT in (Tuple{Module,Expr}, Tuple{DataType,MethodSummary})
-        @warnpcfail precompile(Tuple{Core.kwftype(typeof(Base.CoreLogging.handle_message)),NamedTuple{(:time, :deltainfo), Tuple{Float64, TT}},typeof(Base.CoreLogging.handle_message),ReviseLogger,LogLevel,String,Module,String,Symbol,String,Int})
-    end
+    watch_package(REVISE_ID)
+    watch_includes(Revise, "src/Revise.jl")
+    add_revise_deps(true)
+    revise()
+    revise_first(:(1+1))
+    eval_with_signatures(__RInternal__, :(f() = 1))
+    eval_with_signatures(__RInternal__, :(f2() = 1); skip_include=true)
+    add_require(pathof(LoweredCodeUtils), LoweredCodeUtils, "295af30f-e4ad-537b-8983-00126c2a3abe", "Revise", :(include("somefile.jl")))
+    add_require(pathof(JuliaInterpreter), JuliaInterpreter, "295af30f-e4ad-537b-8983-00126c2a3abe", "Revise", :(f(x) = 7))
+    pkgdata = pkgdatas[PkgId(LoweredCodeUtils)]
+    eval_require_now(pkgdata, length(pkgdata.info.files), last(pkgdata.info.files)*"__@require__", joinpath(basedir(pkgdata), last(pkgdata.info.files)), Revise, :(__RInternal__.ftmp(::Int) = 0))
+    # Now empty the stores to prevent them from being serialized
+    empty!(watched_files)
+    empty!(watched_manifests)
+    empty!(pkgdatas)
+    empty!(included_files)
     return nothing
 end

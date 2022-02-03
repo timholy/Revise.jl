@@ -119,7 +119,7 @@ and julia objects, and allows re-evaluation of code in the proper module scope.
 It is a dictionary indexed by PkgId:
 `pkgdatas[id]` returns a value of type [`Revise.PkgData`](@ref).
 """
-const pkgdatas = Dict{PkgId,PkgData}(NOPACKAGE => PkgData(NOPACKAGE))
+const pkgdatas = Dict{PkgId,PkgData}()
 
 const moduledeps = Dict{Module,DepDict}()
 function get_depdict(mod::Module)
@@ -461,7 +461,7 @@ end
 function eval_with_signatures(mod, ex::Expr; mode=:eval, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
     docexprs = DocExprs()
-    frame = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; mode=mode, kwargs...)[2]
+    frame = methods_by_execution!(Base.inferencebarrier(finish_and_return!), methodinfo, docexprs, mod, ex; mode=mode, kwargs...)[2]
     return methodinfo.allsigs, methodinfo.deps, methodinfo.includes, frame
 end
 
@@ -1281,6 +1281,8 @@ function __init__()
     for m in methods(includet)
         push!(JuliaInterpreter.compiled_methods, m)
     end
+    # Add the dummy package for user callbacks
+    pkgdatas[NOPACKAGE] = PkgData(NOPACKAGE)
     # Set up a repository for methods defined at the REPL
     id = PkgId(nothing, "@REPL")
     pkgdatas[id] = pkgdata = PkgData(id, nothing)
@@ -1359,9 +1361,10 @@ function setup_atom(atommod::Module)::Nothing
     return nothing
 end
 
-function add_revise_deps()
+function add_revise_deps(skip_revise::Bool=false)
     # Populate CodeTracking data for dependencies and initialize watching on code that Revise depends on
     for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils, Revise)
+        skip_revise && mod === Revise && continue
         id = PkgId(mod)
         pkgdata = parse_pkg_files(id)
         init_watching(pkgdata, srcfiles(pkgdata))

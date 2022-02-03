@@ -24,7 +24,7 @@ add_dependencies!(methodinfo::MethodInfo, be::CodeEdges, src, isrequired) = meth
 add_includes!(methodinfo::MethodInfo, mod::Module, filename) = methodinfo
 
 # This is not generally used, see `is_method_or_eval` instead
-function hastrackedexpr(stmt; heads=LoweredCodeUtils.trackedheads)
+function hastrackedexpr(@nospecialize(stmt); heads=LoweredCodeUtils.trackedheads)
     haseval = false
     if isa(stmt, Expr)
         haseval = matches_eval(stmt)
@@ -122,7 +122,7 @@ end
 function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     methodinfo = MethodInfo()
     docexprs = DocExprs()
-    value, frame = methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, docexprs, mod, ex; kwargs...)
+    value, frame = methods_by_execution!(Base.inferencebarrier(JuliaInterpreter.Compiled()), methodinfo, docexprs, mod, ex; kwargs...)
     return methodinfo, docexprs, frame
 end
 
@@ -233,7 +233,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
     return ret, lwr
 end
 methods_by_execution!(methodinfo, docexprs, mod::Module, ex::Expr; kwargs...) =
-    methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, docexprs, mod, ex; kwargs...)
+    methods_by_execution!(Base.inferencebarrier(JuliaInterpreter.Compiled()), methodinfo, docexprs, mod, ex; kwargs...)
 
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame::Frame, isrequired::AbstractVector{Bool}; mode::Symbol=:eval, skip_include::Bool=true)
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
