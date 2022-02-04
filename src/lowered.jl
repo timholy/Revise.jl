@@ -255,11 +255,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
         if isa(stmt, Expr)
             head = stmt.head
             if head === :toplevel
-                local value
-                for ex in stmt.args
-                    ex isa Expr || continue
-                    value = methods_by_execution!(recurse, methodinfo, docexprs, mod, ex; mode=mode, disablebp=false, skip_include=skip_include)
-                end
+                value = handle_toplevel(recurse, methodinfo, docexprs, mod, stmt, mode, skip_include)
                 isassign(frame, pc) && assign_this!(frame, value)
                 pc = next_or_nothing!(frame)
             # elseif head === :thunk && isanonymous_typedef(stmt.args[1])
@@ -385,7 +381,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         end
                         newex = unwrap(newex)
                         push_expr!(methodinfo, newmod, newex)
-                        value = methods_by_execution!(recurse, methodinfo, docexprs, newmod, newex; mode=mode, skip_include=skip_include, disablebp=false)
+                        value = handle_eval(recurse, methodinfo, docexprs, newmod, newex, mode, skip_include)
                         pop_expr!(methodinfo)
                     end
                     assign_this!(frame, value)
@@ -443,3 +439,18 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
     end
     return isrequired[frame.pc] ? get_return(frame) : nothing
 end
+
+# These are separated out to limit the impact of LimitedAccuracy inference problems
+# (moving them into short method bodies) which prevent serialization of the inferred code
+
+@noinline function handle_toplevel(@nospecialize(recurse), methodinfo, docexprs, mod, stmt::Expr, mode, skip_include)
+    local value
+    for ex in stmt.args
+        ex isa Expr || continue
+        value = Base.invoke_in_world(Base.get_world_counter(), methods_by_execution!, recurse, methodinfo, docexprs, mod, ex; mode, skip_include, disablebp=false)
+    end
+    return value
+end
+
+@noinline handle_eval(@nospecialize(recurse), methodinfo, docexprs, newmod, newex::Expr, mode, skip_include) =
+    Base.invoke_in_world(Base.get_world_counter(), methods_by_execution!, recurse, methodinfo, docexprs, newmod, newex; mode, skip_include, disablebp=false)
