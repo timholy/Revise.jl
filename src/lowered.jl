@@ -237,6 +237,7 @@ methods_by_execution!(methodinfo, docexprs, mod::Module, ex::Expr; kwargs...) =
 
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame::Frame, isrequired::AbstractVector{Bool}; mode::Symbol=:eval, skip_include::Bool=true)
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
+    lnnstd(lnn::LineTypes) = LineNumberNode(lnn.line, lnn.file)
 
     mod = moduleof(frame)
     # Hoist this lookup for performance. Don't throw even when `mod` is a baremodule:
@@ -289,9 +290,9 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     lnn = nothing
                     if line_is_decl
                         sigcode = @lookup(frame, stmt3.args[2])::Core.SimpleVector
-                        lnn = sigcode[end]
-                        if !isa(lnn, LineNumberNode)
-                            lnn = nothing
+                        lnntmp = sigcode[end]
+                        if isa(lnntmp, LineNumberNode)
+                            lnn = lnntmp
                         end
                     end
                     if lnn === nothing
@@ -300,9 +301,10 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             bodycode = @lookup(frame, bodycode)
                         end
                         if isa(bodycode, CodeInfo)
-                            lnn = linetable(bodycode, 1)
-                            if !isok(lnn)
-                                lnn = nothing
+                            lnn_ = linetable(bodycode, 1)
+                            if isok(lnn_)
+                                lnn = lnnstd(lnn_)
+                            else
                                 if length(bodycode.code) > 1
                                     # This may be a kwarg method. Mimic LoweredCodeUtils.bodymethod,
                                     # except without having a method
@@ -335,7 +337,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                                     for lnntmp in linetable(bodycode)
                                         lnntmp = lnntmp::LineTypes
                                         if isok(lnntmp)
-                                            lnn = lnntmp
+                                            lnn = lnnstd(lnntmp)
                                             break
                                         end
                                     end
@@ -345,7 +347,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             bodycode = bodycode::Expr
                             lnntmp = bodycode.args[end][1]::LineTypes
                             if isok(lnntmp)
-                                lnn = lnntmp
+                                lnn = lnnstd(lnntmp)
                             end
                         end
                     end
@@ -354,7 +356,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         while i > 0
                             lnntmp = linetable(frame, i)
                             if isok(lnntmp)
-                                lnn = lnntmp
+                                lnn = lnnstd(lnntmp)
                                 break
                             end
                             i -= 1
@@ -391,7 +393,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                 elseif skip_include && (f === modinclude || f === Base.include || f === Core.include)
                     # include calls need to be managed carefully from several standpoints, including
                     # path management and parsing new expressions
-                    add_includes!(methodinfo, mod, @lookup(frame, stmt.args[2]))
+                    add_includes!(methodinfo, mod, @lookup(frame, stmt.args[2])::String)
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
                 elseif f === Base.Docs.doc! # && mode !== :eval
