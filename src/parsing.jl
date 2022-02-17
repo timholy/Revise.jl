@@ -7,7 +7,7 @@ if `filename` defines more module(s) then these will all have separate entries i
 
 If parsing `filename` fails, `nothing` is returned.
 """
-parse_source(filename::AbstractString, mod::Module; kwargs...) =
+parse_source(filename, mod::Module; kwargs...) =
     parse_source!(ModuleExprsSigs(mod), filename, mod; kwargs...)
 
 """
@@ -35,7 +35,7 @@ string. `pos` is the 1-based byte offset from which to begin parsing `src`.
 
 See also [`Revise.parse_source`](@ref).
 """
-function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module; mode::Symbol=:sigs)
+function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module; kwargs...)
     startswith(src, "# REVISE: DO NOT PARSE") && return nothing
     ex = Base.parse_input_line(src; filename=filename)
     ex === nothing && return mod_exprs_sigs
@@ -44,6 +44,10 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
         ln = count(isequal('\n'), SubString(src, 1, min(pos, length(src)))) + 1
         throw(LoadError(filename, ln, ex.args[1]))
     end
+    return process_source!(mod_exprs_sigs, ex, filename, mod; kwargs...)
+end
+
+function process_source!(mod_exprs_sigs::ModuleExprsSigs, @nospecialize(ex), filename, mod::Module; mode::Symbol=:sigs)
     for (mod, ex) in ExprSplitter(mod, ex)
         if mode === :includet
             try

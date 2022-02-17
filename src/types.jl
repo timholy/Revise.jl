@@ -147,9 +147,11 @@ Base.PkgId(pkgdata::PkgData) = PkgId(pkgdata.info)
 CodeTracking.basedir(pkgdata::PkgData) = basedir(pkgdata.info)
 CodeTracking.srcfiles(pkgdata::PkgData) = srcfiles(pkgdata.info)
 
-function fileindex(info, file::AbstractString)
+is_same_file(a, b) = String(a) == String(b)
+
+function fileindex(info, file)
     for (i, f) in enumerate(srcfiles(info))
-        f == file && return i
+        is_same_file(f, file) && return i
     end
     return nothing
 end
@@ -168,7 +170,7 @@ function fileinfo(pkgdata::PkgData, file::AbstractString)
 end
 fileinfo(pkgdata::PkgData, i::Integer) = pkgdata.fileinfos[i]
 
-function Base.push!(pkgdata::PkgData, pr::Pair{<:AbstractString,FileInfo})
+function Base.push!(pkgdata::PkgData, pr::Pair{<:Any,FileInfo})
     push!(srcfiles(pkgdata), pr.first)
     push!(pkgdata.fileinfos, pr.second)
     return pkgdata

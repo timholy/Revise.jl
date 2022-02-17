@@ -3670,3 +3670,5 @@ do_test("Base signatures") && @testset "Base signatures" begin
     # Using the extensive repository of code in Base as a testbed
     include("sigtest.jl")
 end
+
+include("non_jl_test.jl")
