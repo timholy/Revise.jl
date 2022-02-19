@@ -3259,7 +3259,7 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
 end
 
 # in v1.8 and higher, a package can't be loaded at all when its precompilation failed
-@static if VERSION ≤ v"1.7"
+@static if Base.VERSION < v"1.8.0-DEV.1451"
 do_test("Broken dependencies (issue #371)") && @testset "Broken dependencies (issue #371)" begin
     testdir = newtestdir()
     srcdir = joinpath(testdir, "DepPkg371", "src")
