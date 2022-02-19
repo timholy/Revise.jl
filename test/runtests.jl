@@ -3258,6 +3258,8 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     push!(to_remove, depot)
 end
 
+# in v1.8 and higher, a package can't be loaded at all when its precompilation failed
+@static if Base.VERSION < v"1.8.0-DEV.1451"
 do_test("Broken dependencies (issue #371)") && @testset "Broken dependencies (issue #371)" begin
     testdir = newtestdir()
     srcdir = joinpath(testdir, "DepPkg371", "src")
@@ -3292,6 +3294,7 @@ do_test("Broken dependencies (issue #371)") && @testset "Broken dependencies (is
     rm_precompile("DepPkg371")
     pop!(LOAD_PATH)
 end
+end # @static if VERSION ≤ v"1.7"
 
 do_test("Non-jl include_dependency (issue #388)") && @testset "Non-jl include_dependency (issue #388)" begin
     push!(LOAD_PATH, joinpath(@__DIR__, "pkgs"))
