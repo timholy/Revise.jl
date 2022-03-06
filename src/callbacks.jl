@@ -46,7 +46,7 @@ You can use the return value `key` to remove the callback later
 (`Revise.remove_callback`) or to update it using another call
 to `Revise.add_callback` with `key=key`.
 """
-function add_callback(f, files, modules=nothing; all=false, key=gensym())
+function add_callback(@nospecialize(f), files, modules=nothing; all=false, key=gensym())
     fix_trailing(path) = isdir(path) ? joinpath(path, "") : path   # insert a trailing '/' if missing, see https://github.com/timholy/Revise.jl/issues/470#issuecomment-633298553
 
     remove_callback(key)
@@ -91,7 +91,7 @@ end
 Remove a callback previously installed by a call to `Revise.add_callback(...)`.
 See its docstring for details.
 """
-function remove_callback(key)
+function remove_callback(@nospecialize(key))
     for cbs in values(user_callbacks_by_file)
         delete!(cbs, key)
     end
@@ -152,7 +152,7 @@ end
 This will print "update" every time `"/tmp/watched.txt"` or any of the code defining
 `Pkg1` or `Pkg2` gets updated.
 """
-function entr(f::Function, files, modules=nothing; all=false, postpone=false, pause=0.02)
+function entr(@nospecialize(f), files, modules=nothing; all=false, postpone=false, pause=0.02)
     yield()
     postpone || f()
     key = add_callback(files, modules; all=all) do

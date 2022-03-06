@@ -24,7 +24,7 @@ add_dependencies!(methodinfo::MethodInfo, be::CodeEdges, src, isrequired) = meth
 add_includes!(methodinfo::MethodInfo, mod::Module, filename) = methodinfo
 
 # This is not generally used, see `is_method_or_eval` instead
-function hastrackedexpr(stmt; heads=LoweredCodeUtils.trackedheads)
+function hastrackedexpr(@nospecialize(stmt); heads=LoweredCodeUtils.trackedheads)
     haseval = false
     if isa(stmt, Expr)
         haseval = matches_eval(stmt)
@@ -122,7 +122,7 @@ end
 function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     methodinfo = MethodInfo()
     docexprs = DocExprs()
-    value, frame = methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, docexprs, mod, ex; kwargs...)
+    value, frame = methods_by_execution!(Base.inferencebarrier(JuliaInterpreter.Compiled()), methodinfo, docexprs, mod, ex; kwargs...)
     return methodinfo, docexprs, frame
 end
 
@@ -233,10 +233,11 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
     return ret, lwr
 end
 methods_by_execution!(methodinfo, docexprs, mod::Module, ex::Expr; kwargs...) =
-    methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, docexprs, mod, ex; kwargs...)
+    methods_by_execution!(Base.inferencebarrier(JuliaInterpreter.Compiled()), methodinfo, docexprs, mod, ex; kwargs...)
 
 function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, frame::Frame, isrequired::AbstractVector{Bool}; mode::Symbol=:eval, skip_include::Bool=true)
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
+    lnnstd(lnn::LineTypes) = LineNumberNode(lnn.line, lnn.file)
 
     mod = moduleof(frame)
     # Hoist this lookup for performance. Don't throw even when `mod` is a baremodule:
@@ -254,11 +255,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
         if isa(stmt, Expr)
             head = stmt.head
             if head === :toplevel
-                local value
-                for ex in stmt.args
-                    ex isa Expr || continue
-                    value = methods_by_execution!(recurse, methodinfo, docexprs, mod, ex; mode=mode, disablebp=false, skip_include=skip_include)
-                end
+                value = handle_toplevel(recurse, methodinfo, docexprs, mod, stmt, mode, skip_include)
                 isassign(frame, pc) && assign_this!(frame, value)
                 pc = next_or_nothing!(frame)
             # elseif head === :thunk && isanonymous_typedef(stmt.args[1])
@@ -289,9 +286,9 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     lnn = nothing
                     if line_is_decl
                         sigcode = @lookup(frame, stmt3.args[2])::Core.SimpleVector
-                        lnn = sigcode[end]
-                        if !isa(lnn, LineNumberNode)
-                            lnn = nothing
+                        lnntmp = sigcode[end]
+                        if isa(lnntmp, LineNumberNode)
+                            lnn = lnntmp
                         end
                     end
                     if lnn === nothing
@@ -300,9 +297,10 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             bodycode = @lookup(frame, bodycode)
                         end
                         if isa(bodycode, CodeInfo)
-                            lnn = linetable(bodycode, 1)
-                            if !isok(lnn)
-                                lnn = nothing
+                            lnn_ = linetable(bodycode, 1)
+                            if isok(lnn_)
+                                lnn = lnnstd(lnn_)
+                            else
                                 if length(bodycode.code) > 1
                                     # This may be a kwarg method. Mimic LoweredCodeUtils.bodymethod,
                                     # except without having a method
@@ -335,7 +333,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                                     for lnntmp in linetable(bodycode)
                                         lnntmp = lnntmp::LineTypes
                                         if isok(lnntmp)
-                                            lnn = lnntmp
+                                            lnn = lnnstd(lnntmp)
                                             break
                                         end
                                     end
@@ -345,7 +343,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             bodycode = bodycode::Expr
                             lnntmp = bodycode.args[end][1]::LineTypes
                             if isok(lnntmp)
-                                lnn = lnntmp
+                                lnn = lnnstd(lnntmp)
                             end
                         end
                     end
@@ -354,7 +352,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         while i > 0
                             lnntmp = linetable(frame, i)
                             if isok(lnntmp)
-                                lnn = lnntmp
+                                lnn = lnnstd(lnntmp)
                                 break
                             end
                             i -= 1
@@ -383,7 +381,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         end
                         newex = unwrap(newex)
                         push_expr!(methodinfo, newmod, newex)
-                        value = methods_by_execution!(recurse, methodinfo, docexprs, newmod, newex; mode=mode, skip_include=skip_include, disablebp=false)
+                        value = handle_eval(recurse, methodinfo, docexprs, newmod, newex, mode, skip_include)
                         pop_expr!(methodinfo)
                     end
                     assign_this!(frame, value)
@@ -391,7 +389,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                 elseif skip_include && (f === modinclude || f === Base.include || f === Core.include)
                     # include calls need to be managed carefully from several standpoints, including
                     # path management and parsing new expressions
-                    add_includes!(methodinfo, mod, @lookup(frame, stmt.args[2]))
+                    add_includes!(methodinfo, mod, @lookup(frame, stmt.args[2])::String)
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
                 elseif f === Base.Docs.doc! # && mode !== :eval
@@ -441,3 +439,18 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
     end
     return isrequired[frame.pc] ? get_return(frame) : nothing
 end
+
+# These are separated out to limit the impact of LimitedAccuracy inference problems
+# (moving them into short method bodies) which prevent serialization of the inferred code
+
+@noinline function handle_toplevel(@nospecialize(recurse), methodinfo, docexprs, mod, stmt::Expr, mode, skip_include)
+    local value
+    for ex in stmt.args
+        ex isa Expr || continue
+        value = Base.invoke_in_world(Base.get_world_counter(), methods_by_execution!, recurse, methodinfo, docexprs, mod, ex; mode, skip_include, disablebp=false)
+    end
+    return value
+end
+
+@noinline handle_eval(@nospecialize(recurse), methodinfo, docexprs, newmod, newex::Expr, mode, skip_include) =
+    Base.invoke_in_world(Base.get_world_counter(), methods_by_execution!, recurse, methodinfo, docexprs, newmod, newex; mode, skip_include, disablebp=false)
