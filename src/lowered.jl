@@ -388,10 +388,27 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     end
                     assign_this!(frame, value)
                     pc = next_or_nothing!(frame)
-                elseif skip_include && (f === modinclude || f === Base.include || f === Core.include)
+                elseif skip_include && (f === modinclude || f === Core.include)
                     # include calls need to be managed carefully from several standpoints, including
                     # path management and parsing new expressions
-                    add_includes!(methodinfo, mod, @lookup(frame, stmt.args[2]))
+                    if length(stmt.args) == 2
+                        add_includes!(methodinfo, mod, @lookup(frame, stmt.args[2]))
+                    else
+                        error("include(mapexpr, path) is not supported") # TODO (issue #634)
+                    end
+                    assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
+                    pc = next_or_nothing!(frame)
+                elseif skip_include && f === Base.include
+                    if length(stmt.args) == 2
+                        add_includes!(methodinfo, mod, @lookup(frame, stmt.args[2]))
+                    else # either include(module, path) or include(mapexpr, path)
+                        mod_or_mapexpr = @lookup(frame, stmt.args[2])
+                        if isa(mod_or_mapexpr, Module)
+                            add_includes!(methodinfo, mod_or_mapexpr, @lookup(frame, stmt.args[3]))
+                        else
+                            error("include(mapexpr, path) is not supported")
+                        end
+                    end
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
                 elseif f === Base.Docs.doc! # && mode !== :eval

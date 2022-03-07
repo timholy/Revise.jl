@@ -3169,6 +3169,40 @@ end
         rm_precompile("Baremodule")
         pop!(LOAD_PATH)
     end
+
+    do_test("module style 2-argument includes (issue #670)") && @testset "module style 2-argument includes (issue #670)" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "B670", "src")
+        mkpath(dn)
+        open(joinpath(dn, "A670.jl"), "w") do io
+            println(io, """
+                        x = 6
+                        y = 7
+                        """)
+        end
+        sleep(mtimedelay)
+        open(joinpath(dn, "B670.jl"), "w") do io
+            println(io, """
+                        module B670
+                            x = 5
+                        end
+                        """)
+        end
+        sleep(mtimedelay)
+        open(joinpath(dn, "C670.jl"), "w") do io
+            println(io, """
+                        using B670
+                        Base.include(B670, "A670.jl")
+                        """)
+        end
+        sleep(mtimedelay)
+        @eval using B670
+        path = joinpath(dn, "C670.jl")
+        @eval include($path)
+        @test B670.x == 6
+        @test B670.y == 7
+        rm_precompile("B670")
+    end
 end
 
 do_test("Utilities") && @testset "Utilities" begin
