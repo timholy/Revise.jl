@@ -3541,7 +3541,7 @@ do_test("includet with mod arg (issue #689)") && @testset "multiple with mod arg
         println(io, """
         module Routines
             using Revise
-            includet(@__MODULE__, "$common")
+            includet(@__MODULE__, raw"$common")
             using .Common
         end 
         """)
@@ -3552,7 +3552,7 @@ do_test("includet with mod arg (issue #689)") && @testset "multiple with mod arg
         println(io, """
         module Codes
             using Revise
-            includet(@__MODULE__, "$common")
+            includet(@__MODULE__, raw"$common")
             using .Common
         end
         """)
@@ -3563,9 +3563,9 @@ do_test("includet with mod arg (issue #689)") && @testset "multiple with mod arg
         println(io, """
         module Driver
             using Revise
-            includet(@__MODULE__, "$routines")
+            includet(@__MODULE__, raw"$routines")
             using .Routines
-            includet(@__MODULE__, "$codes")
+            includet(@__MODULE__, raw"$codes")
             using .Codes
         end
         """)
