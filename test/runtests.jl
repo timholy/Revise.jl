@@ -3524,6 +3524,57 @@ do_test("callbacks") && @testset "callbacks" begin
     @test foo_A574_result[] == 2 # <- callback removed - no longer updated
 end
 
+do_test("includet with mod arg (issue #689)") && @testset "multiple with mod arg (issue #689)" begin
+    testdir = newtestdir()
+    
+    common = joinpath(testdir, "common.jl")
+    open(common, "w") do io
+        println(io, """
+        module Common
+            const foo = 2
+        end
+        """)
+    end
+    
+    routines = joinpath(testdir, "routines.jl")
+    open(routines, "w") do io
+        println(io, """
+        module Routines
+            using Revise
+            includet(@__MODULE__, "$common")
+            using .Common
+        end 
+        """)
+    end
+    
+    codes = joinpath(testdir, "codes.jl")
+    open(codes, "w") do io
+        println(io, """
+        module Codes
+            using Revise
+            includet(@__MODULE__, "$common")
+            using .Common
+        end
+        """)
+    end
+
+    driver = joinpath(testdir, "driver.jl")
+    open(driver, "w") do io
+        println(io, """
+        module Driver
+            using Revise
+            includet(@__MODULE__, "$routines")
+            using .Routines
+            includet(@__MODULE__, "$codes")
+            using .Codes
+        end
+        """)
+    end
+
+    includet(@__MODULE__, driver)
+    @test Driver.Codes.Common.foo == Driver.Routines.Common.foo == 2
+end
+
 println("beginning cleanup")
 GC.gc(); GC.gc()
 
