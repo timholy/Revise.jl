@@ -2,9 +2,10 @@
     Revise.track(Base)
     Revise.track(Core.Compiler)
     Revise.track(stdlib)
+    Revise.track(PackageCompiledIntoSysimage)
 
-Track updates to the code in Julia's `base` directory, `base/compiler`, or one of its
-standard libraries.
+Track updates to the code in Julia's `base` directory, `base/compiler`, one of its
+standard libraries, or a package compiled into sysimage with PackageCompiler.jl.
 """
 function track(mod::Module; modified_files=revision_queue)
     id = PkgId(mod)
@@ -94,7 +95,14 @@ function _track(id, modname; modified_files=revision_queue)
         track_subdir_from_git!(pkgdata, compilerdir; modified_files=modified_files)
         # insertion into pkgdatas is done by track_subdir_from_git!
     else
-        error("no Revise.track recipe for module ", modname)
+        pkgdata = watch_package(id)
+        modtime = mtime(Base.pkgorigins[id].cachepath)
+        for rpath in srcfiles(pkgdata)
+            fullpath = joinpath(basedir(pkgdata), rpath)
+            if stat(fullpath).mtime > modtime
+                push!(modified_files, (pkgdata, rpath))
+            end
+        end
     end
     return nothing
 end
