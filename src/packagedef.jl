@@ -153,7 +153,11 @@ Julia's top-level directory when Julia was built, as recorded by the entries in
 """
 const basebuilddir = begin
     sysimg = filter(x->endswith(x[2], "sysimg.jl"), Base._included_files)[1][2]
-    dirname(dirname(sysimg))
+    @static if VERSION > v"1.9.0-DEV.725"
+        dirname(dirname(dirname(sysimg)))
+    else
+        dirname(dirname(sysimg))
+    end
 end
 
 """
@@ -169,7 +173,7 @@ const juliadir = begin
     catch
         # Binaries probably end up here. We fall back on Sys.BINDIR
         jldir = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
-        if !isdir(joinpath(jldir, "base"))
+        if VERSION > v"1.9.0-DEV.725" ? !isdir(joinpath(jldir, "src", "base")) : !isdir(joinpath(jldir, "base"))
             while true
                 trydir = joinpath(jldir, "base")
                 isdir(trydir) && break

@@ -37,6 +37,13 @@ function _track(id, modname; modified_files=revision_queue)
         # Test whether we know where to find the files
         if isbase
             srcdir = fixpath(joinpath(juliadir, "base"))
+            # all build now have the base files in src/base,
+            # but only binary distributions should use this path
+            # since base is symlinked to the in-tree source for
+            # source-builds
+            if VERSION > v"1.9.0-DEV.725" && juliadir != basebuilddir
+                srcdir = fixpath(joinpath(juliadir, "src", "base"))
+            end
             dirs = ["base"]
         else
             stdlibv = joinpath("stdlib", vstring, String(modname))
