@@ -37,11 +37,12 @@ function _track(id, modname; modified_files=revision_queue)
         # Test whether we know where to find the files
         if isbase
             srcdir = fixpath(joinpath(juliadir, "base"))
-            # all build now have the base files in src/base,
-            # but only binary distributions should use this path
-            # since base is symlinked to the in-tree source for
-            # source-builds
-            if VERSION > v"1.9.0-DEV.725" && juliadir != basebuilddir
+            if VERSION > v"1.9.0-DEV.725"
+                # All builds now have the base files in src/base.
+                # In theory, source builds should instead use the copy of Base in
+                # joinpath(juliadir, "..", "..", "..", "src", "base"), but that makes
+                # things even more confusing since e.g. `@edit` points towards the
+                # copy in usr/share
                 srcdir = fixpath(joinpath(juliadir, "src", "base"))
             end
             dirs = ["base"]
