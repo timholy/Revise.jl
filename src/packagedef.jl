@@ -875,7 +875,7 @@ If this produces many errors, check that you specified `mod` correctly.
 function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
     isfile(file) || error(file, " is not a file")
     # Determine whether we're already tracking this file
-    id = PkgId(mod)
+    id = Base.moduleroot(mod) == Main ? PkgId(mod, string(mod)) : PkgId(mod)  # see #689 for `Main`
     if haskey(pkgdatas, id)
         pkgdata = pkgdatas[id]
         relfile = relpath(abspath(file), pkgdata)
@@ -984,10 +984,10 @@ they will not be automatically tracked.
 """
 function includet(mod::Module, file::AbstractString)
     prev = Base.source_path(nothing)
-    if prev === nothing
-        file = abspath(file)
+    file = if prev === nothing
+        abspath(file)
     else
-        file = normpath(joinpath(dirname(prev), file))
+        normpath(joinpath(dirname(prev), file))
     end
     tls = task_local_storage()
     tls[:SOURCE_PATH] = file
