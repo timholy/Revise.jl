@@ -3524,43 +3524,36 @@ do_test("callbacks") && @testset "callbacks" begin
     @test foo_A574_result[] == 2 # <- callback removed - no longer updated
 end
 
-do_test("includet with mod arg (issue #689)") && @testset "multiple with mod arg (issue #689)" begin
+do_test("includet with mod arg (issue #689)") && @testset "includet with mod arg (issue #689)" begin
     testdir = newtestdir()
     
     common = joinpath(testdir, "common.jl")
-    open(common, "w") do io
-        println(io, """
+    write(common, """
         module Common
             const foo = 2
         end
         """)
-    end
     
     routines = joinpath(testdir, "routines.jl")
-    open(routines, "w") do io
-        println(io, """
+    write(routines, """
         module Routines
             using Revise
             includet(@__MODULE__, raw"$common")
             using .Common
-        end 
+        end
         """)
-    end
     
     codes = joinpath(testdir, "codes.jl")
-    open(codes, "w") do io
-        println(io, """
+    write(codes, """
         module Codes
             using Revise
             includet(@__MODULE__, raw"$common")
             using .Common
         end
         """)
-    end
 
     driver = joinpath(testdir, "driver.jl")
-    open(driver, "w") do io
-        println(io, """
+    write(driver, """
         module Driver
             using Revise
             includet(@__MODULE__, raw"$routines")
@@ -3569,10 +3562,16 @@ do_test("includet with mod arg (issue #689)") && @testset "multiple with mod arg
             using .Codes
         end
         """)
-    end
 
     includet(@__MODULE__, driver)
-    @test Driver.Codes.Common.foo == Driver.Routines.Common.foo == 2
+    @test parentmodule(Driver.Routines.Common) == Driver.Routines
+    @test Base.moduleroot(Driver.Routines.Common) == Main
+
+    @test parentmodule(Driver.Codes.Common) == Driver.Codes
+    @test Base.moduleroot(Driver.Codes.Common) == Main
+
+    @test Driver.Routines.Common.foo == 2
+    @test Driver.Codes.Common.foo == 2
 end
 
 println("beginning cleanup")

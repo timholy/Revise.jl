@@ -875,7 +875,7 @@ If this produces many errors, check that you specified `mod` correctly.
 function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
     isfile(file) || error(file, " is not a file")
     # Determine whether we're already tracking this file
-    id = PkgId(mod, string(mod))
+    id = Base.moduleroot(mod) == Main ? PkgId(mod, string(mod)) : PkgId(mod)  # see #689 for `Main`
     if haskey(pkgdatas, id)
         pkgdata = pkgdatas[id]
         relfile = relpath(abspath(file), pkgdata)
