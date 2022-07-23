@@ -156,6 +156,25 @@ const basebuilddir = begin
     dirname(dirname(sysimg))
 end
 
+function fallback_juliadir()
+    jldir = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
+    if !isdir(joinpath(jldir, "base"))
+        while true
+            trydir = joinpath(jldir, "base")
+            isdir(trydir) && break
+            trydir = joinpath(jldir, "share", "julia", "base")
+            if isdir(trydir)
+                jldir = joinpath(jldir, "share", "julia")
+                break
+            end
+            jldirnext = dirname(jldir)
+            jldirnext == jldir && break
+            jldir = jldirnext
+        end
+    end
+    normpath(jldir)
+end
+
 """
     Revise.juliadir
 
@@ -168,21 +187,7 @@ const juliadir = begin
         isdir(joinpath(jldir, "base")) || throw(ErrorException("$(jldir) does not have \"base\""))
     catch
         # Binaries probably end up here. We fall back on Sys.BINDIR
-        jldir = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
-        if !isdir(joinpath(jldir, "base"))
-            while true
-                trydir = joinpath(jldir, "base")
-                isdir(trydir) && break
-                trydir = joinpath(jldir, "share", "julia", "base")
-                if isdir(trydir)
-                    jldir = joinpath(jldir, "share", "julia")
-                    break
-                end
-                jldirnext = dirname(jldir)
-                jldirnext == jldir && break
-                jldir = jldirnext
-            end
-        end
+        jldir = fallback_juliadir()
     end
     normpath(jldir)
 end
