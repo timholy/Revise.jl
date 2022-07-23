@@ -94,7 +94,11 @@ function _track(id, modname; modified_files=revision_queue)
         # Save the result (unnecessary if already in pkgdatas, but doesn't hurt either)
         pkgdatas[id] = pkgdata
     elseif modname === :Compiler
-        compilerdir = normpath(joinpath(juliadir, "base", "compiler"))
+        compilerdir = if VERSION > v"1.9.0-DEV.725"
+            normpath(joinpath(juliadir, "src", "base", "compiler"))
+        else
+            normpath(joinpath(juliadir, "base", "compiler"))
+        end
         pkgdata = get(pkgdatas, id, nothing)
         if pkgdata === nothing
             pkgdata = PkgData(id, compilerdir)
