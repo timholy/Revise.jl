@@ -130,16 +130,13 @@ k(x) = 4
         # Issue #448
         testdir = newtestdir()
         file = joinpath(testdir, "badfile.jl")
-        open(file, "w") do io
-            println(io,
-            """
+        write(file, """
             function g()
                 while t
                 c =
                 k
             end
             """)
-        end
         try
             includet(file)
         catch err
@@ -417,47 +414,38 @@ k(x) = 4
                 # exploring different ways of expressing the `include` statement
                 dn = joinpath(testdir, modname, "src")
                 mkpath(dn)
-                open(joinpath(dn, modname*".jl"), "w") do io
-                    println(io, """
-$pcexpr
-module $modname
+                write(joinpath(dn, modname*".jl"), """
+                    $pcexpr
+                    module $modname
 
-export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5, using_macro_$(fbase)
+                    export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5, using_macro_$(fbase)
 
-$(fbase)1() = 1
+                    $(fbase)1() = 1
 
-include("file2.jl")
-include("subdir/file3.jl")
-include(joinpath(@__DIR__, "subdir", "file4.jl"))
-otherfile = "file5.jl"
-include(otherfile)
+                    include("file2.jl")
+                    include("subdir/file3.jl")
+                    include(joinpath(@__DIR__, "subdir", "file4.jl"))
+                    otherfile = "file5.jl"
+                    include(otherfile)
 
-# Update order check: modifying `some_macro_` to return -6 doesn't change the
-# return value of `using_macro_` (issue #20) unless `using_macro_` is also updated,
-# *in this order*:
-#   1. update the `@some_macro_` definition
-#   2. update the `using_macro_` definition
-macro some_macro_$(fbase)()
-    return 6
-end
-using_macro_$(fbase)() = @some_macro_$(fbase)()
+                    # Update order check: modifying `some_macro_` to return -6 doesn't change the
+                    # return value of `using_macro_` (issue #20) unless `using_macro_` is also updated,
+                    # *in this order*:
+                    #   1. update the `@some_macro_` definition
+                    #   2. update the `using_macro_` definition
+                    macro some_macro_$(fbase)()
+                        return 6
+                    end
+                    using_macro_$(fbase)() = @some_macro_$(fbase)()
 
-end
-""")
-                end
-                open(joinpath(dn, "file2.jl"), "w") do io
-                    println(io, "$(fbase)2() = 2")
-                end
+                    end
+                    """)
+                write(joinpath(dn, "file2.jl"), "$(fbase)2() = 2")
                 mkdir(joinpath(dn, "subdir"))
-                open(joinpath(dn, "subdir", "file3.jl"), "w") do io
-                    println(io, "$(fbase)3() = 3")
-                end
-                open(joinpath(dn, "subdir", "file4.jl"), "w") do io
-                    println(io, "$(fbase)4() = 4")
-                end
-                open(joinpath(dn, "file5.jl"), "w") do io
-                    println(io, "$(fbase)5() = 5")
-                end
+                write(joinpath(dn, "subdir", "file3.jl"), "$(fbase)3() = 3")
+                write(joinpath(dn, "subdir", "file4.jl"), "$(fbase)4() = 4")
+                write(joinpath(dn, "file5.jl"), "$(fbase)5() = 5")
+
                 sleep(mtimedelay)
                 @eval using $(Symbol(modname))
                 sleep(mtimedelay)
@@ -490,26 +478,24 @@ end
                 pkgdata = Revise.pkgdatas[id]
 
                 # Change the definition of function 1 (easiest to just rewrite the whole file)
-                open(joinpath(dn, modname*".jl"), "w") do io
-                    println(io, """
-$pcexpr
-module $modname
-export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5, using_macro_$(fbase)
-$(fbase)1() = -1
-include("file2.jl")
-include("subdir/file3.jl")
-include(joinpath(@__DIR__, "subdir", "file4.jl"))
-otherfile = "file5.jl"
-include(otherfile)
+                write(joinpath(dn, modname*".jl"), """
+                    $pcexpr
+                    module $modname
+                    export $(fbase)1, $(fbase)2, $(fbase)3, $(fbase)4, $(fbase)5, using_macro_$(fbase)
+                    $(fbase)1() = -1
+                    include("file2.jl")
+                    include("subdir/file3.jl")
+                    include(joinpath(@__DIR__, "subdir", "file4.jl"))
+                    otherfile = "file5.jl"
+                    include(otherfile)
 
-macro some_macro_$(fbase)()
-    return -6
-end
-using_macro_$(fbase)() = @some_macro_$(fbase)()
+                    macro some_macro_$(fbase)()
+                        return -6
+                    end
+                    using_macro_$(fbase)() = @some_macro_$(fbase)()
 
-end
-""")  # just for fun we skipped the whitespace
-                end
+                    end
+                    """)  # just for fun we skipped the whitespace
                 yry()
                 fi = pkgdata.fileinfos[1]
                 @test fi.extracted[]          # issue 596
@@ -522,9 +508,7 @@ end
                 @test revise(eval(Symbol(modname)))
                 @eval @test $(fn6)() == -6
                 # Redefine function 2
-                open(joinpath(dn, "file2.jl"), "w") do io
-                    println(io, "$(fbase)2() = -2")
-                end
+                write(joinpath(dn, "file2.jl"), "$(fbase)2() = -2")
                 yry()
                 @eval @test $(fn1)() == -1
                 @eval @test $(fn2)() == -2
@@ -532,9 +516,7 @@ end
                 @eval @test $(fn4)() == 4
                 @eval @test $(fn5)() == 5
                 @eval @test $(fn6)() == -6
-                open(joinpath(dn, "subdir", "file3.jl"), "w") do io
-                    println(io, "$(fbase)3() = -3")
-                end
+                write(joinpath(dn, "subdir", "file3.jl"), "$(fbase)3() = -3")
                 yry()
                 @eval @test $(fn1)() == -1
                 @eval @test $(fn2)() == -2
@@ -542,9 +524,7 @@ end
                 @eval @test $(fn4)() == 4
                 @eval @test $(fn5)() == 5
                 @eval @test $(fn6)() == -6
-                open(joinpath(dn, "subdir", "file4.jl"), "w") do io
-                    println(io, "$(fbase)4() = -4")
-                end
+                write(joinpath(dn, "subdir", "file4.jl"), "$(fbase)4() = -4")
                 yry()
                 @eval @test $(fn1)() == -1
                 @eval @test $(fn2)() == -2
@@ -552,9 +532,7 @@ end
                 @eval @test $(fn4)() == -4
                 @eval @test $(fn5)() == 5
                 @eval @test $(fn6)() == -6
-                open(joinpath(dn, "file5.jl"), "w") do io
-                    println(io, "$(fbase)5() = -5")
-                end
+                write(joinpath(dn, "file5.jl"), "$(fbase)5() = -5")
                 yry()
                 @eval @test $(fn1)() == -1
                 @eval @test $(fn2)() == -2
@@ -580,34 +558,22 @@ end
         srcdir = joinpath(testdir, "Mysupermodule", "src")
         subdir = joinpath(srcdir, "Mymodule")
         mkpath(subdir)
-        open(joinpath(srcdir, "Mysupermodule.jl"), "w") do io
-            print(io, """
-                module Mysupermodule
-                include("Mymodule/Mymodule.jl")
-                end
-                """)
-        end
-        open(joinpath(subdir, "Mymodule.jl"), "w") do io
-            print(io, """
-                module Mymodule
-                include("filesub.jl")
-                end
-                """)
-        end
-        open(joinpath(subdir, "filesub.jl"), "w") do io
-            print(io, """
-                func() = 1
-                """)
-        end
+        write(joinpath(srcdir, "Mysupermodule.jl"), """
+            module Mysupermodule
+            include("Mymodule/Mymodule.jl")
+            end
+            """)
+        write(joinpath(subdir, "Mymodule.jl"), """
+            module Mymodule
+            include("filesub.jl")
+            end
+            """)
+        write(joinpath(subdir, "filesub.jl"), "func() = 1")
         sleep(mtimedelay)
         @eval using Mysupermodule
         sleep(mtimedelay)
         @test Mysupermodule.Mymodule.func() == 1
-        open(joinpath(subdir, "filesub.jl"), "w") do io
-            print(io, """
-                func() = 2
-                """)
-        end
+        write(joinpath(subdir, "filesub.jl"), "func() = 2")
         yry()
         @test Mysupermodule.Mymodule.func() == 2
         rm_precompile("Mymodule")
@@ -616,111 +582,89 @@ end
         # Test files paths that can't be statically parsed
         dn = joinpath(testdir, "LoopInclude", "src")
         mkpath(dn)
-        open(joinpath(dn, "LoopInclude.jl"), "w") do io
-            println(io, """
-module LoopInclude
+        write(joinpath(dn, "LoopInclude.jl"), """
+            module LoopInclude
 
-export li_f, li_g
+            export li_f, li_g
 
-for fn in ("file1.jl", "file2.jl")
-    include(fn)
-end
+            for fn in ("file1.jl", "file2.jl")
+                include(fn)
+            end
 
-end
-""")
-        end
-        open(joinpath(dn, "file1.jl"), "w") do io
-            println(io, "li_f() = 1")
-        end
-        open(joinpath(dn, "file2.jl"), "w") do io
-            println(io, "li_g() = 2")
-        end
+            end
+            """)
+        write(joinpath(dn, "file1.jl"), "li_f() = 1")
+        write(joinpath(dn, "file2.jl"), "li_g() = 2")
         sleep(mtimedelay)
         @eval using LoopInclude
         sleep(mtimedelay)
         @test li_f() == 1
         @test li_g() == 2
-        open(joinpath(dn, "file1.jl"), "w") do io
-            println(io, "li_f() = -1")
-        end
+        write(joinpath(dn, "file1.jl"), "li_f() = -1")
         yry()
         @test li_f() == -1
         rm_precompile("LoopInclude")
 
         # Multiple packages in the same directory (issue #228)
-        open(joinpath(testdir, "A228.jl"), "w") do io
-            println(io, """
-                        module A228
-                        using B228
-                        export f228
-                        f228(x) = 3 * g228(x)
-                        end
-                        """)
-        end
-        open(joinpath(testdir, "B228.jl"), "w") do io
-            println(io, """
-                        module B228
-                        export g228
-                        g228(x) = 4x + 2
-                        end
-                        """)
-        end
+        write(joinpath(testdir, "A228.jl"), """
+            module A228
+            using B228
+            export f228
+            f228(x) = 3 * g228(x)
+            end
+            """)
+        write(joinpath(testdir, "B228.jl"), """
+            module B228
+            export g228
+            g228(x) = 4x + 2
+            end
+            """)
         sleep(mtimedelay)
         using A228
         sleep(mtimedelay)
         @test f228(3) == 42
-        open(joinpath(testdir, "B228.jl"), "w") do io
-            println(io, """
-                        module B228
-                        export g228
-                        g228(x) = 4x + 1
-                        end
-                        """)
-        end
+        write(joinpath(testdir, "B228.jl"), """
+            module B228
+            export g228
+            g228(x) = 4x + 1
+            end
+            """)
         yry()
         @test f228(3) == 39
         rm_precompile("A228")
         rm_precompile("B228")
 
         # uncoupled packages in the same directory (issue #339)
-        open(joinpath(testdir, "A339.jl"), "w") do io
-            println(io, """
-                        module A339
-                        f() = 1
-                        end
-                        """)
-        end
-        open(joinpath(testdir, "B339.jl"), "w") do io
-            println(io, """
-                        module B339
-                        f() = 1
-                        end
-                        """)
-        end
+        write(joinpath(testdir, "A339.jl"), """
+            module A339
+            f() = 1
+            end
+            """)
+        write(joinpath(testdir, "B339.jl"), """
+            module B339
+            f() = 1
+            end
+            """)
         sleep(mtimedelay)
         using A339, B339
         sleep(mtimedelay)
         @test A339.f() == 1
         @test B339.f() == 1
         sleep(mtimedelay)
-        open(joinpath(testdir, "A339.jl"), "w") do io
-            println(io, """
+        write(joinpath(testdir, "A339.jl"), """
                         module A339
                         f() = 2
                         end
                         """)
-        end
         yry()
         @test A339.f() == 2
         @test B339.f() == 1
         sleep(mtimedelay)
-        open(joinpath(testdir, "B339.jl"), "w") do io
-            println(io, """
+        write(joinpath(testdir, "B339.jl"), """
                         module B339
                         f() = 2
                         end
                         """)
-        end
         yry()
         @test A339.f() == 2
         @test B339.f() == 2
@@ -755,21 +699,18 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "Namespace", "src")
         mkpath(dn)
-        open(joinpath(dn, "Namespace.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "Namespace.jl"), """
             module Namespace
             struct X end
             cos(::X) = 20
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using Namespace
         @test Namespace.cos(Namespace.X()) == 20
         @test_throws MethodError Base.cos(Namespace.X())
         sleep(mtimedelay)
-        open(joinpath(dn, "Namespace.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "Namespace.jl"), """
             module Namespace
             struct X end
             sin(::Int) = 10
@@ -781,7 +722,6 @@ end
             using .Foos: Foo
             end
             """)
-        end
         yry()
         @test Namespace.sin(0) == 10
         @test Base.sin(0) == 0
@@ -798,37 +738,26 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "Multidef", "src")
         mkpath(dn)
-        open(joinpath(dn, "Multidef.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "Multidef.jl"), """
             module Multidef
             include("utils.jl")
             end
             """)
-        end
-        open(joinpath(dn, "utils.jl"), "w") do io
-            println(io, """
-            repeated(x) = x+1
-            """)
-        end
+        write(joinpath(dn, "utils.jl"), "repeated(x) = x+1")
         sleep(mtimedelay)
         @eval using Multidef
         @test Multidef.repeated(3) == 4
         sleep(mtimedelay)
-        open(joinpath(dn, "Multidef.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "Multidef.jl"), """
             module Multidef
             include("utils.jl")
             repeated(x) = x+1
             end
             """)
-        end
         yry()
         @test Multidef.repeated(3) == 4
         sleep(mtimedelay)
-        open(joinpath(dn, "utils.jl"), "w") do io
-            println(io, """
-            """)
-        end
+        write(joinpath(dn, "utils.jl"), "\n")
         yry()
         @test Multidef.repeated(3) == 4
 
@@ -839,8 +768,7 @@ end
     do_test("Recursive types (issue #417)") && @testset "Recursive types (issue #417)" begin
         testdir = newtestdir()
         fn = joinpath(testdir, "recursive.jl")
-        open(fn, "w") do io
-            println(io, """
+        write(fn, """
             module RecursiveTypes
             struct Foo
                 x::Vector{Foo}
@@ -849,7 +777,6 @@ end
             end
             end
             """)
-        end
         sleep(mtimedelay)
         includet(fn)
         @test isa(RecursiveTypes.Foo().x, Vector{RecursiveTypes.Foo})
@@ -862,47 +789,39 @@ end
         testdir = newtestdir()
         dnA = joinpath(testdir, "CrossModA", "src")
         mkpath(dnA)
-        open(joinpath(dnA, "CrossModA.jl"), "w") do io
-            println(io, """
+        write(joinpath(dnA, "CrossModA.jl"), """
             module CrossModA
             foo(x) = "default"
             end
             """)
-        end
         dnB = joinpath(testdir, "CrossModB", "src")
         mkpath(dnB)
-        open(joinpath(dnB, "CrossModB.jl"), "w") do io
-            println(io, """
+        write(joinpath(dnB, "CrossModB.jl"), """
             module CrossModB
             import CrossModA
             CrossModA.foo(x::Int) = 1
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using CrossModA, CrossModB
         @test CrossModA.foo("") == "default"
         @test CrossModA.foo(0) == 1
         sleep(mtimedelay)
-        open(joinpath(dnB, "CrossModB.jl"), "w") do io
-            println(io, """
+        write(joinpath(dnB, "CrossModB.jl"), """
             module CrossModB
             import CrossModA
             CrossModA.foo(x::Int) = 2
             end
             """)
-        end
         yry()
         @test CrossModA.foo("") == "default"
         @test CrossModA.foo(0) == 2
-        open(joinpath(dnB, "CrossModB.jl"), "w") do io
-            println(io, """
+        write(joinpath(dnB, "CrossModB.jl"), """
             module CrossModB
             import CrossModA
             CrossModA.foo(x::Int) = 3
             end
             """)
-        end
         yry()
         @test CrossModA.foo("") == "default"
         @test CrossModA.foo(0) == 3
@@ -917,28 +836,24 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "ModFILE", "src")
         mkpath(dn)
-        open(joinpath(dn, "ModFILE.jl"), "w") do io
-            println(io, """
-module ModFILE
+        write(joinpath(dn, "ModFILE.jl"), """
+            module ModFILE
 
-mf() = @__FILE__, 1
+            mf() = @__FILE__, 1
 
-end
-""")
-        end
+            end
+            """)
         sleep(mtimedelay)
         @eval using ModFILE
         sleep(mtimedelay)
         @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 1)
-        open(joinpath(dn, "ModFILE.jl"), "w") do io
-            println(io, """
-module ModFILE
+        write(joinpath(dn, "ModFILE.jl"), """
+            module ModFILE
 
-mf() = @__FILE__, 2
+            mf() = @__FILE__, 2
 
-end
-""")
-        end
+            end
+            """)
         yry()
         @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 2)
         rm_precompile("ModFILE")
@@ -949,68 +864,44 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "Order1", "src")
         mkpath(dn)
-        open(joinpath(dn, "Order1.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "Order1.jl"), """
             module Order1
             include("file1.jl")
             include("file2.jl")
             end
             """)
-        end
-        open(joinpath(dn, "file1.jl"), "w") do io
-            println(io, "# a comment")
-        end
-        open(joinpath(dn, "file2.jl"), "w") do io
-            println(io, "# a comment")
-        end
+        write(joinpath(dn, "file1.jl"), "# a comment")
+        write(joinpath(dn, "file2.jl"), "# a comment")
         sleep(mtimedelay)
         @eval using Order1
         sleep(mtimedelay)
         # we want Revise to process files the order file1.jl, file2.jl, but let's save them in the opposite order
-        open(joinpath(dn, "file2.jl"), "w") do io
-            println(io, """
-            f(::Ord1) = 1
-            """)
-        end
+        write(joinpath(dn, "file2.jl"), "f(::Ord1) = 1")
         sleep(mtimedelay)
-        open(joinpath(dn, "file1.jl"), "w") do io
-            println(io, """
-            struct Ord1 end
-            """)
-        end
+        write(joinpath(dn, "file1.jl"), "struct Ord1 end")
         yry()
         @test Order1.f(Order1.Ord1()) == 1
 
         # A case in which order cannot be determined solely from file order
         dn = joinpath(testdir, "Order2", "src")
         mkpath(dn)
-        open(joinpath(dn, "Order2.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "Order2.jl"), """
             module Order2
             include("file.jl")
             end
             """)
-        end
-        open(joinpath(dn, "file.jl"), "w") do io
-            println(io, "# a comment")
-        end
+        write(joinpath(dn, "file.jl"), "# a comment")
         sleep(mtimedelay)
         @eval using Order2
         sleep(mtimedelay)
-        open(joinpath(dn, "Order2.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "Order2.jl"), """
             module Order2
             include("file.jl")
             f(::Ord2) = 1
             end
             """)
-        end
         sleep(mtimedelay)
-        open(joinpath(dn, "file.jl"), "w") do io
-            println(io, """
-            struct Ord2 end
-            """)
-        end
+        write(joinpath(dn, "file.jl"), "struct Ord2 end")
         @info "The following error messge is expected for this broken test"
         yry()
         @test_broken Order2.f(Order2.Ord2()) == 1
@@ -1021,31 +912,25 @@ end
         # Cross-module dependencies
         dn3 = joinpath(testdir, "Order3", "src")
         mkpath(dn3)
-        open(joinpath(dn3, "Order3.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn3, "Order3.jl"), """
             module Order3
             using Order2
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using Order3
         sleep(mtimedelay)
-        open(joinpath(dn3, "Order3.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn3, "Order3.jl"), """
             module Order3
             using Order2
             g(::Order2.Ord2a) = 1
             end
             """)
-        end
         sleep(mtimedelay)
-        open(joinpath(dn, "file.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "file.jl"), """
             struct Ord2 end
             struct Ord2a end
             """)
-        end
         yry()
         @test Order3.g(Order2.Ord2a()) == 1
 
@@ -1059,21 +944,17 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "ModDocstring", "src")
         mkpath(dn)
-        open(joinpath(dn, "ModDocstring.jl"), "w") do io
-            println(io, """
-" Ahoy! "
-module ModDocstring
+        write(joinpath(dn, "ModDocstring.jl"), """
+            " Ahoy! "
+            module ModDocstring
 
-include("dependency.jl")
+            include("dependency.jl")
 
-f() = 1
+            f() = 1
 
-end
-""")
-        end
-        open(joinpath(dn, "dependency.jl"), "w") do io
-            println(io, "")
-        end
+            end
+            """)
+        write(joinpath(dn, "dependency.jl"), "")
         sleep(mtimedelay)
         @eval using ModDocstring
         sleep(mtimedelay)
@@ -1081,35 +962,31 @@ end
         ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Ahoy! "
 
-        open(joinpath(dn, "ModDocstring.jl"), "w") do io
-            println(io, """
-" Ahoy! "
-module ModDocstring
+        write(joinpath(dn, "ModDocstring.jl"), """
+            " Ahoy! "
+            module ModDocstring
 
-include("dependency.jl")
+            include("dependency.jl")
 
-f() = 2
+            f() = 2
 
-end
-""")
-        end
+            end
+            """)
         yry()
         @test ModDocstring.f() == 2
         ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Ahoy! "
 
-        open(joinpath(dn, "ModDocstring.jl"), "w") do io
-            println(io, """
-" Hello! "
-module ModDocstring
+        write(joinpath(dn, "ModDocstring.jl"), """
+            " Hello! "
+            module ModDocstring
 
-include("dependency.jl")
+            include("dependency.jl")
 
-f() = 3
+            f() = 3
 
-end
-""")
-        end
+            end
+            """)
         yry()
         @test ModDocstring.f() == 3
         ds = @doc(ModDocstring)
@@ -1119,8 +996,7 @@ end
         # issue #197
         dn = joinpath(testdir, "ModDocstring2", "src")
         mkpath(dn)
-        open(joinpath(dn, "ModDocstring2.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "ModDocstring2.jl"), """
             "docstring"
             module ModDocstring2
                 "docstring for .Sub"
@@ -1128,7 +1004,6 @@ end
                 end
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using ModDocstring2
         sleep(mtimedelay)
@@ -1136,8 +1011,7 @@ end
         @test get_docstring(ds) == "docstring"
         ds = @doc(ModDocstring2.Sub)
         @test get_docstring(ds) == "docstring for .Sub"
-        open(joinpath(dn, "ModDocstring2.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "ModDocstring2.jl"), """
             "updated docstring"
             module ModDocstring2
                 "updated docstring for .Sub"
@@ -1145,7 +1019,6 @@ end
                 end
             end
             """)
-        end
         yry()
         ds = @doc(ModDocstring2)
         @test get_docstring(ds) == "updated docstring"
@@ -1162,14 +1035,12 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "ChangeDocstring", "src")
         mkpath(dn)
-        open(joinpath(dn, "ChangeDocstring.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "ChangeDocstring.jl"), """
             module ChangeDocstring
             "f" f() = 1
             g() = 1
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using ChangeDocstring
         sleep(mtimedelay)
@@ -1180,14 +1051,12 @@ end
         ds = @doc(ChangeDocstring.g)
         @test get_docstring(ds) == "No documentation found."
         # Ordinary route
-        open(joinpath(dn, "ChangeDocstring.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "ChangeDocstring.jl"), """
             module ChangeDocstring
             "h" f() = 1
             "g" g() = 1
             end
             """)
-        end
         yry()
         ds = @doc(ChangeDocstring.f)
         @test get_docstring(ds) == "h"
@@ -1210,26 +1079,22 @@ end
         # Test for #583
         dn = joinpath(testdir, "FirstDocstring", "src")
         mkpath(dn)
-        open(joinpath(dn, "FirstDocstring.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "FirstDocstring.jl"), """
             module FirstDocstring
             g() = 1
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using FirstDocstring
         sleep(mtimedelay)
         @test FirstDocstring.g() == 1
         ds = @doc(FirstDocstring.g)
         @test get_docstring(ds) == "No documentation found."
-        open(joinpath(dn, "FirstDocstring.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "FirstDocstring.jl"), """
             module FirstDocstring
             "g" g() = 1
             end
             """)
-        end
         yry()
         ds = @doc(FirstDocstring.g)
         @test get_docstring(ds) == "g"
@@ -1253,8 +1118,7 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "MacDocstring", "src")
         mkpath(dn)
-        open(joinpath(dn, "MacDocstring.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "MacDocstring.jl"), """
             module MacDocstring
 
             macro myconst(name, val)
@@ -1271,7 +1135,6 @@ end
 
             end # module
             """)
-        end
         sleep(mtimedelay)
         @eval using MacDocstring
         sleep(mtimedelay)
@@ -1279,8 +1142,7 @@ end
         ds = @doc(MacDocstring.c)
         @test strip(get_docstring(ds)) == "mydoc"
 
-        open(joinpath(dn, "MacDocstring.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "MacDocstring.jl"), """
             module MacDocstring
 
             macro myconst(name, val)
@@ -1297,7 +1159,6 @@ end
 
             end # module
             """)
-        end
         yry()
         @test MacDocstring.f() == 2
         ds = @doc(MacDocstring.c)
@@ -1312,8 +1173,7 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "PerfAnnotations", "src")
         mkpath(dn)
-        open(joinpath(dn, "PerfAnnotations.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "PerfAnnotations.jl"), """
             module PerfAnnotations
 
             @inline hasinline(x) = x
@@ -1330,7 +1190,6 @@ end
 
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using PerfAnnotations
         sleep(mtimedelay)
@@ -1346,8 +1205,7 @@ end
         @test length(code) == 1 && isreturning_slot(code[1], 2)
         code = get_code(PerfAnnotations.check_notannot2, Tuple{Int})
         @test length(code) == 1 && isreturning_slot(code[1], 2)
-        open(joinpath(dn, "PerfAnnotations.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "PerfAnnotations.jl"), """
             module PerfAnnotations
 
             hasinline(x) = x
@@ -1364,7 +1222,6 @@ end
 
             end
             """)
-        end
         yry()
         @test PerfAnnotations.check_hasinline(3) == 3
         @test PerfAnnotations.check_hasnoinline(3) == 3
@@ -1388,8 +1245,7 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "MacroRevision", "src")
         mkpath(dn)
-        open(joinpath(dn, "MacroRevision.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "MacroRevision.jl"), """
             module MacroRevision
             macro change(foodef)
                 foodef.args[2].args[2] = 1
@@ -1398,14 +1254,12 @@ end
             @change foo(x) = 0
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using MacroRevision
         sleep(mtimedelay)
         @test MacroRevision.foo("hello") == 1
 
-        open(joinpath(dn, "MacroRevision.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "MacroRevision.jl"), """
             module MacroRevision
             macro change(foodef)
                 foodef.args[2].args[2] = 2
@@ -1414,14 +1268,12 @@ end
             @change foo(x) = 0
             end
             """)
-        end
         yry()
         @test MacroRevision.foo("hello") == 1
         revise(MacroRevision)
         @test MacroRevision.foo("hello") == 2
 
-        open(joinpath(dn, "MacroRevision.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "MacroRevision.jl"), """
             module MacroRevision
             macro change(foodef)
                 foodef.args[2].args[2] = 3
@@ -1430,7 +1282,6 @@ end
             @change foo(x) = 0
             end
             """)
-        end
         yry()
         @test MacroRevision.foo("hello") == 2
         revise(MacroRevision)
@@ -1440,17 +1291,14 @@ end
         # issue #435
         dn = joinpath(testdir, "MacroSigs", "src")
         mkpath(dn)
-        open(joinpath(dn, "MacroSigs.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "MacroSigs.jl"), """
             module MacroSigs
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using MacroSigs
         sleep(mtimedelay)
-        open(joinpath(dn, "MacroSigs.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "MacroSigs.jl"), """
             module MacroSigs
             macro testmac(fname)
                 esc(quote
@@ -1462,7 +1310,6 @@ end
             @testmac blah
             end
             """)
-        end
         yry()
         @test MacroSigs.blah() == 1
         @test haskey(CodeTracking.method_info, (@which MacroSigs.blah()).sig)
@@ -1471,8 +1318,7 @@ end
         # Issue #568 (a macro *execution* bug)
         dn = joinpath(testdir, "MacroLineNos568", "src")
         mkpath(dn)
-        open(joinpath(dn, "MacroLineNos568.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "MacroLineNos568.jl"), """
             module MacroLineNos568
             using MacroTools: @q
 
@@ -1485,13 +1331,11 @@ end
             @some_macro 20
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using MacroLineNos568
         sleep(mtimedelay)
         @test MacroLineNos568.my_fun() == 20
-        open(joinpath(dn, "MacroLineNos568.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "MacroLineNos568.jl"), """
             module MacroLineNos568
             using MacroTools: @q
 
@@ -1504,7 +1348,6 @@ end
             @some_macro 30
             end
             """)
-        end
         yry()
         @test MacroLineNos568.my_fun() == 30
         rm_precompile("MacroLineNos568")
@@ -1517,8 +1360,7 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "ArgModMacros", "src")
         mkpath(dn)
-        open(joinpath(dn, "ArgModMacros.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "ArgModMacros.jl"), """
             module ArgModMacros
 
             using EponymTuples
@@ -1534,14 +1376,12 @@ end
 
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using ArgModMacros
         sleep(mtimedelay)
         @test ArgModMacros.hyper_loglikelihood((μ=1, σ=2, LΩ=3), (w̃s=4, α̃s=5, β̃s=6)) == [4,5,6]
         @test ArgModMacros.revision[] == 1
-        open(joinpath(dn, "ArgModMacros.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "ArgModMacros.jl"), """
             module ArgModMacros
 
             using EponymTuples
@@ -1557,7 +1397,6 @@ end
 
             end
             """)
-        end
         yry()
         @test ArgModMacros.hyper_loglikelihood((μ=1, σ=2, LΩ=3), (w̃s=4, α̃s=5, β̃s=6)) == [4,5,6]
         @test ArgModMacros.revision[] == 2
@@ -1571,34 +1410,23 @@ end
         modname = "LineNumberMod"
         dn = joinpath(testdir, modname, "src")
         mkpath(dn)
-        open(joinpath(dn, modname*".jl"), "w") do io
-            println(io, """
-module $modname
-include("incl.jl")
-end
-""")
-        end
-        open(joinpath(dn, "incl.jl"), "w") do io
-            println(io, """
-0
-0
-1
-2
-3
-4
-5
-6
-7
-8
+        write(joinpath(dn, modname*".jl"), "module $modname include(\"incl.jl\") end")
+        write(joinpath(dn, "incl.jl"), """
+            0
+            0
+            1
+            2
+            3
+            4
+            5
+            6
+            7
+            8
 
+            foo(x) = x+5
 
-function foo(x)
-    return x+5
-end
-
-foo(y::Int) = y-51
-""")
-        end
+            foo(y::Int) = y-51
+            """)
         sleep(mtimedelay)
         @eval using LineNumberMod
         sleep(mtimedelay)
@@ -1609,27 +1437,22 @@ foo(y::Int) = y-51
             push!(lines, m.line)
         end
         @test all(f->endswith(string(f), "incl.jl"), files)
-        open(joinpath(dn, "incl.jl"), "w") do io
-            println(io, """
-0
-0
-1
-2
-3
-4
-5
-6
-7
-8
+        write(joinpath(dn, "incl.jl"), """
+            0
+            0
+            1
+            2
+            3
+            4
+            5
+            6
+            7
+            8
 
+            foo(x) = x+6
 
-function foo(x)
-    return x+6
-end
-
-foo(y::Int) = y-51
-""")
-        end
+            foo(y::Int) = y-51
+            """)
         yry()
         for m in methods(LineNumberMod.foo)
             @test endswith(string(m.file), "incl.jl")
@@ -1641,15 +1464,13 @@ foo(y::Int) = y-51
 
     do_test("Line numbers in backtraces and warnings") && @testset "Line numbers in backtraces and warnings" begin
         filename = randtmp() * ".jl"
-        open(filename, "w") do io
-            println(io, """
+        write(filename, """
             function triggered(iserr::Bool, iswarn::Bool)
                 iserr && error("error")
                 iswarn && @warn "Information"
                 return nothing
             end
             """)
-        end
         sleep(mtimedelay)
         includet(filename)
         sleep(mtimedelay)
@@ -1668,8 +1489,7 @@ foo(y::Int) = y-51
             mline = line_is_decl ? 1 : 2
             @test occursin(filename * ":$mline", String(take!(io)))
         end
-        open(filename, "w") do io
-            println(io, """
+        write(filename, """
             # A comment to change the line numbers
             function triggered(iserr::Bool, iswarn::Bool)
                 iserr && error("error")
@@ -1677,7 +1497,6 @@ foo(y::Int) = y-51
                 return nothing
             end
             """)
-        end
         yry()
         try
             triggered(true, false)
@@ -1715,27 +1534,23 @@ foo(y::Int) = y-51
         testdir = newtestdir()
         dn = joinpath(testdir, "Submodules", "src")
         mkpath(dn)
-        open(joinpath(dn, "Submodules.jl"), "w") do io
-            println(io, """
-module Submodules
-f() = 1
-end
-""")
-        end
+        write(joinpath(dn, "Submodules.jl"), """
+            module Submodules
+            f() = 1
+            end
+            """)
         sleep(mtimedelay)
         @eval using Submodules
         sleep(mtimedelay)
         @test Submodules.f() == 1
-        open(joinpath(dn, "Submodules.jl"), "w") do io
-            println(io, """
-module Submodules
-f() = 1
-module Sub
-g() = 2
-end
-end
-""")
-        end
+        write(joinpath(dn, "Submodules.jl"), """
+            module Submodules
+            f() = 1
+            module Sub
+            g() = 2
+            end
+            end
+            """)
         yry()
         @test Submodules.f() == 1
         @test Submodules.Sub.g() == 2
@@ -1747,25 +1562,21 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "Timing", "src")
         mkpath(dn)
-        open(joinpath(dn, "Timing.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "Timing.jl"), """
             module Timing
             f(x) = 1
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using Timing
         sleep(mtimedelay)
         @test Timing.f(nothing) == 1
         tmpfile = joinpath(dn, "Timing_temp.jl")
-        open(tmpfile, "w") do io
-            println(io, """
+        write(tmpfile, """
             module Timing
             f(x) = 2
             end
             """)
-        end
         yry()
         @test Timing.f(nothing) == 1
         mv(tmpfile, pathof(Timing), force=true)
@@ -1780,52 +1591,50 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "MethDel", "src")
         mkpath(dn)
-        open(joinpath(dn, "MethDel.jl"), "w") do io
-            println(io, """
-__precompile__(false)   # "clean" Base doesn't have :revisefoo
-module MethDel
-f(x) = 1
-f(x::Int) = 2
-g(x::Vector{T}, y::T) where T = 1
-g(x::Array{T,N}, y::T) where N where T = 2
-g(::Array, ::Any) = 3
-h(x::Array{T}, y::T) where T = g(x, y)
-k(::Int; badchoice=1) = badchoice
-Base.revisefoo(x::Int) = 2
-struct Private end
-Base.revisefoo(::Private) = 3
+        write(joinpath(dn, "MethDel.jl"), """
+            __precompile__(false)   # "clean" Base doesn't have :revisefoo
+            module MethDel
+            f(x) = 1
+            f(x::Int) = 2
+            g(x::Vector{T}, y::T) where T = 1
+            g(x::Array{T,N}, y::T) where N where T = 2
+            g(::Array, ::Any) = 3
+            h(x::Array{T}, y::T) where T = g(x, y)
+            k(::Int; badchoice=1) = badchoice
+            Base.revisefoo(x::Int) = 2
+            struct Private end
+            Base.revisefoo(::Private) = 3
 
-dfltargs(x::Int8, y::Int=0, z::Float32=1.0f0) = x+y+z
+            dfltargs(x::Int8, y::Int=0, z::Float32=1.0f0) = x+y+z
 
-hasmacro1(@nospecialize(x)) = x
-hasmacro2(@nospecialize(x::Int)) = x
-hasmacro3(@nospecialize(x::Int), y::Float64) = x
+            hasmacro1(@nospecialize(x)) = x
+            hasmacro2(@nospecialize(x::Int)) = x
+            hasmacro3(@nospecialize(x::Int), y::Float64) = x
 
-hasdestructure1(x, (count, name)) = name^count
-hasdestructure2(x, (count, name)::Tuple{Int,Any}) = name^count
+            hasdestructure1(x, (count, name)) = name^count
+            hasdestructure2(x, (count, name)::Tuple{Int,Any}) = name^count
 
-struct A end
-struct B end
+            struct A end
+            struct B end
 
-checkunion(a::Union{Nothing, A}) = 1
+            checkunion(a::Union{Nothing, A}) = 1
 
-methgensym(::Vector{<:Integer}) = 1
+            methgensym(::Vector{<:Integer}) = 1
 
-mapf(fs, x) = (fs[1](x), mapf(Base.tail(fs), x)...)
-mapf(::Tuple{}, x) = ()
+            mapf(fs, x) = (fs[1](x), mapf(Base.tail(fs), x)...)
+            mapf(::Tuple{}, x) = ()
 
-for T in (Int, Float64, String)
-    @eval mytypeof(x::\$T) = \$T
-end
+            for T in (Int, Float64, String)
+                @eval mytypeof(x::\$T) = \$T
+            end
 
-@generated function firstparam(A::AbstractArray)
-    T = A.parameters[1]
-    return :(\$T)
-end
+            @generated function firstparam(A::AbstractArray)
+                T = A.parameters[1]
+                return :(\$T)
+            end
 
-end
-""")
-        end
+            end
+            """)
         sleep(mtimedelay)
         @eval using MethDel
         sleep(mtimedelay)
@@ -1856,32 +1665,30 @@ end
         @test MethDel.mytypeof(1.0) === Float64
         @test MethDel.mytypeof("hi") === String
         @test MethDel.firstparam(rand(2,2)) === Float64
-        open(joinpath(dn, "MethDel.jl"), "w") do io
-            println(io, """
-module MethDel
-f(x) = 1
-g(x::Array{T,N}, y::T) where N where T = 2
-h(x::Array{T}, y::T) where T = g(x, y)
-k(::Int; goodchoice=-1) = goodchoice
-dfltargs(x::Int8, yz::Tuple{Int,Float32}=(0,1.0f0)) = x+yz[1]+yz[2]
+        write(joinpath(dn, "MethDel.jl"), """
+            module MethDel
+            f(x) = 1
+            g(x::Array{T,N}, y::T) where N where T = 2
+            h(x::Array{T}, y::T) where T = g(x, y)
+            k(::Int; goodchoice=-1) = goodchoice
+            dfltargs(x::Int8, yz::Tuple{Int,Float32}=(0,1.0f0)) = x+yz[1]+yz[2]
 
-struct A end
-struct B end
+            struct A end
+            struct B end
 
-checkunion(a::Union{Nothing, B}) = 2
+            checkunion(a::Union{Nothing, B}) = 2
 
-methgensym(::Vector{<:Real}) = 1
+            methgensym(::Vector{<:Real}) = 1
 
-mapf(fs::F, x) where F = (fs[1](x), mapf(Base.tail(fs), x)...)
-mapf(::Tuple{}, x) = ()
+            mapf(fs::F, x) where F = (fs[1](x), mapf(Base.tail(fs), x)...)
+            mapf(::Tuple{}, x) = ()
 
-for T in (Int, String)
-    @eval mytypeof(x::\$T) = \$T
-end
+            for T in (Int, String)
+                @eval mytypeof(x::\$T) = \$T
+            end
 
-end
-""")
-        end
+            end
+            """)
         yry()
         @test MethDel.f(1.0) == 1
         @test MethDel.f(1) == 1
@@ -1939,25 +1746,21 @@ end
         dn = joinpath(testdir, "ReviseFileNow", "src")
         mkpath(dn)
         fn = joinpath(dn, "ReviseFileNow.jl")
-        open(fn, "w") do io
-            println(io, """
+        write(fn, """
             module ReviseFileNow
             f(x) = 1
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using ReviseFileNow
         @test ReviseFileNow.f(0) == 1
         sleep(mtimedelay)
         pkgdata = Revise.pkgdatas[Base.PkgId(ReviseFileNow)]
-        open(fn, "w") do io
-            println(io, """
+        write(fn, """
             module ReviseFileNow
             f(x) = 2
             end
             """)
-        end
         try
             Revise.revise_file_now(pkgdata, "foo")
         catch err
@@ -1975,38 +1778,30 @@ end
         dnA = joinpath(testdir, "ToplevelA", "src"); mkpath(dnA)
         dnB = joinpath(testdir, "ToplevelB", "src"); mkpath(dnB)
         dnC = joinpath(testdir, "ToplevelC", "src"); mkpath(dnC)
-        open(joinpath(dnA, "ToplevelA.jl"), "w") do io
-            println(io, """
+        write(joinpath(dnA, "ToplevelA.jl"), """
             module ToplevelA
             @eval using ToplevelB
             g() = 2
             end""")
-        end
-        open(joinpath(dnB, "ToplevelB.jl"), "w") do io
-            println(io, """
+        write(joinpath(dnB, "ToplevelB.jl"), """
             module ToplevelB
             using ToplevelC
             end""")
-        end
-        open(joinpath(dnC, "ToplevelC.jl"), "w") do io
-            println(io, """
+        write(joinpath(dnC, "ToplevelC.jl"), """
             module ToplevelC
             export f
             f() = 1
             end""")
-        end
         sleep(mtimedelay)
         using ToplevelA
         sleep(mtimedelay)
         @test ToplevelA.ToplevelB.f() == 1
         @test ToplevelA.g() == 2
-        open(joinpath(dnA, "ToplevelA.jl"), "w") do io
-            println(io, """
+        write(joinpath(dnA, "ToplevelA.jl"), """
             module ToplevelA
             @eval using ToplevelB
             g() = 3
             end""")
-        end
         yry()
         @test ToplevelA.ToplevelB.f() == 1
         @test ToplevelA.g() == 3
@@ -2020,8 +1815,7 @@ end
         # issue #599
         testdir = newtestdir()
         dn = joinpath(testdir, "StructInnerFuncs", "src"); mkpath(dn)
-        open(joinpath(dn, "StructInnerFuncs.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "StructInnerFuncs.jl"), """
             module StructInnerFuncs
             mutable struct A
                 x::Int
@@ -2031,14 +1825,12 @@ end
             end
             g(x) = 1
             end""")
-        end
         sleep(mtimedelay)
         using StructInnerFuncs
         sleep(mtimedelay)
         @test StructInnerFuncs.A(2).x == 4
         @test StructInnerFuncs.g(3) == 1
-        open(joinpath(dn, "StructInnerFuncs.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "StructInnerFuncs.jl"), """
             module StructInnerFuncs
             mutable struct A
                 x::Int
@@ -2048,7 +1840,6 @@ end
             end
             g(x) = 2
             end""")
-        end
         yry()
         @test StructInnerFuncs.A(2).x == 4
         @test StructInnerFuncs.g(3) == 2
@@ -2060,8 +1851,7 @@ end
         # issue #606
         testdir = newtestdir()
         dn = joinpath(testdir, "Issue606", "src"); mkpath(dn)
-        open(joinpath(dn, "Issue606.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "Issue606.jl"), """
             module Issue606
             function convert_output_relations()
                 function add_default_zero!(dict::Dict{K, V})::Dict{K, V} where
@@ -2085,13 +1875,11 @@ end
                 return "HELLO"
             end
             end""")
-        end
         sleep(mtimedelay)
         using Issue606
         sleep(mtimedelay)
         @test Issue606.convert_output_relations() == "HELLO"
-        open(joinpath(dn, "Issue606.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "Issue606.jl"), """
             module Issue606
             function convert_output_relations()
                 function add_default_zero!(dict::Dict{K, V})::Dict{K, V} where
@@ -2115,7 +1903,6 @@ end
                 return "HELLO2"
             end
             end""")
-        end
         yry()
         @test Issue606.convert_output_relations() == "HELLO2"
 
@@ -2127,8 +1914,7 @@ end
         dn = joinpath(testdir, "RevisionErrors", "src")
         mkpath(dn)
         fn = joinpath(dn, "RevisionErrors.jl")
-        open(fn, "w") do io
-            println(io, """
+        write(fn, """
             module RevisionErrors
             f(x) = 1
             struct Vec{N, T <: Union{Float32,Float64}}
@@ -2137,13 +1923,11 @@ end
             g(x) = 1
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using RevisionErrors
         sleep(mtimedelay)
         @test RevisionErrors.f(0) == 1
-        open(fn, "w") do io
-            println(io, """
+        write(fn, """
             module RevisionErrors
             f{x) = 2
             struct Vec{N, T <: Union{Float32,Float64}}
@@ -2152,7 +1936,6 @@ end
             g(x) = 1
             end
             """)
-        end
         logs, _ = Test.collect_test_logs() do
             yry()
         end
@@ -2196,8 +1979,7 @@ end
         end
         check_revision_error(logs[1], LoadError, "missing comma or }", 2)
 
-        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "RevisionErrors.jl"), """
             module RevisionErrors
             f(x) = 2
             struct Vec{N, T <: Union{Float32,Float64}}
@@ -2206,7 +1988,6 @@ end
             g(x) = 1
             end
             """)
-        end
         logs, _ = Test.collect_test_logs() do
             yry()
         end
@@ -2214,8 +1995,7 @@ end
         @test RevisionErrors.f(0) == 2
 
         # issue #421
-        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "RevisionErrors.jl"), """
             module RevisionErrors
             f(x) = 2
             struct Vec{N, T <: Union{Float32,Float64}}
@@ -2224,14 +2004,12 @@ end
             function g(x) = 1
             end
             """)
-        end
         logs, _ = Test.collect_test_logs() do
             yry()
         end
         check_revision_error(logs[1], LoadError, "unexpected \"=\"", 6)
 
-        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "RevisionErrors.jl"), """
             module RevisionErrors
             f(x) = 2
             struct Vec{N, T <: Union{Float32,Float64}}
@@ -2240,14 +2018,12 @@ end
             g(x) = 1
             end
             """)
-        end
         logs, _ = Test.collect_test_logs() do
             yry()
         end
         @test isempty(logs)
 
-        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "RevisionErrors.jl"), """
             module RevisionErrors
             f(x) = 2
             struct Vec{N, T <: Union{Float32,Float64}}
@@ -2257,7 +2033,6 @@ end
             foo(::Vector{T}) = 3
             end
             """)
-        end
         logs, _ = Test.collect_test_logs() do
             yry()
         end
@@ -2265,8 +2040,7 @@ end
 
         # issue #541
         sleep(mtimedelay)
-        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "RevisionErrors.jl"), """
             module RevisionErrors
             f(x) = 2
             struct Vec{N, T <: Union{Float32,Float64}}
@@ -2275,7 +2049,6 @@ end
             g(x} = 2
             end
             """)
-        end
         @test try
             revise(throw=true)
             false
@@ -2283,8 +2056,7 @@ end
             isa(err, LoadError) && occursin("""unexpected "}" """, err.error)
         end
         sleep(mtimedelay)
-        open(joinpath(dn, "RevisionErrors.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "RevisionErrors.jl"), """
             module RevisionErrors
             f(x) = 2
             struct Vec{N, T <: Union{Float32,Float64}}
@@ -2293,7 +2065,6 @@ end
             g(x) = 2
             end
             """)
-        end
         yry()
         @test RevisionErrors.g(0) == 2
 
@@ -2301,8 +2072,7 @@ end
         empty!(Revise.queue_errors)
 
         testfile = joinpath(testdir, "Test301.jl")
-        open(testfile, "w") do io
-            print(io, """
+        write(testfile, """
             module Test301
             mutable struct Struct301
                 x::Int
@@ -2319,7 +2089,6 @@ end
             end
             end
             """)
-        end
         logfile = joinpath(tempdir(), randtmp()*".log")
         open(logfile, "w") do io
             redirect_stderr(io) do
@@ -2367,13 +2136,11 @@ end
         dn = joinpath(testdir, "RevisionInterrupt", "src")
         mkpath(dn)
         fn = joinpath(dn, "RevisionInterrupt.jl")
-        open(fn, "w") do io
-            println(io, """
+        write(fn, """
             module RevisionInterrupt
             f(x) = 1
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using RevisionInterrupt
         sleep(mtimedelay)
@@ -2386,14 +2153,12 @@ end
                              throw(InterruptException())
                          end)""")
             n += 1
-            open(fn, "w") do io
-                println(io, """
+            write(fn, """
                 module RevisionInterrupt
                 $errthrow
                 f(x) = $n
                 end
                 """)
-            end
             logs, _ = Test.collect_test_logs() do
                 yry()
             end
@@ -2407,13 +2172,11 @@ end
             end
             check_revision_interrupt(logs)
             # @test RevisionInterrupt.f(0) == 1
-            open(fn, "w") do io
-                println(io, """
+            write(fn, """
                 module RevisionInterrupt
                 f(x) = $n
                 end
                 """)
-            end
             logs, _ = Test.collect_test_logs() do
                 yry()
             end
@@ -2426,26 +2189,22 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "ModifyEnum", "src")
         mkpath(dn)
-        open(joinpath(dn, "ModifyEnum.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "ModifyEnum.jl"), """
             module ModifyEnum
             @enum Fruit apple=1 orange=2
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using ModifyEnum
         sleep(mtimedelay)
         @test Int(ModifyEnum.apple) == 1
         @test ModifyEnum.apple isa ModifyEnum.Fruit
         @test_throws UndefVarError Int(ModifyEnum.kiwi)
-        open(joinpath(dn, "ModifyEnum.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "ModifyEnum.jl"), """
             module ModifyEnum
             @enum Fruit apple=1 orange=2 kiwi=3
             end
             """)
-        end
         yry()
         @test Int(ModifyEnum.kiwi) == 3
         @test Base.instances(ModifyEnum.Fruit) === (ModifyEnum.apple, ModifyEnum.orange, ModifyEnum.kiwi)
@@ -2457,8 +2216,7 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "GetDef", "src")
         mkpath(dn)
-        open(joinpath(dn, "GetDef.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "GetDef.jl"), """
             module GetDef
 
             f(x) = 1
@@ -2470,7 +2228,6 @@ end
 
             end
             """)
-        end
         sleep(mtimedelay)
         @eval using GetDef
         sleep(mtimedelay)
@@ -2519,21 +2276,13 @@ end
 
     do_test("Manual track") && @testset "Manual track" begin
         srcfile = joinpath(tempdir(), randtmp()*".jl")
-        open(srcfile, "w") do io
-            print(io, """
-            revise_f(x) = 1
-            """)
-        end
+        write(srcfile, "revise_f(x) = 1")
         sleep(mtimedelay)
         includet(srcfile)
         sleep(mtimedelay)
         @test revise_f(10) == 1
         @test length(signatures_at(srcfile, 1)) == 1
-        open(srcfile, "w") do io
-            print(io, """
-            revise_f(x) = 2
-            """)
-        end
+        write(srcfile, "revise_f(x) = 2")
         yry()
         @test revise_f(10) == 2
         push!(to_remove, srcfile)
@@ -2542,21 +2291,13 @@ end
         curdir = pwd()
         cd(tempdir())
         srcfile = randtmp()*".jl"
-        open(srcfile, "w") do io
-            print(io, """
-            revise_floc(x) = 1
-            """)
-        end
+        write(srcfile, "revise_floc(x) = 1")
         sleep(mtimedelay)
         include(joinpath(pwd(), srcfile))
         @test revise_floc(10) == 1
         Revise.track(srcfile)
         sleep(mtimedelay)
-        open(srcfile, "w") do io
-            print(io, """
-            revise_floc(x) = 2
-            """)
-        end
+        write(srcfile, "revise_floc(x) = 2")
         yry()
         @test revise_floc(10) == 2
         # Call track again & make sure it doesn't track twice
@@ -2569,9 +2310,7 @@ end
 
         # Empty files (issue #253)
         srcfile = joinpath(tempdir(), randtmp()*".jl")
-        open(srcfile, "w") do io
-            println(io)
-        end
+        write(srcfile, "\n")
         sleep(mtimedelay)
         includet(srcfile)
         sleep(mtimedelay)
@@ -2580,11 +2319,7 @@ end
 
         # Double-execution (issue #263)
         srcfile = joinpath(tempdir(), randtmp()*".jl")
-        open(srcfile, "w") do io
-            print(io, """
-            println("executed")
-            """)
-        end
+        write(srcfile, "println(\"executed\")")
         sleep(mtimedelay)
         logfile = joinpath(tempdir(), randtmp()*".log")
         open(logfile, "w") do io
@@ -2598,11 +2333,7 @@ end
         # In older versions of Revise, it would do the work again when the file
         # changed. Starting with 3.0, Revise modifies methods and docstrings but
         # does not "do work."
-        open(srcfile, "w") do io
-            print(io, """
-            println("executed again")
-            """)
-        end
+        write(srcfile, "println(\"executed again\")")
         open(logfile, "w") do io
             redirect_stdout(io) do
                 yry()
@@ -2617,33 +2348,20 @@ end
         push!(to_remove, srcdir)
         srcfile1 = joinpath(srcdir, randtmp()*".jl")
         srcfile2 = joinpath(srcdir, randtmp()*".jl")
-        open(srcfile1, "w") do io
-            print(io, """
-                includet(\"$(basename(srcfile2))\")
-                """)
-        end
-        open(srcfile2, "w") do io
-            print(io, """
-                f264() = 1
-                """)
-        end
+        write(srcfile1, "includet(\"$(basename(srcfile2))\")")
+        write(srcfile2, "f264() = 1")
         sleep(mtimedelay)
         include(srcfile1)
         sleep(mtimedelay)
         @test f264() == 1
-        open(srcfile2, "w") do io
-            print(io, """
-                f264() = 2
-                """)
-        end
+        write(srcfile2, "f264() = 2")
         yry()
         @test f264() == 2
 
         # recursive `includet`s (issue #302)
         testdir = newtestdir()
         srcfile1 = joinpath(testdir, "Test302.jl")
-        open(srcfile1, "w") do io
-            print(io, """
+        write(srcfile1, """
             module Test302
             struct Parameters{T}
                 control::T
@@ -2656,21 +2374,17 @@ end
             end
             end
             """)
-        end
         srcfile2 = joinpath(testdir, "test2.jl")
-        open(srcfile2, "w") do io
-            print(io, """
+        write(srcfile2, """
             includet(joinpath(@__DIR__, "Test302.jl"))
             using .Test302
             """)
-        end
         sleep(mtimedelay)
         includet(srcfile2)
         sleep(mtimedelay)
         p = Test302.Parameters{Int}(3)
         @test p() == p
-        open(srcfile1, "w") do io
-            print(io, """
+        write(srcfile1, """
             module Test302
             struct Parameters{T}
                 control::T
@@ -2683,7 +2397,6 @@ end
             end
             end
             """)
-        end
         yry()
         @test p() == 0
 
@@ -2691,17 +2404,11 @@ end
         empty!(issue639report)
         srcfile1 = joinpath(testdir, "file1.jl")
         srcfile2 = joinpath(testdir, "file2.jl")
-        open(srcfile1, "w") do io
-            print(io, """
+        write(srcfile1, """
             include(joinpath(@__DIR__, "file2.jl"))
             push!($(@__MODULE__).issue639report, '1')
             """)
-        end
-        open(srcfile2, "w") do io
-            print(io, """
-            push!($(@__MODULE__).issue639report, '2')
-            """)
-        end
+        write(srcfile2, "push!($(@__MODULE__).issue639report, '2')")
         sleep(mtimedelay)
         includet(srcfile1)
         @test issue639report == ['2', '1']
@@ -2709,20 +2416,14 @@ end
         # Non-included dependency (issue #316)
         testdir = newtestdir()
         dn = joinpath(testdir, "LikePlots", "src"); mkpath(dn)
-        open(joinpath(dn, "LikePlots.jl"), "w") do io
-            println(io, """
+        write(joinpath(dn, "LikePlots.jl"), """
             module LikePlots
             plot() = 0
             backend() = include(joinpath(@__DIR__, "backends/backend.jl"))
             end
             """)
-        end
         sd = joinpath(dn, "backends"); mkpath(sd)
-        open(joinpath(sd, "backend.jl"), "w") do io
-            println(io, """
-            f() = 1
-            """)
-        end
+        write(joinpath(sd, "backend.jl"), "f() = 1")
         sleep(mtimedelay)
         @eval using LikePlots
         @test LikePlots.plot() == 0
@@ -2732,11 +2433,7 @@ end
         LikePlots.backend()
         @test LikePlots.f() == 1
         sleep(2*mtimedelay)
-        open(joinpath(sd, "backend.jl"), "w") do io
-            println(io, """
-            f() = 2
-            """)
-        end
+        write(joinpath(sd, "backend.jl"), "f() = 2")
         yry()
         @test LikePlots.f() == 2
         pkgdata = Revise.pkgdatas[Base.PkgId(LikePlots)]
@@ -2753,13 +2450,11 @@ end
 
         # Issue #475
         srcfile = joinpath(tempdir(), randtmp()*".jl")
-        open(srcfile, "w") do io
-            print(io, """
+        write(srcfile, """
             a475 = 0.8
             a475 = 0.7
             a475 = 0.8
             """)
-        end
         includet(srcfile)
         @test a475 == 0.8
 
@@ -2768,9 +2463,7 @@ end
     do_test("Auto-track user scripts") && @testset "Auto-track user scripts" begin
         srcfile = joinpath(tempdir(), randtmp()*".jl")
         push!(to_remove, srcfile)
-        open(srcfile, "w") do io
-            println(io, "revise_g() = 1")
-        end
+        write(srcfile, "revise_g() = 1")
         sleep(mtimedelay)
         # By default user scripts are not tracked
         # issue #358: but if the user is tracking all includes...
@@ -2779,9 +2472,7 @@ end
         include(srcfile)
         yry()
         @test revise_g() == 1
-        open(srcfile, "w") do io
-            println(io, "revise_g() = 2")
-        end
+        write(srcfile, "revise_g() = 2")
         yry()
         @test revise_g() == 1
         # Turn on tracking of user scripts
@@ -2790,16 +2481,12 @@ end
         try
             srcfile = joinpath(tempdir(), randtmp()*".jl")
             push!(to_remove, srcfile)
-            open(srcfile, "w") do io
-                println(io, "revise_g() = 1")
-            end
+            write(srcfile, "revise_g() = 1")
             sleep(mtimedelay)
             include(srcfile)
             yry()
             @test revise_g() == 1
-            open(srcfile, "w") do io
-                println(io, "revise_g() = 2")
-            end
+            write(srcfile, "revise_g() = 2")
             yry()
             @test revise_g() == 2
 
@@ -2838,18 +2525,16 @@ end
             fetch(r)
         end
         """
-        open(joinpath(dn, modname*".jl"), "w") do io
-            println(io, """
-module ReviseDistributed
-using Distributed
+        write(joinpath(dn, modname*".jl"), """
+            module ReviseDistributed
+            using Distributed
 
-f() = π
-g(::Int) = 0
-$s31474
+            f() = π
+            g(::Int) = 0
+            $s31474
 
-end
-""")
-        end
+            end
+            """)
         sleep(mtimedelay)
         using ReviseDistributed
         sleep(mtimedelay)
@@ -2865,16 +2550,14 @@ end
             fetch(r)
         end
         """
-        open(joinpath(dn, modname*".jl"), "w") do io
-            println(io, """
-module ReviseDistributed
+        write(joinpath(dn, modname*".jl"), """
+            module ReviseDistributed
 
-f() = 3.0
-$s31474
+            f() = 3.0
+            $s31474
 
-end
-""")
-        end
+            end
+            """)
         yry()
         @test_throws MethodError ReviseDistributed.g(1)
         for p in allworkers
@@ -2913,9 +2596,7 @@ end
 
         end
         """
-        open(joinpath(dn, modname*".jl"), "w") do io
-            println(io, s527_old)
-        end
+        write(joinpath(dn, modname*".jl"), s527_old)
 
         # In the first tests, we only load Revise on our favorite process. The other (boring) process should be unaffected by the upcoming tests.
         Distributed.remotecall_eval(Main, [favorite_proc], :(using Revise))
@@ -2937,9 +2618,7 @@ end
 
         end
         """
-        open(joinpath(dn, modname*".jl"), "w") do io
-            println(io, s527_new)
-        end
+        write(joinpath(dn, modname*".jl"), s527_new)
         sleep(mtimedelay)
         Distributed.remotecall_eval(Main, [favorite_proc], :(Revise.revise()))
         sleep(mtimedelay)
@@ -2954,9 +2633,7 @@ end
         # In the second part, we'll also load Revise on the boring process, which should have no effect.
         Distributed.remotecall_eval(Main, [boring_proc], :(using Revise))
 
-        open(joinpath(dn, modname*".jl"), "w") do io
-            println(io, s527_old)
-        end
+        write(joinpath(dn, modname*".jl"), s527_old)
 
         sleep(mtimedelay)
         @test !Distributed.remotecall_eval(Main, favorite_proc, :(Revise.revision_queue |> isempty))
@@ -2999,12 +2676,10 @@ end
             mkpath(joinpath(randdir, "src"))
             mainjl = joinpath(randdir, "src", modname*".jl")
             LibGit2.with(LibGit2.init(randdir)) do repo
-                open(mainjl, "w") do io
-                    println(io, """
+                write(mainjl, """
                     module $modname
                     end
                     """)
-                end
                 LibGit2.add!(repo, joinpath("src", modname*".jl"))
                 test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
                 LibGit2.commit(repo, "New file test"; author=test_sig, committer=test_sig)
@@ -3015,18 +2690,12 @@ end
             mod = @eval $(Symbol(modname))
             id = Base.PkgId(mod)
             extrajl = joinpath(randdir, "src", "extra.jl")
-            open(extrajl, "w") do io
-                println(io, """
-                println("extra")
-                """)
-            end
-            open(mainjl, "w") do io
-                println(io, """
+            write(extrajl, "println(\"extra\")")
+            write(mainjl, """
                 module $modname
                 include("extra.jl")
                 end
                 """)
-            end
             sleep(mtimedelay)
             repo = LibGit2.GitRepo(randdir)
             LibGit2.add!(repo, joinpath("src", "extra.jl"))
@@ -3146,24 +2815,20 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "Baremodule", "src")
         mkpath(dn)
-        open(joinpath(dn, "Baremodule.jl"), "w") do io
-            println(io, """
-baremodule Baremodule
-f() = 1
-end
-""")
-        end
+        write(joinpath(dn, "Baremodule.jl"), """
+            baremodule Baremodule
+            f() = 1
+            end
+            """)
         sleep(mtimedelay)
         @eval using Baremodule
         sleep(mtimedelay)
         @test Baremodule.f() == 1
-        open(joinpath(dn, "Baremodule.jl"), "w") do io
-            println(io, """
-module Baremodule
-f() = 2
-end
-""")
-        end
+        write(joinpath(dn, "Baremodule.jl"), """
+            module Baremodule
+            f() = 2
+            end
+            """)
         yry()
         @test Baremodule.f() == 2
         rm_precompile("Baremodule")
@@ -3174,27 +2839,21 @@ end
         testdir = newtestdir()
         dn = joinpath(testdir, "B670", "src")
         mkpath(dn)
-        open(joinpath(dn, "A670.jl"), "w") do io
-            println(io, """
-                        x = 6
-                        y = 7
-                        """)
-        end
+        write(joinpath(dn, "A670.jl"), """
+            x = 6
+            y = 7
+            """)
         sleep(mtimedelay)
-        open(joinpath(dn, "B670.jl"), "w") do io
-            println(io, """
-                        module B670
-                            x = 5
-                        end
-                        """)
-        end
+        write(joinpath(dn, "B670.jl"), """
+            module B670
+                x = 5
+            end
+            """)
         sleep(mtimedelay)
-        open(joinpath(dn, "C670.jl"), "w") do io
-            println(io, """
-                        using B670
-                        Base.include(B670, "A670.jl")
-                        """)
-        end
+        write(joinpath(dn, "C670.jl"), """
+            using B670
+            Base.include(B670, "A670.jl")
+            """)
         sleep(mtimedelay)
         @eval using B670
         path = joinpath(dn, "C670.jl")
@@ -3227,13 +2886,11 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
                 mkpath(srcpath)
             end
             filepath = joinpath(srcpath, "A2D.jl")
-            open(filepath, "w") do io
-                println(io, """
-                        module A2D
-                        f() = $val
-                        end
-                        """)
-            end
+            write(filepath, """
+                module A2D
+                f() = $val
+                end
+                """)
             chmod(filepath, mode=="r" ? 0o100444 : 0o100644)
             return pkgpath
         end
@@ -3252,9 +2909,7 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     old_project = Base.ACTIVE_PROJECT[]
     Base.ACTIVE_PROJECT[] = joinpath(depot, "environments", "v$(VERSION.major).$(VERSION.minor)", "Project.toml")
     mkpath(dirname(Base.ACTIVE_PROJECT[]))
-    open(Base.ACTIVE_PROJECT[], "w") do io
-        println(io, "[deps]")
-    end
+    write(Base.ACTIVE_PROJECT[], "[deps]")
     ropkgpath = make_a2d(depot, 1)
     Pkg.develop(PackageSpec(path=ropkgpath))
     sleep(mtimedelay)
@@ -3300,28 +2955,24 @@ do_test("Broken dependencies (issue #371)") && @testset "Broken dependencies (is
     filepath = joinpath(srcdir, "DepPkg371.jl")
     cd(testdir) do
         Pkg.generate("DepPkg371")
-        open(filepath, "w") do io
-            println(io, """
+        write(filepath, """
             module DepPkg371
             using OrderedCollections   # undeclared dependency
             greet() = "Hello world!"
             end
             """)
-        end
     end
     sleep(mtimedelay)
     @info "A warning about not having OrderedCollection in dependencies is expected"
     @eval using DepPkg371
     @test DepPkg371.greet() == "Hello world!"
     sleep(mtimedelay)
-    open(filepath, "w") do io
-        println(io, """
+    write(filepath, """
         module DepPkg371
         using OrderedCollections   # undeclared dependency
         greet() = "Hello again!"
         end
         """)
-    end
     yry()
     @test DepPkg371.greet() == "Hello again!"
 
@@ -3347,8 +2998,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     testdir = newtestdir()
     dn = joinpath(testdir, "NewFile", "src")
     mkpath(dn)
-    open(joinpath(dn, "NewFile.jl"), "w") do io
-        println(io, """
+    write(joinpath(dn, "NewFile.jl"), """
             module NewFile
             f() = 1
             module SubModule
@@ -3356,46 +3006,37 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
             end
             end
             """)
-    end
     sleep(mtimedelay)
     @eval using NewFile
     @test NewFile.f() == 1
     @test_throws UndefVarError NewFile.g()
     sleep(mtimedelay)
-    open(joinpath(dn, "g.jl"), "w") do io
-        println(io, "g() = 2")
-    end
-    open(joinpath(dn, "NewFile.jl"), "w") do io
-        println(io, """
-            module NewFile
-            include("g.jl")
-            f() = 1
-            module SubModule
-            struct NewType end
-            end
-            end
-            """)
-    end
+    write(joinpath(dn, "g.jl"), "g() = 2")
+    write(joinpath(dn, "NewFile.jl"), """
+        module NewFile
+        include("g.jl")
+        f() = 1
+        module SubModule
+        struct NewType end
+        end
+        end
+        """)
     yry()
     @test NewFile.f() == 1
     @test NewFile.g() == 2
     sd = joinpath(dn, "subdir")
     mkpath(sd)
-    open(joinpath(sd, "h.jl"), "w") do io
-        println(io, "h(::NewType) = 3")
-    end
-    open(joinpath(dn, "NewFile.jl"), "w") do io
-        println(io, """
-            module NewFile
-            include("g.jl")
-            f() = 1
-            module SubModule
-            struct NewType end
-            include("subdir/h.jl")
-            end
-            end
-            """)
-    end
+    write(joinpath(sd, "h.jl"), "h(::NewType) = 3")
+    write(joinpath(dn, "NewFile.jl"), """
+        module NewFile
+        include("g.jl")
+        f() = 1
+        module SubModule
+        struct NewType end
+        include("subdir/h.jl")
+        end
+        end
+        """)
     yry()
     @test NewFile.f() == 1
     @test NewFile.g() == 2
@@ -3403,28 +3044,22 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
 
     dn = joinpath(testdir, "DeletedFile", "src")
     mkpath(dn)
-    open(joinpath(dn, "DeletedFile.jl"), "w") do io
-        println(io, """
-            module DeletedFile
-            include("g.jl")
-            f() = 1
-            end
-            """)
-    end
-    open(joinpath(dn, "g.jl"), "w") do io
-        println(io, "g() = 1")
-    end
+    write(joinpath(dn, "DeletedFile.jl"), """
+        module DeletedFile
+        include("g.jl")
+        f() = 1
+        end
+        """)
+    write(joinpath(dn, "g.jl"), "g() = 1")
     sleep(mtimedelay)
     @eval using DeletedFile
     @test DeletedFile.f() == DeletedFile.g() == 1
     sleep(mtimedelay)
-    open(joinpath(dn, "DeletedFile.jl"), "w") do io
-        println(io, """
-            module DeletedFile
-            f() = 1
-            end
-            """)
-    end
+    write(joinpath(dn, "DeletedFile.jl"), """
+        module DeletedFile
+        f() = 1
+        end
+        """)
     rm(joinpath(dn, "g.jl"))
     yry()
     @test DeletedFile.f() == 1
@@ -3436,8 +3071,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     # https://discourse.julialang.org/t/revise-with-requires/19347
     dn = joinpath(testdir, "TrackRequires", "src")
     mkpath(dn)
-    open(joinpath(dn, "TrackRequires.jl"), "w") do io
-        println(io, """
+    write(joinpath(dn, "TrackRequires.jl"), """
         module TrackRequires
         using Requires
         const called_onearg = Ref(false)
@@ -3464,27 +3098,14 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         end
         end # module
         """)
-    end
-    open(joinpath(dn, "testfile.jl"), "w") do io
-        println(io, "testfunc() = 1")
-    end
-    open(joinpath(dn, "st.jl"), "w") do io
-        println(io, """
+    write(joinpath(dn, "testfile.jl"), "testfunc() = 1")
+    write(joinpath(dn, "st.jl"), """
         struct NewType <: SuperType end
         h(::NewType) = 3
         """)
-    end
     sd = mkpath(joinpath(dn, "subdir"))
-    open(joinpath(sd, "anotherfile.jl"), "w") do io
-        println(io, """
-        ftrack() = 1
-        """)
-    end
-    open(joinpath(sd, "yetanotherfile.jl"), "w") do io
-        println(io, """
-        fauto() = 1
-        """)
-    end
+    write(joinpath(sd, "anotherfile.jl"), "ftrack() = 1")
+    write(joinpath(sd, "yetanotherfile.jl"), "fauto() = 1")
     sleep(mtimedelay)
     @eval using TrackRequires
     notified = isdefined(TrackRequires.Requires, :withnotifications)
@@ -3494,9 +3115,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     @eval using EndpointRanges  # to trigger Requires
     sleep(mtimedelay)
     notified && @test TrackRequires.testfunc() == 1
-    open(joinpath(dn, "testfile.jl"), "w") do io
-        println(io, "testfunc() = 2")
-    end
+    write(joinpath(dn, "testfile.jl"), "testfunc() = 2")
     yry()
     notified && @test TrackRequires.testfunc() == 2
     @test_throws UndefVarError TrackRequires.SubModule.h(TrackRequires.SubModule.NewType())
@@ -3547,8 +3166,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     # Ensure it also works if the Requires dependency is pre-loaded
     dn = joinpath(testdir, "TrackRequires2", "src")
     mkpath(dn)
-    open(joinpath(dn, "TrackRequires2.jl"), "w") do io
-        println(io, """
+    write(joinpath(dn, "TrackRequires2.jl"), """
         module TrackRequires2
         using Requires
         function __init__()
@@ -3563,30 +3181,21 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         end
         end # module
         """)
-    end
-    open(joinpath(dn, "testfile.jl"), "w") do io
-        println(io, "testfunc() = 1")
-    end
-    open(joinpath(dn, "testfile2.jl"), "w") do io
-        println(io, "othertestfunc() = -1")
-    end
+    write(joinpath(dn, "testfile.jl"), "testfunc() = 1")
+    write(joinpath(dn, "testfile2.jl"), "othertestfunc() = -1")
     sleep(mtimedelay)
     @eval using TrackRequires2
     sleep(mtimedelay)
     notified && @test TrackRequires2.testfunc() == 1
     @test_throws UndefVarError TrackRequires2.othertestfunc()
-    open(joinpath(dn, "testfile.jl"), "w") do io
-        println(io, "testfunc() = 2")
-    end
+    write(joinpath(dn, "testfile.jl"), "testfunc() = 2")
     yry()
     notified && @test TrackRequires2.testfunc() == 2
     @test_throws UndefVarError TrackRequires2.othertestfunc()
     @eval using MappedArrays
     @test TrackRequires2.othertestfunc() == -1
     sleep(mtimedelay)
-    open(joinpath(dn, "testfile2.jl"), "w") do io
-        println(io, "othertestfunc() = -2")
-    end
+    write(joinpath(dn, "testfile2.jl"), "othertestfunc() = -2")
     yry()
     notified && @test TrackRequires2.othertestfunc() == -2
 
@@ -3609,9 +3218,7 @@ do_test("entr") && @testset "entr" begin
     srcfile1 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile1)
     srcfile2 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile2)
     revise(throw=true)   # force compilation
-    open(srcfile1, "w") do io
-        println(io, "Core.eval(Main, :(__entr__ = 1))")
-    end
+    write(srcfile1, "Core.eval(Main, :(__entr__ = 1))")
     touch(srcfile2)
     Core.eval(Main, :(__entr__ = 0))
     sleep(mtimedelay)
@@ -3628,25 +3235,19 @@ do_test("entr") && @testset "entr" begin
             @test Main.__entr__ == 1  # callback should have been run (postpone=false)
 
             # File modification
-            open(srcfile1, "w") do io
-                println(io, "Core.eval(Main, :(__entr__ = 2))")
-            end
+            write(srcfile1, "Core.eval(Main, :(__entr__ = 2))")
             sleep(1)
             @test Main.__entr__ == 2  # callback should have been called
 
             # Two events in quick succession (w.r.t. the `pause` argument)
-            open(srcfile1, "w") do io
-                println(io, "Core.eval(Main, :(__entr__ += 1))")
-            end
+            write(srcfile1, "Core.eval(Main, :(__entr__ += 1))")
             sleep(0.1)
             touch(srcfile2)
             sleep(1)
             @test Main.__entr__ == 3  # callback should have been called only once
 
 
-            open(srcfile1, "w") do io
-                println(io, "error(\"stop\")")
-            end
+            write(srcfile1, "error(\"stop\")")
             sleep(mtimedelay)
         end
         @test false
@@ -3743,11 +3344,7 @@ do_test("entr with modules") && @testset "entr with modules" begin
     modname = "A354"
     srcfile = joinpath(testdir, modname * ".jl")
 
-    function setvalue(x)
-        open(srcfile, "w") do io
-            print(io, "module $modname test() = $x end")
-        end
-    end
+    setvalue(x) = write(srcfile, "module $modname test() = $x end")
 
     setvalue(1)
 
@@ -3786,9 +3383,7 @@ do_test("entr with all files") && @testset "entr with all files" begin
     testdir = newtestdir()
     modname = "A469"
     srcfile = joinpath(testdir, modname * ".jl")
-    open(srcfile, "w") do io
-        print(io, "module $modname test() = 469 end")
-    end
+    write(srcfile, "module $modname test() = 469 end")
 
     sleep(mtimedelay)
     @eval using A469
@@ -3872,11 +3467,7 @@ do_test("callbacks") && @testset "callbacks" begin
     modname = "A355"
     srcfile = joinpath(testdir, modname * ".jl")
 
-    function setvalue(x)
-        open(srcfile, "w") do io
-            print(io, "module $modname test() = $x end")
-        end
-    end
+    setvalue(x) = write(srcfile, "module $modname test() = $x end")
 
     setvalue(1)
 
@@ -3905,11 +3496,7 @@ do_test("callbacks") && @testset "callbacks" begin
     # Issue 574 - ad-hoc revision of a file, combined with add_callback()
     A574_path = joinpath(testdir, "A574.jl")
 
-    function set_foo_A574(x)
-        open(A574_path, "w") do io
-            println(io, "foo_574() = $x")
-        end
-    end
+    set_foo_A574(x) = write(A574_path, "foo_574() = $x")
 
     set_foo_A574(1)
     includet(@__MODULE__, A574_path)
@@ -3977,7 +3564,6 @@ function load_in_empty_project_test()
     @assert isfile(revise_proj)
 
     src = """
-
         import Pkg
         Pkg.activate("fake_env")
         @assert !isfile(Base.active_project())
@@ -3992,7 +3578,6 @@ function load_in_empty_project_test()
                 # just fail for this error (see #532)
                 err isa InitError && rethrow(err)
         end
-
     """
     cmd = `$julia --project=@. -E $src`
 
