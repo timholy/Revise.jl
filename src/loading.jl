@@ -61,6 +61,9 @@ function modulefiles(mod::Module)
     id = PkgId(mod)
     if id.name == "Base" || Symbol(id.name) ∈ stdlib_names
         parentfile = normpath(Base.find_source_file(parentfile))
+        if !startswith(parentfile, juliadir)
+            parentfile = replace(parentfile, fallback_juliadir()=>juliadir)
+        end
         filedata = Base._included_files
         included_files = filter(mf->mf[1] == mod, filedata)
         return keypath(parentfile), [keypath(mf[2]) for mf in included_files]

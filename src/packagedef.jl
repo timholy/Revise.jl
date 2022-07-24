@@ -156,36 +156,39 @@ const basebuilddir = begin
     dirname(dirname(sysimg))
 end
 
+function fallback_juliadir()
+    candidate = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
+    if !isdir(joinpath(candidate, "base"))
+        while true
+            trydir = joinpath(candidate, "base")
+            isdir(trydir) && break
+            trydir = joinpath(candidate, "share", "julia", "base")
+            if isdir(trydir)
+                candidate = joinpath(candidate, "share", "julia")
+                break
+            end
+            next_candidate = dirname(candidate)
+            next_candidate == candidate && break
+            candidate = next_candidate
+        end
+    end
+    normpath(candidate)
+end
+
 """
     Revise.juliadir
 
 Constant specifying full path to julia top-level source directory.
 This should be reliable even for local builds, cross-builds, and binary installs.
 """
-const juliadir = begin
-    local jldir = basebuilddir
-    try
-        isdir(joinpath(jldir, "base")) || throw(ErrorException("$(jldir) does not have \"base\""))
-    catch
-        # Binaries probably end up here. We fall back on Sys.BINDIR
-        jldir = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
-        if !isdir(joinpath(jldir, "base"))
-            while true
-                trydir = joinpath(jldir, "base")
-                isdir(trydir) && break
-                trydir = joinpath(jldir, "share", "julia", "base")
-                if isdir(trydir)
-                    jldir = joinpath(jldir, "share", "julia")
-                    break
-                end
-                jldirnext = dirname(jldir)
-                jldirnext == jldir && break
-                jldir = jldirnext
-            end
-        end
+const juliadir = normpath(
+    if isdir(joinpath(basebuilddir, "base"))
+        basebuilddir
+    else
+        fallback_juliadir()  # Binaries probably end up here. We fall back on Sys.BINDIR
     end
-    normpath(jldir)
-end
+)
+
 const cache_file_key = Dict{String,String}() # corrected=>uncorrected filenames
 const src_file_key   = Dict{String,String}() # uncorrected=>corrected filenames
 
