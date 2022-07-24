@@ -1,3 +1,4 @@
+# COV_EXCL_START
 macro warnpcfail(ex::Expr)
     modl = __module__
     file = __source__.file === nothing ? "?" : String(__source__.file)
@@ -88,3 +89,4 @@ function _precompile_()
     end
     return nothing
 end
+# COV_EXCL_STOP

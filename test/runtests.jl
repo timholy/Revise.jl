@@ -96,14 +96,14 @@ const issue639report = []
         @test isequal(exs[2], Revise.RelocatableExpr(:(g(x) = sin(x))))
         @test !isequal(exs[1], Revise.RelocatableExpr(:(g(x) = sin(x))))
         @test string(rex) == """
-quote
-    f(x) = begin
-            x ^ 2
-        end
-    g(x) = begin
-            sin(x)
-        end
-end"""
+            quote
+                f(x) = begin
+                        x ^ 2
+                    end
+                g(x) = begin
+                        sin(x)
+                    end
+            end"""
     end
 
     do_test("Equality and hashing") && @testset "Equality and hashing" begin
@@ -118,14 +118,14 @@ end"""
     do_test("Parse errors") && @testset "Parse errors" begin
         md = Revise.ModuleExprsSigs(Main)
         @test_throws LoadError Revise.parse_source!(md, """
-begin # this block should parse correctly, cf. issue #109
+            begin # this block should parse correctly, cf. issue #109
 
-end
-f(x) = 1
-g(x) = 2
-h{x) = 3  # error
-k(x) = 4
-""", "test", Main)
+            end
+            f(x) = 1
+            g(x) = 2
+            h{x) = 3  # error
+            k(x) = 4
+            """, "test", Main)
 
         # Issue #448
         testdir = newtestdir()
@@ -312,6 +312,10 @@ k(x) = 4
         @test length(Revise.actions(rlogger)) == 6  # by default LineOffset is skipped
         @test length(Revise.actions(rlogger; line=true)) == 9
         @test_broken length(Revise.diffs(rlogger)) == 2
+        io = PipeBuffer()
+        foreach(rec -> show(io, rec), rlogger.logs)
+        foreach(rec -> show(io, rec; verbose=false), rlogger.logs)
+        @test count("Revise.LogRecord", read(io, String)) > 8
         empty!(rlogger.logs)
 
         # Backtraces. Note this doesn't test the line-number correction
@@ -362,6 +366,11 @@ k(x) = 4
         rex3 = Revise.RelocatableExpr(:(x = $sym3))
         @test isequal(rex1, rex3)
         @test hash(rex1) == hash(rex3)
+
+        # coverage
+        rex = convert(Revise.RelocatableExpr, :(a = 1))
+        @test Revise.striplines!(rex) isa Revise.RelocatableExpr
+        @test copy(rex) !== rex
     end
 
     do_test("Display") && @testset "Display" begin
@@ -902,7 +911,7 @@ k(x) = 4
             """)
         sleep(mtimedelay)
         write(joinpath(dn, "file.jl"), "struct Ord2 end")
-        @info "The following error messge is expected for this broken test"
+        @info "The following error message is expected for this broken test"
         yry()
         @test_broken Order2.f(Order2.Ord2()) == 1
         # Resolve it with retry
@@ -3574,6 +3583,20 @@ do_test("includet with mod arg (issue #689)") && @testset "includet with mod arg
     @test Driver.Codes.Common.foo == 2
 end
 
+do_test("misc - coverage") && @testset "misc - coverage" begin
+    @test Revise.ReviseEvalException("undef", UndefVarError(:foo)).loc isa String
+    @test !Revise.throwto_repl(UndefVarError(:foo))
+
+    @test endswith(Revise.fallback_juliadir(), "julia")
+
+    @test isnothing(Revise.revise(REPL.REPLBackend()))
+end
+
+do_test("deprecated") && @testset "deprecated" begin
+    @test_logs (:warn, r"`steal_repl_backend` has been removed.*") Revise.async_steal_repl_backend()
+    @test_logs (:warn, r"`steal_repl_backend` has been removed.*") Revise.wait_steal_repl_backend()
+end
+
 println("beginning cleanup")
 GC.gc(); GC.gc()
 
@@ -3605,7 +3628,6 @@ GC.gc(); GC.gc(); GC.gc()   # work-around for https://github.com/JuliaLang/julia
 
 # see #532 Fix InitError opening none existent Project.toml
 function load_in_empty_project_test()
-
     # This will try to load Revise in a julia seccion
     # with an empty enviroment (missing Project.toml)
 
@@ -3614,20 +3636,20 @@ function load_in_empty_project_test()
     @assert isfile(revise_proj)
 
     src = """
-        import Pkg
-        Pkg.activate("fake_env")
-        @assert !isfile(Base.active_project())
+    import Pkg
+    Pkg.activate("fake_env")
+    @assert !isfile(Base.active_project())
 
-        # force to load the package env Revise version
-        empty!(LOAD_PATH)
-        push!(LOAD_PATH, "$revise_proj")
+    # force to load the package env Revise version
+    empty!(LOAD_PATH)
+    push!(LOAD_PATH, "$revise_proj")
 
-        @info "A warning about no Manifest.toml file found is expected"
-        try; using Revise
-            catch err
-                # just fail for this error (see #532)
-                err isa InitError && rethrow(err)
-        end
+    @info "A warning about no Manifest.toml file found is expected"
+    try; using Revise
+        catch err
+            # just fail for this error (see #532)
+            err isa InitError && rethrow(err)
+    end
     """
     cmd = `$julia --project=@. -E $src`
 
@@ -3636,6 +3658,7 @@ function load_in_empty_project_test()
         true
     end
 end
+
 do_test("Import in empty enviroment (issue #532)") && @testset "Import in empty enviroment (issue #532)" begin
     load_in_empty_project_test();
 end
