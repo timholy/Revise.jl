@@ -90,7 +90,7 @@ ERROR: UndefVarError: f not defined
 ```
 
 all without restarting Julia.
-While you can evalued *new* methods without Revise using [inline evaluation](https://www.julia-vscode.org/docs/stable/userguide/runningcode/#Julia:-Execute-Code-Block-(AltEnter)-1) through your IDE,
+While you can evaluate *new* methods without Revise using [inline evaluation](https://www.julia-vscode.org/docs/stable/userguide/runningcode/#Julia:-Execute-Code-Block-(AltEnter)-1) through your IDE,
 method *deletion* is just one example of a change that can only be made easily by Revise.
 
 If you need more examples, see [Revise usage: a cookbook](@ref).
