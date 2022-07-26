@@ -1,7 +1,3 @@
-using Pkg
-Pkg.activate(".")
-Pkg.instantiate()
-
 struct MyFile
     file::String
 end
@@ -19,10 +15,9 @@ function make_module(file::MyFile)
        val, name = split(line, '=')
        push!(exprs, :(function $(Symbol(name))() $val end))
     end
-    @show exprs
-    Expr(:toplevel, :(baremodule test
+    Expr(:toplevel, :(baremodule fake_lang
        $(exprs...)
-    end), :(using .test))
+    end), :(using .fake_lang))
 end
 
 function Base.include(mod::Module, file::MyFile)
@@ -33,18 +28,21 @@ Base.include(file::MyFile) = Base.include(Core.Main, file)
 using Revise
 function Revise.parse_source!(mod_exprs_sigs::Revise.ModuleExprsSigs, file::MyFile, mod::Module; kwargs...)
     ex = make_module(file)
-    @show mod_exprs_sigs, file, mod, kwargs
     Revise.process_source!(mod_exprs_sigs, ex, file, mod; kwargs...)
 end
+
+path = "test.program"
 try
-    cp(joinpath("fake_lang", "test.program"), "tmp.program")
-    m=MyFile("tmp.program")
+    cp(joinpath("fake_lang", "test.program"), path, force=true)
+    m=MyFile(path)
     includet(m)
-    @test test.y() == "2"
-    @test test.x() == "1"
-    cp(joinpath("fake_lang", "new_test.program"), "tmp.program", force=true)
-    @test test.x() == "2"
-    @test !isdefined(test, :y)
+    Revise.revise()
+    @test fake_lang.y() == "2"
+    @test fake_lang.x() == "1"
+    cp(joinpath("fake_lang", "new_test.program"), path, force=true)
+    Revise.revise()
+    @test fake_lang.x() == "2"
+    @test_throws MethodError fake_lang.y()
 finally
-    rm("tmp.program", force=true)
+    rm(path, force=true)
 end
