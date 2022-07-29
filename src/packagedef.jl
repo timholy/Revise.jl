@@ -520,7 +520,7 @@ Use the `pkgdata` version if the files are supplied using relative paths.
 function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
     udirs = Set{String}()
     for file in files
-        file = String(file)
+        file = String(file)::String
         dir, basename = splitdir(file)
         dirfull = joinpath(basedir(pkgdata), dir)
         already_watching_dir = haskey(watched_files, dirfull)
