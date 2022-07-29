@@ -47,7 +47,7 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
     return process_source!(mod_exprs_sigs, ex, filename, mod; kwargs...)
 end
 
-function process_source!(mod_exprs_sigs::ModuleExprsSigs, @nospecialize(ex), filename, mod::Module; mode::Symbol=:sigs)
+function process_source!(mod_exprs_sigs::ModuleExprsSigs, ex, filename, mod::Module; mode::Symbol=:sigs)
     for (mod, ex) in ExprSplitter(mod, ex)
         if mode === :includet
             try
