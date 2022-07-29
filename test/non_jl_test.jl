@@ -33,7 +33,7 @@ end
 
 path = "test.program"
 try
-    cp(joinpath("fake_lang", "test.program"), path, force=true)
+    cp(joinpath(@__DIR__, "fake_lang", "test.program"), path, force=true)
     m=MyFile(path)
     includet(m)
     Revise.revise()
