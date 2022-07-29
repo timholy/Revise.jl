@@ -917,7 +917,7 @@ function track(mod::Module, file; mode=:sigs, kwargs...)
             CodeTracking._pkgfiles[id] = pkgdata.info
         end
         push!(pkgdata, relpath(file, pkgdata)=>FileInfo(fm))
-        init_watching(pkgdata, (String(file),))
+        init_watching(pkgdata, (String(file)::String,))
         pkgdatas[id] = pkgdata
     end
     return nothing
