@@ -650,7 +650,7 @@ function handle_deletions(pkgdata, file)
         filep = normpath(joinpath(basedir(pkgdata), file))
     end
     topmod = first(keys(mexsold))
-    fileok = file_exists(String(filep))
+    fileok = file_exists(String(filep)::String)
     mexsnew = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
     if mexsnew !== nothing
         delete_missing!(mexsold, mexsnew)
