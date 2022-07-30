@@ -39,7 +39,7 @@ try
     Revise.revise()
     @test fake_lang.y() == "2"
     @test fake_lang.x() == "1"
-    cp(joinpath("fake_lang", "new_test.program"), path, force=true)
+    cp(joinpath(@__DIR__, "fake_lang", "new_test.program"), path, force=true)
     Revise.revise()
     @test fake_lang.x() == "2"
     @test_throws MethodError fake_lang.y()
