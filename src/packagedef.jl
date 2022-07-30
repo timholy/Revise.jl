@@ -520,6 +520,7 @@ Use the `pkgdata` version if the files are supplied using relative paths.
 function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
     udirs = Set{String}()
     for file in files
+        file = String(file)::String
         dir, basename = splitdir(file)
         dirfull = joinpath(basedir(pkgdata), dir)
         already_watching_dir = haskey(watched_files, dirfull)
@@ -643,16 +644,19 @@ function handle_deletions(pkgdata, file)
     fi = maybe_parse_from_cache!(pkgdata, file)
     maybe_extract_sigs!(fi)
     mexsold = fi.modexsigs
-    filep = normpath(joinpath(basedir(pkgdata), file))
+    idx = fileindex(pkgdata, file)
+    filep = pkgdata.info.files[idx]
+    if isa(filep, AbstractString)
+        filep = normpath(joinpath(basedir(pkgdata), file))
+    end
     topmod = first(keys(mexsold))
-    fileok = file_exists(filep)
+    fileok = file_exists(String(filep)::String)
     mexsnew = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
     if mexsnew !== nothing
         delete_missing!(mexsold, mexsnew)
     end
     if !fileok
         @warn("$filep no longer exists, deleted all methods")
-        idx = fileindex(pkgdata, file)
         deleteat!(pkgdata.fileinfos, idx)
         deleteat!(pkgdata.info.files, idx)
         wl = get(watched_files, basedir(pkgdata), nothing)
@@ -875,7 +879,7 @@ it defaults to `Main`.
 
 If this produces many errors, check that you specified `mod` correctly.
 """
-function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
+function track(mod::Module, file; mode=:sigs, kwargs...)
     isfile(file) || error(file, " is not a file")
     # Determine whether we're already tracking this file
     id = Base.moduleroot(mod) == Main ? PkgId(mod, string(mod)) : PkgId(mod)  # see #689 for `Main`
@@ -913,13 +917,13 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
             CodeTracking._pkgfiles[id] = pkgdata.info
         end
         push!(pkgdata, relpath(file, pkgdata)=>FileInfo(fm))
-        init_watching(pkgdata, (file,))
+        init_watching(pkgdata, (String(file)::String,))
         pkgdatas[id] = pkgdata
     end
     return nothing
 end
 
-function track(file::AbstractString; kwargs...)
+function track(file; kwargs...)
     startswith(file, juliadir) && error("use Revise.track(Base) or Revise.track(<stdlib module>)")
     track(Main, file; kwargs...)
 end
@@ -985,7 +989,7 @@ try fixing it with something like `push!(LOAD_PATH, "/path/to/my/private/repos")
 they will not be automatically tracked.
 (See [`Revise.track`](@ref) to set it up manually.)
 """
-function includet(mod::Module, file::AbstractString)
+function includet(mod::Module, file)
     prev = Base.source_path(nothing)
     file = if prev === nothing
         abspath(file)
@@ -1017,7 +1021,7 @@ function includet(mod::Module, file::AbstractString)
     end
     return nothing
 end
-includet(file::AbstractString) = includet(Main, file)
+includet(file) = includet(Main, file)
 
 """
     Revise.silence(pkg)
