@@ -31,7 +31,7 @@ function Revise.parse_source!(mod_exprs_sigs::Revise.ModuleExprsSigs, file::MyFi
     Revise.process_source!(mod_exprs_sigs, ex, file, mod; kwargs...)
 end
 
-path = "test.program"
+path = joinpath(@__DIR__, "test.program")
 try
     cp(joinpath(@__DIR__, "fake_lang", "test.program"), path, force=true)
     m=MyFile(path)
