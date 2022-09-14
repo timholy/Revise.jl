@@ -108,13 +108,8 @@ function pushex!(exsigs::ExprsSigs, ex::Expr)
 end
 
 ## WatchList utilities
-function systime()
-    # It's important to use the same clock used by the filesystem
-    tv = Libc.TimeVal()
-    tv.sec + tv.usec/10^6
-end
 function updatetime!(wl::WatchList)
-    wl.timestamp = systime()
+    wl.timestamp = time()
 end
 Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgId}) =
     push!(wl.trackedfiles, filenameid)
@@ -122,7 +117,7 @@ Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgFiles}) =
     push!(wl, filenameid.first=>filenameid.second.id)
 Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgData}) =
     push!(wl, filenameid.first=>filenameid.second.info)
-WatchList() = WatchList(systime(), Dict{String,PkgId}())
+WatchList() = WatchList(time(), Dict{String,PkgId}())
 Base.in(file, wl::WatchList) = haskey(wl.trackedfiles, file)
 
 @static if Sys.isapple()
