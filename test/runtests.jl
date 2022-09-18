@@ -3002,7 +3002,7 @@ do_test("Non-jl include_dependency (issue #388)") && @testset "Non-jl include_de
     @test joinpath("deps", "dependency.txt") ∉ files
 end
 
-do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
+do_test("New files & Requires.jl") && @testset verbose=true "New files & Requires.jl" begin
     # Issue #107
     testdir = newtestdir()
     dn = joinpath(testdir, "NewFile", "src")
@@ -3015,6 +3015,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
             end
             end
             """)
+    @show 100
     sleep(mtimedelay)
     @eval using NewFile
     @test NewFile.f() == 1
@@ -3050,6 +3051,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     @test NewFile.f() == 1
     @test NewFile.g() == 2
     @test NewFile.SubModule.h(NewFile.SubModule.NewType()) == 3
+    @show 200
 
     dn = joinpath(testdir, "DeletedFile", "src")
     mkpath(dn)
@@ -3073,6 +3075,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     yry()
     @test DeletedFile.f() == 1
     @test_throws MethodError DeletedFile.g()
+    @show 300
 
     rm_precompile("NewFile")
     rm_precompile("DeletedFile")
@@ -3096,9 +3099,12 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
             @require CatIndices="aafaddc9-749c-510e-ac4f-586e18779b91" onearg(1)
             @require IndirectArrays="9b13fd28-a010-5f03-acff-a1bbcff69959" @eval SubModule include("st.jl")
             @require RoundingIntegers="d5f540fe-1c90-5db3-b776-2e2f362d9394" begin
+                @show "RoundingIntegers cb"
                 fn = joinpath(@__DIR__, "subdir", "anotherfile.jl")
                 include(fn)
+                @show 10
                 @require Revise="295af30f-e4ad-537b-8983-00126c2a3abe" Revise.track(TrackRequires, fn)
+                @show 11
             end
             @require UnsafeArrays="c4a57d5a-5b31-53a6-b365-19f8c011fbd6" begin
                 fn = joinpath(@__DIR__, "subdir", "yetanotherfile.jl")
@@ -3116,6 +3122,8 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     write(joinpath(sd, "anotherfile.jl"), "ftrack() = 1")
     write(joinpath(sd, "yetanotherfile.jl"), "fauto() = 1")
     sleep(mtimedelay)
+    @show 400
+
     @eval using TrackRequires
     notified = isdefined(TrackRequires.Requires, :withnotifications)
     notified || @warn "Requires does not support notifications"
@@ -3140,11 +3148,14 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
             sleep(0.5)
         end
     end
+    @show 500
     notified && @test TrackRequires.called_onearg[]
     @test isempty(read(warnfile, String))
     # Issue #431
     @test_throws UndefVarError TrackRequires.ftrack()
+    @show notified 501
     @eval using RoundingIntegers
+    @show 502
     sleep(2)  # allow time for the @async in all @require blocks to finish
     if notified
         @test TrackRequires.ftrack() == 1
@@ -3157,8 +3168,10 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         idx = findfirst(name->occursin("anotherfile", name), sf)
         @test !isabspath(sf[idx])
     end
+    @show 503
     @test_throws UndefVarError TrackRequires.fauto()
     @eval using UnsafeArrays
+    @show 504
     sleep(2)  # allow time for the @async in all @require blocks to finish
     if notified
         @test TrackRequires.fauto() == 1
@@ -3171,6 +3184,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         idx = findfirst(name->occursin("yetanotherfile", name), sf)
         @test !isabspath(sf[idx])
     end
+    @show 600
 
     # Ensure it also works if the Requires dependency is pre-loaded
     dn = joinpath(testdir, "TrackRequires2", "src")
@@ -3193,6 +3207,8 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     write(joinpath(dn, "testfile.jl"), "testfunc() = 1")
     write(joinpath(dn, "testfile2.jl"), "othertestfunc() = -1")
     sleep(mtimedelay)
+    @show 700
+
     @eval using TrackRequires2
     sleep(mtimedelay)
     notified && @test TrackRequires2.testfunc() == 1
@@ -3207,6 +3223,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     write(joinpath(dn, "testfile2.jl"), "othertestfunc() = -2")
     yry()
     notified && @test TrackRequires2.othertestfunc() == -2
+    @show 800
 
     # Issue #442
     push!(LOAD_PATH, joinpath(@__DIR__, "pkgs"))
@@ -3217,6 +3234,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     @test Pkg442.check442B()
     @test Pkg442.Dep442B.has442A()
     pop!(LOAD_PATH)
+    @show 900
 
     rm_precompile("TrackRequires")
     rm_precompile("TrackRequires2")
