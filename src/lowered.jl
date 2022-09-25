@@ -218,7 +218,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
         catch err
             (always_rethrow || isa(err, InterruptException)) && (disablebp && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame)...)
-            sfs = []  # crafted for interaction with Base.show_backtrace
+            sfs = Base.StackTraces.StackFrame[]  # crafted for interaction with Base.show_backtrace
             frame = JuliaInterpreter.leaf(frame)
             while frame !== nothing
                 push!(sfs, (Base.StackTraces.StackFrame(frame), 1))
