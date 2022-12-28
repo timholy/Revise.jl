@@ -1317,14 +1317,22 @@ function __init__()
         else
             pushfirst!(REPL.repl_ast_transforms, revise_first)
             # #664: once a REPL is started, it no longer interacts with REPL.repl_ast_transforms
-            iter = 0
-            # wait for active_repl_backend to exist
-            while !isdefined(Base, :active_repl_backend) && iter < 20
-                sleep(0.05)
-                iter += 1
-            end
             if isdefined(Base, :active_repl_backend)
                 push!(Base.active_repl_backend.ast_transforms, revise_first)
+            else
+                # wait for active_repl_backend to exist
+                # #719: do this async in case Revise is being loaded from startup.jl
+                t = @async begin
+                    iter = 0
+                    while !isdefined(Base, :active_repl_backend) && iter < 20
+                        sleep(0.05)
+                        iter += 1
+                    end
+                    if isdefined(Base, :active_repl_backend)
+                        push!(Base.active_repl_backend.ast_transforms, revise_first)
+                    end
+                end
+                isdefined(Base, :errormonitor) && Base.errormonitor(t)
             end
         end
         if isdefined(Main, :Atom)
