@@ -208,10 +208,12 @@ function add_require(sourcefile::String, modcaller::Module, idmod::String, modna
         push!(expr.args, :(__pkguuid__ = $idmod))
         # Add the expression to the fileinfo
         complex = true     # is this too complex to delay?
+        @show fi.extracted[]
         if !fi.extracted[]
             # If we haven't yet extracted signatures, do our best to avoid it now in case the
             # signature-extraction code has not yet been compiled (latency reduction)
             includes, complex = deferrable_require(expr)
+            @show complex
             if !complex
                 # [(modcaller, inc) for inc in includes] but without precompiling a Generator
                 modincludes = Tuple{Module,String}[]
@@ -227,12 +229,14 @@ function add_require(sourcefile::String, modcaller::Module, idmod::String, modna
                 end
             end
         end
+        @show complex
         if complex
             Base.invokelatest(eval_require_now, pkgdata, fileidx, filekey, sourcefile, modcaller, expr)
         end
     finally
         unlock(requires_lock)
     end
+    println("released the lock")
 end
 
 function deferrable_require(expr)
