@@ -267,27 +267,34 @@ function deferrable_require!(includes, expr::Expr)
 end
 
 function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourcefile::String, modcaller::Module, expr::Expr)
+    @show fileidx filekey sourcefile modcaller expr
     fi = pkgdata.fileinfos[fileidx]
     exsnew = ExprsSigs()
     exsnew[RelocatableExpr(expr)] = nothing
     mexsnew = ModuleExprsSigs(modcaller=>exsnew)
     # Before executing the expression we need to set the load path appropriately
     prev = Base.source_path(nothing)
+    @show :ern_1
     tls = task_local_storage()
     tls[:SOURCE_PATH] = sourcefile
     # Now execute the expression
     mexsnew, includes = try
+        @show :ern_2
         eval_new!(mexsnew, fi.modexsigs)
     finally
+        @show :ern_3
         if prev === nothing
             delete!(tls, :SOURCE_PATH)
         else
             tls[:SOURCE_PATH] = prev
         end
     end
+    @show :ern_4
     # Add any new methods or `include`d files to tracked objects
     pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
+    @show :ern_5
     ret = maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes; eval_now=true)
+    @show :ern_6
     return ret
 end
 
