@@ -188,8 +188,10 @@ function add_require(sourcefile::String, modcaller::Module, idmod::String, modna
         watch_package(id)
     end
 
+    println("about to get the lock")
     lock(requires_lock)
     try
+        println("got the lock")
         # Get/create the FileInfo specifically for tracking @require blocks
         pkgdata = pkgdatas[id]
         filekey = relpath(sourcefile, pkgdata) * "__@require__"
