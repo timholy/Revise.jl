@@ -383,6 +383,7 @@ function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old; mode::Sy
         exs_sigs_old = get(mod_exs_sigs_old, mod, empty_exs_sigs)
         debug && @show mod exs_sigs_old exs_sigs_new mode
         _, _includes = eval_new!(exs_sigs_new, exs_sigs_old, mod; mode=mode)
+        debug && @show includes
         append!(includes, _includes)
     end
     return mod_exs_sigs_new, includes
