@@ -3144,18 +3144,20 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     @test isempty(read(warnfile, String))
     # Issue #431
     @test_throws UndefVarError TrackRequires.ftrack()
-    @eval using RoundingIntegers
-    sleep(2)  # allow time for the @async in all @require blocks to finish
-    if notified
-        @test TrackRequires.ftrack() == 1
-        id = Base.PkgId(TrackRequires)
-        pkgdata = Revise.pkgdatas[id]
-        sf = Revise.srcfiles(pkgdata)
-        @test count(name->occursin("@require", name), sf) == 1
-        @test count(name->occursin("anotherfile", name), sf) == 1
-        @test !any(isequal("."), sf)
-        idx = findfirst(name->occursin("anotherfile", name), sf)
-        @test !isabspath(sf[idx])
+    if !(get(ENV, "CI", nothing) == "true" && Base.VERSION.major == 1 && Base.VERSION.minor == 8)   # circumvent CI hang
+        @eval using RoundingIntegers
+        sleep(2)  # allow time for the @async in all @require blocks to finish
+        if notified
+            @test TrackRequires.ftrack() == 1
+            id = Base.PkgId(TrackRequires)
+            pkgdata = Revise.pkgdatas[id]
+            sf = Revise.srcfiles(pkgdata)
+            @test count(name->occursin("@require", name), sf) == 1
+            @test count(name->occursin("anotherfile", name), sf) == 1
+            @test !any(isequal("."), sf)
+            idx = findfirst(name->occursin("anotherfile", name), sf)
+            @test !isabspath(sf[idx])
+        end
     end
     @test_throws UndefVarError TrackRequires.fauto()
     @eval using UnsafeArrays
@@ -3535,14 +3537,14 @@ end
 
 do_test("includet with mod arg (issue #689)") && @testset "includet with mod arg (issue #689)" begin
     testdir = newtestdir()
-    
+
     common = joinpath(testdir, "common.jl")
     write(common, """
         module Common
             const foo = 2
         end
         """)
-    
+
     routines = joinpath(testdir, "routines.jl")
     write(routines, """
         module Routines
@@ -3551,7 +3553,7 @@ do_test("includet with mod arg (issue #689)") && @testset "includet with mod arg
             using .Common
         end
         """)
-    
+
     codes = joinpath(testdir, "codes.jl")
     write(codes, """
         module Codes
