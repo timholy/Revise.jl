@@ -280,7 +280,7 @@ function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourc
     # Now execute the expression
     mexsnew, includes = try
         @show :ern_2
-        eval_new!(mexsnew, fi.modexsigs)
+        eval_new!(mexsnew, fi.modexsigs; debug=true)
     finally
         @show :ern_3
         if prev === nothing

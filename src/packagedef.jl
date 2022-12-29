@@ -358,9 +358,10 @@ end
 
 # These are typically bypassed in favor of expression-by-expression evaluation to
 # allow handling of new `include` statements.
-function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Symbol=:eval)
+function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Symbol=:eval, debug=false)
     includes = Vector{Pair{Module,String}}()
     for rex in keys(exs_sigs_new)
+        debug && @show rex.ex
         sigs, _includes = eval_rex(rex, exs_sigs_old, mod; mode=mode)
         if sigs !== nothing
             exs_sigs_new[rex] = sigs
@@ -372,7 +373,7 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Sym
     return exs_sigs_new, includes
 end
 
-function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old; mode::Symbol=:eval)
+function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old; mode::Symbol=:eval, debug=false)
     includes = Vector{Pair{Module,String}}()
     for (mod, exs_sigs_new) in mod_exs_sigs_new
         # Allow packages to override the supplied mode
@@ -380,6 +381,7 @@ function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old; mode::Sy
             mode = getfield(mod, :__revise_mode__)::Symbol
         end
         exs_sigs_old = get(mod_exs_sigs_old, mod, empty_exs_sigs)
+        debug && @show mod exs_sigs_old exs_sigs_new mode
         _, _includes = eval_new!(exs_sigs_new, exs_sigs_old, mod; mode=mode)
         append!(includes, _includes)
     end
