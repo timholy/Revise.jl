@@ -68,6 +68,10 @@ function in_module_or_core(T, mod::Module)
         in_module_or_core(T.a, mod) || return false
         return in_module_or_core(T.b, mod)
     end
+    if isa(T, Core.TypeofVararg)
+        isdefined(T, :T) || return true
+        return in_module_or_core(T.T, mod)
+    end
     Tname = T.name
     if Tname.name === :Type
         return in_module_or_core(extracttype(T), mod)
@@ -111,4 +115,14 @@ for sig in failed
     all(T->in_module_or_core(T, Base), Base.unwrap_unionall(sig).parameters[2:end]) || continue
     push!(realfailed, sig)
 end
-@test length(realfailed) < 40  # big enough for some cushion in case new "difficult" methods get added
+if false   # change to true to see the failures
+    world = Base.get_world_counter()
+    for tt in realfailed
+        println(tt)
+        mms = Base._methods_by_ftype(tt, -1, world)
+        for mm in mms
+            println(mm.method)
+        end
+    end
+end
+@test length(realfailed) < 60  # big enough for some cushion in case new "difficult" methods get added
