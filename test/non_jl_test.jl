@@ -36,7 +36,7 @@ try
     cp(joinpath(@__DIR__, "fake_lang", "test.program"), path, force=true)
     m=MyFile(path)
     includet(m)
-    Revise.revise()
+    yry()    # comes from test/common.jl
     @test fake_lang.y() == "2"
     @test fake_lang.x() == "1"
     cp(joinpath(@__DIR__, "fake_lang", "new_test.program"), path, force=true)

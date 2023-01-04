@@ -56,6 +56,11 @@ function extracttype(T)
     isa(p1, TypeVar) && return p1.ub
     error("unrecognized type ", T)
 end
+if isdefined(Core, :TypeofVararg)
+    istva(T) = isa(T, Core.TypeofVararg)
+else
+    istva(T) = false
+end
 function in_module_or_core(T, mod::Module)
     if isa(T, TypeVar)
         return in_module_or_core(T.ub, mod)
@@ -68,7 +73,7 @@ function in_module_or_core(T, mod::Module)
         in_module_or_core(T.a, mod) || return false
         return in_module_or_core(T.b, mod)
     end
-    if isa(T, Core.TypeofVararg)
+    if istva(T)
         isdefined(T, :T) || return true
         return in_module_or_core(T.T, mod)
     end

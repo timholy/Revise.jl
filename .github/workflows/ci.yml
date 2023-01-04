@@ -57,8 +57,11 @@ jobs:
           while !isdefined(Base, :active_repl_backend) sleep(0.1) end
           pushfirst!(Base.active_repl_backend.ast_transforms, Revise.revise_first)
           include(joinpath("test", "runtests.jl"))
-          REPL.eval_user_input(:(exit()), Base.active_repl_backend)
-        ' "Methods at REPL"
+          if Base.VERSION.major == 1 && Base.VERSION.minor >= 9
+              REPL.eval_user_input(:(exit()), Base.active_repl_backend, Main)
+          else
+              REPL.eval_user_input(:(exit()), Base.active_repl_backend)
+          end' "Methods at REPL"
         # Tests for out-of-process updates to manifest
         bash test/envs/use_exputils/setup.sh
         julia --project --code-coverage=user test/envs/use_exputils/switch_version.jl
