@@ -1136,7 +1136,7 @@ function get_expressions(id::PkgId, filename)
     return fi.modexsigs
 end
 
-function add_definitions_from_repl(filename)
+function add_definitions_from_repl(filename::String)
     hist_idx = parse(Int, filename[6:end-1])
     hp = (Base.active_repl::REPL.LineEditREPL).interface.modes[1].hist::REPL.REPLHistoryProvider
     src = hp.history[hp.start_idx+hist_idx]
@@ -1149,6 +1149,7 @@ function add_definitions_from_repl(filename)
     push!(pkgdata, filename=>fi)
     return fi
 end
+add_definitions_from_repl(filename::AbstractString) = add_definitions_from_repl(convert(String, filename)::String)
 
 function update_stacktrace_lineno!(trace)
     local nrep

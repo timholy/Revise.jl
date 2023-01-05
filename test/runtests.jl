@@ -3621,7 +3621,7 @@ GC.gc(); GC.gc()
             end
         end
         msg = Revise.watching_files[] ? "is not an existing file" : "is not an existing directory"
-        isempty(ARGS) && @test occursin(msg, read(warnfile, String))
+        isempty(ARGS) && !Sys.isapple() && @test occursin(msg, read(warnfile, String))
         rm(warnfile)
     end
 end

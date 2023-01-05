@@ -163,12 +163,12 @@ function hasfile(info, file)
     fileindex(info, file) !== nothing
 end
 
-function fileinfo(pkgdata::PkgData, file::AbstractString)
+function fileinfo(pkgdata::PkgData, file::String)
     i = fileindex(pkgdata, file)
     i === nothing && error("file ", file, " not found")
     return pkgdata.fileinfos[i]
 end
-fileinfo(pkgdata::PkgData, i::Integer) = pkgdata.fileinfos[i]
+fileinfo(pkgdata::PkgData, i::Int) = pkgdata.fileinfos[i]
 
 function Base.push!(pkgdata::PkgData, pr::Pair{<:Any,FileInfo})
     push!(srcfiles(pkgdata), pr.first)
