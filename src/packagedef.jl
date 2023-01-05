@@ -415,8 +415,7 @@ end
 CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Set{Union{GlobalRef,Symbol}}(), Pair{Module,String}[])
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), ln)
-    locdefs = get(CodeTracking.method_info, sig, nothing)
-    locdefs === nothing && (locdefs = CodeTracking.method_info[sig] = Tuple{LineNumberNode,Expr}[])
+    locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, sig)
     newdef = unwrap(methodinfo.exprstack[end])
     if newdef !== nothing
         if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
@@ -1083,7 +1082,7 @@ function get_def(method::Method; modified_files=revision_queue)
     # We need to find the right file.
     if method.module == Base || method.module == Core || method.module == Core.Compiler
         @warn "skipping $method to avoid parsing too much code"
-        CodeTracking.method_info[method.sig] = missing
+        CodeTracking.invoked_setindex!(CodeTracking.method_info, method.sig, missing)
         return false
     end
     parentfile, included_files = modulefiles(method.module)
@@ -1102,7 +1101,7 @@ function get_def(method::Method; modified_files=revision_queue)
     end
     @warn "$(method.sig) was not found"
     # So that we don't call it again, store missingness info in CodeTracking
-    CodeTracking.method_info[method.sig] = missing
+    CodeTracking.invoked_setindex!(CodeTracking.method_info, method.sig, missing)
     return false
 end
 
