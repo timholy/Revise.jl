@@ -45,12 +45,14 @@ jobs:
       run: |
         echo $TERM
         # Tests for when using polling
+        echo "Polling"
         julia --project --code-coverage=user -e '
           ENV["JULIA_REVISE_POLL"]="1"
           using Pkg, Revise
           include(joinpath(dirname(pathof(Revise)), "..", "test", "polling.jl"))
         '
         # The REPL wasn't initialized, so the "Methods at REPL" tests didn't run. Pick those up now.
+        echo "Methods at REPL"
         TERM="xterm" julia --project --code-coverage=user -e '
           using InteractiveUtils, REPL, Revise
           @async(Base.run_main_repl(true, true, false, true, false))
@@ -63,16 +65,20 @@ jobs:
               REPL.eval_user_input(:(exit()), Base.active_repl_backend)
           end' "Methods at REPL"
         # Tests for out-of-process updates to manifest
+        echo "Switch version"
         bash test/envs/use_exputils/setup.sh
         julia --project --code-coverage=user test/envs/use_exputils/switch_version.jl
         # We also need to pick up the Git tests, but for that we need to `dev` the package
+        echo "Git tests"
         julia --code-coverage=user -e '
           using Pkg; Pkg.develop(PackageSpec(path="."))
           include(joinpath("test", "runtests.jl"))
         ' "Git"
         # Check #664
+        echo "Test #664"
         TERM="xterm" julia --startup-file=no --project test/start_late.jl
         # Check #697
+        echo "Test #697"
         dn=$(mktemp -d)
         ver=$(julia -e 'println(VERSION)')
         curl -s -L https://github.com/JuliaLang/julia/archive/refs/tags/v$ver.tar.gz --output - | tar -xz -C $dn
