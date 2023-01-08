@@ -53,7 +53,7 @@ jobs:
         '
         # The REPL wasn't initialized, so the "Methods at REPL" tests didn't run. Pick those up now.
         echo "Methods at REPL"
-        TERM="xterm" julia --project --code-coverage=user -e '
+        TERM="dumb" julia --project --code-coverage=user -e '
           using InteractiveUtils, REPL, Revise
           @async(Base.run_main_repl(true, true, false, true, false))
           while !isdefined(Base, :active_repl_backend) sleep(0.1) end
