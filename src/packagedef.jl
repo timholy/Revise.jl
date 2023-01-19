@@ -311,8 +311,8 @@ function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new)
 end
 
 function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
-    sigs, includes = nothing, nothing
-    with_logger(_debug_logger) do
+    return with_logger(_debug_logger) do
+        sigs, includes = nothing, nothing
         rexo = getkey(exs_sigs_old, rex, nothing)
         # extract the signatures and update the line info
         if rexo === nothing
@@ -338,9 +338,10 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
             # Update location info
             ln, lno = firstline(unwrap(rex)), firstline(unwrap(rexo))
             if sigs !== nothing && !isempty(sigs) && ln != lno
+                ln, lno = ln::LineNumberNode, lno::LineNumberNode
                 @debug "LineOffset" _group="Action" time=time() deltainfo=(sigs, lno=>ln)
                 for sig in sigs
-                    locdefs = CodeTracking.method_info[sig]
+                    locdefs = CodeTracking.method_info[sig]::AbstractVector
                     ld = map(pr->linediff(lno, pr[1]), locdefs)
                     idx = argmin(ld)
                     if ld[idx] === typemax(eltype(ld))
@@ -352,8 +353,8 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
                 end
             end
         end
+        return sigs, includes
     end
-    return sigs, includes
 end
 
 # These are typically bypassed in favor of expression-by-expression evaluation to
