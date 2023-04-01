@@ -1,19 +1,13 @@
 using Random
 using Base.Meta: isexpr
 
-const rseed = Ref(Random.GLOBAL_RNG)  # to get new random directories (see julia #24445)
-if isempty(methods(Random.seed!, Tuple{typeof(rseed[])}))
-    # Julia 1.3-rc1 doesn't have this, fixed in https://github.com/JuliaLang/julia/pull/32961
-    Random.seed!(rng::typeof(rseed[])) = Random.seed!(rng, nothing)
-end
-function randtmp()
-    Random.seed!(rseed[])
-    dirname = joinpath(tempdir(), randstring(10))
-    rseed[] = Random.GLOBAL_RNG
-    return dirname
-end
-
+# Testsets will reset the default RNG after each testset to make
+# tests more reproducible, but we need to be able to create new random
+# directories (see julia #24445)
+const RNG = copy(Random.default_rng())
 const to_remove = String[]
+
+randtmp() = joinpath(tempdir(), randstring(RNG, 10))
 
 function newtestdir()
     testdir = randtmp()
