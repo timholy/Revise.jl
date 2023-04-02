@@ -96,7 +96,7 @@ FileInfo(fm::ModuleExprsSigs, cachefile="") = FileInfo(fm, cachefile, Tuple{Modu
 """
     FileInfo(mod::Module, cachefile="")
 
-Initialze an empty FileInfo for a file that is `include`d into `mod`.
+Initialize an empty FileInfo for a file that is `include`d into `mod`.
 """
 FileInfo(mod::Module, cachefile::AbstractString="") = FileInfo(ModuleExprsSigs(mod), cachefile)
 
