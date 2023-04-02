@@ -60,7 +60,7 @@ end
 
 sig_type_exprs(ex) = Revise.sig_type_exprs(Main, ex)   # just for testing purposes
 
-# accomodate changes in Dict printing w/ Julia version
+# accommodate changes in Dict printing w/ Julia version
 const pair_op_compact = let io = IOBuffer()
     print(IOContext(io, :compact=>true), Dict(1=>2))
     String(take!(io))[7:end-2]
@@ -3631,7 +3631,7 @@ GC.gc(); GC.gc(); GC.gc()   # work-around for https://github.com/JuliaLang/julia
 # see #532 Fix InitError opening none existent Project.toml
 function load_in_empty_project_test()
     # This will try to load Revise in a julia seccion
-    # with an empty enviroment (missing Project.toml)
+    # with an empty environment (missing Project.toml)
 
     julia = Base.julia_cmd()
     revise_proj = escape_string(Base.active_project())
@@ -3661,7 +3661,7 @@ function load_in_empty_project_test()
     end
 end
 
-do_test("Import in empty enviroment (issue #532)") && @testset "Import in empty enviroment (issue #532)" begin
+do_test("Import in empty environment (issue #532)") && @testset "Import in empty environment (issue #532)" begin
     load_in_empty_project_test();
 end
 
