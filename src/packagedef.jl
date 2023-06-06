@@ -651,7 +651,11 @@ function handle_deletions(pkgdata, file)
     idx = fileindex(pkgdata, file)
     filep = pkgdata.info.files[idx]
     if isa(filep, AbstractString)
-        filep = normpath(joinpath(basedir(pkgdata), file))
+        if file ≠ "."
+            filep = normpath(basedir(pkgdata), file)
+        else
+            filep = normpath(basedir(pkgdata))
+        end
     end
     topmod = first(keys(mexsold))
     fileok = file_exists(String(filep)::String)
