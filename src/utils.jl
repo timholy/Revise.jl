@@ -27,7 +27,8 @@ end
 function unique_dirs(iter)
     udirs = Set{String}()
     for file in iter
-        dir, basename = splitdir(file)
+        isa(file, AbstractString) || continue
+        dir, basename = splitdir(file::String)
         push!(udirs, dir)
     end
     return udirs

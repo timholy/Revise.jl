@@ -357,13 +357,14 @@ end
 function has_writable_paths(pkgdata::PkgData)
     dir = basedir(pkgdata)
     isdir(dir) || return true
-    haswritable = false
+    haswritable = Ref(false)    # avoids Core.Box
     cd(dir) do
         for file in srcfiles(pkgdata)
-            haswritable |= iswritable(file)
+            isa(file, AbstractString) || continue
+            haswritable[] |= iswritable(file::String)
         end
     end
-    return haswritable
+    return haswritable[]
 end
 
 function watch_includes(mod::Module, fn::AbstractString)
@@ -439,6 +440,8 @@ function watch_manifest(mfile)
                             files = String[]
                             mustnotify = false
                             for file in srcfiles(pkgdata)
+                                isa(file, AbstractString) || continue
+                                file = file::String
                                 fi = try
                                     maybe_parse_from_cache!(pkgdata, file)
                                 catch err

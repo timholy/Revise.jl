@@ -316,7 +316,6 @@ end
 
 function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
     return with_logger(_debug_logger) do
-        sigs, includes = nothing, nothing
         rexo = getkey(exs_sigs_old, rex, nothing)
         # extract the signatures and update the line info
         if rexo === nothing
@@ -337,13 +336,16 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
                 end
             end
             storedeps(deps, rex, mod)
+            return sigs, includes
         else
-            sigs = exs_sigs_old[rexo]
+            sigs, includes = exs_sigs_old[rexo], nothing
             # Update location info
             ln, lno = firstline(unwrap(rex)), firstline(unwrap(rexo))
             if sigs !== nothing && !isempty(sigs) && ln != lno
                 ln, lno = ln::LineNumberNode, lno::LineNumberNode
-                @debug "LineOffset" _group="Action" time=time() deltainfo=(sigs, lno=>ln)
+                let sigs=sigs   # #15276
+                    @debug "LineOffset" _group="Action" time=time() deltainfo=(sigs, lno=>ln)
+                end
                 for sig in sigs
                     locdefs = CodeTracking.method_info[sig]::AbstractVector
                     ld = map(pr->linediff(lno, pr[1]), locdefs)
@@ -356,8 +358,8 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
                     locdefs[idx] = (newloc(methloc, ln, lno), methdef)
                 end
             end
+            return sigs, includes
         end
-        return sigs, includes
     end
 end
 
@@ -659,7 +661,7 @@ function handle_deletions(pkgdata, file)
     end
     topmod = first(keys(mexsold))
     fileok = file_exists(String(filep)::String)
-    mexsnew = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
+    mexsnew = fileok ? Base.invokelatest(parse_source, filep, topmod) : ModuleExprsSigs(topmod)
     if mexsnew !== nothing
         delete_missing!(mexsold, mexsnew)
     end
