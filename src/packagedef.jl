@@ -1231,7 +1231,7 @@ function revise_first(ex)
         isa(exu, Expr) && exu.head === :call && length(exu.args) == 1 && exu.args[1] === :exit && return ex
     end
     # Check for queued revisions, and if so call `revise` first before executing the expression
-    return Expr(:toplevel, :(isempty($revision_queue) || Base.invokelatest($revise)), ex)
+    return Expr(:toplevel, :($isempty($revision_queue) || $(Base.invokelatest)($revise)), ex)
 end
 
 steal_repl_backend(args...) = @warn "`steal_repl_backend` has been removed from Revise, please update your `~/.julia/config/startup.jl`.\nSee https://timholy.github.io/Revise.jl/stable/config/"
