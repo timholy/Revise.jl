@@ -358,10 +358,19 @@ function has_writable_paths(pkgdata::PkgData)
     dir = basedir(pkgdata)
     isdir(dir) || return true
     haswritable = false
-    cd(dir) do
+    # Compatibility note:
+    # The following can be written in cd(dir) do ... end block
+    # but that would trigger Julia to crash for some corner cases.
+    # This is identified on Julia 1.7.3 + modified ubuntu 18.04, and it is
+    # verified that doesn't happen for Julia 1.9.2 on the same machine.
+    current_dir = pwd()
+    try
+        cd(dir)
         for file in srcfiles(pkgdata)
             haswritable |= iswritable(file)
         end
+    finally
+        cd(current_dir)
     end
     return haswritable
 end
