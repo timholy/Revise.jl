@@ -2990,7 +2990,7 @@ do_test("Switching environments") && @testset "Switching environments" begin
         end
 
         # install the package
-        Pkg.add(url="file://$(pkg)")
+        Pkg.add(url=pkg)
         sleep(mtimedelay)
 
         @eval using TestPackage
@@ -3006,7 +3006,7 @@ do_test("Switching environments") && @testset "Switching environments" begin
         end
 
         # install the update
-        Pkg.add(url="file://$(pkg)")
+        Pkg.add(url=pkg)
         sleep(mtimedelay)
 
         revise()
