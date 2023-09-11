@@ -19,8 +19,6 @@ using Revise.CodeTracking: line_is_decl
 # *.ji files for the package.
 using EponymTuples
 
-using Git
-
 include("common.jl")
 
 throwing_function(bt) = bt[2]
@@ -2984,15 +2982,15 @@ do_test("Switching environments") && @testset "Switching environments" begin
         # generate a package
         root = mktempdir()
         pkg = generate_package(root, 1)
-        run(`$(git()) -C $pkg init`)
-        run(`$(git()) -C $pkg config user.name "CI User"`)
-        run(`$(git()) -C $pkg config user.email "ci@example.com"`)
-        run(`$(git()) -C $pkg add .`)
-        run(`$(git()) -C $pkg commit -m "version 1"`)
-        rev1 = strip(read(`$(git()) -C $pkg rev-parse HEAD`, String))
+        LibGit2.with(LibGit2.init(pkg)) do repo
+            LibGit2.add!(repo, joinpath("Project.toml"))
+            LibGit2.add!(repo, joinpath("src", "TestPackage.jl"))
+            test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
+            LibGit2.commit(repo, "version 1"; author=test_sig, committer=test_sig)
+        end
 
         # install the package
-        Pkg.add(url="file://$(pkg)", rev=rev1)
+        Pkg.add(url="file://$(pkg)")
         sleep(mtimedelay)
 
         @eval using TestPackage
@@ -3001,12 +2999,14 @@ do_test("Switching environments") && @testset "Switching environments" begin
 
         # update the package
         generate_package(root, 2)
-        run(`$(git()) -C $pkg add .`)
-        run(`$(git()) -C $pkg commit -m "version 2"`)
-        rev2 = strip(read(`$(git()) -C $pkg rev-parse HEAD`, String))
+        LibGit2.with(LibGit2.GitRepo(pkg)) do repo
+            LibGit2.add!(repo, joinpath("src", "TestPackage.jl"))
+            test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
+            LibGit2.commit(repo, "version 2"; author=test_sig, committer=test_sig)
+        end
 
         # install the update
-        Pkg.add(url="file://$(pkg)", rev=rev2)
+        Pkg.add(url="file://$(pkg)")
         sleep(mtimedelay)
 
         revise()
