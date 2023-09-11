@@ -30,6 +30,7 @@ CatIndices = "aafaddc9-749c-510e-ac4f-586e18779b91"
 EndpointRanges = "340492b5-2a47-5f55-813d-aca7ddf97656"
 EponymTuples = "97e2ac4a-e175-5f49-beb1-4d6866a6cdc3"
 Example = "7876af07-990d-54b4-ab0e-23690620f79a"
+Git = "d7ba0133-e1db-5d97-8f8c-041e4b3a1eb2"
 IndirectArrays = "9b13fd28-a010-5f03-acff-a1bbcff69959"
 InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
@@ -41,4 +42,4 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 UnsafeArrays = "c4a57d5a-5b31-53a6-b365-19f8c011fbd6"
 
 [targets]
-test = ["CatIndices", "EndpointRanges", "EponymTuples", "Example", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Random", "Requires", "RoundingIntegers", "Test", "UnsafeArrays"]
+test = ["CatIndices", "EndpointRanges", "EponymTuples", "Example", "Git", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Random", "Requires", "RoundingIntegers", "Test", "UnsafeArrays"]

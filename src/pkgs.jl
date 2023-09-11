@@ -331,6 +331,9 @@ This function gets called via a callback registered with `Base.require`, at the 
 of module-loading by `using` or `import`.
 """
 function watch_package(id::PkgId)
+    # we may have switched environments, so make sure we're watching the right manifest
+    active_project_watcher()
+
     pkgdata = get(pkgdatas, id, nothing)
     pkgdata !== nothing && return pkgdata
     lock(wplock)

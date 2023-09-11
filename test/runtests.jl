@@ -19,6 +19,8 @@ using Revise.CodeTracking: line_is_decl
 # *.ji files for the package.
 using EponymTuples
 
+using Git
+
 include("common.jl")
 
 throwing_function(bt) = bt[2]
@@ -2954,6 +2956,64 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     Base.ACTIVE_PROJECT[] = old_project
 
     push!(to_remove, depot)
+end
+
+do_test("Switching environments") && @testset "Switching environments" begin
+    old_project = Base.active_project()
+
+    function generate_package(path, val)
+        cd(path) do
+            pkgpath = normpath(joinpath(path, "TestPackage"))
+            srcpath = joinpath(pkgpath, "src")
+            if !isdir(srcpath)
+                Pkg.generate("TestPackage")
+            end
+            filepath = joinpath(srcpath, "TestPackage.jl")
+            write(filepath, """
+                module TestPackage
+                f() = $val
+                end
+                """)
+            return pkgpath
+        end
+    end
+
+    try
+        Pkg.activate(; temp=true)
+
+        # generate a package
+        root = mktempdir()
+        pkg = generate_package(root, 1)
+        run(`$(git()) -C $pkg init`)
+        run(`$(git()) -C $pkg config user.name "CI User"`)
+        run(`$(git()) -C $pkg config user.email "ci@example.com"`)
+        run(`$(git()) -C $pkg add .`)
+        run(`$(git()) -C $pkg commit -m "version 1"`)
+        rev1 = strip(read(`$(git()) -C $pkg rev-parse HEAD`, String))
+
+        # install the package
+        Pkg.add(url="file://$(pkg)", rev=rev1)
+        sleep(mtimedelay)
+
+        @eval using TestPackage
+        sleep(mtimedelay)
+        @test Base.invokelatest(TestPackage.f) == 1
+
+        # update the package
+        generate_package(root, 2)
+        run(`$(git()) -C $pkg add .`)
+        run(`$(git()) -C $pkg commit -m "version 2"`)
+        rev2 = strip(read(`$(git()) -C $pkg rev-parse HEAD`, String))
+
+        # install the update
+        Pkg.add(url="file://$(pkg)", rev=rev2)
+        sleep(mtimedelay)
+
+        revise()
+        @test Base.invokelatest(TestPackage.f) == 2
+    finally
+        Pkg.activate(old_project)
+    end
 end
 
 # in v1.8 and higher, a package can't be loaded at all when its precompilation failed
