@@ -2983,8 +2983,8 @@ do_test("Switching environments") && @testset "Switching environments" begin
         root = mktempdir()
         pkg = generate_package(root, 1)
         LibGit2.with(LibGit2.init(pkg)) do repo
-            LibGit2.add!(repo, joinpath("Project.toml"))
-            LibGit2.add!(repo, joinpath("src", "TestPackage.jl"))
+            LibGit2.add!(repo, "Project.toml")
+            LibGit2.add!(repo, "src/TestPackage.jl")
             test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
             LibGit2.commit(repo, "version 1"; author=test_sig, committer=test_sig)
         end
@@ -3000,7 +3000,7 @@ do_test("Switching environments") && @testset "Switching environments" begin
         # update the package
         generate_package(root, 2)
         LibGit2.with(LibGit2.GitRepo(pkg)) do repo
-            LibGit2.add!(repo, joinpath("src", "TestPackage.jl"))
+            LibGit2.add!(repo, "src/TestPackage.jl")
             test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
             LibGit2.commit(repo, "version 2"; author=test_sig, committer=test_sig)
         end
