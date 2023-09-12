@@ -2956,6 +2956,66 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     push!(to_remove, depot)
 end
 
+do_test("Switching environments") && @testset "Switching environments" begin
+    old_project = Base.active_project()
+
+    function generate_package(path, val)
+        cd(path) do
+            pkgpath = normpath(joinpath(path, "TestPackage"))
+            srcpath = joinpath(pkgpath, "src")
+            if !isdir(srcpath)
+                Pkg.generate("TestPackage")
+            end
+            filepath = joinpath(srcpath, "TestPackage.jl")
+            write(filepath, """
+                module TestPackage
+                f() = $val
+                end
+                """)
+            return pkgpath
+        end
+    end
+
+    try
+        Pkg.activate(; temp=true)
+
+        # generate a package
+        root = mktempdir()
+        pkg = generate_package(root, 1)
+        LibGit2.with(LibGit2.init(pkg)) do repo
+            LibGit2.add!(repo, "Project.toml")
+            LibGit2.add!(repo, "src/TestPackage.jl")
+            test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
+            LibGit2.commit(repo, "version 1"; author=test_sig, committer=test_sig)
+        end
+
+        # install the package
+        Pkg.add(url=pkg)
+        sleep(mtimedelay)
+
+        @eval using TestPackage
+        sleep(mtimedelay)
+        @test Base.invokelatest(TestPackage.f) == 1
+
+        # update the package
+        generate_package(root, 2)
+        LibGit2.with(LibGit2.GitRepo(pkg)) do repo
+            LibGit2.add!(repo, "src/TestPackage.jl")
+            test_sig = LibGit2.Signature("TEST", "TEST@TEST.COM", round(time(); digits=0), 0)
+            LibGit2.commit(repo, "version 2"; author=test_sig, committer=test_sig)
+        end
+
+        # install the update
+        Pkg.add(url=pkg)
+        sleep(mtimedelay)
+
+        revise()
+        @test Base.invokelatest(TestPackage.f) == 2
+    finally
+        Pkg.activate(old_project)
+    end
+end
+
 # in v1.8 and higher, a package can't be loaded at all when its precompilation failed
 @static if Base.VERSION < v"1.8.0-DEV.1451"
 do_test("Broken dependencies (issue #371)") && @testset "Broken dependencies (issue #371)" begin
