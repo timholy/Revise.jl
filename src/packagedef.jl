@@ -985,7 +985,7 @@ This can be automated using [`entr`](@ref).
 
 `includet` is essentially shorthand for
 
-    Revise.track(Main, filename; mode=:eval, skip_include=true)
+    Revise.track(Main, filename; mode=:includet, skip_include=true)
 
 Do *not* use `includet` for packages, as those should be handled by `using` or `import`.
 If `using` and `import` aren't working, you may have packages in a non-standard location;
