@@ -2326,6 +2326,13 @@ const issue639report = []
         @test basename(srcfile) ∈ Revise.watched_files[dirname(srcfile)]
         push!(to_remove, srcfile)
 
+        # Do not error when there are no active manifest (issue #762)
+        old_project = Base.ACTIVE_PROJECT[]
+        Pkg.activate(temp=true)
+        @test isnothing(Revise.manifest_file())
+        @test isnothing(Revise.active_project_watcher())
+        Base.ACTIVE_PROJECT[] = old_project
+
         # Double-execution (issue #263)
         srcfile = joinpath(tempdir(), randtmp()*".jl")
         write(srcfile, "println(\"executed\")")
