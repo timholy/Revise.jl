@@ -493,7 +493,7 @@ end
 
 function active_project_watcher()
     mfile = manifest_file()
-    if mfile ∉ watched_manifests
+    if !isnothing(mfile) && mfile ∉ watched_manifests
         push!(watched_manifests, mfile)
         wmthunk = TaskThunk(watch_manifest, (mfile,))
         schedule(Task(wmthunk))
