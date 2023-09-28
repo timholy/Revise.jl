@@ -115,7 +115,7 @@ julia> Example.f()
 ```
 
 Revise is not tied to any particular editor.
-(The [EDITOR or JULIA_EDITOR](https://docs.julialang.org/en/v1/stdlib/InteractiveUtils/#InteractiveUtils.edit-Tuple{AbstractString,Integer}) environment variables can be used to specify your preference for which editor gets launched by Julia's `edit` function.)
+(The [EDITOR or JULIA_EDITOR](https://docs.julialang.org/en/v1/manual/environment-variables/#JULIA_EDITOR) environment variables can be used to specify your preference for which editor gets launched by Julia's `edit` function.)
 
 If you don't want to have to remember to say `using Revise` each time you start
 Julia, see [Using Revise by default](@ref).

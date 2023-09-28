@@ -28,3 +28,9 @@ Revise.diffs
 Revise.dont_watch_pkgs
 Revise.silence
 ```
+
+### Revise module
+
+```@docs
+Revise
+```

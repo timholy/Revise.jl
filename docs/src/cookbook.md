@@ -32,7 +32,7 @@ Both options are described below.
     and [here](https://git-scm.com/book/en/v2/Getting-Started-First-Time-Git-Setup).
     It's also helpful to sign up for a [GitHub account](https://github.com/)
     and set git's `github.user` variable.
-    The [PkgTemplates documentation](https://invenia.github.io/PkgTemplates.jl/stable/)
+    The [PkgTemplates documentation](https://juliaci.github.io/PkgTemplates.jl/stable/)
     may also be useful.
 
     If you struggle with this part, consider trying the "plain" `Pkg` variant below.
