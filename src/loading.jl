@@ -4,7 +4,11 @@ function pkg_fileinfo(id::PkgId)
     cachepath = origin.cachepath
     cachepath === nothing && return nothing, nothing, nothing
     provides, includes_requires, required_modules = try
-        Base.parse_cache_header(cachepath; srcfiles_only=true)
+        @static if VERSION ≥ v"1.11.0-DEV.683"
+            Base.parse_cache_header(cachepath)
+        else
+            Base.parse_cache_header(cachepath, srcfiles_only = true)
+        end
     catch
         return nothing, nothing, nothing
     end
