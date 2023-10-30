@@ -70,7 +70,16 @@ Generating project MyPkg:
 In the first few lines you can see the location of your new package, here
 the directory `/home/tim/.julia/dev/MyPkg`.
 
-Before doing anything else, let's try it out:
+Press `]` to enter the [Pkg REPL](https://pkgdocs.julialang.org/v1/getting-started/#Basic-Usage).
+Then add the new package to your current environment with the `dev` command.
+
+```julia
+(<environment>) pkg> dev /home/tim/.julia/dev/MyPkg
+```
+
+Press the backspace key to return to the Julia REPL.
+
+Now let's try it out:
 
 ```julia
 julia> using Revise   # you must do this before loading any revisable packages
