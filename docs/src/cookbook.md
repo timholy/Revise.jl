@@ -142,7 +142,7 @@ above, you might first have to delete the package with `Pkg.rm("MyPkg")` followi
 a complete removal from your `dev` directory.)
 
 ```julia
-julia> using Pkg
+julia> using Revise, Pkg
 
 julia> cd(Pkg.devdir())   # take us to the standard "development directory"
 
