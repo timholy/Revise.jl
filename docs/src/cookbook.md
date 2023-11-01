@@ -86,9 +86,6 @@ julia> using Revise   # you must do this before loading any revisable packages
 
 julia> using MyPkg
 [ Info: Precompiling MyPkg [102b5b08-597c-4d40-b98a-e9249f4d01f4]
-
-julia> MyPkg.greet()
-Hello World!
 ```
 
 (It's perfectly fine if you see a different string of digits and letters after the "Precompiling MyPkg" message.)
@@ -108,28 +105,28 @@ You should see something like this:
 ```julia
 module MyPkg
 
+# Write your package code here.
+
+end
+```
+
+This is the basic package created by PkgTemplates.
+Let's create a simple `greet` function to return a message:
+
+```julia
+module MyPkg
+
 greet() = print("Hello World!")
 
 end # module
 ```
 
-This is the basic package created by PkgTemplates. Let's modify `greet` to return
-a different message:
-
-```julia
-module MyPkg
-
-greet() = print("Hello, revised World!")
-
-end # module
-```
-
-Now go back to that same Julia session, and try calling `greet` again.
+Now go back to that same Julia session, and try calling `greet`.
 After a pause (while Revise's internal code compiles), you should see
 
 ```julia
 julia> MyPkg.greet()
-Hello, revised World!
+Hello World!
 ```
 
 From this point forward, revisions should be fast. You can modify `MyPkg.jl`
