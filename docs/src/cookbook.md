@@ -74,7 +74,7 @@ Press `]` to enter the [Pkg REPL](https://pkgdocs.julialang.org/v1/getting-start
 Then add the new package to your current environment with the `dev` command.
 
 ```julia
-(<environment>) pkg> dev /home/tim/.julia/dev/MyPkg
+(<environment>) pkg> dev MyPkg   # the dev command will look in the ~/.julia/dev folder automatically
 ```
 
 Press the backspace key to return to the Julia REPL.
