@@ -175,6 +175,13 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
     mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
     lwr = Meta.lower(mod, ex)
     isa(lwr, Expr) || return nothing, nothing
+    # Targeted hack around https://github.com/timholy/Revise.jl/issues/735
+    if Meta.isexpr(lwr, :error, 1) && lwr.args[1] == "invalid \"::\" syntax" &&
+       mode === :sigs
+        @debug "methods_by_execution!: skipping expression where lowering failed " *
+               "(see https://github.com/timholy/Revise.jl/issues/735)" expr=ex lowered=lwr
+        return nothing, nothing
+    end
     if lwr.head === :error || lwr.head === :incomplete
         error("lowering returned an error, ", lwr)
     end
