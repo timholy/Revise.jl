@@ -90,11 +90,20 @@ istrivial(a) = a === nothing || isa(a, LineNumberNode)
 
 isgoto(stmt) = isa(stmt, Core.GotoNode) | isexpr(stmt, :gotoifnot)
 
+function unwrap_where(ex::Expr)
+    while isexpr(ex, :where)
+        ex = ex.args[1]
+    end
+    return ex
+end
+
 function pushex!(exsigs::ExprsSigs, ex::Expr)
     uex = unwrap(ex)
     if is_doc_expr(uex)
         body = uex.args[4]
-        if isa(body, Expr) && body.head !== :call   # don't trigger for docexprs like `"docstr" f(x::Int)`
+        # Don't trigger for exprs where the documented expression is just a signature
+        # (e.g. `"docstr" f(x::Int)`, `"docstr" f(x::T) where T` etc.)
+        if isa(body, Expr) && unwrap_where(body).head !== :call
             exsigs[RelocatableExpr(body)] = nothing
         end
         if length(uex.args) < 5

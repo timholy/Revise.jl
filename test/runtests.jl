@@ -1112,6 +1112,23 @@ const issue639report = []
         pop!(LOAD_PATH)
     end
 
+    do_test("doc expr signature") && @testset "Docstring attached to signatures" begin
+        md = Revise.ModuleExprsSigs(Main)
+        Revise.parse_source!(md, """
+            module DocstringSigsOnly
+            function f end
+            "basecase" f(x)
+            "basecase with type" f(x::Int)
+            "basecase no varname" f(::Float64)
+            "where" f(x::T) where T <: Int8
+            "where no varname" f(::T) where T <: String
+            end
+            """, "test2", Main)
+        # Simply test that the "bodies" of the doc exprs are not included as
+        # standalone expressions.
+        @test length(md[Main.DocstringSigsOnly]) == 6 # 1 func + 5 doc exprs
+    end
+
     do_test("Undef in docstrings") && @testset "Undef in docstrings" begin
         fn = Base.find_source_file("abstractset.jl")   # has lots of examples of """str""" func1, func2
         mexsold = Revise.parse_source(fn, Base)
