@@ -4,8 +4,10 @@ function pkg_fileinfo(id::PkgId)
     cachepath = origin.cachepath
     cachepath === nothing && return nothing, nothing, nothing
     provides, includes_requires, required_modules = try
-        @static if VERSION ≥ v"1.11.0-DEV.683"
-            Base.parse_cache_header(cachepath)
+        @static if VERSION ≥ v"1.11.0-DEV.683" # https://github.com/JuliaLang/julia/pull/49866
+            provides, (_, includes_srcfiles_only, requires), required_modules, _... =
+                Base.parse_cache_header(cachepath)
+            provides, (includes_srcfiles_only, requires), required_modules
         else
             Base.parse_cache_header(cachepath, srcfiles_only = true)
         end
