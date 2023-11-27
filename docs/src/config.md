@@ -123,25 +123,37 @@ string `"1"` (e.g., `JULIA_REVISE_INCLUDE=1` in a bash script).
 Revise needs to be notified by your filesystem about changes to your code,
 which means that the files that define your modules need to be watched for updates.
 Some systems impose limits on the number of files and directories that can be
-watched simultaneously; if this limit is hit, on Linux this can result in a fairly cryptic
-error like
+watched simultaneously; if such a limit is hit, on Linux this can result in Revise silently ceasing to work 
+(albeit with unit tests failing) or in a fairly cryptic error like
 
 ```sh
 ERROR: start_watching (File Monitor): no space left on device (ENOSPC)
 ```
 
-The cure is to increase the number of files that can be watched, by executing
+The cure is to investigate and possibly increase the number of files that can be watched.
 
+Invoking
 ```sh
-echo 65536 | sudo tee -a /proc/sys/fs/inotify/max_user_watches
+$ sysctl fs.inotify
+```
+at the linux prompt may e.g. result im
+```
+fs.inotify.max_queued_events = 16384
+fs.inotify.max_user_instances = 128
+fs.inotify.max_user_watches = 524288
 ```
 
-at the Linux prompt. (The maximum value is 524288,
-which will allocate half a gigabyte of RAM to file-watching).
-For more information see [issue #26](https://github.com/timholy/Revise.jl/issues/26).
+In this case it may make sense to increase one of the limits, e.g.
+```
+$ sudo sysctl fs.inotify.max_user_instances=2048
+```
+and to run unit tests again.
 
-Changing the value this way may not last through the next reboot,
-but [you can also change it permanently](https://askubuntu.com/questions/716431/inotify-max-user-watches-value-resets-on-reboot-how-to-change-it-permanently).
+This change can be made [permanent](https://www.suse.com/de-de/support/kb/doc/?id=000020048).
+
+For more information see issues [#26](https://github.com/timholy/Revise.jl/issues/26)
+and  [#778](https://github.com/timholy/Revise.jl/issues/778).
+
 
 ### Polling and NFS-mounted code directories: JULIA\_REVISE\_POLL
 
