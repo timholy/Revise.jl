@@ -88,8 +88,6 @@ unwrap(rex::RelocatableExpr) = RelocatableExpr(unwrap(rex.ex))
 
 istrivial(a) = a === nothing || isa(a, LineNumberNode)
 
-isgoto(stmt) = isa(stmt, Core.GotoNode) | isexpr(stmt, :gotoifnot)
-
 function unwrap_where(ex::Expr)
     while isexpr(ex, :where)
         ex = ex.args[1]

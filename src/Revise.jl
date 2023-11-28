@@ -38,7 +38,7 @@ using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
 using CodeTracking: PkgFiles, basedir, srcfiles, line_is_decl, basepath
 using JuliaInterpreter: whichtt, is_doc_expr, step_expr!, finish_and_return!, get_return,
                         @lookup, moduleof, scopeof, pc_expr, is_quotenode_egal,
-                        linetable, codelocs, LineTypes, is_GotoIfNot, isassign, isidentical
+                        linetable, codelocs, LineTypes, isassign, isidentical
 using LoweredCodeUtils: next_or_nothing!, trackedheads, callee_matches
 
 include("packagedef.jl")

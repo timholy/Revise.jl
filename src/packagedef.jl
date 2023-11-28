@@ -435,8 +435,7 @@ pop_expr!(methodinfo::CodeTrackingMethodInfo) = (pop!(methodinfo.exprstack); met
 function add_dependencies!(methodinfo::CodeTrackingMethodInfo, edges::CodeEdges, src, musteval)
     isempty(src.code) && return methodinfo
     stmt1 = first(src.code)
-    if (isexpr(stmt1, :gotoifnot) && (dep = (stmt1::Expr).args[1]; isa(dep, Union{GlobalRef,Symbol}))) ||
-       (is_GotoIfNot(stmt1) && (dep = stmt1.cond; isa(dep, Union{GlobalRef,Symbol})))
+    if isa(stmt1, Core.GotoIfNot) && (dep = stmt1.cond; isa(dep, Union{GlobalRef,Symbol}))
         # This is basically a hack to look for symbols that control definition of methods via a conditional.
         # It is aimed at solving #249, but this will have to be generalized for anything real.
         for (stmt, me) in zip(src.code, musteval)
