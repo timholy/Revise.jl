@@ -91,3 +91,6 @@ if !isempty(ARGS) && "REVISE_TESTS_WATCH_FILES" ∈ ARGS
     idx = findall(isequal("REVISE_TESTS_WATCH_FILES"), ARGS)
     deleteat!(ARGS, idx)
 end
+
+errmsg(err::Base.Meta.ParseError) = err.msg
+errmsg(err::AbstractString) = err

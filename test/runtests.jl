@@ -142,7 +142,7 @@ const issue639report = []
         catch err
             @test isa(err, LoadError)
             @test err.file == file
-            @test endswith(err.error, "requires end")
+            @test endswith(errmsg(err.error), Base.VERSION < v"1.10" ? "requires end" : "Expected `end`")
         end
     end
 
@@ -1979,7 +1979,7 @@ const issue639report = []
             if ErrorType === LoadError
                 @test exc.file == fn
                 @test exc.line == line
-                @test occursin(msg, exc.error)
+                @test occursin(msg, errmsg(exc.error))
             elseif ErrorType === UndefVarError
                 @test msg == exc.var
             end
@@ -1987,7 +1987,7 @@ const issue639report = []
         end
 
         # test errors are reported the the first time
-        check_revision_error(logs[1], LoadError, "missing comma or }", 2)
+        check_revision_error(logs[1], LoadError, Base.VERSION < v"1.10" ? "missing comma or }" : "Expected `}`", 2 + (Base.VERSION >= v"1.10"))
         # Check that there's an informative warning
         rec = logs[2]
         @test startswith(rec.message, "The running code does not match")
@@ -2003,7 +2003,7 @@ const issue639report = []
         logs,_ = Test.collect_test_logs() do
             Revise.errors()
         end
-        check_revision_error(logs[1], LoadError, "missing comma or }", 2)
+        check_revision_error(logs[1], LoadError, Base.VERSION < v"1.10" ? "missing comma or }" : "Expected `}`", 2 + (Base.VERSION >= v"1.10"))
 
         write(joinpath(dn, "RevisionErrors.jl"), """
             module RevisionErrors
@@ -2033,7 +2033,8 @@ const issue639report = []
         logs, _ = Test.collect_test_logs() do
             yry()
         end
-        check_revision_error(logs[1], LoadError, "unexpected \"=\"", 6)
+        delim = Base.VERSION < v"1.10" ? '"' : '`'
+        check_revision_error(logs[1], LoadError, "unexpected $delim=$delim", 6 + (Base.VERSION >= v"1.10")*2)
 
         write(joinpath(dn, "RevisionErrors.jl"), """
             module RevisionErrors
@@ -2079,7 +2080,7 @@ const issue639report = []
             revise(throw=true)
             false
         catch err
-            isa(err, LoadError) && occursin("""unexpected "}" """, err.error)
+            isa(err, LoadError) && occursin(Base.VERSION < v"1.10" ? """unexpected "}" """ : "Expected `)`", errmsg(err.error))
         end
         sleep(mtimedelay)
         write(joinpath(dn, "RevisionErrors.jl"), """

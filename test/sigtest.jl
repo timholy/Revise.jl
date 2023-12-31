@@ -104,7 +104,7 @@ end
 
 basefiles = Set{String}()
 @time for (i, (mod, file)) in enumerate(Base._included_files)
-    endswith(file, "sysimg.jl") && continue
+    (endswith(file, "sysimg.jl") || endswith(file, "Base.jl")) && continue
     file = Revise.fixpath(file)
     push!(basefiles, reljpath(file))
     mexs = Revise.parse_source(file, mod)

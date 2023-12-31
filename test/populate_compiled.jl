@@ -1,4 +1,4 @@
-# This runs only on Travis. The goal is to populate the `.julia/compiled/v*` directory
+# This runs only on CI. The goal is to populate the `.julia/compiled/v*` directory
 # with some additional files, so that `filter_valid_cachefiles` has to run.
 # This is to catch problems like #460.
 
@@ -12,5 +12,5 @@ paths = Base.find_all_in_cache_path(id)
 Pkg.rm("EponymTuples") # we don't need it anymore
 path = first(paths)
 base, ext = splitext(path)
-mv(path, base*"blahblah"*ext)
+mv(path, base*"blahblah"*ext; force=true)
 Pkg.add(PackageSpec(name="EponymTuples"))
