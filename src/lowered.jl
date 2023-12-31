@@ -281,7 +281,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             add_signature!(methodinfo, sig, lnn)
                         end
                     end
-                    pc = ret
+                    pc += 1
                 else
                     pc, pc3 = ret
                     # Get the line number from the body

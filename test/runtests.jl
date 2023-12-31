@@ -680,6 +680,32 @@ const issue639report = []
         rm_precompile("A339")
         rm_precompile("B339")
 
+        # Combining `include` with empty functions (issue #758)
+        write(joinpath(testdir, "Issue758.jl"), """
+            module Issue758
+            global gvar = true
+            function f end
+            include("Issue758helperfile.jl")
+            end
+            """)
+        write(joinpath(testdir, "Issue758helperfile.jl"), "")
+        sleep(mtimedelay)
+        using Issue758
+        sleep(mtimedelay)
+        @test_throws MethodError Issue758.f()
+        sleep(mtimedelay)
+        write(joinpath(testdir, "Issue758.jl"), """
+            module Issue758
+            global gvar = true
+            function f end
+            f() = 1
+            include("Issue758helperfile.jl")
+            end
+            """)
+        yry()
+        @test Issue758.f() == 1
+        rm_precompile("Issue758")
+
         pop!(LOAD_PATH)
     end
 
