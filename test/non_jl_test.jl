@@ -1,3 +1,6 @@
+using Revise
+using Test
+
 struct MyFile
     file::String
 end
@@ -34,13 +37,15 @@ end
 path = joinpath(@__DIR__, "test.program")
 try
     cp(joinpath(@__DIR__, "fake_lang", "test.program"), path, force=true)
+    sleep(mtimedelay)
     m=MyFile(path)
     includet(m)
     yry()    # comes from test/common.jl
     @test fake_lang.y() == "2"
     @test fake_lang.x() == "1"
+    sleep(mtimedelay)
     cp(joinpath(@__DIR__, "fake_lang", "new_test.program"), path, force=true)
-    Revise.revise()
+    yry()
     @test fake_lang.x() == "2"
     @test_throws MethodError fake_lang.y()
 finally
