@@ -448,6 +448,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                 end
             else
                 # An Expr we don't want to intercept
+                frame.pc = pc
                 pc = step_expr!(recurse, frame, stmt, true)
             end
         else
