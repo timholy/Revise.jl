@@ -3329,6 +3329,30 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     pop!(LOAD_PATH)
 end
 
+do_test("Name collision") && @testset "Name collision" begin
+    # Issue #747
+    testdir = newtestdir()
+    cproj = Base.active_project()
+    cd(testdir) do
+        Pkg.activate(pwd())
+        Pkg.add("BenchmarkTools")
+        Pkg.instantiate()
+        @eval(using BenchmarkTools)         # This is necessary, but not sure why
+        write("localfile.jl", """
+            module Statistics
+            using BenchmarkTools
+            function f()
+                @btime rand()
+            end
+            end
+            """)
+        sleep(mtimedelay)
+        includet(joinpath(pwd(), "localfile.jl"))
+        @test @eval(Statistics.f()) isa Float64
+    end
+    Pkg.activate(cproj)
+end
+
 do_test("entr") && @testset "entr" begin
     srcfile1 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile1)
     srcfile2 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile2)
