@@ -156,6 +156,14 @@ function fileindex(info, file)
     return nothing
 end
 
+function fileindexes(info, file)
+    idxs = Int[]   # see #730
+    for (i, f) in enumerate(srcfiles(info))
+        is_same_file(f, file) && push!(idxs, i)
+    end
+    return idxs
+end
+
 function hasfile(info, file)
     if isabspath(file)
         file = relpath(file, info)
