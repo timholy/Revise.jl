@@ -39,8 +39,7 @@ function _precompile_()
     @warnpcfail precompile(Tuple{typeof(setindex!), Dict{String,WatchList}, WatchList, String})
 
     MI = CodeTrackingMethodInfo
-    @warnpcfail precompile(Tuple{typeof(minimal_evaluation!), MI, Core.CodeInfo, Symbol})
-    @warnpcfail precompile(Tuple{typeof(minimal_evaluation!), Any, MI, Core.CodeInfo, Symbol})
+    @warnpcfail precompile(Tuple{typeof(minimal_evaluation!), Any, MI, Module, Core.CodeInfo, Symbol})
     @warnpcfail precompile(Tuple{typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
     @warnpcfail precompile(Tuple{typeof(methods_by_execution!), Any, MI, DocExprs, JuliaInterpreter.Frame, Vector{Bool}})
     @warnpcfail precompile(Tuple{typeof(Core.kwfunc(methods_by_execution!)),
