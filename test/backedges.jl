@@ -1,4 +1,5 @@
-using Revise, JuliaInterpreter, Test
+using Revise, Test
+using Revise.JuliaInterpreter: Frame
 using Base.Meta: isexpr
 
 isdefined(@__MODULE__, :do_test) || include("common.jl")
