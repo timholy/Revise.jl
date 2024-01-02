@@ -3771,10 +3771,10 @@ end
 
 include("backedges.jl")
 
+include("non_jl_test.jl")
+
 do_test("Base signatures") && @testset "Base signatures" begin
     println("beginning signatures tests")
     # Using the extensive repository of code in Base as a testbed
     include("sigtest.jl")
 end
-
-include("non_jl_test.jl")
