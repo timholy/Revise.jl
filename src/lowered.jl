@@ -72,10 +72,11 @@ to `Revise.is_method_or_eval`.
 Since the contents of such expression are difficult to analyze, it is generally
 safest to execute all such evals.
 """
-function minimal_evaluation!(@nospecialize(predicate), methodinfo, src::Core.CodeInfo, mode::Symbol)
+function minimal_evaluation!(@nospecialize(predicate), methodinfo, mod::Module, src::Core.CodeInfo, mode::Symbol)
     edges = CodeEdges(src)
     # LoweredCodeUtils.print_with_code(stdout, src, edges)
     isrequired = fill(false, length(src.code))
+    namedconstassigned = Dict{Symbol,Bool}()
     evalassign = false
     for (i, stmt) in enumerate(src.code)
         if !isrequired[i]
@@ -85,11 +86,29 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, src::Core.Cod
                 isrequired[i] = true
             end
         end
-        if mode === :evalassign && isexpr(stmt, :(=))
-            evalassign = isrequired[i] = true
+        if isexpr(stmt, :const)
+            name = stmt.args[1]::Symbol
+            namedconstassigned[name] = false
+        elseif isexpr(stmt, :(=))
             lhs = (stmt::Expr).args[1]
             if isa(lhs, Symbol)
-                isrequired[edges.byname[lhs].succs] .= true  # mark any `const` statements or other "uses" in this block
+                if haskey(namedconstassigned, lhs)
+                    namedconstassigned[lhs] = true
+                end
+            end
+            if mode === :evalassign
+                evalassign = isrequired[i] = true
+                if isa(lhs, Symbol)
+                    isrequired[edges.byname[lhs].succs] .= true  # mark any `const` statements or other "uses" in this block
+                end
+            end
+        end
+    end
+    if mode === :sigs
+        for (name, isassigned) in namedconstassigned
+            isassigned || continue
+            if isdefined(mod, name)
+                empty!(edges.byname[name].succs)   # avoid redefining `consts` in `:sigs` mode (fixes #789)
             end
         end
     end
@@ -108,10 +127,10 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, src::Core.Cod
     add_dependencies!(methodinfo, edges, src, isrequired)
     return isrequired, evalassign
 end
-minimal_evaluation!(@nospecialize(predicate), methodinfo, frame::JuliaInterpreter.Frame, mode::Symbol) =
-    minimal_evaluation!(predicate, methodinfo, frame.framecode.src, mode)
+@noinline minimal_evaluation!(@nospecialize(predicate), methodinfo, frame::JuliaInterpreter.Frame, mode::Symbol) =
+    minimal_evaluation!(predicate, methodinfo, moduleof(frame), frame.framecode.src, mode)
 
-function minimal_evaluation!(methodinfo, frame, mode::Symbol)
+function minimal_evaluation!(methodinfo, frame::JuliaInterpreter.Frame, mode::Symbol)
     minimal_evaluation!(methodinfo, frame, mode) do @nospecialize(stmt)
         ismeth, haseval, isinclude, isnamespace, istoplevel = categorize_stmt(stmt)
         isreq = ismeth | isinclude | istoplevel

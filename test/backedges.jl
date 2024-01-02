@@ -1,4 +1,5 @@
 using Revise, Test
+using Revise.JuliaInterpreter: Frame
 using Base.Meta: isexpr
 
 isdefined(@__MODULE__, :do_test) || include("common.jl")
@@ -9,12 +10,13 @@ flag = false    # this needs to be defined for the conditional part to work
 end
 
 do_test("Backedges") && @testset "Backedges" begin
-    src = Meta.lower(Base, :(max_values(T::Union{map(X -> Type{X}, BitIntegerSmall_types)...}) = 1 << (8*sizeof(T)))).args[1]
+    frame = Frame(Base, :(max_values(T::Union{map(X -> Type{X}, BitIntegerSmall_types)...}) = 1 << (8*sizeof(T))))
+    src = frame.framecode.src
     # Find the inner struct def for the anonymous function
     idtype = findall(stmt->isexpr(stmt, :thunk) && isa(stmt.args[1], Core.CodeInfo), src.code)[end]
     src2 = src.code[idtype].args[1]
     methodinfo = Revise.MethodInfo()
-    isrequired = Revise.minimal_evaluation!(methodinfo, src, :sigs)[1]
+    isrequired = Revise.minimal_evaluation!(methodinfo, frame, :sigs)[1]
     @test sum(isrequired) == length(src.code)-2  # skips the `return` at the end
 
     src = """
