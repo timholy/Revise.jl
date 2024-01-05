@@ -117,7 +117,8 @@ const issue639report = []
 
     do_test("Parse errors") && @testset "Parse errors" begin
         md = Revise.ModuleExprsSigs(Main)
-        @test_throws LoadError Revise.parse_source!(md, """
+        errtype = Base.VERSION < v"1.10" ? LoadError : Base.Meta.ParseError
+        @test_throws errtype Revise.parse_source!(md, """
             begin # this block should parse correctly, cf. issue #109
 
             end
@@ -140,9 +141,13 @@ const issue639report = []
         try
             includet(file)
         catch err
-            @test isa(err, LoadError)
-            @test err.file == file
-            @test endswith(errmsg(err.error), Base.VERSION < v"1.10" ? "requires end" : "Expected `end`")
+            @test isa(err, errtype)
+            if  Base.VERSION < v"1.10"
+                @test err.file == file
+                @test endswith(err.error, "requires end")
+            else
+                @test occursin("Expected `end`", err.msg)
+            end
         end
     end
 
@@ -2006,6 +2011,8 @@ const issue639report = []
                 @test exc.file == fn
                 @test exc.line == line
                 @test occursin(msg, errmsg(exc.error))
+            elseif ErrorType === Base.Meta.ParseError
+                @test occursin(msg, exc.msg)
             elseif ErrorType === UndefVarError
                 @test msg == exc.var
             end
@@ -2013,7 +2020,8 @@ const issue639report = []
         end
 
         # test errors are reported the the first time
-        check_revision_error(logs[1], LoadError, Base.VERSION < v"1.10" ? "missing comma or }" : "Expected `}`", 2 + (Base.VERSION >= v"1.10"))
+        check_revision_error(logs[1], Base.VERSION < v"1.10" ? LoadError : Base.Meta.ParseError,
+                             Base.VERSION < v"1.10" ? "missing comma or }" : "Expected `}`", 2 + (Base.VERSION >= v"1.10"))
         # Check that there's an informative warning
         rec = logs[2]
         @test startswith(rec.message, "The running code does not match")
@@ -2029,7 +2037,8 @@ const issue639report = []
         logs,_ = Test.collect_test_logs() do
             Revise.errors()
         end
-        check_revision_error(logs[1], LoadError, Base.VERSION < v"1.10" ? "missing comma or }" : "Expected `}`", 2 + (Base.VERSION >= v"1.10"))
+        check_revision_error(logs[1], Base.VERSION < v"1.10" ? LoadError : Base.Meta.ParseError,
+                             Base.VERSION < v"1.10" ? "missing comma or }" : "Expected `}`", 2 + (Base.VERSION >= v"1.10"))
 
         write(joinpath(dn, "RevisionErrors.jl"), """
             module RevisionErrors
@@ -2060,7 +2069,8 @@ const issue639report = []
             yry()
         end
         delim = Base.VERSION < v"1.10" ? '"' : '`'
-        check_revision_error(logs[1], LoadError, "unexpected $delim=$delim", 6 + (Base.VERSION >= v"1.10")*2)
+        check_revision_error(logs[1], Base.VERSION < v"1.10" ? LoadError : Base.Meta.ParseError,
+                             "unexpected $delim=$delim", 6 + (Base.VERSION >= v"1.10")*2)
 
         write(joinpath(dn, "RevisionErrors.jl"), """
             module RevisionErrors
@@ -2106,7 +2116,11 @@ const issue639report = []
             revise(throw=true)
             false
         catch err
-            isa(err, LoadError) && occursin(Base.VERSION < v"1.10" ? """unexpected "}" """ : "Expected `)`", errmsg(err.error))
+            if Base.VERSION < v"1.10"
+                isa(err, LoadError) && occursin("""unexpected "}" """, errmsg(err.error))
+            else
+                isa(err, Base.Meta.ParseError) && occursin("Expected `)`", err.msg)
+            end
         end
         sleep(mtimedelay)
         write(joinpath(dn, "RevisionErrors.jl"), """
