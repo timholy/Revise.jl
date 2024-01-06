@@ -72,7 +72,7 @@ function process_source!(mod_exprs_sigs::ModuleExprsSigs, ex, filename, mod::Mod
                 if isa(a, LineNumberNode)
                     lnn = a
                 else
-                    pushex!(exprs_sigs, Expr(:block, lnn, a))
+                    pushex!(exprs_sigs, Expr(:toplevel, lnn, a))
                 end
             end
         else
