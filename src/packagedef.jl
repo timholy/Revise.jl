@@ -266,6 +266,9 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                                 line = firstline(ex)
                                 ld = map(pr->linediff(line, pr[1]), locdefs)
                                 idx = argmin(ld)
+                                if !(ld[idx] < typemax(eltype(ld)))
+                                    @error "Mismatch in linediff for $line and $locdefs with $ex"
+                                end
                                 @assert ld[idx] < typemax(eltype(ld))
                                 deleteat!(locdefs, idx)
                                 continue
