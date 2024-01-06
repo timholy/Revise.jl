@@ -54,12 +54,24 @@ function categorize_stmt(@nospecialize(stmt))
     ismeth, haseval, isinclude, isnamespace, istoplevel = false, false, false, false, false
     if isa(stmt, Expr)
         haseval = matches_eval(stmt)
-        ismeth = stmt.head === :method
+        ismeth = stmt.head === :method || (stmt.head === :thunk && defines_function(only(stmt.args)))
         istoplevel = stmt.head === :toplevel
         isnamespace = stmt.head === :export || stmt.head === :import || stmt.head === :using
         isinclude = stmt.head === :call && stmt.args[1] === :include
     end
     return ismeth, haseval, isinclude, isnamespace, istoplevel
+end
+# Check for thunks that define functions (fixes #792)
+function defines_function(ci)
+    isa(ci, CodeInfo) || return false
+    if length(ci.code) == 1
+        stmt = ci.code[1]
+        if isa(stmt, Core.ReturnNode)
+            val = stmt.val
+            isexpr(val, :method) && return true
+        end
+    end
+    return false
 end
 
 """
@@ -280,6 +292,9 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                 end
                 isassign(frame, pc) && assign_this!(frame, value)
                 pc = next_or_nothing!(frame)
+            elseif head === :thunk && defines_function(only(stmt.args))
+                mode !== :sigs && Core.eval(mod, stmt)
+                pc = next_or_nothing!(frame)
             # elseif head === :thunk && isanonymous_typedef(stmt.args[1])
             #     # Anonymous functions should just be defined anew, since there does not seem to be a practical
             #     # way to find them within the already-defined module.
@@ -300,7 +315,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             add_signature!(methodinfo, sig, lnn)
                         end
                     end
-                    pc += 1
+                    pc = next_or_nothing!(frame)
                 else
                     pc, pc3 = ret
                     # Get the line number from the body

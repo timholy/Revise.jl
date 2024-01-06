@@ -15,7 +15,7 @@ using Base.CoreLogging: Debug,Info
 using Revise.CodeTracking: line_is_decl
 
 # In addition to using this for the "More arg-modifying macros" test below,
-# this package is used on Travis to test what happens when you have multiple
+# this package is used on CI to test what happens when you have multiple
 # *.ji files for the package.
 using EponymTuples
 
@@ -39,6 +39,12 @@ end
 
 macro addint(ex)
     :($(esc(ex))::$(esc(Int)))
+end
+
+macro empty_function(name)
+    return esc(quote
+        function $name end
+    end)
 end
 
 # The following two submodules are for testing #199
@@ -1408,6 +1414,20 @@ const issue639report = []
         yry()
         @test MacroLineNos568.my_fun() == 30
         rm_precompile("MacroLineNos568")
+
+        # Macros that create empty functions (another macro *execution* bug, issue #792)
+        file = tempname()
+        write(file, "@empty_function issue792f1\n")
+        sleep(mtimedelay)
+        includet(ReviseTestPrivate, file)
+        sleep(mtimedelay)
+        @test isempty(methods(ReviseTestPrivate.issue792f1))
+        open(file, "a") do f
+            println(f, "@empty_function issue792f2")
+        end
+        yry()
+        @test isempty(methods(ReviseTestPrivate.issue792f2))
+        rm(file)
 
         pop!(LOAD_PATH)
     end
