@@ -1635,6 +1635,45 @@ const issue639report = []
         pop!(LOAD_PATH)
     end
 
+    do_test("Submodule in same file (#718)") && @testset "Submodule in same file (#718)" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "TestPkg718", "src")
+        mkpath(dn)
+        write(joinpath(dn, "TestPkg718.jl"), """
+            module TestPkg718
+
+            module TestModule718
+                export _VARIABLE_UNASSIGNED
+                global _VARIABLE_UNASSIGNED = -84.0
+            end
+
+            using .TestModule718
+
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using TestPkg718
+        sleep(mtimedelay)
+        @test TestPkg718._VARIABLE_UNASSIGNED == -84.0
+        write(joinpath(dn, "TestPkg718.jl"), """
+            module TestPkg718
+
+            module TestModule718
+                export _VARIABLE_UNASSIGNED
+                global _VARIABLE_UNASSIGNED = -83.0
+            end
+
+            using .TestModule718
+
+            end
+            """)
+        yry()
+        @test TestPkg718._VARIABLE_UNASSIGNED == -83.0
+
+        rm_precompile("TestPkg718")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Timing (issue #341)") && @testset "Timing (issue #341)" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "Timing", "src")
