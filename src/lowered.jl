@@ -62,7 +62,7 @@ function categorize_stmt(@nospecialize(stmt))
     return ismeth, haseval, isinclude, isnamespace, istoplevel
 end
 # Check for thunks that define functions (fixes #792)
-function defines_function(ci)
+function defines_function(@nospecialize(ci))
     isa(ci, CodeInfo) || return false
     if length(ci.code) == 1
         stmt = ci.code[1]
