@@ -77,6 +77,8 @@ julia> processFoo(FooStruct(3.5))
 [ Info: 3.5
 ```
 
+Here, note that we made two changes: we updated the "version number" of FooStruct when we changed something about its fields, and we also re-assigned FooStruct to alias the new version. We did not change the definition of any methods that have been typed AbstractFooStruct.
+
 This works as long as the new type name doesn't conflict with an existing name; within a session you need to change the name each time you change the definition.
 
 Once your development has converged on a solution, it's best to switch to the "permanent" name: in the example above, `FooStruct` is a non-constant global variable, and if used internally in a function there will be consequent performance penalties. Switching to the permanent name will force you to restart your session.
