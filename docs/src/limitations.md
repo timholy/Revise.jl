@@ -8,7 +8,7 @@ There are some kinds of changes that Revise (or often, Julia itself) cannot inco
 
 These kinds of changes require that you restart your Julia session.
 
-During early stages of development, it's quite common to want to change type definitions. You can work around Julia's/Revise's limitations by temporary renaming:
+During early stages of development, it's quite common to want to change type definitions. You can work around Julia's/Revise's limitations by temporary renaming. We'll illustrate this below, using `write` to be explicit about when updates to the file happen. But in ordinary usage, these are changes you'd likely make with your editor.
 
 ```julia
 julia> using Pkg, Revise
