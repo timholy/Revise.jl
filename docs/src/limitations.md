@@ -59,7 +59,7 @@ julia> write("src/MyPkg.jl","""
 
        abstract type AbstractFooStruct end
        struct FooStruct2 <: AbstractFooStruct # change version nuumber
-           bar::Float64 # changed type of the field
+           bar::Float64 # change type of the field
        end
        FooStruct = FooStruct2 # update alias reference
        function processFoo(foo::AbstractFooStruct)
