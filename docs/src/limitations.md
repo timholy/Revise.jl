@@ -11,30 +11,113 @@ These kinds of changes require that you restart your Julia session.
 During early stages of development, it's quite common to want to change type definitions. You can work around Julia's/Revise's limitations by temporary renaming:
 
 ```julia
-# 1st version
-struct FooStruct1
-    bar::Int
-end
-FooStruct = FooStruct1
-function processFoo(foo::FooStruct)
-    @info foo.bar
-end
+julia> using Pkg, Revise
+
+julia> Pkg.generate("MyPkg")
+  Generating  project MyPkg:
+    MyPkg/Project.toml
+    MyPkg/src/MyPkg.jl
+Dict{String, Base.UUID} with 1 entry:
+  "MyPkg" => UUID("69940cda-0c72-4a1a-ae0b-fd3109336fe8")
+
+julia> cd("MyPkg")
+
+julia> write("src/MyPkg.jl","""
+       module MyPkg
+
+       export FooStruct, processFoo
+
+       abstract type AbstractFooStruct end
+       struct FooStruct1 <: AbstractFooStruct
+           bar::Int
+       end
+       FooStruct = FooStruct1
+       function processFoo(foo::AbstractFooStruct)
+           @info foo.bar
+       end
+
+       end
+       """)
+230
+
+julia> Pkg.activate(".")
+  Activating project at `~/blah/MyPkg`
+
+julia> using MyPkg
+  No Changes to `~/blah/MyPkg/Project.toml`
+  No Changes to `~/blah/MyPkg/Manifest.toml`
+Precompiling MyPkg
+  1 dependency successfully precompiled in 2 seconds
+
+julia> processFoo(FooStruct(1))
+[ Info: 1
+
+julia> write("src/MyPkg.jl","""
+       module MyPkg
+
+       export FooStruct, processFoo
+
+       abstract type AbstractFooStruct end
+       struct FooStruct2 <: AbstractFooStruct # change version nuumber
+           bar::Float64 # changed type of the field
+       end
+       FooStruct = FooStruct2 # update alias reference
+       function processFoo(foo::AbstractFooStruct)
+           @info foo.bar
+       end
+
+       end
+       """)
+234
+
+julia> FooStruct # make sure FooStruct refers to FooStruct2
+MyPkg.FooStruct2
+
+julia> processFoo(FooStruct(3.5))
+[ Info: 3.5
 ```
-and then the type can be updated like
-```julia
-# 2nd version
-struct FooStruct2  # change version here
-    bar::Int
-    str::String
-end
-FooStruct = FooStruct2   # change version here
-function processFoo(foo::FooStruct)  # no need to change this
-    @info foo.bar
-end
-```
+
 This works as long as the new type name doesn't conflict with an existing name; within a session you need to change the name each time you change the definition.
 
 Once your development has converged on a solution, it's best to switch to the "permanent" name: in the example above, `FooStruct` is a non-constant global variable, and if used internally in a function there will be consequent performance penalties. Switching to the permanent name will force you to restart your session.
+
+```julia
+julia> isconst(MyPkg, :FooStruct)
+true
+
+julia> write("src/MyPkg.jl","""
+       module MyPkg
+
+       export FooStruct, processFoo
+
+       abstract type AbstractFooStruct end # this could be removed
+       struct FooStruct <: AbstractFooStruct # change to just FooStruct
+           bar::Float64
+       end
+
+       function processFoo(foo::AbstractFooStruct) # consider changing to FooStruct
+           @info foo.bar
+       end
+
+       end
+       """)
+
+julia> run(Base.julia_cmd()) # start a new Julia session, alternatively exit() and restart julia
+
+
+julia> using Pkg, Revise # NEW Julia Session
+
+julia> Pkg.activate(".")
+  Activating project at `~/blah/MyPkg`
+
+julia> using MyPkg
+Precompiling MyPkg
+  1 dependency successfully precompiled in 2 seconds
+
+julia> isconst(MyPkg, :FooStruct)
+true
+
+```
 
 In addition, some situations may require special handling:
 
