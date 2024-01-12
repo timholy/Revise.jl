@@ -23,6 +23,7 @@ jobs:
           - windows-latest
         arch:
           - x64
+        allow_failure: [false]
         include:
           - version: 'nightly'
             os: ubuntu-latest
