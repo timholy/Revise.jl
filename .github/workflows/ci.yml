@@ -9,6 +9,7 @@ jobs:
   test:
     name: Install & test Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
+    continue-on-error: ${{ matrix.allow_failure }}
     strategy:
       fail-fast: false
       matrix:
@@ -22,6 +23,7 @@ jobs:
           - windows-latest
         arch:
           - x64
+        allow_failure: [false]
         include:
           - version: 'nightly'
             os: ubuntu-latest
