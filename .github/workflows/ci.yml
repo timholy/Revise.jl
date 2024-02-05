@@ -96,6 +96,6 @@ jobs:
     #   if: ${{ matrix.os == 'ubuntu-latest' }}
     #   run: echo 4 | sudo tee -a /proc/sys/fs/inotify/max_user_watches; julia --project --code-coverage=user -e 'using Pkg, Revise; cd(joinpath(dirname(pathof(Revise)), "..", "test")); include("inotify.jl")'
     - uses: julia-actions/julia-processcoverage@latest
-    - uses: codecov/codecov-action@v3
+    - uses: codecov/codecov-action@v4
       with:
         file: lcov.info
