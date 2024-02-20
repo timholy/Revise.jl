@@ -409,6 +409,10 @@ function manifest_paths!(pkgpaths::Dict, manifest_file::String)
             id = PkgId(UUID(entry["uuid"]::String), name)
             path = Base.explicit_manifest_entry_path(manifest_file, id, entry)
             if path !== nothing
+                if isfile(path)
+                    # Workaround for #802
+                    path = dirname(dirname(path))
+                end
                 pkgpaths[id] = path
             end
         end
