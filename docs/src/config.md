@@ -136,18 +136,18 @@ Invoking
 ```sh
 $ sysctl fs.inotify
 ```
-at the linux prompt may e.g. result im
+at the linux prompt may e.g. result in
 ```
 fs.inotify.max_queued_events = 16384
 fs.inotify.max_user_instances = 128
 fs.inotify.max_user_watches = 524288
 ```
 
-In this case it may make sense to increase one of the limits, e.g.
+For Revise usage, `max_user_watches >= 65536` is recommended, and more can be helpful; the value of 524288 above is common on modern systems. One can set higher values as needed, e.g.,
 ```
 $ sudo sysctl fs.inotify.max_user_instances=2048
 ```
-and to run unit tests again.
+After changing these values, it is advised to run Revise's unit tests to see if they pass.
 
 This change can be made [permanent](https://www.suse.com/de-de/support/kb/doc/?id=000020048).
 
