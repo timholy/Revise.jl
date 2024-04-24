@@ -3855,6 +3855,36 @@ do_test("includet with mod arg (issue #689)") && @testset "includet with mod arg
     @test Driver.Codes.Common.foo == 2
 end
 
+do_test("Overlay Method Tables") && @testset "Overlay Method Tables" begin
+    # Issue #646
+    testdir = newtestdir()
+    file = joinpath(testdir, "overlaymt.jl")
+    write(file, """
+        Base.Experimental.@MethodTable(method_table)
+
+        foo_mt() = 1
+        Base.Experimental.@overlay Main.method_table foo_mt() = 2
+        """)
+    sleep(mtimedelay)
+    includet(file)
+    @test foo_mt() == 1
+    methods = Base._methods_by_ftype(Tuple{typeof(foo_mt)}, method_table, 1, Base.get_world_counter())
+    ci = Base.uncompressed_ir(methods[1].method)
+    @test ci.code[end] == Core.ReturnNode(2)
+    sleep(mtimedelay)
+    write(file, """
+        Base.Experimental.@MethodTable(method_table)
+
+        foo_mt() = 1
+        Base.Experimental.@overlay Main.method_table foo_mt() = 3
+        """)
+    sleep(mtimedelay)
+    @test foo_mt() == 1
+    methods = Base._methods_by_ftype(Tuple{typeof(foo_mt)}, method_table, 1, Base.get_world_counter())
+    ci = Base.uncompressed_ir(methods[1].method)
+    @test_broken ci.code[end] == Core.ReturnNode(3)
+end
+
 do_test("misc - coverage") && @testset "misc - coverage" begin
     @test Revise.ReviseEvalException("undef", UndefVarError(:foo)).loc isa String
     @test !Revise.throwto_repl(UndefVarError(:foo))
