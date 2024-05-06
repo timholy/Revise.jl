@@ -36,7 +36,7 @@ jobs:
         version: ${{ matrix.version }}
         arch: ${{ matrix.arch }}
         show-versioninfo: ${{ matrix.version == 'nightly' }}
-    - uses: julia-actions/cache@v1
+    - uses: julia-actions/cache@v2
     - uses: julia-actions/julia-buildpkg@latest
     # Revise's tests need significant customization
     # Populate the precompile cache with an extraneous file, to catch issues like in #460
