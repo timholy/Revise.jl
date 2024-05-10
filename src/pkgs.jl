@@ -180,7 +180,9 @@ end
 # Use locking to prevent races between inner and outer @require blocks
 const requires_lock = ReentrantLock()
 
-function add_require(sourcefile::String, modcaller::Module, idmod::String, modname::String, expr::Expr)
+function add_require(sourcefile::String, modcaller::Module, idmod::String, modname::String, expr::Union{Expr,Symbol})
+    # make sure we are always dealing with an expression, not a Symbol
+    expr = expr isa Expr ? expr : Expr(expr)
     id = PkgId(modcaller)
     # If this fires when the module is first being loaded (because the dependency
     # was already loaded), Revise may not yet have the pkgdata for this package.

@@ -3270,6 +3270,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
                 export testfunc
                 include("testfile.jl")
             end
+            @require POMDPs="a93abf59-7444-517b-a68a-c42f96afdd7d" nothing
             @require CatIndices="aafaddc9-749c-510e-ac4f-586e18779b91" onearg(1)
             @require IndirectArrays="9b13fd28-a010-5f03-acff-a1bbcff69959" @eval SubModule include("st.jl")
             @require RoundingIntegers="d5f540fe-1c90-5db3-b776-2e2f362d9394" begin
@@ -3309,6 +3310,9 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     @eval using IndirectArrays
     sleep(mtimedelay)
     notified && @test TrackRequires.SubModule.h(TrackRequires.SubModule.NewType()) == 3
+    # Check that we also handle symbols (rather than expressions) in `@require`
+    @eval using POMDPs # to trigger Requires
+    sleep(mtimedelay)
     # Check a non-block expression
     warnfile = randtmp()
     open(warnfile, "w") do io

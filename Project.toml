@@ -39,6 +39,7 @@ Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 RoundingIntegers = "d5f540fe-1c90-5db3-b776-2e2f362d9394"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 UnsafeArrays = "c4a57d5a-5b31-53a6-b365-19f8c011fbd6"
+POMDPs = "a93abf59-7444-517b-a68a-c42f96afdd7d"
 
 [targets]
-test = ["CatIndices", "EndpointRanges", "EponymTuples", "Example", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Random", "Requires", "RoundingIntegers", "Test", "UnsafeArrays"]
+test = ["CatIndices", "EndpointRanges", "EponymTuples", "Example", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Random", "Requires", "RoundingIntegers", "Test", "UnsafeArrays", "POMDPs"]
