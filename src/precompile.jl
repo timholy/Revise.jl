@@ -59,12 +59,12 @@ function _precompile_()
                              typeof(methods_by_execution!), Function, MI, DocExprs, Frame, Vector{Bool}})
 
     mex = which(methods_by_execution!, (Function, MI, DocExprs, Module, Expr))
-    mbody = bodymethod(mex)
+    mbody = only(methods(Base.bodyfunction(mex)))
     # use `typeof(pairs(NamedTuple()))` here since it actually differs between Julia versions
     @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, typeof(pairs(NamedTuple())), typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
     @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Iterators.Pairs{Symbol,Bool,Tuple{Symbol},NamedTuple{(:skip_include,),Tuple{Bool}}}, typeof(methods_by_execution!), Any, MI, DocExprs, Module, Expr})
     mfr = which(methods_by_execution!, (Function, MI, DocExprs, Frame, Vector{Bool}))
-    mbody = bodymethod(mfr)
+    mbody = only(methods(Base.bodyfunction(mfr)))
     @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, typeof(methods_by_execution!), Any, MI, DocExprs, Frame, Vector{Bool}})
 
     @warnpcfail precompile(Tuple{typeof(hastrackedexpr), Expr})
