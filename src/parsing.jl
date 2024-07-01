@@ -58,7 +58,7 @@ function process_source!(mod_exprs_sigs::ModuleExprsSigs, ex, filename, mod::Mod
             catch err
                 bt = trim_toplevel!(catch_backtrace())
                 lnn = firstline(ex)
-                loc = location_string(lnn.file, lnn.line)
+                loc = location_string((lnn.file, lnn.line))
                 throw(ReviseEvalException(loc, err, Any[(sf, 1) for sf in stacktrace(bt)]))
             end
         end
