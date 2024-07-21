@@ -85,10 +85,10 @@ Since the contents of such expression are difficult to analyze, it is generally
 safest to execute all such evals.
 """
 function minimal_evaluation!(@nospecialize(predicate), methodinfo, mod::Module, src::Core.CodeInfo, mode::Symbol)
-    edges = CodeEdges(src)
+    edges = CodeEdges(mod, src)
     # LoweredCodeUtils.print_with_code(stdout, src, edges)
     isrequired = fill(false, length(src.code))
-    namedconstassigned = Dict{Symbol,Bool}()
+    namedconstassigned = Dict{GlobalRef,Bool}()
     evalassign = false
     for (i, stmt) in enumerate(src.code)
         if !isrequired[i]
@@ -99,18 +99,24 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, mod::Module, 
             end
         end
         if isexpr(stmt, :const)
-            name = stmt.args[1]::Symbol
-            namedconstassigned[name] = false
+            name = stmt.args[1]
+            if isa(name, Symbol)
+                name = GlobalRef(mod, name)
+            end
+            namedconstassigned[name::GlobalRef] = false
         elseif isexpr(stmt, :(=))
             lhs = (stmt::Expr).args[1]
             if isa(lhs, Symbol)
+                lhs = GlobalRef(mod, name)
+            end
+            if isa(lhs, GlobalRef)
                 if haskey(namedconstassigned, lhs)
                     namedconstassigned[lhs] = true
                 end
             end
             if mode === :evalassign
                 evalassign = isrequired[i] = true
-                if isa(lhs, Symbol)
+                if isa(lhs, GlobalRef)
                     isrequired[edges.byname[lhs].succs] .= true  # mark any `const` statements or other "uses" in this block
                 end
             end
@@ -119,7 +125,7 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, mod::Module, 
     if mode === :sigs
         for (name, isassigned) in namedconstassigned
             isassigned || continue
-            if isdefined(mod, name)
+            if isdefined(name.mod, name.name)
                 empty!(edges.byname[name].succs)   # avoid redefining `consts` in `:sigs` mode (fixes #789)
             end
         end
@@ -225,7 +231,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
                 Core.eval(mod, ex)
             catch err
                 (always_rethrow || isa(err, InterruptException)) && rethrow(err)
-                loc = location_string(whereis(frame)...)
+                loc = location_string(whereis(frame))
                 bt = trim_toplevel!(catch_backtrace())
                 throw(ReviseEvalException(loc, err, Any[(sf, 1) for sf in stacktrace(bt)]))
             end
@@ -248,7 +254,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
             methods_by_execution!(recurse, methodinfo, docexprs, frame, isrequired; mode=mode, kwargs...)
         catch err
             (always_rethrow || isa(err, InterruptException)) && (disablebp && foreach(enable, active_bp_refs); rethrow(err))
-            loc = location_string(whereis(frame)...)
+            loc = location_string(whereis(frame))
             sfs = []  # crafted for interaction with Base.show_backtrace
             frame = JuliaInterpreter.leaf(frame)
             while frame !== nothing
@@ -309,10 +315,13 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     # However, it might have been followed by a thunk that defined a
                     # method (issue #435), so we still need to check for additions.
                     if !isempty(signatures)
-                        file, line = whereis(frame.framecode, pc)
-                        lnn = LineNumberNode(Int(line), Symbol(file))
-                        for sig in signatures
-                            add_signature!(methodinfo, sig, lnn)
+                        loc = whereis(frame.framecode, pc)
+                        if loc !== nothing
+                            file, line = loc
+                            lnn = LineNumberNode(Int(line), Symbol(file))
+                            for sig in signatures
+                                add_signature!(methodinfo, sig, lnn)
+                            end
                         end
                     end
                     pc = next_or_nothing!(frame)
