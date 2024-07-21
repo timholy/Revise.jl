@@ -107,7 +107,7 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, mod::Module, 
         elseif isexpr(stmt, :(=))
             lhs = (stmt::Expr).args[1]
             if isa(lhs, Symbol)
-                lhs = GlobalRef(mod, name)
+                lhs = GlobalRef(mod, lhs)
             end
             if isa(lhs, GlobalRef)
                 if haskey(namedconstassigned, lhs)
