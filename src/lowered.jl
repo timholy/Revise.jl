@@ -104,7 +104,7 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, mod::Module, 
                 name = GlobalRef(mod, name)
             end
             namedconstassigned[name::GlobalRef] = false
-        elseif isexpr(stmt, :(=))
+        elseif LoweredCodeUtils.is_assignment_like(stmt)
             lhs = (stmt::Expr).args[1]
             if isa(lhs, Symbol)
                 lhs = GlobalRef(mod, lhs)
@@ -283,7 +283,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
     while true
         JuliaInterpreter.is_leaf(frame) || (@warn("not a leaf"); break)
         stmt = pc_expr(frame, pc)
-        if !isrequired[pc] && mode !== :eval && !(mode === :evalassign && isexpr(stmt, :(=)))
+        if !isrequired[pc] && mode !== :eval && !(mode === :evalassign && LoweredCodeUtils.is_assignment_like(stmt))
             pc = next_or_nothing!(frame)
             pc === nothing && break
             continue
@@ -409,7 +409,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         end
                     end
                 end
-            elseif head === :(=)
+            elseif LoweredCodeUtils.is_assignment_like(stmt)
                 # If we're here, either isrequired[pc] is true, or the mode forces us to eval assignments
                 pc = step_expr!(recurse, frame, stmt, true)
             elseif head === :call
