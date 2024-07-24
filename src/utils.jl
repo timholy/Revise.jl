@@ -59,8 +59,9 @@ firstline(rex::RelocatableExpr) = firstline(rex.ex)
 
 newloc(methloc::LineNumberNode, ln, lno) = fixpath(ln)
 
-location_string(file::AbstractString, line) = abspath(file)*':'*string(line)
-location_string(file::Symbol, line) = location_string(string(file), line)
+location_string((file, line)::Tuple{AbstractString, Any},) = abspath(file)*':'*string(line)
+location_string((file, line)::Tuple{Symbol, Any},) = location_string((string(file), line))
+location_string(::Nothing) = "unknown location"
 
 function linediff(la::LineNumberNode, lb::LineNumberNode)
     (isa(la.file, Symbol) && isa(lb.file, Symbol) && (la.file::Symbol === lb.file::Symbol)) || return typemax(Int)
