@@ -23,6 +23,23 @@ pop_expr!(methodinfo::MethodInfo) = methodinfo
 add_dependencies!(methodinfo::MethodInfo, be::CodeEdges, src, isrequired) = methodinfo
 add_includes!(methodinfo::MethodInfo, mod::Module, filename) = methodinfo
 
+function is_some_include(@nospecialize(f))
+    if isa(f, GlobalRef)
+        return f.name === :include
+    elseif isa(f, Symbol)
+        return f === :include
+    else
+        if isa(f, QuoteNode)
+            f = f.value
+        end
+        if isa(f, Function)
+            mod = Base.typename(typeof(f)).module
+            return isdefined(mod, :include) && f === (@isdefined(getglobal) ? getglobal(mod, :include) : getfield(mod, :include))
+        end
+    end
+    return false
+end
+
 # This is not generally used, see `is_method_or_eval` instead
 function hastrackedexpr(stmt; heads=LoweredCodeUtils.trackedheads)
     haseval = false
@@ -32,7 +49,7 @@ function hastrackedexpr(stmt; heads=LoweredCodeUtils.trackedheads)
             f = stmt.args[1]
             callee_matches(f, Core, :_typebody!) && return true, haseval
             callee_matches(f, Core, :_setsuper!) && return true, haseval
-            f === :include && return true, haseval
+            is_some_include(f) && return true, haseval
         elseif stmt.head === :thunk
             any(s->any(hastrackedexpr(s; heads=heads)), (stmt.args[1]::Core.CodeInfo).code) && return true, haseval
         elseif stmt.head ∈ heads
@@ -57,7 +74,7 @@ function categorize_stmt(@nospecialize(stmt))
         ismeth = stmt.head === :method || (stmt.head === :thunk && defines_function(only(stmt.args)))
         istoplevel = stmt.head === :toplevel
         isnamespace = stmt.head === :export || stmt.head === :import || stmt.head === :using
-        isinclude = stmt.head === :call && stmt.args[1] === :include
+        isinclude = stmt.head === :call && is_some_include(stmt.args[1])
     end
     return ismeth, haseval, isinclude, isnamespace, istoplevel
 end

@@ -862,7 +862,7 @@ function revise(mod::Module)
             for def in keys(exsigs)
                 ex = def.ex
                 exuw = unwrap(ex)
-                isexpr(exuw, :call) && exuw.args[1] === :include && continue
+                isexpr(exuw, :call) && is_some_include(exuw.args[1]) && continue
                 try
                     Core.eval(mod, ex)
                 catch err
@@ -1264,6 +1264,8 @@ function init_worker(p)
     end)
 end
 
+active_repl_backend_available() = isdefined(Base, :active_repl_backend) && Base.active_repl_backend !== nothing
+
 function __init__()
     ccall(:jl_generating_output, Cint, ()) == 1 && return nothing
     run_on_worker = get(ENV, "JULIA_REVISE_WORKER_ONLY", "0")
@@ -1330,18 +1332,18 @@ function __init__()
         else
             pushfirst!(REPL.repl_ast_transforms, revise_first)
             # #664: once a REPL is started, it no longer interacts with REPL.repl_ast_transforms
-            if isdefined(Base, :active_repl_backend)
+            if active_repl_backend_available()
                 push!(Base.active_repl_backend.ast_transforms, revise_first)
             else
                 # wait for active_repl_backend to exist
                 # #719: do this async in case Revise is being loaded from startup.jl
                 t = @async begin
                     iter = 0
-                    while !isdefined(Base, :active_repl_backend) && iter < 20
+                    while !active_repl_backend_available() && iter < 20
                         sleep(0.05)
                         iter += 1
                     end
-                    if isdefined(Base, :active_repl_backend)
+                    if active_repl_backend_available()
                         push!(Base.active_repl_backend.ast_transforms, revise_first)
                     end
                 end

@@ -241,7 +241,7 @@ end
 function deferrable_require!(includes, expr::Expr)
     if expr.head === :call
         callee = expr.args[1]
-        if callee === :include
+        if is_some_include(callee)
             if isa(expr.args[2], AbstractString)
                 push!(includes, expr.args[2])
             else

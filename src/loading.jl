@@ -1,23 +1,31 @@
+const badfile = (nothing, nothing, nothing, UInt128(0))
 function pkg_fileinfo(id::PkgId)
     origin = get(Base.pkgorigins, id, nothing)
-    origin === nothing && return nothing, nothing, nothing
+    origin === nothing && return badfile
     cachepath = origin.cachepath
-    cachepath === nothing && return nothing, nothing, nothing
+    cachepath === nothing && return badfile
+    local checksum
     provides, includes_requires, required_modules = try
-        @static if VERSION ≥ v"1.11.0-DEV.683" # https://github.com/JuliaLang/julia/pull/49866
+        ret = @static if VERSION ≥ v"1.11.0-DEV.683" # https://github.com/JuliaLang/julia/pull/49866
+            io = open(cachepath, "r")
+            checksum = Base.isvalid_cache_header(io)
+            iszero(checksum) && (close(io); return badfile)
             provides, (_, includes_srcfiles_only, requires), required_modules, _... =
-                Base.parse_cache_header(cachepath)
+                Base.parse_cache_header(io, cachepath)
+            close(io)
             provides, (includes_srcfiles_only, requires), required_modules
         else
+            checksum = UInt64(0) # Buildid prior to v"1.12.0-DEV.764", and the `srcfiles_only` API does not take `io`
             Base.parse_cache_header(cachepath, srcfiles_only = true)
         end
-    catch
-        return nothing, nothing, nothing
+        ret
+    catch err
+        return badfile
     end
     includes, _ = includes_requires
     for (pkgid, buildid) in provides
         if pkgid.uuid === id.uuid && pkgid.name == id.name
-            return cachepath, includes, first.(required_modules)
+            return cachepath, includes, first.(required_modules), (UInt128(checksum) << 64 | buildid)
         end
     end
 end
@@ -29,13 +37,17 @@ function parse_pkg_files(id::PkgId)
     end
     modsym = Symbol(id.name)
     if use_compiled_modules()
-        cachefile, includes, reqs = pkg_fileinfo(id)
+        cachefile, includes, reqs, buildid = pkg_fileinfo(id)
         if cachefile !== nothing
             @assert includes !== nothing
             @assert reqs !== nothing
             pkgdata.requirements = reqs
             for chi in includes
-                mod = Base.root_module(id)
+                if VERSION >= v"1.12.0-DEV.764" && haskey(Base.loaded_precompiles, id => buildid)
+                    mod = Base.loaded_precompiles[id => buildid]
+                else
+                    mod = Base.root_module(id)
+                end
                 for mpath in chi.modpath
                     mod = getfield(mod, Symbol(mpath))::Module
                 end
