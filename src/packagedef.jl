@@ -346,7 +346,9 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
                 @debug "LineOffset" _group="Action" time=time() deltainfo=(sigs, lno=>ln)
                 for sig in sigs
                     locdefs = CodeTracking.method_info[sig]::AbstractVector
-                    ld = map(pr->linediff(lno, pr[1]), locdefs)
+                    ld = let lno=lno
+                        map(pr->linediff(lno, pr[1]), locdefs)
+                    end
                     idx = argmin(ld)
                     if ld[idx] === typemax(eltype(ld))
                         # println("Missing linediff for $lno and $(first.(locdefs)) with ", rex.ex)
