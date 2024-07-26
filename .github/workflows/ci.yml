@@ -64,7 +64,7 @@ jobs:
         TERM="xterm" julia --project --code-coverage=user -e '
           using InteractiveUtils, REPL, Revise
           @async(Base.run_main_repl(true, true, false, true, false))
-          while !isdefined(Base, :active_repl_backend) sleep(0.1) end
+          while (!isdefined(Base, :active_repl_backend) || isnothing(Base.active_repl_backend)) sleep(0.1) end
           pushfirst!(Base.active_repl_backend.ast_transforms, Revise.revise_first)
           include(joinpath("test", "runtests.jl"))
           if Base.VERSION.major == 1 && Base.VERSION.minor >= 9
