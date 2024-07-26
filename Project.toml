@@ -19,7 +19,7 @@ Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 [compat]
 CodeTracking = "1.2"
 JuliaInterpreter = "0.9"
-LoweredCodeUtils = "3"
+LoweredCodeUtils = "3.0.1"
 OrderedCollections = "1"
 # Exclude Requires-1.1.0 - see https://github.com/JuliaPackaging/Requires.jl/issues/94
 Requires = "~1.0, ^1.1.1"
