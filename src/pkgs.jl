@@ -110,7 +110,7 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
         return add_definitions_from_repl(file)
     end
     fi = fileinfo(pkgdata, file)
-    if isempty(fi.modexsigs) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
+    if (isempty(fi.modexsigs) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
         # Source was never parsed, get it from the precompile cache
         src = read_from_cache(pkgdata, file)
         filep = joinpath(basedir(pkgdata), file)
@@ -121,6 +121,7 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
         end
         add_modexs!(fi, fi.cacheexprs)
         empty!(fi.cacheexprs)
+        fi.parsed[] = true
     end
     return fi
 end
@@ -470,6 +471,7 @@ function watch_manifest(mfile)
                                         end
                                         add_modexs!(fi, fi.cacheexprs)
                                         empty!(fi.cacheexprs)
+                                        fi.parsed[] = true
                                     end
                                     fi
                                 end

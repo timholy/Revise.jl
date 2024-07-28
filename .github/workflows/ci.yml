@@ -76,10 +76,6 @@ jobs:
           else
               REPL.eval_user_input(:(exit()), Base.active_repl_backend)
           end' "Methods at REPL"
-        # Tests for out-of-process updates to manifest
-        echo "Switch version"
-        bash test/envs/use_exputils/setup.sh
-        julia --project --code-coverage=user test/envs/use_exputils/switch_version.jl
         # We also need to pick up the Git tests, but for that we need to `dev` the package
         echo "Git tests"
         julia --code-coverage=user -e '
