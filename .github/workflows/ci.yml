@@ -88,8 +88,8 @@ jobs:
         # Check #697
         echo "Test #697"
         dn=$(mktemp -d)
-        ver=$(julia -e 'println(VERSION)')
-        curl -s -L https://github.com/JuliaLang/julia/archive/refs/tags/v$ver.tar.gz --output - | tar -xz -C $dn
+        path=$(julia -e 'VERSION.prerelease[1] == "DEV" ? println(Base.GIT_VERSION_INFO.commit) : println("refs/tags/v",VERSION)')
+        curl -s -L https://github.com/JuliaLang/julia/archive/$path.tar.gz --output - | tar -xz -C $dn
         julia --project test/juliadir.jl "$dn/julia-$ver"
 
     # # Running out of inotify storage (see #26)
