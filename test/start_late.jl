@@ -4,7 +4,7 @@
 using Test
 
 @async(Base.run_main_repl(true, true, false, true, false))
-while !isdefined(Base, :active_repl_backend)
+while !isdefined(Base, :active_repl_backend) || isnothing(Base.active_repl_backend)
     sleep(0.5)
 end
 

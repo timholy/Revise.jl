@@ -145,6 +145,7 @@ task, so a `yield` will need to occur before it happens.
 """
 function throwto_repl(e::Exception)
     if isdefined(Base, :active_repl_backend) &&
+            !isnothing(Base.active_repl_backend) &&
             Base.active_repl_backend.backend_task.state === :runnable &&
             isempty(Base.Workqueue) &&
             Base.active_repl_backend.in_eval
