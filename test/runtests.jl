@@ -2901,7 +2901,7 @@ const issue639report = []
     end
 
     do_test("Methods at REPL") && @testset "Methods at REPL" begin
-        if isdefined(Base, :active_repl)
+        if isdefined(Base, :active_repl) && !isnothing(Base.active_repl)
             hp = Base.active_repl.interface.modes[1].hist
             fstr = "__fREPL__(x::Int16) = 0"
             histidx = length(hp.history) + 1 - hp.start_idx
