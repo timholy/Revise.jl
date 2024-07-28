@@ -3,7 +3,11 @@
 
 using Test
 
-@async(Base.run_main_repl(true, true, false, true, false))
+t = @async(
+    VERSION >= v"1.12.0-DEV.612" ? Base.run_main_repl(true, true, :no, true) :
+    VERSION >= v"1.11.0-DEV.222" ? Base.run_main_repl(true, true, :no, true, false)   :
+                                   Base.run_main_repl(true, true, false, true, false))
+isdefined(Base, :errormonitor) && Base.errormonitor(t)
 while !isdefined(Base, :active_repl_backend) || isnothing(Base.active_repl_backend)
     sleep(0.5)
 end
