@@ -63,7 +63,10 @@ jobs:
         echo "Methods at REPL"
         TERM="xterm" julia --project --code-coverage=user -e '
           using InteractiveUtils, REPL, Revise
-          t = @async(VERSION >= v"1.11.0-DEV.623" ? Base.repl_main(nothing) : Base.run_main_repl(true, true, false, true, false))
+          t = @async(
+            VERSION >= v"1.12.0-DEV.612" ? Base.run_main_repl(true, true, :no, true) :
+            VERSION >= v"1.11.0-DEV.222" ? Base.run_main_repl(true, true, :no, true, false)   :
+                                           Base.run_main_repl(true, true, false, true, false))
           isdefined(Base, :errormonitor) && Base.errormonitor(t)
           while (!isdefined(Base, :active_repl_backend) || isnothing(Base.active_repl_backend)) sleep(0.1) end
           pushfirst!(Base.active_repl_backend.ast_transforms, Revise.revise_first)
