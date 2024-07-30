@@ -90,8 +90,9 @@ struct FileInfo
     cachefile::String
     cacheexprs::Vector{Tuple{Module,Expr}}             # "unprocessed" exprs, used to support @require
     extracted::Base.RefValue{Bool}                     # true if signatures have been processed from modexsigs
+    parsed::Base.RefValue{Bool}                        # true if modexsigs have been parsed from cachefile
 end
-FileInfo(fm::ModuleExprsSigs, cachefile="") = FileInfo(fm, cachefile, Tuple{Module,Expr}[], Ref(false))
+FileInfo(fm::ModuleExprsSigs, cachefile="") = FileInfo(fm, cachefile, Tuple{Module,Expr}[], Ref(false), Ref(false))
 
 """
     FileInfo(mod::Module, cachefile="")
@@ -100,7 +101,7 @@ Initialize an empty FileInfo for a file that is `include`d into `mod`.
 """
 FileInfo(mod::Module, cachefile::AbstractString="") = FileInfo(ModuleExprsSigs(mod), cachefile)
 
-FileInfo(fm::ModuleExprsSigs, fi::FileInfo) = FileInfo(fm, fi.cachefile, copy(fi.cacheexprs), Ref(fi.extracted[]))
+FileInfo(fm::ModuleExprsSigs, fi::FileInfo) = FileInfo(fm, fi.cachefile, copy(fi.cacheexprs), Ref(fi.extracted[]), Ref(fi.parsed[]))
 
 function Base.show(io::IO, fi::FileInfo)
     print(io, "FileInfo(")

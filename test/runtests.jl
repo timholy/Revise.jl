@@ -3851,3 +3851,7 @@ do_test("Base signatures") && @testset "Base signatures" begin
     # Using the extensive repository of code in Base as a testbed
     include("sigtest.jl")
 end
+
+# Run this test in a separate julia process, since it messes with projects, and we don't want to have to
+# worry about making sure it resets cleanly.
+do_test("Switch Versions") && @test success(pipeline(`$(Base.julia_cmd()) switch_version.jl`, stderr=stderr))

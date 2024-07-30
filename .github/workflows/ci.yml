@@ -76,10 +76,6 @@ jobs:
           else
               REPL.eval_user_input(:(exit()), Base.active_repl_backend)
           end' "Methods at REPL"
-        # Tests for out-of-process updates to manifest
-        echo "Switch version"
-        bash test/envs/use_exputils/setup.sh
-        julia --project --code-coverage=user test/envs/use_exputils/switch_version.jl
         # We also need to pick up the Git tests, but for that we need to `dev` the package
         echo "Git tests"
         julia --code-coverage=user -e '
@@ -92,8 +88,8 @@ jobs:
         # Check #697
         echo "Test #697"
         dn=$(mktemp -d)
-        ver=$(julia -e 'println(VERSION)')
-        curl -s -L https://github.com/JuliaLang/julia/archive/refs/tags/v$ver.tar.gz --output - | tar -xz -C $dn
+        path=$(julia -e '(!isempty(VERSION.prerelease) && VERSION.prerelease[1] == "DEV") ? println(Base.GIT_VERSION_INFO.commit) : println("refs/tags/v",VERSION)')
+        curl -s -L https://github.com/JuliaLang/julia/archive/$path.tar.gz --output - | tar -xz -C $dn
         julia --project test/juliadir.jl "$dn/julia-$ver"
 
     # # Running out of inotify storage (see #26)
