@@ -1,6 +1,3 @@
-# This test is intended to be run after `setup.sh` runs. ExponentialUtilities
-# should be held at v1.9.0.
-
 using Revise, Pkg, Test
 mktempdir() do thisdir
     Pkg.activate(thisdir)
