@@ -2880,7 +2880,7 @@ const issue639report = []
 
         # Determine whether a git repo is available. Travis & Appveyor do not have this.
         repo, path = Revise.git_repo(Revise.juliadir)
-        if repo != nothing
+        if repo != nothing && isfile(joinpath(path, "VERSION")) && isdir(joinpath(path, "base"))
             # Tracking Core.Compiler
             Revise.track(Core.Compiler)
             id = Base.PkgId(Core.Compiler)
