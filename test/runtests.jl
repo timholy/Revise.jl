@@ -2881,7 +2881,7 @@ const issue639report = []
         if !haskey(ENV, "BUILDKITE") # disable on buildkite, see discussion in https://github.com/JuliaCI/julia-buildkite/pull/372#issuecomment-2262840304
             # Determine whether a git repo is available. Travis & Appveyor do not have this.
             repo, path = Revise.git_repo(Revise.juliadir)
-            if  && repo != nothing && isfile(joinpath(path, "VERSION")) && isdir(joinpath(path, "base"))
+            if repo != nothing && isfile(joinpath(path, "VERSION")) && isdir(joinpath(path, "base"))
                 # Tracking Core.Compiler
                 Revise.track(Core.Compiler)
                 id = Base.PkgId(Core.Compiler)
