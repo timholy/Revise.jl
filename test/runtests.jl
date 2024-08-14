@@ -2878,19 +2878,21 @@ const issue639report = []
 
         Revise.get_tracked_id(Core)   # just test that this doesn't error
 
-        # Determine whether a git repo is available. Travis & Appveyor do not have this.
-        repo, path = Revise.git_repo(Revise.juliadir)
-        if !haskey(ENV, "BUILDKITE") && repo != nothing && isfile(joinpath(path, "VERSION")) && isdir(joinpath(path, "base"))
-            # Tracking Core.Compiler
-            Revise.track(Core.Compiler)
-            id = Base.PkgId(Core.Compiler)
-            pkgdata = Revise.pkgdatas[id]
-            @test any(k->endswith(k, "optimize.jl"), Revise.srcfiles(pkgdata))
-            m = first(methods(Core.Compiler.typeinf_code))
-            @test definition(m) isa Expr
-        else
-            @test_throws Revise.GitRepoException Revise.track(Core.Compiler)
-            @warn "skipping Core.Compiler tests due to lack of git repo"
+        if !haskey(ENV, "BUILDKITE") # disable on buildkite, see discussion in https://github.com/JuliaCI/julia-buildkite/pull/372#issuecomment-2262840304
+            # Determine whether a git repo is available. Travis & Appveyor do not have this.
+            repo, path = Revise.git_repo(Revise.juliadir)
+            if  && repo != nothing && isfile(joinpath(path, "VERSION")) && isdir(joinpath(path, "base"))
+                # Tracking Core.Compiler
+                Revise.track(Core.Compiler)
+                id = Base.PkgId(Core.Compiler)
+                pkgdata = Revise.pkgdatas[id]
+                @test any(k->endswith(k, "optimize.jl"), Revise.srcfiles(pkgdata))
+                m = first(methods(Core.Compiler.typeinf_code))
+                @test definition(m) isa Expr
+            else
+                @test_throws Revise.GitRepoException Revise.track(Core.Compiler)
+                @warn "skipping Core.Compiler tests due to lack of git repo"
+            end
         end
     end
 
