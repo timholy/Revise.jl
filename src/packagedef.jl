@@ -682,11 +682,11 @@ function handle_deletions(pkgdata, file)
             filecontents = try_read(filename)
         end
     end
-    mexsnew = filecontents ? parse_source(filep, topmod, filecontents) : ModuleExprsSigs(topmod)
+    mexsnew = (filecontents !== nothing) ? parse_source(filep, topmod, filecontents) : ModuleExprsSigs(topmod)
     if mexsnew !== nothing
         delete_missing!(mexsold, mexsnew)
     end
-    if !filecontents
+    if filecontents === nothing
         @warn("$filep no longer exists, deleted all methods")
         deleteat!(pkgdata.fileinfos, idx)
         deleteat!(pkgdata.info.files, idx)
