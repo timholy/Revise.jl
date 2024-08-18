@@ -644,6 +644,17 @@ function revise_file_queued(pkgdata::PkgData, file)
     return
 end
 
+function try_read(filename)
+    try
+        return read(filename, String)
+    catch err
+        if err isa Base.SystemError && err.errnum == -Base.UV_ENOENT
+            return nothing
+        end
+        rethrow(err)
+    end
+end
+
 # Because we delete first, we have to make sure we've parsed the file
 function handle_deletions(pkgdata, file)
     fi = maybe_parse_from_cache!(pkgdata, file)
@@ -659,22 +670,23 @@ function handle_deletions(pkgdata, file)
         end
     end
     topmod = first(keys(mexsold))
-    fileok = file_exists(String(filep)::String)
-    if !fileok
+    filename = String(filep)
+    filecontents = try_read(filename)
+    if filecontents === nothing
         # necessary due to some editors (e.g. vim) doing a write process of: 1. rename file to backup, 2. write & fsync new file, 3. remove backup
         sleep(0.1)
         bak_exists = file_exists(String(filep) * "~") # vim backup file
-        fileok = file_exists(String(filep)::String)
-        if !fileok && bak_exists
-            sleep(0.5)
-            fileok = file_exists(String(filep)::String)
+        filecontents = try_read(filename)
+        if (filecontents === nothing) && bak_exists
+            sleep(0.1)
+            filecontents = try_read(filename)
         end
     end
-    mexsnew = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
+    mexsnew = filecontents ? parse_source(filep, topmod, filecontents) : ModuleExprsSigs(topmod)
     if mexsnew !== nothing
         delete_missing!(mexsold, mexsnew)
     end
-    if !fileok
+    if !filecontents
         @warn("$filep no longer exists, deleted all methods")
         deleteat!(pkgdata.fileinfos, idx)
         deleteat!(pkgdata.info.files, idx)

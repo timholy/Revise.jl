@@ -9,6 +9,8 @@ If parsing `filename` fails, `nothing` is returned.
 """
 parse_source(filename, mod::Module; kwargs...) =
     parse_source!(ModuleExprsSigs(mod), filename, mod; kwargs...)
+parse_source(filename, mod::Module, src::AbstractString; kwargs...) =
+    parse_source!(ModuleExprsSigs(mod), src, filename, mod; kwargs...)
 
 """
     parse_source!(mexs::ModuleExprsSigs, filename, mod::Module)
