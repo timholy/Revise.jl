@@ -660,6 +660,16 @@ function handle_deletions(pkgdata, file)
     end
     topmod = first(keys(mexsold))
     fileok = file_exists(String(filep)::String)
+    if !fileok
+        # necessary due to some editors (e.g. vim) doing a write process of: 1. rename file to backup, 2. write & fsync new file, 3. remove backup
+        sleep(0.1)
+        bak_exists = file_exists(String(filep) * "~") # vim backup file
+        fileok = file_exists(String(filep)::String)
+        if !fileok && bak_exists
+            sleep(0.5)
+            fileok = file_exists(String(filep)::String)
+        end
+    end
     mexsnew = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
     if mexsnew !== nothing
         delete_missing!(mexsold, mexsnew)
