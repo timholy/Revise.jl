@@ -948,8 +948,8 @@ const issue639report = []
             """)
         sleep(mtimedelay)
         write(joinpath(dn, "file.jl"), "struct Ord2 end")
-        @info "The following error message is expected for this broken test"
-        yry()
+        # TODO: remove also the log messages check when this test is fixed
+        @test_logs (:error, r"Failed to revise") (:warn, r"The running code does not match the saved version") yry()
         @test_broken Order2.f(Order2.Ord2()) == 1
         # Resolve it with retry
         Revise.retry()
