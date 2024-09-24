@@ -849,15 +849,24 @@ end
 revise(backend::REPL.REPLBackend) = revise()
 
 """
-    revise(mod::Module)
+    revise(mod::Module; force::Bool=true)
 
-Reevaluate every definition in `mod`, whether it was changed or not. This is useful
+Revise all files that define `mod`.
+
+If `force=true`, reevaluate every definition in `mod`, whether it was changed or not. This is useful
 to propagate an updated macro definition, or to force recompiling generated functions.
+Be warned, however, that this invalidates all the compiled code in your session that depends on `mod`,
+and can lead to long recompilation times.
 """
-function revise(mod::Module)
+function revise(mod::Module; force::Bool=true)
     mod == Main && error("cannot revise(Main)")
     id = PkgId(mod)
     pkgdata = pkgdatas[id]
+    for file in pkgdata.info.files
+        push!(revision_queue, (pkgdata, file))
+    end
+    revise()
+    force || return true
     for (i, file) in enumerate(srcfiles(pkgdata))
         fi = fileinfo(pkgdata, i)
         for (mod, exsigs) in fi.modexsigs
