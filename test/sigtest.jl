@@ -105,6 +105,7 @@ end
 basefiles = Set{String}()
 @time for (i, (mod, file)) in enumerate(Base._included_files)
     (endswith(file, "sysimg.jl") || endswith(file, "Base.jl")) && continue
+    Base.VERSION < v"1.7" && Sys.iswindows() && endswith(file, "RNGs.jl") && continue  # invalid redefinition of constant RandomDevice
     file = Revise.fixpath(file)
     push!(basefiles, reljpath(file))
     mexs = Revise.parse_source(file, mod)
