@@ -34,7 +34,7 @@ because code moves around within the same file.
 but Revise takes pains to correct these, see below.)
 
 Conceptually, Revise implements
-[`diff` and `patch`](https://acloudguru.com/blog/engineering/introduction-using-diff-and-patch/)
+[`diff` and `patch`](https://opensource.com/article/18/8/diffs-patches)
 for a running Julia session. Schematically, Revise's inner loop (`revise()`) looks like this:
 
 ```julia

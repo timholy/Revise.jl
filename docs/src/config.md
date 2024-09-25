@@ -85,7 +85,7 @@ There are several ways to set these environment variables:
   the line containing `using Revise`.
 - On Unix systems, you can set variables in your shell initialization script
   (e.g., put lines like `export JULIA_REVISE=manual` in your
-  [`.bashrc` file](http://www.linuxfromscratch.org/blfs/view/svn/postlfs/profile.html)
+  [`.bashrc` file](https://www.linuxfromscratch.org/blfs/view/svn/postlfs/profile.html)
   if you use `bash`).
 - On Unix systems, you can launch Julia from the Unix prompt as `$ JULIA_REVISE=manual julia`
   to set options for just that session.
@@ -123,7 +123,7 @@ string `"1"` (e.g., `JULIA_REVISE_INCLUDE=1` in a bash script).
 Revise needs to be notified by your filesystem about changes to your code,
 which means that the files that define your modules need to be watched for updates.
 Some systems impose limits on the number of files and directories that can be
-watched simultaneously; if such a limit is hit, on Linux this can result in Revise silently ceasing to work 
+watched simultaneously; if such a limit is hit, on Linux this can result in Revise silently ceasing to work
 (albeit with unit tests failing) or in a fairly cryptic error like
 
 ```sh
