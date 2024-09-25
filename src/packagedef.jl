@@ -85,6 +85,9 @@ Global variable, a set of `Manifest.toml` files from the active projects used du
 """
 const watched_manifests = Set{String}()
 
+# Locks access to `revision_queue` to prevent race conditions, see issues #837 and #845
+const revise_lock = ReentrantLock()
+
 """
     Revise.revision_queue
 
@@ -586,9 +589,11 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
             end
             if id != NOPACKAGE
                 pkgdata = pkgdatas[id]
-                if hasfile(pkgdata, key)  # issue #228
-                    push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
-                    notify(revision_event)
+                lock(revise_lock) do
+                    if hasfile(pkgdata, key)  # issue #228
+                        push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
+                        notify(revision_event)
+                    end
                 end
             end
         end
@@ -639,7 +644,11 @@ function revise_file_queued(pkgdata::PkgData, file)
 
         # Check to see if we're still watching this file
         stillwatching = haskey(watched_files, dirfull)
-        PkgId(pkgdata) != NOPACKAGE && push!(revision_queue, (pkgdata, relpath(file, pkgdata)))
+        if PkgId(pkgdata) != NOPACKAGE
+            lock(revise_lock) do
+                push!(revision_queue, (pkgdata, relpath(file, pkgdata)))
+            end
+        end
     end
     return
 end
@@ -734,8 +743,10 @@ end
 Attempt to perform previously-failed revisions. This can be useful in cases of order-dependent errors.
 """
 function retry()
-    for (k, v) in queue_errors
-        push!(revision_queue, k)
+    lock(revise_lock) do
+        for (k, v) in queue_errors
+            push!(revision_queue, k)
+        end
     end
     revise()
 end
@@ -749,100 +760,102 @@ otherwise these are only logged.
 """
 function revise(; throw=false)
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
-    have_queue_errors = !isempty(queue_errors)
+    lock(revise_lock) do
+        have_queue_errors = !isempty(queue_errors)
 
-    # Do all the deletion first. This ensures that a method that moved from one file to another
-    # won't get redefined first and deleted second.
-    revision_errors = Tuple{PkgData,String}[]
-    queue = sort!(collect(revision_queue); lt=pkgfileless)
-    finished = eltype(revision_queue)[]
-    mexsnews = ModuleExprsSigs[]
-    interrupt = false
-    for (pkgdata, file) in queue
-        try
-            push!(mexsnews, handle_deletions(pkgdata, file)[1])
-            push!(finished, (pkgdata, file))
-        catch err
-            throw && Base.throw(err)
-            interrupt |= isa(err, InterruptException)
-            push!(revision_errors, (pkgdata, file))
-            queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+        # Do all the deletion first. This ensures that a method that moved from one file to another
+        # won't get redefined first and deleted second.
+        revision_errors = Tuple{PkgData,String}[]
+        queue = sort!(collect(revision_queue); lt=pkgfileless)
+        finished = eltype(revision_queue)[]
+        mexsnews = ModuleExprsSigs[]
+        interrupt = false
+        for (pkgdata, file) in queue
+            try
+                push!(mexsnews, handle_deletions(pkgdata, file)[1])
+                push!(finished, (pkgdata, file))
+            catch err
+                throw && Base.throw(err)
+                interrupt |= isa(err, InterruptException)
+                push!(revision_errors, (pkgdata, file))
+                queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+            end
         end
-    end
-    # Do the evaluation
-    for ((pkgdata, file), mexsnew) in zip(finished, mexsnews)
-        defaultmode = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
-        i = fileindex(pkgdata, file)
-        i === nothing && continue   # file was deleted by `handle_deletions`
-        fi = fileinfo(pkgdata, i)
-        modsremaining = Set(keys(mexsnew))
-        changed, err = true, nothing
-        while changed
-            changed = false
-            for (mod, exsnew) in mexsnew
-                mod ∈ modsremaining || continue
-                try
-                    mode = defaultmode
-                    # Allow packages to override the supplied mode
-                    if isdefined(mod, :__revise_mode__)
-                        mode = getfield(mod, :__revise_mode__)::Symbol
-                    end
-                    mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
-                    exsold = get(fi.modexsigs, mod, empty_exs_sigs)
-                    for rex in keys(exsnew)
-                        sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
-                        if sigs !== nothing
-                            exsnew[rex] = sigs
+        # Do the evaluation
+        for ((pkgdata, file), mexsnew) in zip(finished, mexsnews)
+            defaultmode = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
+            i = fileindex(pkgdata, file)
+            i === nothing && continue   # file was deleted by `handle_deletions`
+            fi = fileinfo(pkgdata, i)
+            modsremaining = Set(keys(mexsnew))
+            changed, err = true, nothing
+            while changed
+                changed = false
+                for (mod, exsnew) in mexsnew
+                    mod ∈ modsremaining || continue
+                    try
+                        mode = defaultmode
+                        # Allow packages to override the supplied mode
+                        if isdefined(mod, :__revise_mode__)
+                            mode = getfield(mod, :__revise_mode__)::Symbol
                         end
-                        if includes !== nothing
-                            maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
+                        mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
+                        exsold = get(fi.modexsigs, mod, empty_exs_sigs)
+                        for rex in keys(exsnew)
+                            sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
+                            if sigs !== nothing
+                                exsnew[rex] = sigs
+                            end
+                            if includes !== nothing
+                                maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
+                            end
                         end
+                        delete!(modsremaining, mod)
+                        changed = true
+                    catch _err
+                        err = _err
                     end
-                    delete!(modsremaining, mod)
-                    changed = true
-                catch _err
-                    err = _err
                 end
             end
-        end
-        if isempty(modsremaining)
-            pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
-            delete!(queue_errors, (pkgdata, file))
-        else
-            throw && Base.throw(err)
-            interrupt |= isa(err, InterruptException)
-            push!(revision_errors, (pkgdata, file))
-            queue_errors[(pkgdata, file)] = (err, catch_backtrace())
-        end
-    end
-    if interrupt
-        for pkgfile in finished
-            haskey(queue_errors, pkgfile) || delete!(revision_queue, pkgfile)
-        end
-    else
-        empty!(revision_queue)
-    end
-    errors(revision_errors)
-    if !isempty(queue_errors)
-        if !have_queue_errors    # only print on the first time errors occur
-            io = IOBuffer()
-            println(io, "\n") # better here than in the triple-quoted literal, see https://github.com/JuliaLang/julia/issues/34105
-            for (pkgdata, file) in keys(queue_errors)
-                println(io, "  ", joinpath(basedir(pkgdata), file))
+            if isempty(modsremaining)
+                pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+                delete!(queue_errors, (pkgdata, file))
+            else
+                throw && Base.throw(err)
+                interrupt |= isa(err, InterruptException)
+                push!(revision_errors, (pkgdata, file))
+                queue_errors[(pkgdata, file)] = (err, catch_backtrace())
             end
-            str = String(take!(io))
-            @warn """The running code does not match the saved version for the following files:$str
-            If the error was due to evaluation order, it can sometimes be resolved by calling `Revise.retry()`.
-            Use Revise.errors() to report errors again. Only the first error in each file is shown.
-            Your prompt color may be yellow until the errors are resolved."""
-            maybe_set_prompt_color(:warn)
         end
-    else
-        maybe_set_prompt_color(:ok)
-    end
-    tracking_Main_includes[] && queue_includes(Main)
+        if interrupt
+            for pkgfile in finished
+                haskey(queue_errors, pkgfile) || delete!(revision_queue, pkgfile)
+            end
+        else
+            empty!(revision_queue)
+        end
+        errors(revision_errors)
+        if !isempty(queue_errors)
+            if !have_queue_errors    # only print on the first time errors occur
+                io = IOBuffer()
+                println(io, "\n") # better here than in the triple-quoted literal, see https://github.com/JuliaLang/julia/issues/34105
+                for (pkgdata, file) in keys(queue_errors)
+                    println(io, "  ", joinpath(basedir(pkgdata), file))
+                end
+                str = String(take!(io))
+                @warn """The running code does not match the saved version for the following files:$str
+                If the error was due to evaluation order, it can sometimes be resolved by calling `Revise.retry()`.
+                Use Revise.errors() to report errors again. Only the first error in each file is shown.
+                Your prompt color may be yellow until the errors are resolved."""
+                maybe_set_prompt_color(:warn)
+            end
+        else
+            maybe_set_prompt_color(:ok)
+        end
+        tracking_Main_includes[] && queue_includes(Main)
 
-    process_user_callbacks!(throw=throw)
+        process_user_callbacks!(throw=throw)
+    end
 
     nothing
 end
