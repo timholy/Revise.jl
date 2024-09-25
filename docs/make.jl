@@ -1,11 +1,9 @@
 using Documenter, Revise
 
-makedocs(
+makedocs(;
     modules = [Revise],
-    clean = false,
-    format = Documenter.HTML(prettyurls = get(ENV, "CI", nothing) == "true"),
     sitename = "Revise.jl",
-    authors = "Tim Holy",
+    authors = "Tim Holy <tim.holy@gmail.com> and contributors",
     linkcheck = !("skiplinks" in ARGS),
     pages = [
         "Home" => "index.md",

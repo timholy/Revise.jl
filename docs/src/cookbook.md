@@ -5,7 +5,7 @@
 For code that might be useful more than once, it's often a good idea to put it in
 a package.
 Revise cooperates with the package manager to enforce its distinction between
-["versioned" and "under development" packages](https://julialang.github.io/Pkg.jl/v1/managing-packages/);
+["versioned" and "under development" packages](https://pkgdocs.julialang.org/v1/managing-packages/);
 packages that you want to modify and have tracked by `Revise` should be `dev`ed rather than `add`ed.
 
 !!! note
@@ -17,7 +17,7 @@ packages that you want to modify and have tracked by `Revise` should be `dev`ed 
     In keeping with this spirit, Revise is designed to avoid tracking changes in such files.
     The correct way to make and track modifications is to `dev` the package.
 
-For creating packages, the author recommends [PkgTemplates.jl](https://github.com/invenia/PkgTemplates.jl).
+For creating packages, the author recommends [PkgTemplates.jl](https://github.com/JuliaCI/PkgTemplates.jl).
 A fallback is to use "plain" `Pkg` commands.
 Both options are described below.
 
@@ -28,7 +28,7 @@ Both options are described below.
     this approach might require you to do some configuration.
     (Once you get things set up, you shouldn't have to do this part ever again.)
     PkgTemplates needs you to configure your `git` user name and email.
-    Some instructions on configuration are [here](https://docs.github.com/en/github/getting-started-with-github/set-up-git)
+    Some instructions on configuration are [here](https://docs.github.com/en/get-started/getting-started-with-git/set-up-git)
     and [here](https://git-scm.com/book/en/v2/Getting-Started-First-Time-Git-Setup).
     It's also helpful to sign up for a [GitHub account](https://github.com/)
     and set git's `github.user` variable.
@@ -135,7 +135,7 @@ quite extensively without quitting the Julia session, although there are some [L
 
 ### Using Pkg
 
-[Pkg](https://julialang.github.io/Pkg.jl/v1/) works similarly to `PkgTemplates`,
+[Pkg](https://pkgdocs.julialang.org/v1/) works similarly to `PkgTemplates`,
 but requires less configuration while also doing less on your behalf.
 Let's create a blank `MyPkg` using `Pkg`. (If you tried the `PkgTemplates` version
 above, you might first have to delete the package with `Pkg.rm("MyPkg")` following by
