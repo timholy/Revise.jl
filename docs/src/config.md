@@ -54,6 +54,29 @@ end
 END
 ```
 
+## [Editor configuration](@id edcfg)
+
+At present, `vim` is the only editor known to benefit from configuration: if needed, you should modify your settings file so that `backupcopy=yes`.
+
+More generally, Revise uses file-watching, and any editor that saves files with the following sequence:
+
+1. rename the old version to a backup
+2. write the new file
+
+will generate *two* triggers per save; if Revise reacts to the "disappearance" of the file after step 1, it may end up needlessly deleting methods, and even if they get redefined after step 2, you'll need to recompile all the code the next time you execute any dependent methods.
+
+Your best option is to change your editor settings, if possible, to ensure that Revise is triggered only after the new file is finished writing. Either of:
+
+1. write the new file to a temporary name
+2. rename the temporary to the real file name
+
+or
+
+1. save the old file to a backup name
+2. write the new data to the real file name
+
+should work fine. In `vim`, `backupcopy=yes` forces the latter of these two behaviors.
+
 ## Configuring the revise mode
 
 By default, in packages all changes are tracked, but with `includet` only method definitions are tracked.
