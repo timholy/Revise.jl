@@ -61,22 +61,24 @@ function _track(id, modname; modified_files=revision_queue)
         if pkgdata === nothing
             pkgdata = PkgData(id, srcdir)
         end
-        for (submod, filename) in Iterators.drop(Base._included_files, 1)  # stepping through sysimg.jl rebuilds Base, omit it
-            ffilename = fixpath(filename)
-            inpath(ffilename, dirs) || continue
-            keypath = ffilename[1:last(findfirst(dirs[end], ffilename))]
-            rpath = relpath(ffilename, keypath)
-            fullpath = joinpath(basedir(pkgdata), rpath)
-            if fullpath != filename
-                cache_file_key[fullpath] = filename
-                src_file_key[filename] = fullpath
-            end
-            push!(pkgdata, rpath=>FileInfo(submod, basesrccache))
-            if mtime(ffilename) > mtcache
-                with_logger(_debug_logger) do
-                    @debug "Recipe for Base/StdLib" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
+        lock(revise_lock) do
+            for (submod, filename) in Iterators.drop(Base._included_files, 1)  # stepping through sysimg.jl rebuilds Base, omit it
+                ffilename = fixpath(filename)
+                inpath(ffilename, dirs) || continue
+                keypath = ffilename[1:last(findfirst(dirs[end], ffilename))]
+                rpath = relpath(ffilename, keypath)
+                fullpath = joinpath(basedir(pkgdata), rpath)
+                if fullpath != filename
+                    cache_file_key[fullpath] = filename
+                    src_file_key[filename] = fullpath
                 end
-                push!(modified_files, (pkgdata, rpath))
+                push!(pkgdata, rpath=>FileInfo(submod, basesrccache))
+                if mtime(ffilename) > mtcache
+                    with_logger(_debug_logger) do
+                        @debug "Recipe for Base/StdLib" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
+                    end
+                    push!(modified_files, (pkgdata, rpath))
+                end
             end
         end
         # Add files to CodeTracking pkgfiles
@@ -135,39 +137,41 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
     tree = git_tree(repo, commit)
     files = Iterators.filter(file->startswith(file, prefix) && endswith(file, ".jl"), keys(tree))
     ccall((:giterr_clear, :libgit2), Cvoid, ())  # necessary to avoid errors like "the global/xdg file 'attributes' doesn't exist: No such file or directory"
-    for file in files
-        fullpath = joinpath(repo_path, file)
-        rpath = relpath(fullpath, pkgdata)  # this might undo the above, except for Core.Compiler
-        local src
-        try
-            src = git_source(file, tree)
-        catch err
-            if err isa KeyError
-                @warn "skipping $file, not found in repo"
-                continue
+    lock(revise_lock) do
+        for file in files
+            fullpath = joinpath(repo_path, file)
+            rpath = relpath(fullpath, pkgdata)  # this might undo the above, except for Core.Compiler
+            local src
+            try
+                src = git_source(file, tree)
+            catch err
+                if err isa KeyError
+                    @warn "skipping $file, not found in repo"
+                    continue
+                end
+                rethrow(err)
             end
-            rethrow(err)
-        end
-        fmod = get(juliaf2m, fullpath, Core.Compiler)  # Core.Compiler is not cached
-        if fmod === Core.Compiler
-            endswith(fullpath, "compiler.jl") && continue  # defines the module, skip
-            @static if isdefined(Core.Compiler, :EscapeAnalysis)
-                # after https://github.com/JuliaLang/julia/pull/43800
-                if contains(fullpath, "compiler/ssair/EscapeAnalysis")
-                    fmod = Core.Compiler.EscapeAnalysis
+            fmod = get(juliaf2m, fullpath, Core.Compiler)  # Core.Compiler is not cached
+            if fmod === Core.Compiler
+                endswith(fullpath, "compiler.jl") && continue  # defines the module, skip
+                @static if isdefined(Core.Compiler, :EscapeAnalysis)
+                    # after https://github.com/JuliaLang/julia/pull/43800
+                    if contains(fullpath, "compiler/ssair/EscapeAnalysis")
+                        fmod = Core.Compiler.EscapeAnalysis
+                    end
                 end
             end
+            if src != read(fullpath, String)
+                push!(modified_files, (pkgdata, rpath))
+            end
+            fi = FileInfo(fmod)
+            if parse_source!(fi.modexsigs, src, file, fmod) === nothing
+                @warn "failed to parse Git source text for $file"
+            else
+                instantiate_sigs!(fi.modexsigs)
+            end
+            push!(pkgdata, rpath=>fi)
         end
-        if src != read(fullpath, String)
-            push!(modified_files, (pkgdata, rpath))
-        end
-        fi = FileInfo(fmod)
-        if parse_source!(fi.modexsigs, src, file, fmod) === nothing
-            @warn "failed to parse Git source text for $file"
-        else
-            instantiate_sigs!(fi.modexsigs)
-        end
-        push!(pkgdata, rpath=>fi)
     end
     if !isempty(pkgdata.fileinfos)
         id = PkgId(pkgdata)
