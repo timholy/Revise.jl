@@ -146,10 +146,11 @@ With Revise, you can
 
 - fix the bug while simultaneously developing a high-quality test
 - verify that your test passes with the fixed code
+- commit the test, but not the fix
 - `git stash` your fix and check that your new test fails on the old code,
   thus verifying that your test captures the essence of the former bug (if it doesn't fail,
   you need a better test!)
-- `git stash pop`, test again, commit, and submit
+- `git stash pop`, test again, commit the fix, and submit
 
 all without restarting your Julia session.
 
