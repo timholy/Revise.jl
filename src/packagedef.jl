@@ -1018,7 +1018,7 @@ try fixing it with something like `push!(LOAD_PATH, "/path/to/my/private/repos")
 
 `includet` is deliberately non-recursive, so if `filename` loads any other files,
 they will not be automatically tracked.
-(See [`Revise.track`](@ref) to set it up manually.)
+(Call [`Revise.track`](@ref) manually on each file, if you've already `included`d all the code you need.)
 """
 function includet(mod::Module, file)
     prev = Base.source_path(nothing)
