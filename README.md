@@ -1,7 +1,7 @@
 <div align="center"> <img src="images/revise-wordmark.svg" alt="Revise.jl"></img></div>
 
 [![CI](https://github.com/timholy/Revise.jl/actions/workflows/ci.yml/badge.svg)](https://github.com/timholy/Revise.jl/actions/workflows/ci.yml)
-[![codecov.io](http://codecov.io/github/timholy/Revise.jl/coverage.svg?branch=master)](http://codecov.io/github/timholy/Revise.jl?branch=master)
+[![codecov](https://codecov.io/gh/timholy/Revise.jl/graph/badge.svg?token=uLGKT2eFrZ)](https://codecov.io/gh/timholy/Revise.jl)
 
 `Revise.jl` allows you to modify code and use the changes without restarting Julia.
 With Revise, you can be in the middle of a session and then update packages, switch git branches,
