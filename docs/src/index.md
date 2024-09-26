@@ -130,7 +130,7 @@ Revise is fairly ambitious: if all is working, subject to a few [Limitations](@r
 - any package that you load with `import` or `using`
 - any script you load with [`includet`](@ref) (see [Configuring the revise mode](@ref) for important default restrictions on `includet`)
 - any file defining `Base` julia itself (with `Revise.track(Base)`)
-- any of Julia's standard libraries (with, e.g., `using Unicode; Revise.track(Unicode)`)
+- any of Julia's standard libraries (with, e.g., `using Unicode; Revise.track(Unicode)`). Some stdlibs may require special handling; see, for example, a trick for modifying [REPL](@ref editREPL).
 - any file defining `Core.Compiler` (with `Revise.track(Core.Compiler)`)
 
 The last one requires that you clone Julia and build it yourself from source.
