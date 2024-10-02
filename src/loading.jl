@@ -75,7 +75,11 @@ function modulefiles(mod::Module)
         filename = fixpath(filename)
         return get(src_file_key, filename, filename)
     end
-    parentfile = String(first(methods(getfield(mod, :eval))).file)
+    if isdefined(Base, :moduleloc)
+        parentfile = String(Base.moduleloc(mod).file)
+    else
+        parentfile = String(first(methods(getfield(mod, :eval))).file)
+    end
     id = PkgId(mod)
     if id.name == "Base" || Symbol(id.name) ∈ stdlib_names
         parentfile = normpath(Base.find_source_file(parentfile))
