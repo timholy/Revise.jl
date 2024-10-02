@@ -130,7 +130,7 @@ Revise is fairly ambitious: if all is working, subject to a few [Limitations](@r
 - any package that you load with `import` or `using`
 - any script you load with [`includet`](@ref) (see [Configuring the revise mode](@ref) for important default restrictions on `includet`)
 - any file defining `Base` julia itself (with `Revise.track(Base)`)
-- any of Julia's standard libraries (with, e.g., `using Unicode; Revise.track(Unicode)`)
+- any of Julia's standard libraries (with, e.g., `using Unicode; Revise.track(Unicode)`). Some stdlibs may require special handling; see, for example, a trick for modifying [REPL](@ref editREPL).
 - any file defining `Core.Compiler` (with `Revise.track(Core.Compiler)`)
 
 The last one requires that you clone Julia and build it yourself from source.
@@ -146,10 +146,11 @@ With Revise, you can
 
 - fix the bug while simultaneously developing a high-quality test
 - verify that your test passes with the fixed code
+- commit the test, but not the fix
 - `git stash` your fix and check that your new test fails on the old code,
   thus verifying that your test captures the essence of the former bug (if it doesn't fail,
   you need a better test!)
-- `git stash pop`, test again, commit, and submit
+- `git stash pop`, test again, commit the fix, and submit
 
 all without restarting your Julia session.
 

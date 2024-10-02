@@ -10,6 +10,7 @@ makedocs(;
         "config.md",
         "cookbook.md",
         "limitations.md",
+        "tricks.md",
         "debugging.md",
         "internals.md",
         "user_reference.md",
