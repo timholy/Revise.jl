@@ -1,6 +1,6 @@
 using Revise, InteractiveUtils, Test
 
-@eval Revise juliadir = ARGS[1]
+@eval Revise const juliadir = ARGS[1]
 
 @test Revise.juliadir != Revise.basebuilddir
 @test Revise.juliadir != Revise.fallback_juliadir()
