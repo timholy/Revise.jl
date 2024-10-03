@@ -33,7 +33,7 @@ function is_some_include(@nospecialize(f))
             f = f.value
         end
         if isa(f, Function)
-            if isdefined(Base, :IncludeInto) && isa(f, Base.IncludeInto)
+            if @static isdefined(Base, :IncludeInto) && isa(f, Base.IncludeInto)
                 return true
             end
             mod = Base.typename(typeof(f)).module
