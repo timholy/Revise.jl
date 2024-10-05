@@ -43,8 +43,8 @@ function parse_pkg_files(id::PkgId)
             @assert reqs !== nothing
             pkgdata.requirements = reqs
             for chi in includes
-                if isdefined(Base, :loaded_precompiles) && haskey(Base.loaded_precompiles, id => buildid)
-                    mod = Base.loaded_precompiles[id => buildid]
+                if isdefined(Base, :maybe_loaded_precompile) && Base.maybe_loaded_precompile(id, buildid)
+                    mod = Base.maybe_loaded_precompile(id, buildid)
                 else
                     mod = Base.root_module(id)
                 end
