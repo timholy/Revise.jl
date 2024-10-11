@@ -33,6 +33,9 @@ function is_some_include(@nospecialize(f))
             f = f.value
         end
         if isa(f, Function)
+            if @static isdefined(Base, :IncludeInto) && isa(f, Base.IncludeInto)
+                return true
+            end
             mod = Base.typename(typeof(f)).module
             return isdefined(mod, :include) && f === (@isdefined(getglobal) ? getglobal(mod, :include) : getfield(mod, :include))
         end
