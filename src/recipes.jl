@@ -88,7 +88,9 @@ function _track(id, modname; modified_files=revision_queue)
         # Save the result (unnecessary if already in pkgdatas, but doesn't hurt either)
         pkgdatas[id] = pkgdata
     elseif modname === :Compiler
-        compilerdir = normpath(joinpath(juliadir, "base", "compiler"))
+        compilerdir = normpath(joinpath(juliadir, "stdlib", "Compiler"))
+        compilerdir_pre_112 = normpath(joinpath(juliadir, "base", "compiler"))
+        isdir(compilerdir) || (compilerdir = compilerdir_pre_112)
         pkgdata = get(pkgdatas, id, nothing)
         if pkgdata === nothing
             pkgdata = PkgData(id, compilerdir)
@@ -133,7 +135,7 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
     if repo == nothing
         throw(GitRepoException(subdir))
     end
-    prefix = relpath(subdir, repo_path)   # git-relative path of this subdir
+    prefix = string(relpath(subdir, repo_path), "/")   # git-relative path of this subdir
     tree = git_tree(repo, commit)
     files = Iterators.filter(file->startswith(file, prefix) && endswith(file, ".jl"), keys(tree))
     ccall((:giterr_clear, :libgit2), Cvoid, ())  # necessary to avoid errors like "the global/xdg file 'attributes' doesn't exist: No such file or directory"
