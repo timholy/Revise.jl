@@ -456,8 +456,10 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     # path management and parsing new expressions
                     if length(stmt.args) == 2
                         add_includes!(methodinfo, mod, @lookup(frame, stmt.args[2]))
+                    elseif length(stmt.args) == 3
+                        add_includes!(methodinfo, @lookup(frame, stmt.args[2]), @lookup(frame, stmt.args[3]))
                     else
-                        error("include(mapexpr, path) is not supported") # TODO (issue #634)
+                        error("Bad call to Core.include")
                     end
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
@@ -469,7 +471,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         if isa(mod_or_mapexpr, Module)
                             add_includes!(methodinfo, mod_or_mapexpr, @lookup(frame, stmt.args[3]))
                         else
-                            error("include(mapexpr, path) is not supported")
+                            error("include(mapexpr, path) is not supported") # TODO (issue #634)
                         end
                     end
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
