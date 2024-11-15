@@ -74,6 +74,17 @@ end
 
 const issue639report = []
 
+if isdefined(Core, :var"@latestworld")
+    import Core: @latestworld
+else
+    # In older Julia versions, there were more implicit
+    # world age increments, so the macro is generally not
+    # required.
+    macro latestworld()
+        nothing
+    end
+end
+
 @testset "Revise" begin
     do_test("PkgData") && @testset "PkgData" begin
         # Related to #358
@@ -231,6 +242,7 @@ const issue639report = []
         cp(fl1, tmpfile)
         include(tmpfile)  # So the modules are defined
         # test the "mistakes"
+        @latestworld
         @test ReviseTest.cube(2) == 16
         @test ReviseTest.Internal.mult3(2) == 8
         @test ReviseTest.Internal.mult4(2) == -2
@@ -245,6 +257,7 @@ const issue639report = []
         cp(fl2, tmpfile; force=true)
         mexsnew = Revise.parse_source(tmpfile, Main)
         mexsnew = Revise.eval_revised(mexsnew, mexsold)
+        @latestworld
         @test ReviseTest.cube(2) == 8
         @test ReviseTest.Internal.mult3(2) == 6
 
@@ -335,6 +348,7 @@ const issue639report = []
         mexsold = mexsnew
         mexsnew = Revise.parse_source(tmpfile, Main)
         mexsnew = Revise.eval_revised(mexsnew, mexsold)
+        @latestworld
         try
             ReviseTest.cube(2)
             @test false
@@ -516,7 +530,7 @@ const issue639report = []
 
                     end
                     """)  # just for fun we skipped the whitespace
-                yry()
+                @yry()
                 fi = pkgdata.fileinfos[1]
                 @test fi.extracted[]          # issue 596
                 @eval @test $(fn1)() == -1
@@ -529,7 +543,7 @@ const issue639report = []
                 @eval @test $(fn6)() == -6
                 # Redefine function 2
                 write(joinpath(dn, "file2.jl"), "$(fbase)2() = -2")
-                yry()
+                @yry()
                 @eval @test $(fn1)() == -1
                 @eval @test $(fn2)() == -2
                 @eval @test $(fn3)() == 3
@@ -537,7 +551,7 @@ const issue639report = []
                 @eval @test $(fn5)() == 5
                 @eval @test $(fn6)() == -6
                 write(joinpath(dn, "subdir", "file3.jl"), "$(fbase)3() = -3")
-                yry()
+                @yry()
                 @eval @test $(fn1)() == -1
                 @eval @test $(fn2)() == -2
                 @eval @test $(fn3)() == -3
@@ -545,7 +559,7 @@ const issue639report = []
                 @eval @test $(fn5)() == 5
                 @eval @test $(fn6)() == -6
                 write(joinpath(dn, "subdir", "file4.jl"), "$(fbase)4() = -4")
-                yry()
+                @yry()
                 @eval @test $(fn1)() == -1
                 @eval @test $(fn2)() == -2
                 @eval @test $(fn3)() == -3
@@ -553,7 +567,7 @@ const issue639report = []
                 @eval @test $(fn5)() == 5
                 @eval @test $(fn6)() == -6
                 write(joinpath(dn, "file5.jl"), "$(fbase)5() = -5")
-                yry()
+                @yry()
                 @eval @test $(fn1)() == -1
                 @eval @test $(fn2)() == -2
                 @eval @test $(fn3)() == -3
@@ -594,7 +608,7 @@ const issue639report = []
         sleep(mtimedelay)
         @test Mysupermodule.Mymodule.func() == 1
         write(joinpath(subdir, "filesub.jl"), "func() = 2")
-        yry()
+        @yry()
         @test Mysupermodule.Mymodule.func() == 2
         rm_precompile("Mymodule")
         rm_precompile("Mysupermodule")
@@ -621,7 +635,7 @@ const issue639report = []
         @test li_f() == 1
         @test li_g() == 2
         write(joinpath(dn, "file1.jl"), "li_f() = -1")
-        yry()
+        @yry()
         @test li_f() == -1
         rm_precompile("LoopInclude")
 
@@ -649,7 +663,7 @@ const issue639report = []
             g228(x) = 4x + 1
             end
             """)
-        yry()
+        @yry()
         @test f228(3) == 39
         rm_precompile("A228")
         rm_precompile("B228")
@@ -676,7 +690,7 @@ const issue639report = []
                         f() = 2
                         end
                         """)
-        yry()
+        @yry()
         @test A339.f() == 2
         @test B339.f() == 1
         sleep(mtimedelay)
@@ -685,7 +699,7 @@ const issue639report = []
                         f() = 2
                         end
                         """)
-        yry()
+        @yry()
         @test A339.f() == 2
         @test B339.f() == 2
         rm_precompile("A339")
@@ -713,7 +727,7 @@ const issue639report = []
             include("Issue758helperfile.jl")
             end
             """)
-        yry()
+        @yry()
         @test Issue758.f() == 1
         rm_precompile("Issue758")
 
@@ -768,7 +782,7 @@ const issue639report = []
             using .Foos: Foo
             end
             """)
-        yry()
+        @yry()
         @test Namespace.sin(0) == 10
         @test Base.sin(0) == 0
         @test Base.cos(Namespace.X()) == 20
@@ -800,11 +814,11 @@ const issue639report = []
             repeated(x) = x+1
             end
             """)
-        yry()
+        @yry()
         @test Multidef.repeated(3) == 4
         sleep(mtimedelay)
         write(joinpath(dn, "utils.jl"), "\n")
-        yry()
+        @yry()
         @test Multidef.repeated(3) == 4
 
         rm_precompile("Multidef")
@@ -825,6 +839,7 @@ const issue639report = []
             """)
         sleep(mtimedelay)
         includet(fn)
+        @latestworld
         @test isa(RecursiveTypes.Foo().x, Vector{RecursiveTypes.Foo})
 
         pop!(LOAD_PATH)
@@ -859,7 +874,7 @@ const issue639report = []
             CrossModA.foo(x::Int) = 2
             end
             """)
-        yry()
+        @yry()
         @test CrossModA.foo("") == "default"
         @test CrossModA.foo(0) == 2
         write(joinpath(dnB, "CrossModB.jl"), """
@@ -868,7 +883,7 @@ const issue639report = []
             CrossModA.foo(x::Int) = 3
             end
             """)
-        yry()
+        @yry()
         @test CrossModA.foo("") == "default"
         @test CrossModA.foo(0) == 3
 
@@ -900,7 +915,7 @@ const issue639report = []
 
             end
             """)
-        yry()
+        @yry()
         @test ModFILE.mf() == (joinpath(dn, "ModFILE.jl"), 2)
         rm_precompile("ModFILE")
         pop!(LOAD_PATH)
@@ -925,7 +940,7 @@ const issue639report = []
         write(joinpath(dn, "file2.jl"), "f(::Ord1) = 1")
         sleep(mtimedelay)
         write(joinpath(dn, "file1.jl"), "struct Ord1 end")
-        yry()
+        @yry()
         @test Order1.f(Order1.Ord1()) == 1
 
         # A case in which order cannot be determined solely from file order
@@ -950,9 +965,11 @@ const issue639report = []
         write(joinpath(dn, "file.jl"), "struct Ord2 end")
         # TODO: remove also the log messages check when this test is fixed
         @test_logs (:error, r"Failed to revise") (:warn, r"The running code does not match the saved version") yry()
+        @latestworld
         @test_broken Order2.f(Order2.Ord2()) == 1
         # Resolve it with retry
         Revise.retry()
+        @latestworld
         @test Order2.f(Order2.Ord2()) == 1
 
         # Cross-module dependencies
@@ -977,7 +994,7 @@ const issue639report = []
             struct Ord2 end
             struct Ord2a end
             """)
-        yry()
+        @yry()
         @test Order3.g(Order2.Ord2a()) == 1
 
         rm_precompile("Order1")
@@ -1018,7 +1035,7 @@ const issue639report = []
 
             end
             """)
-        yry()
+        @yry()
         @test ModDocstring.f() == 2
         ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Ahoy! "
@@ -1033,7 +1050,7 @@ const issue639report = []
 
             end
             """)
-        yry()
+        @yry()
         @test ModDocstring.f() == 3
         ds = @doc(ModDocstring)
         @test get_docstring(ds) == "Hello! "
@@ -1065,7 +1082,7 @@ const issue639report = []
                 end
             end
             """)
-        yry()
+        @yry()
         ds = @doc(ModDocstring2)
         @test get_docstring(ds) == "updated docstring"
         ds = @doc(ModDocstring2.Sub)
@@ -1103,7 +1120,7 @@ const issue639report = []
             "g" g() = 1
             end
             """)
-        yry()
+        @yry()
         ds = @doc(ChangeDocstring.f)
         @test get_docstring(ds) == "h"
         ds = @doc(ChangeDocstring.g)
@@ -1141,7 +1158,7 @@ const issue639report = []
             "g" g() = 1
             end
             """)
-        yry()
+        @yry()
         ds = @doc(FirstDocstring.g)
         @test get_docstring(ds) == "g"
 
@@ -1222,7 +1239,7 @@ const issue639report = []
 
             end # module
             """)
-        yry()
+        @yry()
         @test MacDocstring.f() == 2
         ds = @doc(MacDocstring.c)
         @test strip(get_docstring(ds)) == "mydoc"
@@ -1285,7 +1302,7 @@ const issue639report = []
 
             end
             """)
-        yry()
+        @yry()
         @test PerfAnnotations.check_hasinline(3) == 3
         @test PerfAnnotations.check_hasnoinline(3) == 3
         @test PerfAnnotations.check_notannot1(3) == 3
@@ -1331,9 +1348,10 @@ const issue639report = []
             @change foo(x) = 0
             end
             """)
-        yry()
+        @yry()
         @test MacroRevision.foo("hello") == 1
         revise(MacroRevision)
+        @latestworld
         @test MacroRevision.foo("hello") == 2
 
         write(joinpath(dn, "MacroRevision.jl"), """
@@ -1345,9 +1363,10 @@ const issue639report = []
             @change foo(x) = 0
             end
             """)
-        yry()
+        @yry()
         @test MacroRevision.foo("hello") == 2
         revise(MacroRevision)
+        @latestworld
         @test MacroRevision.foo("hello") == 3
         rm_precompile("MacroRevision")
 
@@ -1373,7 +1392,7 @@ const issue639report = []
             @testmac blah
             end
             """)
-        yry()
+        @yry()
         @test MacroSigs.blah() == 1
         @test haskey(CodeTracking.method_info, (@which MacroSigs.blah()).sig)
         rm_precompile("MacroSigs")
@@ -1411,7 +1430,7 @@ const issue639report = []
             @some_macro 30
             end
             """)
-        yry()
+        @yry()
         @test MacroLineNos568.my_fun() == 30
         rm_precompile("MacroLineNos568")
 
@@ -1425,7 +1444,7 @@ const issue639report = []
         open(file, "a") do f
             println(f, "@empty_function issue792f2")
         end
-        yry()
+        @yry()
         @test isempty(methods(ReviseTestPrivate.issue792f2))
         rm(file)
 
@@ -1474,7 +1493,7 @@ const issue639report = []
 
             end
             """)
-        yry()
+        @yry()
         @test ArgModMacros.hyper_loglikelihood((μ=1, σ=2, LΩ=3), (w̃s=4, α̃s=5, β̃s=6)) == [4,5,6]
         @test ArgModMacros.revision[] == 2
         rm_precompile("ArgModMacros")
@@ -1530,7 +1549,7 @@ const issue639report = []
 
             foo(y::Int) = y-51
             """)
-        yry()
+        @yry()
         for m in methods(LineNumberMod.foo)
             @test endswith(string(m.file), "incl.jl")
             @test m.line ∈ lines
@@ -1551,6 +1570,7 @@ const issue639report = []
         sleep(mtimedelay)
         includet(filename)
         sleep(mtimedelay)
+        @latestworld
         try
             triggered(true, false)
             @test false
@@ -1574,7 +1594,7 @@ const issue639report = []
                 return nothing
             end
             """)
-        yry()
+        @yry()
         try
             triggered(true, false)
             @test false
@@ -1628,7 +1648,7 @@ const issue639report = []
             end
             end
             """)
-        yry()
+        @yry()
         @test Submodules.f() == 1
         @test Submodules.Sub.g() == 2
         rm_precompile("Submodules")
@@ -1667,7 +1687,7 @@ const issue639report = []
 
             end
             """)
-        yry()
+        @yry()
         @test TestPkg718._VARIABLE_UNASSIGNED == -83.0
 
         rm_precompile("TestPkg718")
@@ -1693,10 +1713,10 @@ const issue639report = []
             f(x) = 2
             end
             """)
-        yry()
+        @yry()
         @test Timing.f(nothing) == 1
         mv(tmpfile, pathof(Timing), force=true)
-        yry()
+        @yry()
         @test Timing.f(nothing) == 2
 
         rm_precompile("Timing")
@@ -1805,7 +1825,7 @@ const issue639report = []
 
             end
             """)
-        yry()
+        @yry()
         @test MethDel.f(1.0) == 1
         @test MethDel.f(1) == 1
         @test MethDel.g(rand(3), 1.0) == 2
@@ -1884,6 +1904,7 @@ const issue639report = []
             @test occursin("not currently being tracked", err.msg)
         end
         Revise.revise_file_now(pkgdata, relpath(fn, pkgdata))
+        @latestworld
         @test ReviseFileNow.f(0) == 2
 
         rm_precompile("ReviseFileNow")
@@ -1918,7 +1939,7 @@ const issue639report = []
             @eval using ToplevelB
             g() = 3
             end""")
-        yry()
+        @yry()
         @test ToplevelA.ToplevelB.f() == 1
         @test ToplevelA.g() == 3
 
@@ -1956,7 +1977,7 @@ const issue639report = []
             end
             g(x) = 2
             end""")
-        yry()
+        @yry()
         @test StructInnerFuncs.A(2).x == 4
         @test StructInnerFuncs.g(3) == 2
 
@@ -2019,7 +2040,7 @@ const issue639report = []
                 return "HELLO2"
             end
             end""")
-        yry()
+        @yry()
         @test Issue606.convert_output_relations() == "HELLO2"
 
         rm_precompile("Issue606")
@@ -2111,6 +2132,7 @@ const issue639report = []
         logs, _ = Test.collect_test_logs() do
             yry()
         end
+        @latestworld
         @test isempty(logs)
         @test RevisionErrors.f(0) == 2
 
@@ -2191,7 +2213,7 @@ const issue639report = []
             g(x) = 2
             end
             """)
-        yry()
+        @yry()
         @test RevisionErrors.g(0) == 2
 
         rm_precompile("RevisionErrors")
@@ -2306,6 +2328,7 @@ const issue639report = []
             logs, _ = Test.collect_test_logs() do
                 yry()
             end
+            @latestworld
             @test isempty(logs)
             @test RevisionInterrupt.f(0) == n
         end
@@ -2331,7 +2354,7 @@ const issue639report = []
             @enum Fruit apple=1 orange=2 kiwi=3
             end
             """)
-        yry()
+        @yry()
         @test Int(ModifyEnum.kiwi) == 3
         @test Base.instances(ModifyEnum.Fruit) === (ModifyEnum.apple, ModifyEnum.orange, ModifyEnum.kiwi)
         rm_precompile("ModifyEnum")
@@ -2406,10 +2429,11 @@ const issue639report = []
         sleep(mtimedelay)
         includet(srcfile)
         sleep(mtimedelay)
+        @latestworld
         @test revise_f(10) == 1
         @test length(signatures_at(srcfile, 1)) == 1
         write(srcfile, "revise_f(x) = 2")
-        yry()
+        @yry()
         @test revise_f(10) == 2
         push!(to_remove, srcfile)
 
@@ -2424,7 +2448,7 @@ const issue639report = []
         Revise.track(srcfile)
         sleep(mtimedelay)
         write(srcfile, "revise_floc(x) = 2")
-        yry()
+        @yry()
         @test revise_floc(10) == 2
         # Call track again & make sure it doesn't track twice
         Revise.track(srcfile)
@@ -2479,9 +2503,10 @@ const issue639report = []
         sleep(mtimedelay)
         include(srcfile1)
         sleep(mtimedelay)
+        @latestworld
         @test f264() == 1
         write(srcfile2, "f264() = 2")
-        yry()
+        @yry()
         @test f264() == 2
 
         # recursive `includet`s (issue #302)
@@ -2508,6 +2533,7 @@ const issue639report = []
         sleep(mtimedelay)
         includet(srcfile2)
         sleep(mtimedelay)
+        @latestworld
         p = Test302.Parameters{Int}(3)
         @test p() == p
         write(srcfile1, """
@@ -2523,7 +2549,7 @@ const issue639report = []
             end
             end
             """)
-        yry()
+        @yry()
         @test p() == 0
 
         # Double-execution prevention (issue #639)
@@ -2557,10 +2583,11 @@ const issue639report = []
         sleep(mtimedelay)
         Revise.track(LikePlots, joinpath(sd, "backend.jl"))
         LikePlots.backend()
+        @latestworld
         @test LikePlots.f() == 1
         sleep(2*mtimedelay)
         write(joinpath(sd, "backend.jl"), "f() = 2")
-        yry()
+        @yry()
         @test LikePlots.f() == 2
         pkgdata = Revise.pkgdatas[Base.PkgId(LikePlots)]
         @test joinpath("src", "backends", "backend.jl") ∈ Revise.srcfiles(pkgdata)
@@ -2596,10 +2623,10 @@ const issue639report = []
         user_track_includes = Revise.tracking_Main_includes[]
         Revise.tracking_Main_includes[] = false
         include(srcfile)
-        yry()
+        @yry()
         @test revise_g() == 1
         write(srcfile, "revise_g() = 2")
-        yry()
+        @yry()
         @test revise_g() == 1
         # Turn on tracking of user scripts
         empty!(Revise.included_files)  # don't track files already loaded (like this one)
@@ -2610,10 +2637,10 @@ const issue639report = []
             write(srcfile, "revise_g() = 1")
             sleep(mtimedelay)
             include(srcfile)
-            yry()
+            @yry()
             @test revise_g() == 1
             write(srcfile, "revise_g() = 2")
-            yry()
+            @yry()
             @test revise_g() == 2
 
             # issue #257
@@ -2684,7 +2711,7 @@ const issue639report = []
 
             end
             """)
-        yry()
+        @yry()
         @test_throws MethodError ReviseDistributed.g(1)
         for p in allworkers
             @test remotecall_fetch(ReviseDistributed.f, p) == 3.0
@@ -2829,7 +2856,7 @@ const issue639report = []
             logs, _ = Test.collect_test_logs() do
                 Revise.track_subdir_from_git!(pkgdata, joinpath(randdir, "src"); commit="HEAD")
             end
-            yry()
+            @yry()
             @test Revise.hasfile(pkgdata, mainjl)
             @test startswith(logs[end].message, "skipping src/extra.jl") || startswith(logs[end-1].message, "skipping src/extra.jl")
             rm_precompile("ModuleWithNewFile")
@@ -2957,7 +2984,7 @@ const issue639report = []
             f() = 2
             end
             """)
-        yry()
+        @yry()
         @test Baremodule.f() == 2
         rm_precompile("Baremodule")
         pop!(LOAD_PATH)
@@ -3055,10 +3082,10 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     pkgdevpath = make_a2d(devpath, 2, "w"; generate=false)
     cp(joinpath(ropkgpath, "Project.toml"), joinpath(devpath, "A2D/Project.toml"))
     Pkg.develop(PackageSpec(path=pkgdevpath))
-    yry()
+    @yry()
     @test Base.invokelatest(A2D.f) == 2
     Pkg.develop(PackageSpec(path=ropkgpath))
-    yry()
+    @yry()
     @test Base.invokelatest(A2D.f) == 1
     for dir in keys(Revise.watched_files)
         @test !startswith(dir, ropkgpath)
@@ -3161,7 +3188,7 @@ do_test("Broken dependencies (issue #371)") && @testset "Broken dependencies (is
         greet() = "Hello again!"
         end
         """)
-    yry()
+    @yry()
     @test DepPkg371.greet() == "Hello again!"
 
     rm_precompile("DepPkg371")
@@ -3209,7 +3236,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         end
         end
         """)
-    yry()
+    @yry()
     @test NewFile.f() == 1
     @test NewFile.g() == 2
     sd = joinpath(dn, "subdir")
@@ -3225,7 +3252,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         end
         end
         """)
-    yry()
+    @yry()
     @test NewFile.f() == 1
     @test NewFile.g() == 2
     @test NewFile.SubModule.h(NewFile.SubModule.NewType()) == 3
@@ -3249,7 +3276,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         end
         """)
     rm(joinpath(dn, "g.jl"))
-    yry()
+    @yry()
     @test DeletedFile.f() == 1
     @test_throws MethodError DeletedFile.g()
 
@@ -3304,7 +3331,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     sleep(mtimedelay)
     notified && @test TrackRequires.testfunc() == 1
     write(joinpath(dn, "testfile.jl"), "testfunc() = 2")
-    yry()
+    @yry()
     notified && @test TrackRequires.testfunc() == 2
     @test_throws UndefVarError TrackRequires.SubModule.h(TrackRequires.SubModule.NewType())
     # Issue #477
@@ -3379,14 +3406,14 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     notified && @test TrackRequires2.testfunc() == 1
     @test_throws UndefVarError TrackRequires2.othertestfunc()
     write(joinpath(dn, "testfile.jl"), "testfunc() = 2")
-    yry()
+    @yry()
     notified && @test TrackRequires2.testfunc() == 2
     @test_throws UndefVarError TrackRequires2.othertestfunc()
     @eval using MappedArrays
     @test TrackRequires2.othertestfunc() == -1
     sleep(mtimedelay)
     write(joinpath(dn, "testfile2.jl"), "othertestfunc() = -2")
-    yry()
+    @yry()
     notified && @test TrackRequires2.othertestfunc() == -2
 
     # Issue #442
@@ -3677,7 +3704,7 @@ do_test("callbacks") && @testset "callbacks" begin
     sleep(mtimedelay)
     touch(srcfile)
 
-    yry()
+    @yry()
 
     @test A355_result[] == 2
 

@@ -24,6 +24,12 @@ else
 end
 
 yry() = (sleep(mtimedelay); revise(); sleep(mtimedelay))
+macro yry()
+    esc(quote
+        yry()
+        @latestworld
+    end)
+end
 
 function collectexprs(rex::Revise.RelocatableExpr)
     items = []
