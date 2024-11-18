@@ -1,4 +1,16 @@
 using Revise, Pkg, Test
+
+if isdefined(Core, :var"@latestworld")
+    import Core: @latestworld
+else
+    # In older Julia versions, there were more implicit
+    # world age increments, so the macro is generally not
+    # required.
+    macro latestworld()
+        nothing
+    end
+end
+
 mktempdir() do thisdir
     Pkg.activate(thisdir)
 
@@ -17,6 +29,7 @@ mktempdir() do thisdir
         isdefined(Base, :errormonitor) && Base.errormonitor(t)
         wait(Revise.revision_event)
         revise()
+        @latestworld
         @test somemethod() === 1   # present in v2
         # ...and then switch back (check that it's bidirectional and also to reset state)
         v1_cmd = """using Pkg; Pkg.activate("."); Pkg.develop(path = joinpath("$(escape_string(dirname(@__FILE__)))", "pkgs", "PkgChange_v1"))"""
@@ -24,6 +37,7 @@ mktempdir() do thisdir
         isdefined(Base, :errormonitor) && Base.errormonitor(t)
         wait(Revise.revision_event)
         revise()
+        @latestworld
         @test_throws MethodError somemethod() # not present in v1
     end
 end

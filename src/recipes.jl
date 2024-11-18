@@ -88,7 +88,7 @@ function _track(id, modname; modified_files=revision_queue)
         # Save the result (unnecessary if already in pkgdatas, but doesn't hurt either)
         pkgdatas[id] = pkgdata
     elseif modname === :Compiler
-        compilerdir = normpath(joinpath(juliadir, "Compiler"))
+        compilerdir = normpath(joinpath(juliadir, "Compiler", "src"))
         compilerdir_pre_112 = normpath(joinpath(juliadir, "base", "compiler"))
         isdir(compilerdir) || (compilerdir = compilerdir_pre_112)
         pkgdata = get(pkgdatas, id, nothing)

@@ -17,7 +17,7 @@ do_test("Backedges") && @testset "Backedges" begin
     src2 = src.code[idtype].args[1]
     methodinfo = Revise.MethodInfo()
     isrequired = Revise.minimal_evaluation!(methodinfo, frame, :sigs)[1]
-    @test sum(isrequired) == length(src.code)-1  # skips the `return` at the end
+    @test sum(isrequired) == length(src.code)-count(e->isexpr(e, :latestworld), src.code)-1  # skips the `return` at the end
 
     src = """
     # issue #249
