@@ -178,13 +178,21 @@ function fallback_juliadir()
     normpath(candidate)
 end
 
+if VERSION >= v"1.8"
+Core.eval(@__MODULE__, :(global juliadir::String))
+else
+Core.eval(@__MODULE__, :(global juliadir  #= ::Any =#; nothing))
+end
+
 """
     Revise.juliadir
 
 Constant specifying full path to julia top-level source directory.
 This should be reliable even for local builds, cross-builds, and binary installs.
 """
-const juliadir = normpath(
+juliadir
+
+juliadir = normpath(
     if isdir(joinpath(basebuilddir, "base"))
         basebuilddir
     else
