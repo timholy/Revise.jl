@@ -447,15 +447,23 @@ push_expr!(methodinfo::CodeTrackingMethodInfo, mod::Module, ex::Expr) = (push!(m
 pop_expr!(methodinfo::CodeTrackingMethodInfo) = (pop!(methodinfo.exprstack); methodinfo)
 function add_dependencies!(methodinfo::CodeTrackingMethodInfo, edges::CodeEdges, src, musteval)
     isempty(src.code) && return methodinfo
-    stmt1 = first(src.code)
-    if isa(stmt1, Core.GotoIfNot) && (dep = stmt1.cond; isa(dep, Union{GlobalRef,Symbol}))
-        # This is basically a hack to look for symbols that control definition of methods via a conditional.
-        # It is aimed at solving #249, but this will have to be generalized for anything real.
-        for (stmt, me) in zip(src.code, musteval)
-            me || continue
-            if hastrackedexpr(stmt)[1]
-                push!(methodinfo.deps, dep)
-                break
+    for i = 1:length(src.code)
+        stmt = src.code[i]
+        if isa(stmt, Core.GotoIfNot)
+            dep = stmt.cond
+            while (isa(dep, Core.SSAValue) || isa(dep, JuliaInterpreter.SSAValue))
+                dep = src.code[dep.id]
+            end
+            if isa(dep, Union{GlobalRef,Symbol})
+                # This is basically a hack to look for symbols that control definition of methods via a conditional.
+                # It is aimed at solving #249, but this will have to be generalized for anything real.
+                for (stmt, me) in zip(src.code, musteval)
+                    me || continue
+                    if hastrackedexpr(stmt, src.code)[1]
+                        push!(methodinfo.deps, dep)
+                        break
+                    end
+                end
             end
         end
     end
