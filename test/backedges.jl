@@ -17,7 +17,10 @@ do_test("Backedges") && @testset "Backedges" begin
     src2 = src.code[idtype].args[1]
     methodinfo = Revise.MethodInfo()
     isrequired = Revise.minimal_evaluation!(methodinfo, frame, :sigs)[1]
-    @test sum(isrequired) == length(src.code)-count(e->isexpr(e, :latestworld), src.code)-1  # skips the `return` at the end
+    laststmt = src.code[end]
+    @assert isa(laststmt, Core.ReturnNode)
+    to_skip = isa(laststmt.val, Revise.JuliaInterpreter.SSAValue) ? 2 : 1
+    @test sum(isrequired) == length(src.code)-count(e->isexpr(e, :latestworld), src.code)-to_skip  # skips the `return` at the end (and its argument)
 
     src = """
     # issue #249

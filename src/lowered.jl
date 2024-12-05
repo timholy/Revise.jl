@@ -24,6 +24,7 @@ add_dependencies!(methodinfo::MethodInfo, be::CodeEdges, src, isrequired) = meth
 add_includes!(methodinfo::MethodInfo, mod::Module, filename) = methodinfo
 
 function is_some_include(@nospecialize(f))
+    @assert !isa(f, Core.SSAValue) && !isa(f, JuliaInterpreter.SSAValue)
     if isa(f, GlobalRef)
         return f.name === :include
     elseif isa(f, Symbol)
@@ -44,17 +45,21 @@ function is_some_include(@nospecialize(f))
 end
 
 # This is not generally used, see `is_method_or_eval` instead
-function hastrackedexpr(stmt; heads=LoweredCodeUtils.trackedheads)
+function hastrackedexpr(stmt, code; heads=LoweredCodeUtils.trackedheads)
     haseval = false
     if isa(stmt, Expr)
         haseval = matches_eval(stmt)
         if stmt.head === :call
             f = stmt.args[1]
+            while isa(f, Core.SSAValue) || isa(f, JuliaInterpreter.SSAValue)
+                f = code[f.id]
+            end
             callee_matches(f, Core, :_typebody!) && return true, haseval
             callee_matches(f, Core, :_setsuper!) && return true, haseval
             is_some_include(f) && return true, haseval
         elseif stmt.head === :thunk
-            any(s->any(hastrackedexpr(s; heads=heads)), (stmt.args[1]::Core.CodeInfo).code) && return true, haseval
+            newcode = (stmt.args[1]::Core.CodeInfo).code
+            any(s->any(hastrackedexpr(s, newcode; heads=heads)), newcode) && return true, haseval
         elseif stmt.head ∈ heads
             return true, haseval
         end
@@ -70,14 +75,21 @@ function matches_eval(stmt::Expr)
            (isa(f, GlobalRef) && f.name === :eval) || is_quotenode_egal(f, Core.eval)
 end
 
-function categorize_stmt(@nospecialize(stmt))
+function categorize_stmt(@nospecialize(stmt), code::Vector{Any})
     ismeth, haseval, isinclude, isnamespace, istoplevel = false, false, false, false, false
     if isa(stmt, Expr)
         haseval = matches_eval(stmt)
         ismeth = stmt.head === :method || (stmt.head === :thunk && defines_function(only(stmt.args)))
         istoplevel = stmt.head === :toplevel
         isnamespace = stmt.head === :export || stmt.head === :import || stmt.head === :using
-        isinclude = stmt.head === :call && is_some_include(stmt.args[1])
+        isinclude = false
+        if stmt.head === :call && length(stmt.args) >= 1
+            callee = stmt.args[1]
+            while isa(callee, Core.SSAValue) || isa(callee, JuliaInterpreter.SSAValue)
+                callee = code[callee.id]
+            end
+            isinclude = is_some_include(callee)
+        end
     end
     return ismeth, haseval, isinclude, isnamespace, istoplevel
 end
@@ -112,7 +124,7 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, mod::Module, 
     evalassign = false
     for (i, stmt) in enumerate(src.code)
         if !isrequired[i]
-            isrequired[i], haseval = predicate(stmt)::Tuple{Bool,Bool}
+            isrequired[i], haseval = predicate(stmt, src.code)::Tuple{Bool,Bool}
             if haseval                              # line `i` may be the equivalent of `f = Core.eval`, so...
                 isrequired[edges.succs[i]] .= true  # ...require each stmt that calls `eval` via `f(expr)`
                 isrequired[i] = true
@@ -169,8 +181,8 @@ end
     minimal_evaluation!(predicate, methodinfo, moduleof(frame), frame.framecode.src, mode)
 
 function minimal_evaluation!(methodinfo, frame::JuliaInterpreter.Frame, mode::Symbol)
-    minimal_evaluation!(methodinfo, frame, mode) do @nospecialize(stmt)
-        ismeth, haseval, isinclude, isnamespace, istoplevel = categorize_stmt(stmt)
+    minimal_evaluation!(methodinfo, frame, mode) do @nospecialize(stmt), code
+        ismeth, haseval, isinclude, isnamespace, istoplevel = categorize_stmt(stmt, code)
         isreq = ismeth | isinclude | istoplevel
         return mode === :sigs ? (isreq, haseval) : (isreq | isnamespace, haseval)
     end
