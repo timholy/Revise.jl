@@ -2389,7 +2389,8 @@ end
         @test isequal(ex, Revise.RelocatableExpr(:(f(v::AbstractVector{<:Integer}) = 3)))
 
         st = try GetDef.bar(5.0) catch err stacktrace(catch_backtrace()) end
-        m = st[2].linfo.def
+        linfo = st[2].linfo
+        m = isa(linfo, Core.CodeInstance) ? linfo.def.def : linfo.def
         def = Revise.RelocatableExpr(definition(m))
         @test def == Revise.RelocatableExpr(:(foo(x::T, y::Integer=1; kw1="hello", kwargs...) where T<:Number = error("stop")))
 

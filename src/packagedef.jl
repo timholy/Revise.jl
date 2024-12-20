@@ -1207,8 +1207,13 @@ function update_stacktrace_lineno!(trace)
             t, nrep = t
         end
         t = t::StackTraces.StackFrame
-        if t.linfo isa Core.MethodInstance
-            m = t.linfo.def
+        linfo = t.linfo
+        if linfo isa Core.CodeInstance
+            linfo = linfo.def
+            (isdefined(Core, :ABIOverride) && isa(linfo, Core.ABIOverride)) && (linfo = linfo.def)
+        end
+        if linfo isa Core.MethodInstance
+            m = linfo.def
             sigt = m.sig
             # Why not just call `whereis`? Because that forces tracking. This is being
             # clever by recognizing that these entries exist only if there have been updates.
