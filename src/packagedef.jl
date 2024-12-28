@@ -1,12 +1,43 @@
 @eval Base.Experimental.@optlevel 1
 
-using FileWatching, REPL, Distributed, UUIDs
+using FileWatching, REPL, UUIDs
 import LibGit2
 using Base: PkgId
 using Base.Meta: isexpr
 using Core: CodeInfo
 
 export revise, includet, entr, MethodSummary
+
+
+# Abstract type to represent a single worker
+abstract type AbstractWorker end
+
+# Wrapper struct to indicate a worker belonging to the Distributed stdlib. Other
+# libraries should make their own type that subtypes AbstractWorker for Revise
+# to dispatch on.
+struct DistributedWorker <: AbstractWorker
+    id::Int
+end
+
+# This is a list of functions that will retrieve a list of workers
+const workers_functions = Base.Callable[]
+
+# A distributed worker library wanting to use Revise should register their
+# workers() function with this.
+function register_workers_function(f::Function)
+    push!(workers_functions, f)
+    nothing
+end
+
+# The library should implement this method such that it behaves like
+# Distributed.remotecall().
+function remotecall_impl end
+
+# The library should implement two methods for this function:
+# - is_master_worker(::typeof(my_workers_function)): check if the current
+#   process is the master.
+# - is_master_worker(w::MyWorkerType): check if `w` is the master.
+function is_master_worker end
 
 """
     Revise.watching_files[]
@@ -278,10 +309,12 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                         end
                         @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
                         # Delete the corresponding methods
-                        for p in workers()
-                            try  # guard against serialization errors if the type isn't defined on the worker
-                                remotecall(Core.eval, p, Main, :(delete_method_by_sig($sig)))
-                            catch
+                        for get_workers in workers_functions
+                            for p in get_workers()
+                                try  # guard against serialization errors if the type isn't defined on the worker
+                                    remotecall_impl(Core.eval, p, Main, :(delete_method_by_sig($sig)))
+                                catch
+                                end
                             end
                         end
                         Base.delete_method(m)
@@ -330,12 +363,14 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end
-            if myid() == 1
-                for p in workers()
-                    p == myid() && continue
-                    try   # don't error if `mod` isn't defined on the worker
-                        remotecall(Core.eval, p, mod, thunk)
-                    catch
+            for get_workers in workers_functions
+                if is_master_worker(get_workers)
+                    for p in get_workers()
+                        is_master_worker(p) && continue
+                        try   # don't error if `mod` isn't defined on the worker
+                            remotecall_impl(Core.eval, p, mod, thunk)
+                        catch
+                        end
                     end
                 end
             end
@@ -1275,8 +1310,8 @@ async_steal_repl_backend() = steal_repl_backend()
 Define methods on worker `p` that Revise needs in order to perform revisions on `p`.
 Revise itself does not need to be running on `p`.
 """
-function init_worker(p)
-    remotecall(Core.eval, p, Main, quote
+function init_worker(p::AbstractWorker)
+    remotecall_impl(Core.eval, p, Main, quote
         function whichtt(@nospecialize sig)
             ret = Base._methods_by_ftype(sig, -1, Base.get_world_counter())
             isempty(ret) && return nothing
@@ -1292,14 +1327,29 @@ function init_worker(p)
     end)
 end
 
+init_worker(p::Int) = init_worker(DistributedWorker(p))
+
 active_repl_backend_available() = isdefined(Base, :active_repl_backend) && Base.active_repl_backend !== nothing
 
 function __init__()
     ccall(:jl_generating_output, Cint, ()) == 1 && return nothing
     run_on_worker = get(ENV, "JULIA_REVISE_WORKER_ONLY", "0")
-    if !(myid() == 1 || run_on_worker == "1")
+
+    # Find the Distributed module if it's been loaded
+    distributed_pkgid = Base.PkgId(Base.UUID("8ba89e20-285c-5b6f-9357-94700520ee1b"), "Distributed")
+    distributed_module = get(Base.loaded_modules, distributed_pkgid, nothing)
+
+    # We do a little hack to figure out if this is the master worker without
+    # loading Distributed. When a worker is added with Distributed.addprocs() it
+    # calls julia with the `--worker` flag. This is processed very early during
+    # startup before any user code (e.g. through `-E`) is executed, so if
+    # Distributed is *not* loaded already then we can be sure that this is the
+    # master worker. And if it is loaded then we can just check
+    # Distributed.myid() directly.
+    if !(isnothing(distributed_module) || distributed_module.myid() == 1 || run_on_worker == "1")
         return nothing
     end
+
     # Check Julia paths (issue #601)
     if !isdir(juliadir)
         major, minor = Base.VERSION.major, Base.VERSION.minor
