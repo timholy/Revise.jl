@@ -24,7 +24,7 @@ const workers_functions = Base.Callable[]
 
 # A distributed worker library wanting to use Revise should register their
 # workers() function with this.
-function register_workers_function(f::Function)
+function register_workers_function(f::Base.Callable)
     push!(workers_functions, f)
     nothing
 end
