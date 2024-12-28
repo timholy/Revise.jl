@@ -22,7 +22,7 @@ LoweredCodeUtils = "3.0.1"
 OrderedCollections = "1"
 # Exclude Requires-1.1.0 - see https://github.com/JuliaPackaging/Requires.jl/issues/94
 Requires = "~1.0, ^1.1.1"
-julia = "1.6"
+julia = "1.10"
 
 [extras]
 CatIndices = "aafaddc9-749c-510e-ac4f-586e18779b91"

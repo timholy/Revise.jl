@@ -178,11 +178,7 @@ function fallback_juliadir()
     normpath(candidate)
 end
 
-if VERSION >= v"1.8"
 Core.eval(@__MODULE__, :(global juliadir::String))
-else
-Core.eval(@__MODULE__, :(global juliadir  #= ::Any =#; nothing))
-end
 
 """
     Revise.juliadir
@@ -260,11 +256,7 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
             # ex was deleted
             sigs === nothing && continue
             for sig in sigs
-                @static if VERSION ≥ v"1.10.0-DEV.873"
-                    ret = Base._methods_by_ftype(sig, -1, Base.get_world_counter())
-                else
-                    ret = Base._methods_by_ftype(sig, -1, typemax(UInt))
-                end
+                ret = Base._methods_by_ftype(sig, -1, Base.get_world_counter())
                 success = false
                 if !isempty(ret)
                     m = get_method_from_match(ret[end])   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
@@ -1286,11 +1278,7 @@ Revise itself does not need to be running on `p`.
 function init_worker(p)
     remotecall(Core.eval, p, Main, quote
         function whichtt(@nospecialize sig)
-            @static if VERSION ≥ v"1.10.0-DEV.873"
-                ret = Base._methods_by_ftype(sig, -1, Base.get_world_counter())
-            else
-                ret = Base._methods_by_ftype(sig, -1, typemax(UInt))
-            end
+            ret = Base._methods_by_ftype(sig, -1, Base.get_world_counter())
             isempty(ret) && return nothing
             m = ret[end][3]::Method   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
             methsig = m.sig

@@ -14,8 +14,7 @@ jobs:
       fail-fast: false
       matrix:
         version:
-          - '1.6'     # LTS
-          - '1.9'     # parsing errors branch on 1.10, so test the last pre-1.10 version
+          - '1.10'    # LTS
           - '1'       # current stable
           - 'pre'     # next release, if available
         os:
