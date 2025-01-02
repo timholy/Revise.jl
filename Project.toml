@@ -4,7 +4,6 @@ version = "3.6.6"
 
 [deps]
 CodeTracking = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
-Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 FileWatching = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 JuliaInterpreter = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
 LibGit2 = "76f85450-5226-5b5a-8eaa-529ad045b433"
@@ -15,17 +14,25 @@ Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 
+[weakdeps]
+Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
+
+[extensions]
+DistributedExt = "Distributed"
+
 [compat]
 CodeTracking = "1.2"
+Distributed = "1"
 JuliaInterpreter = "0.9"
 LoweredCodeUtils = "3.0.1"
 OrderedCollections = "1"
 # Exclude Requires-1.1.0 - see https://github.com/JuliaPackaging/Requires.jl/issues/94
 Requires = "~1.0, ^1.1.1"
-julia = "1.6"
+julia = "1.10"
 
 [extras]
 CatIndices = "aafaddc9-749c-510e-ac4f-586e18779b91"
+Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 EndpointRanges = "340492b5-2a47-5f55-813d-aca7ddf97656"
 EponymTuples = "97e2ac4a-e175-5f49-beb1-4d6866a6cdc3"
 Example = "7876af07-990d-54b4-ab0e-23690620f79a"
@@ -41,4 +48,4 @@ Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 UnsafeArrays = "c4a57d5a-5b31-53a6-b365-19f8c011fbd6"
 
 [targets]
-test = ["CatIndices", "EndpointRanges", "EponymTuples", "Example", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Pkg", "Random", "Requires", "RoundingIntegers", "Test", "UnsafeArrays"]
+test = ["CatIndices", "Distributed", "EndpointRanges", "EponymTuples", "Example", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Pkg", "Random", "Requires", "RoundingIntegers", "Test", "UnsafeArrays"]
