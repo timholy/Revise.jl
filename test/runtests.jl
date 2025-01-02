@@ -2260,6 +2260,42 @@ end
         @test lines[1] == "ERROR: BoundsError: attempt to access 3-element $(Vector{Int}) at index [4]"
         @test any(str -> endswith(str, "callee_error.jl:12"), lines)
         @test_throws UndefVarError CalleeError.foo(0.1f0)
+
+        # Issue #877 (lowering errors)
+        file = joinpath(testdir, "goodbadfile.jl")
+        write(file, """
+            function f877()
+                for i in 1:10
+                    # 1=2   #uncomment to trigger error
+                end
+            end
+            """)
+        includet(file)
+        @test !isempty(methods(f877))
+        sleep(mtimedelay)
+        write(file, """
+            function f877()
+                for i in 1:10
+                    1=2   #uncomment to trigger error
+                end
+            end
+            """)
+        sleep(mtimedelay)
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        @test isempty(methods(f877))
+        sleep(mtimedelay)
+        write(file, """
+            function f877()
+                for i in 1:10
+                    # 1=2   #uncomment to trigger error
+                end
+            end
+            """)
+        sleep(mtimedelay)
+        yry()
+        @test !isempty(methods(f877))
     end
 
     do_test("Retry on InterruptException") && @testset "Retry on InterruptException" begin
