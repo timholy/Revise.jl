@@ -245,7 +245,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, mod
     lwr = Meta.lower(mod, ex)
     isa(lwr, Expr) || return nothing, nothing
     if lwr.head === :error || lwr.head === :incomplete
-        error("lowering returned an error, ", lwr)
+        throw(LoweringException(lwr))
     end
     if lwr.head !== :thunk
         mode === :sigs && return nothing, nothing

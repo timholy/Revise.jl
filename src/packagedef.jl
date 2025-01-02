@@ -833,8 +833,10 @@ function revise(; throw=false)
                     end
                 end
             end
-            if isempty(modsremaining)
+            if isempty(modsremaining) || isa(err, LoweringException)   # fix #877
                 pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+            end
+            if isempty(modsremaining)
                 delete!(queue_errors, (pkgdata, file))
             else
                 throw && Base.throw(err)

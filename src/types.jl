@@ -255,6 +255,14 @@ function Base.showerror(io::IO, ex::GitRepoException)
     print(io, "no repository at ", ex.filename, " to track stdlibs you must build Julia from source")
 end
 
+struct LoweringException <: Exception
+    ex::Expr
+end
+
+function Base.showerror(io::IO, ex::LoweringException)
+    print(io, "lowering returned an exception:\n", ex.ex)
+end
+
 """
     thunk = TaskThunk(f, args)
 
