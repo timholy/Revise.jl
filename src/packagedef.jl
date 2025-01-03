@@ -713,7 +713,7 @@ function handle_deletions(pkgdata, file)
     topmod = first(keys(mexsold))
     fileok = file_exists(String(filep)::String)
     mexsnew = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
-    if mexsnew !== nothing
+    if mexsnew !== nothing && mexsnew !== DoNotParse()
         delete_missing!(mexsold, mexsnew)
     end
     if !fileok
@@ -815,7 +815,9 @@ function revise(; throw=false)
         interrupt = false
         for (pkgdata, file) in queue
             try
-                push!(mexsnews, handle_deletions(pkgdata, file)[1])
+                mexsnew, _ = handle_deletions(pkgdata, file)
+                mexsnew === DoNotParse() && continue
+                push!(mexsnews, mexsnew)
                 push!(finished, (pkgdata, file))
             catch err
                 throw && Base.throw(err)

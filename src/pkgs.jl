@@ -116,11 +116,14 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
         filep = joinpath(basedir(pkgdata), file)
         filec = get(cache_file_key, filep, filep)
         topmod = first(keys(fi.modexsigs))
-        if parse_source!(fi.modexsigs, src, filec, topmod) === nothing
+        ret = parse_source!(fi.modexsigs, src, filec, topmod)
+        if ret === nothing
             @error "failed to parse cache file source text for $file"
         end
-        add_modexs!(fi, fi.cacheexprs)
-        empty!(fi.cacheexprs)
+        if ret !== DoNotParse()
+            add_modexs!(fi, fi.cacheexprs)
+            empty!(fi.cacheexprs)
+        end
         fi.parsed[] = true
     end
     return fi
