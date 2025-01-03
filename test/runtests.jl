@@ -1722,6 +1722,35 @@ end
         rm_precompile("Timing")
     end
 
+    do_test("DO NOT PARSE") && @testset "DO NOT PARSE" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "DoNotParse", "src")
+        mkpath(dn)
+        write(joinpath(dn, "DoNotParse.jl"), """
+            # REVISE: DO NOT PARSE
+            module DoNotParse
+            f(x) = 1
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using DoNotParse
+        sleep(mtimedelay)
+        @test DoNotParse.f(1) == 1
+        write(joinpath(dn, "DoNotParse.jl"), """
+            # REVISE: DO NOT PARSE
+            module DoNotParse
+            f(x) = 2
+            end
+            """)
+        logs, _ = Test.collect_test_logs() do
+            yry()
+        end
+        @test DoNotParse.f(1) == 1
+        @test isempty(logs)
+        rm_precompile("DoNotParse")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Method deletion") && @testset "Method deletion" begin
         Core.eval(Base, :(revisefoo(x::Float64) = 1)) # to test cross-module method scoping
         testdir = newtestdir()
