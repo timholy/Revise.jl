@@ -5,6 +5,12 @@ on:
     branches:
       - master
     tags: '*'
+
+# needed to allow julia-actions/cache to delete old caches that it has created
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   test:
     name: Test Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}
