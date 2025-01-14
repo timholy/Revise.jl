@@ -310,9 +310,9 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                         @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
                         # Delete the corresponding methods
                         for get_workers in workers_functions
-                            for p in get_workers()
+                            for p in @invokelatest get_workers()
                                 try  # guard against serialization errors if the type isn't defined on the worker
-                                    remotecall_impl(Core.eval, p, Main, :(delete_method_by_sig($sig)))
+                                    @invokelatest remotecall_impl(Core.eval, p, Main, :(delete_method_by_sig($sig)))
                                 catch
                                 end
                             end
@@ -364,11 +364,11 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
                 thunk = ex
             end
             for get_workers in workers_functions
-                if is_master_worker(get_workers)
-                    for p in get_workers()
-                        is_master_worker(p) && continue
+                if @invokelatest is_master_worker(get_workers)
+                    for p in @invokelatest get_workers()
+                        @invokelatest(is_master_worker(p)) && continue
                         try   # don't error if `mod` isn't defined on the worker
-                            remotecall_impl(Core.eval, p, mod, thunk)
+                            @invokelatest remotecall_impl(Core.eval, p, mod, thunk)
                         catch
                         end
                     end
@@ -1320,7 +1320,7 @@ Define methods on worker `p` that Revise needs in order to perform revisions on 
 Revise itself does not need to be running on `p`.
 """
 function init_worker(p::AbstractWorker)
-    remotecall_impl(Core.eval, p, Main, quote
+    @invokelatest remotecall_impl(Core.eval, p, Main, quote
         function whichtt(@nospecialize sig)
             ret = Base._methods_by_ftype(sig, -1, Base.get_world_counter())
             isempty(ret) && return nothing
