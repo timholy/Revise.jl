@@ -3121,11 +3121,6 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     old_depots = copy(DEPOT_PATH)
     empty!(DEPOT_PATH)
     push!(DEPOT_PATH, depot)
-    # Skip cloning the General registry since that is slow and unnecessary
-    ENV["JULIA_PKG_SERVER"] = ""
-    registries = isdefined(Pkg.Types, :DEFAULT_REGISTRIES) ? Pkg.Types.DEFAULT_REGISTRIES : Pkg.Registry.DEFAULT_REGISTRIES
-    old_registries = copy(registries)
-    empty!(registries)
     # Ensure we start fresh with no dependencies
     old_project = Base.ACTIVE_PROJECT[]
     Base.ACTIVE_PROJECT[] = joinpath(depot, "environments", "v$(VERSION.major).$(VERSION.minor)", "Project.toml")
@@ -3160,9 +3155,6 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     # Restore internal Pkg data
     empty!(DEPOT_PATH)
     append!(DEPOT_PATH, old_depots)
-    for pr in old_registries
-        push!(registries, pr)
-    end
     Base.ACTIVE_PROJECT[] = old_project
 
     push!(to_remove, depot)
