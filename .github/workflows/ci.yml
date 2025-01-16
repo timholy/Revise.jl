@@ -5,9 +5,15 @@ on:
     branches:
       - master
     tags: '*'
+
+# needed to allow julia-actions/cache to delete old caches that it has created
+permissions:
+  actions: write
+  contents: read
+
 jobs:
   test:
-    name: Install & test Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
+    name: Test Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.allow_failure }}
     strategy:
@@ -21,20 +27,16 @@ jobs:
           - ubuntu-latest
           - macOS-latest
           - windows-latest
-        arch:
-          - x64
         allow_failure: [false]
         include:
           - version: 'nightly'
             os: ubuntu-latest
-            arch: x64
             allow_failure: true
     steps:
     - uses: actions/checkout@v4
     - uses: julia-actions/setup-julia@latest
       with:
         version: ${{ matrix.version }}
-        arch: ${{ matrix.arch }}
         show-versioninfo: ${{ matrix.version == 'nightly' }}
     - uses: julia-actions/cache@v2
     - uses: julia-actions/julia-buildpkg@latest
@@ -99,6 +101,6 @@ jobs:
     - uses: julia-actions/julia-processcoverage@latest
     - uses: codecov/codecov-action@v5
       with:
-        file: lcov.info
+        files: lcov.info
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true
