@@ -1112,7 +1112,10 @@ end
         @test get_docstring(ds) == "f"
         @test ChangeDocstring.g() == 1
         ds = @doc(ChangeDocstring.g)
-        @test get_docstring(ds) in ("No documentation found.", "No documentation found for private symbol.")
+        @test get_docstring(ds) in (
+            "No documentation found.",
+            "No documentation found for private symbol.",
+            "No documentation found for private binding.")
         # Ordinary route
         write(joinpath(dn, "ChangeDocstring.jl"), """
             module ChangeDocstring
@@ -1152,7 +1155,10 @@ end
         sleep(mtimedelay)
         @test FirstDocstring.g() == 1
         ds = @doc(FirstDocstring.g)
-        @test get_docstring(ds) in ("No documentation found.", "No documentation found for private symbol.")
+        @test get_docstring(ds) in (
+            "No documentation found.",
+            "No documentation found for private symbol.",
+            "No documentation found for private binding.")
         write(joinpath(dn, "FirstDocstring.jl"), """
             module FirstDocstring
             "g" g() = 1
