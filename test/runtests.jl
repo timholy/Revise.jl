@@ -1115,7 +1115,7 @@ end
         @test get_docstring(ds) in (
             "No documentation found.",
             "No documentation found for private symbol.",
-            "No documentation found for private binding")
+            "No documentation found for private binding ")
         # Ordinary route
         write(joinpath(dn, "ChangeDocstring.jl"), """
             module ChangeDocstring
@@ -1158,7 +1158,7 @@ end
         @test get_docstring(ds) in (
             "No documentation found.",
             "No documentation found for private symbol.",
-            "No documentation found for private binding")
+            "No documentation found for private binding ")
         write(joinpath(dn, "FirstDocstring.jl"), """
             module FirstDocstring
             "g" g() = 1
