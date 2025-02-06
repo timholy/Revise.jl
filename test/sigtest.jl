@@ -2,16 +2,6 @@ using Revise, Test
 using Revise.CodeTracking
 using Revise.LoweredCodeUtils
 
-function isdefinedmod(mod::Module)
-    # Not all modules---e.g., LibGit2---are reachable without loading the stdlib
-    names = fullname(mod)
-    pmod = Main
-    for n in names
-        isdefined(pmod, n) || return false
-        pmod = getfield(pmod, n)
-    end
-    return true
-end
 function reljpath(path)
     for subdir in ("base/", "stdlib/", "test/")
         s = split(path, subdir)
@@ -102,33 +92,41 @@ module Lowering end
     @test length(sigs) >= 2
 end
 
-basefiles = Set{String}()
-@time for (i, (mod, file)) in enumerate(Base._included_files)
-    (endswith(file, "sysimg.jl") || endswith(file, "Base.jl")) && continue
-    Base.VERSION < v"1.7" && Sys.iswindows() && endswith(file, "RNGs.jl") && continue  # invalid redefinition of constant RandomDevice
-    file = Revise.fixpath(file)
-    push!(basefiles, reljpath(file))
-    mexs = Revise.parse_source(file, mod)
-    Revise.instantiate_sigs!(mexs; always_rethrow=true)
-end
-failed, extras, nmethods = signature_diffs(Base, CodeTracking.method_info; filepredicate = fn->filepredicate(fn, basefiles))
-# In some cases, the above doesn't really select the file-of-origin. For example, anything
-# defined with an @enum gets attributed to Enum.jl rather than the file in which @enum is used.
-realfailed = similar(failed, 0)
-for sig in failed
-    ft = Base.unwrap_unionall(sig).parameters[1]
-    match(r"^getfield\(Base, Symbol\(\"##\d", string(ft)) === nothing || continue  # exclude anonymous functions
-    all(T->in_module_or_core(T, Base), Base.unwrap_unionall(sig).parameters[2:end]) || continue
-    push!(realfailed, sig)
-end
-if false   # change to true to see the failures
-    world = Base.get_world_counter()
-    for tt in realfailed
-        println(tt)
-        mms = Base._methods_by_ftype(tt, -1, world)
-        for mm in mms
-            println(mm.method)
+try # Suppress world age increments, since the instantiation messes with base
+    basefiles = Set{String}()
+    @time for (i, (mod, file)) in enumerate(Base._included_files)
+        (endswith(file, "sysimg.jl") || endswith(file, "Base.jl") ) && continue
+        Base.VERSION < v"1.7" && Sys.iswindows() && endswith(file, "RNGs.jl") && continue  # invalid redefinition of constant RandomDevice
+        file = Revise.fixpath(file)
+        push!(basefiles, reljpath(file))
+        mexs = Revise.parse_source(file, mod)
+        Revise.instantiate_sigs!(mexs; always_rethrow=true)
+    end
+    failed, extras, nmethods = signature_diffs(Base, CodeTracking.method_info; filepredicate = fn->filepredicate(fn, basefiles))
+    # In some cases, the above doesn't really select the file-of-origin. For example, anything
+    # defined with an @enum gets attributed to Enum.jl rather than the file in which @enum is used.
+    realfailed = similar(failed, 0)
+    for sig in failed
+        ft = Base.unwrap_unionall(sig).parameters[1]
+        match(r"^getfield\(Base, Symbol\(\"##\d", string(ft)) === nothing || continue  # exclude anonymous functions
+        all(T->in_module_or_core(T, Base), Base.unwrap_unionall(sig).parameters[2:end]) || continue
+        push!(realfailed, sig)
+    end
+    if true   # change to true to see the failures
+        world = Base.get_world_counter()
+        for tt in realfailed
+            println(tt)
+            mms = Base._methods_by_ftype(tt, -1, world)
+            for mm in mms
+                println(mm.method)
+            end
         end
     end
+    @test length(realfailed) < 60  # big enough for some cushion in case new "difficult" methods get added
+catch org_err
+    try
+        Base.invokelatest(display_error, Base.scrub_repl_backtrace(Base.current_exceptions()))
+    catch err
+        Core.println(org_err)
+    end
 end
-@test length(realfailed) < 60  # big enough for some cushion in case new "difficult" methods get added

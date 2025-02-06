@@ -3942,7 +3942,7 @@ include("non_jl_test.jl")
 do_test("Base signatures") && @testset "Base signatures" begin
     println("beginning signatures tests")
     # Using the extensive repository of code in Base as a testbed
-    include("sigtest.jl")
+    @test success(pipeline(`$(Base.julia_cmd()) sigtest.jl`, stderr=stderr))
 end
 
 # Run this test in a separate julia process, since it messes with projects, and we don't want to have to

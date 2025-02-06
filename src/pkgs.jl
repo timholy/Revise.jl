@@ -207,7 +207,7 @@ function add_require(sourcefile::String, modcaller::Module, idmod::String, modna
         fi = pkgdata.fileinfos[fileidx]
         # Tag the expr to ensure it is unique
         expr = Expr(:block, copy(expr))
-        push!(expr.args, :(__pkguuid__ = $idmod))
+        push!(expr.args, :(const __pkguuid__ = $idmod))
         # Add the expression to the fileinfo
         complex = true     # is this too complex to delay?
         if !fi.extracted[]
