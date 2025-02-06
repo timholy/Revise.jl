@@ -22,7 +22,8 @@ mktempdir() do thisdir
     # Back to toplevel
     @eval begin
         using PkgChange
-        @test_throws UndefVarError somemethod()   # not present in v1
+        @latestworld
+        @test_throws UndefVarError PkgChange.somemethod()   # not present in v1
         # From a different process, switch the active version of ExponentialUtilities
         v2_cmd = """using Pkg; Pkg.activate("."); Pkg.develop(path = joinpath("$(escape_string(dirname(@__FILE__)))", "pkgs", "PkgChange_v2"))"""
         t = @async run(pipeline(Cmd(`$(Base.julia_cmd()) -e $v2_cmd`; dir=$thisdir); stderr, stdout))
@@ -30,7 +31,7 @@ mktempdir() do thisdir
         wait(Revise.revision_event)
         revise()
         @latestworld
-        @test somemethod() === 1   # present in v2
+        @test PkgChange.somemethod() === 1   # present in v2
         # ...and then switch back (check that it's bidirectional and also to reset state)
         v1_cmd = """using Pkg; Pkg.activate("."); Pkg.develop(path = joinpath("$(escape_string(dirname(@__FILE__)))", "pkgs", "PkgChange_v1"))"""
         t = @async run(pipeline(Cmd(`$(Base.julia_cmd()) -e $v1_cmd`; dir=$thisdir); stderr, stdout))
@@ -38,6 +39,6 @@ mktempdir() do thisdir
         wait(Revise.revision_event)
         revise()
         @latestworld
-        @test_throws MethodError somemethod() # not present in v1
+        @test_throws MethodError PkgChange.somemethod() # not present in v1
     end
 end
