@@ -442,8 +442,20 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     end
                 end
             elseif LoweredCodeUtils.is_assignment_like(stmt)
-                # If we're here, either isrequired[pc] is true, or the mode forces us to eval assignments
-                pc = step_expr!(recurse, frame, stmt, true)
+                # in 1.12+ structs are Revise-able
+                # So if stmt is a Core._structtype call, we need to evaluate it
+                if VERSION >= v"1.12.0-0" &&
+                        stmt.args[2] isa Expr &&
+                        stmt.args[2].head === :call &&
+                        stmt.args[2].args[1] isa QuoteNode &&
+                        stmt.args[2].args[1].value === Core._structtype
+                    println("evaluating $stmt")
+                    Core.eval(mod, stmt)
+                    pc = next_or_nothing!(frame)
+                else
+                    # If we're here, either isrequired[pc] is true, or the mode forces us to eval assignments
+                    pc = step_expr!(recurse, frame, stmt, true)
+                end
             elseif head === :call
                 f = @lookup(frame, stmt.args[1])
                 if f === Core.eval
