@@ -3863,7 +3863,7 @@ do_test("Overlay Method Tables") && @testset "Overlay Method Tables" begin
         Base.Experimental.@MethodTable(method_table)
 
         foo_mt() = 1
-        Base.Experimental.@overlay Main.method_table foo_mt() = 2
+        Base.Experimental.@overlay method_table foo_mt() = 2
         """)
     sleep(mtimedelay)
     includet(file)
@@ -3876,7 +3876,7 @@ do_test("Overlay Method Tables") && @testset "Overlay Method Tables" begin
         Base.Experimental.@MethodTable(method_table)
 
         foo_mt() = 1
-        Base.Experimental.@overlay Main.method_table foo_mt() = 3
+        Base.Experimental.@overlay method_table foo_mt() = 3
         """)
     sleep(mtimedelay)
     @test foo_mt() == 1
