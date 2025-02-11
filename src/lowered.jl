@@ -356,7 +356,9 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             end
                         end
                     end
-                    pc = next_or_nothing!(frame)
+                    @assert length(stmt.args) == 1
+                    pc = mode !== :sigs ? step_expr!(recurse, frame, stmt, true) :
+                        next_or_nothing!(frame)
                 else
                     pc, pc3 = ret
                     # Get the line number from the body
