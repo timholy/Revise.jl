@@ -20,6 +20,7 @@ do_test("Backedges") && @testset "Backedges" begin
     laststmt = src.code[end]
     @assert isa(laststmt, Core.ReturnNode)
     to_skip = isa(laststmt.val, Revise.JuliaInterpreter.SSAValue) ? 2 : 1
+    # Revise.LoweredCodeUtils.print_with_code(stdout, src, isrequired)
     @test sum(isrequired) == length(src.code)-count(e->isexpr(e, :latestworld), src.code)-to_skip  # skips the `return` at the end (and its argument)
 
     src = """
