@@ -470,7 +470,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                             sig2 isa UnionAll || (sig2 = sig1; break) # sig2 doesn't define all parameters, so drop it
                             T = T.body
                         end
-                        sig1 === sig2 || push!(signatures, sig2)
+                        sig1 == sig2 || push!(signatures, sig2)
                         for sig in signatures
                             add_signature!(methodinfo, sig, lnn)
                         end
