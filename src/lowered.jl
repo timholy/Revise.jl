@@ -44,6 +44,15 @@ function is_some_include(@nospecialize(f))
     return false
 end
 
+function is_defaultctors(@nospecialize(f))
+    @assert !isa(f, Core.SSAValue) && !isa(f, JuliaInterpreter.SSAValue)
+    if isa(f, GlobalRef)
+        return f.mod === Core && f.name === :_defaultctors
+    end
+    return false
+end
+
+
 # This is not generally used, see `is_method_or_eval` instead
 function hastrackedexpr(stmt, code; heads=LoweredCodeUtils.trackedheads)
     haseval = false
@@ -89,6 +98,7 @@ function categorize_stmt(@nospecialize(stmt), code::Vector{Any})
                 callee = code[callee.id]
             end
             isinclude = is_some_include(callee)
+            ismeth = is_defaultctors(callee)
         end
     end
     return ismeth, haseval, isinclude, isnamespace, istoplevel
@@ -448,7 +458,31 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                 pc = step_expr!(recurse, frame, stmt, true)
             elseif head === :call
                 f = @lookup(frame, stmt.args[1])
-                if f === Core.eval
+                if isdefined(Core, :_defaultctors) && f === Core._defaultctors && length(stmt.args) == 3
+                    T = @lookup(frame, stmt.args[2])
+                    lnn = @lookup(frame, stmt.args[3])
+                    if T isa Type && lnn isa LineNumberNode
+                        empty!(signatures)
+                        uT = Base.unwrap_unionall(T)::DataType
+                        ft = uT.types
+                        sig1 = Tuple{Base.rewrap_unionall(Type{uT}, T), Any[Any for i in 1:length(ft)]...}
+                        push!(signatures, sig1)
+                        sig2 = Base.rewrap_unionall(Tuple{Type{T}, ft...}, T)
+                        while T isa UnionAll
+                            sig2 isa UnionAll || (sig2 = sig1; break) # sig2 doesn't define all parameters, so drop it
+                            T = T.body
+                        end
+                        sig1 == sig2 || push!(signatures, sig2)
+                        for sig in signatures
+                            add_signature!(methodinfo, sig, lnn)
+                        end
+                    end
+                    if mode===:sigs
+                        pc = next_or_nothing!(frame)
+                    else # also execute this call
+                        pc = step_expr!(recurse, frame, stmt, true)
+                    end
+                elseif f === Core.eval
                     # an @eval or eval block: this may contain method definitions, so intercept it.
                     evalmod = @lookup(frame, stmt.args[2])::Module
                     evalex = @lookup(frame, stmt.args[3])
