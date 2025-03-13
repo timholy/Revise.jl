@@ -2446,8 +2446,19 @@ const issue639report = []
                 mynorm(p::Point) = sqrt(p.x^2)
                 end
                 """)
+            # Also create another package that uses it
+            dn2 = joinpath(testdir, "StructConstUser", "src")
+            mkpath(dn2)
+            write(joinpath(dn2, "StructConstUser.jl"), """
+                module StructConstUser
+                using StructConst
+                scuf(::StructConst.Fixed) = 33
+                scup(::StructConst.Point) = 44
+                end
+                """)
             sleep(mtimedelay)
             @eval using StructConst
+            @eval using StructConstUser
             sleep(mtimedelay)
             w1 = Base.get_world_counter()
             f = StructConst.Fixed(5)
@@ -2455,6 +2466,8 @@ const issue639report = []
             p = StructConst.Point(5.0)
             @test StructConst.firstval(p) == 5.0
             @test StructConst.mynorm(p) == 5.0
+            @test StructConstUser.scuf(f) == 33
+            @test StructConstUser.scup(p) == 44
             write(joinpath(dn, "StructConst.jl"), """
                 module StructConst
                 const __hash__ = 0xddaab158621d200c
@@ -2478,10 +2491,13 @@ const issue639report = []
             @test StructConst.firstval(p) == 5.0   # was not redefined, so still valid
             @test_throws MethodError StructConst.mynorm(p)   # was redefined, so invalid
             @test Base.invoke_in_world(w1, StructConst.mynorm, p) == 5.0  # but we can still call it in an old world
+            @test StructConstUser.scuf(f) == 33
+            @test StructConstUser.scup(p) == 44
             # Call with new objects
             p2 = StructConst.Point(3.0, 4.0)
             @test @eval(StructConst.firstval($p2)) == 3.0
             @test @eval(StructConst.mynorm($p2)) == 5.0
+            @test @eval(StructConstUser.scup($p2)) == 44
             write(joinpath(dn, "StructConst.jl"), """
                 module StructConst
                 const __hash__ = 0x71716e828e2d6093
@@ -2503,6 +2519,7 @@ const issue639report = []
             @test v1 == v3
 
             rm_precompile("StructConst")
+            rm_precompile("StructConstUser")
             pop!(LOAD_PATH)
         end
     end
