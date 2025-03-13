@@ -2427,6 +2427,86 @@ const issue639report = []
         pop!(LOAD_PATH)
     end
 
+    if Base.VERSION >= v"1.12.0-DEV.2047" && do_test("struct/const revision")
+        @testset "struct/const revision" begin
+            testdir = newtestdir()
+            dn = joinpath(testdir, "StructConst", "src")
+            mkpath(dn)
+            write(joinpath(dn, "StructConst.jl"), """
+                module StructConst
+                const __hash__ = 0x71716e828e2d6093
+                struct Fixed
+                    x::Int
+                end
+                Base.hash(f::Fixed, h::UInt) = hash(__hash__, hash(f.x, h))
+                struct Point
+                    x::Float64
+                end
+                firstval(p::Point) = p.x
+                mynorm(p::Point) = sqrt(p.x^2)
+                end
+                """)
+            sleep(mtimedelay)
+            @eval using StructConst
+            sleep(mtimedelay)
+            w1 = Base.get_world_counter()
+            f = StructConst.Fixed(5)
+            v1 = hash(f)
+            p = StructConst.Point(5.0)
+            @test StructConst.firstval(p) == 5.0
+            @test StructConst.mynorm(p) == 5.0
+            write(joinpath(dn, "StructConst.jl"), """
+                module StructConst
+                const __hash__ = 0xddaab158621d200c
+                struct Fixed
+                    x::Int
+                end
+                Base.hash(f::Fixed, h::UInt) = hash(__hash__, hash(f.x, h))
+                struct Point
+                    x::Float64
+                    y::Float64
+                end
+                firstval(p::Point) = p.x
+                mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
+                end
+                """)
+            @yry()
+            @test StructConst.__hash__ == 0xddaab158621d200c
+            v2 = hash(f)
+            @test v1 != v2
+            # Call with old objects
+            @test StructConst.firstval(p) == 5.0   # was not redefined, so still valid
+            @test_throws MethodError StructConst.mynorm(p)   # was redefined, so invalid
+            @test Base.invoke_in_world(w1, StructConst.mynorm, p) == 5.0  # but we can still call it in an old world
+            # Call with new objects
+            p2 = StructConst.Point(3.0, 4.0)
+            @test @eval(StructConst.firstval($p2)) == 3.0
+            @test @eval(StructConst.mynorm($p2)) == 5.0
+            write(joinpath(dn, "StructConst.jl"), """
+                module StructConst
+                const __hash__ = 0x71716e828e2d6093
+                struct Fixed
+                    x::Int
+                end
+                Base.hash(f::Fixed, h::UInt) = hash(__hash__, hash(f.x, h))
+                struct Point
+                    x::Float64
+                    y::Float64
+                end
+                firstval(p::Point) = p.x
+                mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
+                end
+                """)
+            @yry()
+            @test StructConst.__hash__ == 0x71716e828e2d6093
+            v3 = hash(f)
+            @test v1 == v3
+
+            rm_precompile("StructConst")
+            pop!(LOAD_PATH)
+        end
+    end
+
     do_test("get_def") && @testset "get_def" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "GetDef", "src")
