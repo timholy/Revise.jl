@@ -448,10 +448,39 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                     pc = step_expr!(interp, frame, stmt, true)
                 end
             elseif head === :call
-                f = lookup(interp, frame, stmt.args[1])
-                if isdefined(Core, :_defaultctors) && f === Core._defaultctors && length(stmt.args) == 3
-                    T = lookup(interp, frame, stmt.args[2])
-                    lnn = lookup(interp, frame, stmt.args[3])
+                f = lookup(frame, stmt.args[1])
+                if __bpart__ && f === Core._typebody! && length(stmt.args) >= 3
+                    newtype = @lookup(frame, stmt.args[3])
+                    newtypename = newtype.name
+                    oldtype = isdefinedglobal(newtypename.module, newtypename.name) ? getglobal(newtypename.module, newtypename.name) : nothing
+                    if oldtype !== nothing
+                        if !Core._equiv_typedef(oldtype, newtype)
+                            # Find all methods that use `oldtype`
+                            meths = methods_with(oldtype)
+                            # For any modules that have not yet been parsed and had their signatures extracted,
+                            # we need to do this now, before the binding changes to the new type
+                            for m in meths
+                                methinfo = get(CodeTracking.method_info, m.sig, false)
+                                if methinfo === false
+                                    pkgdata = get(pkgdatas, PkgId(m.module), nothing)
+                                    pkgdata === nothing && continue
+                                    for file in srcfiles(pkgdata)
+                                        fi = fileinfo(pkgdata, file)
+                                        if (isempty(fi.modexsigs) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
+                                            fi = maybe_parse_from_cache!(pkgdata, file)
+                                            instantiate_sigs!(fi.modexsigs)
+                                        end
+                                    end
+                                end
+                            end
+                            union!(reeval_methods, meths)
+                        end
+                    end
+                    pc = step_expr!(interp, frame, stmt, true)
+                elseif isdefined(Core, :_defaultctors) && f === Core._defaultctors && length(stmt.args) == 3
+                    # Create the constructors for a type (i.e., a method definition)
+                    T = lookup(frame, stmt.args[2])
+                    lnn = lookup(frame, stmt.args[3])
                     if T isa Type && lnn isa LineNumberNode
                         empty!(signatures)
                         uT = Base.unwrap_unionall(T)::DataType

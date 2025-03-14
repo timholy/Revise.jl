@@ -90,6 +90,7 @@ include("utils.jl")
 include("parsing.jl")
 include("lowered.jl")
 include("loading.jl")
+include("visit.jl")
 include("pkgs.jl")
 include("git.jl")
 include("recipes.jl")
@@ -135,6 +136,12 @@ Global variable, maps `(pkgdata, filename)` pairs that errored upon last revisio
 `(exception, backtrace)`.
 """
 const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}()
+
+# Can we revise types?
+const __bpart__ = Base.VERSION >= v"1.12.0-DEV.2047"
+# Julia 1.12+: when bindings switch to a new type, we need to re-evaluate method
+# definitions using the new binding resolution.
+const reeval_methods = Set{Method}()
 
 """
     Revise.NOPACKAGE
@@ -677,7 +684,7 @@ function revise_file_now(pkgdata::PkgData, file)
         error(file, " is not currently being tracked.")
     end
     mexsnew, mexsold = handle_deletions(pkgdata, file)
-    if mexsnew != nothing
+    if mexsnew !== nothing
         _, includes = eval_new!(mexsnew, mexsold)
         fi = fileinfo(pkgdata, i)
         pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
@@ -734,6 +741,7 @@ function revise(; throw::Bool=false)
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
     lock(revise_lock) do
         have_queue_errors = !isempty(queue_errors)
+        empty!(reeval_methods)
 
         # Do all the deletion first. This ensures that a method that moved from one file to another
         # won't get redefined first and deleted second.
@@ -802,6 +810,17 @@ function revise(; throw::Bool=false)
                 push!(revision_errors, (pkgdata, file))
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())
             end
+        end
+        for m in reeval_methods
+            methinfo = get(CodeTracking.method_info, m.sig, missing)
+            methinfo === missing && continue
+            if length(methinfo) != 1
+                @warn "Multiple definitions for $(m.sig) found, skipping reevaluation"
+                continue
+            end
+            Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
+            _, ex = methinfo[1]
+            Core.eval(m.module, ex)
         end
         if interrupt
             for pkgfile in finished

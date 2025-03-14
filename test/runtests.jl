@@ -2427,7 +2427,7 @@ const issue639report = []
         pop!(LOAD_PATH)
     end
 
-    if Base.VERSION >= v"1.12.0-DEV.2047" && do_test("struct/const revision")
+    if Revise.__bpart__ && do_test("struct/const revision")   # can we revise types and constants?
         @testset "struct/const revision" begin
             testdir = newtestdir()
             dn = joinpath(testdir, "StructConst", "src")
@@ -2451,9 +2451,13 @@ const issue639report = []
             mkpath(dn2)
             write(joinpath(dn2, "StructConstUser.jl"), """
                 module StructConstUser
-                using StructConst
-                scuf(::StructConst.Fixed) = 33
-                scup(::StructConst.Point) = 44
+                using StructConst: StructConst, Point
+                struct PointWrapper
+                    p::Point
+                end
+                scuf(f::StructConst.Fixed) = 33 * f.x
+                scup(p::Point) = 44 * p.x
+                scup(pw::PointWrapper) = 55 * pw.p.x
                 end
                 """)
             sleep(mtimedelay)
@@ -2464,10 +2468,12 @@ const issue639report = []
             f = StructConst.Fixed(5)
             v1 = hash(f)
             p = StructConst.Point(5.0)
+            pw = StructConstUser.PointWrapper(p)
             @test StructConst.firstval(p) == 5.0
             @test StructConst.mynorm(p) == 5.0
-            @test StructConstUser.scuf(f) == 33
-            @test StructConstUser.scup(p) == 44
+            @test StructConstUser.scuf(f) == 33 * 5.0
+            @test StructConstUser.scup(p) == 44 * 5.0
+            @test StructConstUser.scup(pw) == 55 * 5.0
             write(joinpath(dn, "StructConst.jl"), """
                 module StructConst
                 const __hash__ = 0xddaab158621d200c
@@ -2487,17 +2493,19 @@ const issue639report = []
             @test StructConst.__hash__ == 0xddaab158621d200c
             v2 = hash(f)
             @test v1 != v2
-            # Call with old objects
-            @test StructConst.firstval(p) == 5.0   # was not redefined, so still valid
-            @test_throws MethodError StructConst.mynorm(p)   # was redefined, so invalid
-            @test Base.invoke_in_world(w1, StructConst.mynorm, p) == 5.0  # but we can still call it in an old world
-            @test StructConstUser.scuf(f) == 33
-            @test StructConstUser.scup(p) == 44
+            # Call with old objects---ensure we deleted all the outdated methods to reduce user confusion
+            @test_throws MethodError StructConst.firstval(p) == 5.0
+            @test_throws MethodError StructConst.mynorm(p)
+            @test StructConstUser.scuf(f) == 33 * 5.0
+            @test_throws MethodError StructConstUser.scup(p) == 44 * 5.0
+            @test_throws MethodError StructConstUser.scup(pw) == 55 * 5.0
             # Call with new objects
             p2 = StructConst.Point(3.0, 4.0)
+            pw2 = @eval(StructConstUser.PointWrapper($p2))          # ENABLE ME
             @test @eval(StructConst.firstval($p2)) == 3.0
             @test @eval(StructConst.mynorm($p2)) == 5.0
-            @test @eval(StructConstUser.scup($p2)) == 44
+            @test @eval(StructConstUser.scup($p2)) == 44 * 3.0
+            @test @eval(StructConstUser.scup($pw2)) == 55 * 3.0     # ENABLE ME
             write(joinpath(dn, "StructConst.jl"), """
                 module StructConst
                 const __hash__ = 0x71716e828e2d6093
