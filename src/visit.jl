@@ -1,13 +1,20 @@
 function methods_with(@nospecialize(T::Type), world::UInt = Base.get_world_counter())
-    methods = Method[]
+    meths = Method[]
     visited = Set{Module}()
     for mod in Base.loaded_modules_array()
-        methods_with!(methods, T, world, mod, visited)
+        methods_with!(meths, T, world, mod, visited)
     end
-    return methods
+    # Also handle Type
+    mt = methods(Type).mt
+    Tname = T.name
+    for method in Base.MethodList(mt)
+        method.module === Tname.module && method.name === Tname.name && continue  # skip constructor
+        hastype(method.sig, T) && push!(meths, method)
+    end
+    return meths
 end
 
-function methods_with!(methods, @nospecialize(T::Type), world, mod::Module, visited::Set{Module})
+function methods_with!(meths, @nospecialize(T::Type), world, mod::Module, visited::Set{Module})
     mod in visited && return
     push!(visited, mod)
     # Traverse submodules
@@ -15,16 +22,16 @@ function methods_with!(methods, @nospecialize(T::Type), world, mod::Module, visi
         isdefined(mod, name) || continue
         obj = getglobal(mod, name)
         if isa(obj, Module)
-            methods_with!(methods, T, world, obj, visited)
+            methods_with!(meths, T, world, obj, visited)
         end
     end
     Base.foreach_module_mtable(mod, world) do mt::Core.MethodTable
         for method in Base.MethodList(mt)
-            hastype(method.sig, T) && push!(methods, method)
+            hastype(method.sig, T) && push!(meths, method)
         end
         return true
     end
-    return methods
+    return meths
 end
 
 function hastype(@nospecialize(S), @nospecialize(T))

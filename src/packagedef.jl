@@ -811,16 +811,25 @@ function revise(; throw::Bool=false)
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())
             end
         end
-        for m in reeval_methods
-            methinfo = get(CodeTracking.method_info, m.sig, missing)
-            methinfo === missing && continue
-            if length(methinfo) != 1
-                @warn "Multiple definitions for $(m.sig) found, skipping reevaluation"
-                continue
+        if !isempty(reeval_methods)
+            handled = typeof(reeval_methods)()
+            while !isempty(reeval_methods)
+                m = pop!(reeval_methods)
+                methinfo = get(CodeTracking.method_info, m.sig, missing)
+                methinfo === missing && continue
+                if length(methinfo) != 1
+                    @warn "Multiple definitions for $(m.sig) found, skipping reevaluation"
+                    continue
+                end
+                Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
+                _, ex = methinfo[1]
+                Core.eval(m.module, ex)
+                push!(handled, m)
+                f = getglobal(m.module, m.name)
+                if isa(f, DataType)
+                    union!(reeval_methods, setdiff(methods_with(f), handled))
+                end
             end
-            Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
-            _, ex = methinfo[1]
-            Core.eval(m.module, ex)
         end
         if interrupt
             for pkgfile in finished
