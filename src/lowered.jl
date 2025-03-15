@@ -450,7 +450,8 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
             elseif head === :call
                 f = lookup(frame, stmt.args[1])
                 if __bpart__ && f === Core._typebody! && length(stmt.args) >= 3
-                    newtype = @lookup(frame, stmt.args[3])
+                    # Handle type redefinition
+                    newtype = Base.unwrap_unionall(@lookup(frame, stmt.args[3]))
                     newtypename = newtype.name
                     oldtype = isdefinedglobal(newtypename.module, newtypename.name) ? getglobal(newtypename.module, newtypename.name) : nothing
                     if oldtype !== nothing
@@ -459,20 +460,7 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                             meths = methods_with(oldtype)
                             # For any modules that have not yet been parsed and had their signatures extracted,
                             # we need to do this now, before the binding changes to the new type
-                            for m in meths
-                                methinfo = get(CodeTracking.method_info, m.sig, false)
-                                if methinfo === false
-                                    pkgdata = get(pkgdatas, PkgId(m.module), nothing)
-                                    pkgdata === nothing && continue
-                                    for file in srcfiles(pkgdata)
-                                        fi = fileinfo(pkgdata, file)
-                                        if (isempty(fi.modexsigs) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
-                                            fi = maybe_parse_from_cache!(pkgdata, file)
-                                            instantiate_sigs!(fi.modexsigs)
-                                        end
-                                    end
-                                end
-                            end
+                            maybe_extract_sigs_for_meths(meths)
                             union!(reeval_methods, meths)
                         end
                     end

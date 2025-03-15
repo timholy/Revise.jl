@@ -2460,20 +2460,36 @@ const issue639report = []
                 scup(pw::PointWrapper) = 55 * pw.p.x
                 end
                 """)
+            # ...and one that uses that. This is to check whether the propagation of
+            # signature extraction works correctly.
+            dn3 = joinpath(testdir, "StructConstUserUser", "src")
+            mkpath(dn3)
+            write(joinpath(dn3, "StructConstUserUser.jl"), """
+                module StructConstUserUser
+                using StructConstUser
+                struct PointWrapperWrapper
+                    pw::StructConstUser.PointWrapper
+                end
+                StructConstUser.scup(pw::PointWrapperWrapper) = 2 * StructConstUser.scup(pw.pw)
+                end
+                """)
             sleep(mtimedelay)
             @eval using StructConst
             @eval using StructConstUser
+            @eval using StructConstUserUser
             sleep(mtimedelay)
             w1 = Base.get_world_counter()
             f = StructConst.Fixed(5)
             v1 = hash(f)
             p = StructConst.Point(5.0)
             pw = StructConstUser.PointWrapper(p)
+            pww = StructConstUserUser.PointWrapperWrapper(pw)
             @test StructConst.firstval(p) == 5.0
             @test StructConst.mynorm(p) == 5.0
             @test StructConstUser.scuf(f) == 33 * 5.0
             @test StructConstUser.scup(p) == 44 * 5.0
             @test StructConstUser.scup(pw) == 55 * 5.0
+            @test StructConstUser.scup(pww) == 2 * 55 * 5.0
             write(joinpath(dn, "StructConst.jl"), """
                 module StructConst
                 const __hash__ = 0xddaab158621d200c
@@ -2494,18 +2510,21 @@ const issue639report = []
             v2 = hash(f)
             @test v1 != v2
             # Call with old objects---ensure we deleted all the outdated methods to reduce user confusion
-            @test_throws MethodError StructConst.firstval(p) == 5.0
+            @test_throws MethodError StructConst.firstval(p)
             @test_throws MethodError StructConst.mynorm(p)
             @test StructConstUser.scuf(f) == 33 * 5.0
-            @test_throws MethodError StructConstUser.scup(p) == 44 * 5.0
-            @test_throws MethodError StructConstUser.scup(pw) == 55 * 5.0
+            @test_throws MethodError StructConstUser.scup(p)
+            @test_throws MethodError StructConstUser.scup(pw)
+            @test_throws MethodError StructConstUser.scup(pww)
             # Call with new objects
             p2 = StructConst.Point(3.0, 4.0)
-            pw2 = @eval(StructConstUser.PointWrapper($p2))          # ENABLE ME
+            pw2 = @eval(StructConstUser.PointWrapper($p2))
+            pww2 = @eval(StructConstUserUser.PointWrapperWrapper($pw2))
             @test @eval(StructConst.firstval($p2)) == 3.0
             @test @eval(StructConst.mynorm($p2)) == 5.0
             @test @eval(StructConstUser.scup($p2)) == 44 * 3.0
-            @test @eval(StructConstUser.scup($pw2)) == 55 * 3.0     # ENABLE ME
+            @test @eval(StructConstUser.scup($pw2)) == 55 * 3.0
+            @test @eval(StructConstUser.scup($pww2)) == 2 * 55 * 3.0
             write(joinpath(dn, "StructConst.jl"), """
                 module StructConst
                 const __hash__ = 0x71716e828e2d6093
@@ -2513,9 +2532,9 @@ const issue639report = []
                     x::Int
                 end
                 Base.hash(f::Fixed, h::UInt) = hash(__hash__, hash(f.x, h))
-                struct Point
-                    x::Float64
-                    y::Float64
+                struct Point{T<:Real} <: AbstractVector{T}
+                    x::T
+                    y::T
                 end
                 firstval(p::Point) = p.x
                 mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
@@ -2525,9 +2544,17 @@ const issue639report = []
             @test StructConst.__hash__ == 0x71716e828e2d6093
             v3 = hash(f)
             @test v1 == v3
+            p3 = StructConst.Point(3.0, 4.0)
+            pw3 = @eval(StructConstUser.PointWrapper($p3))
+            pww3 = @eval(StructConstUserUser.PointWrapperWrapper($pw3))
+            @test @eval(StructConst.mynorm($p3)) == 5.0
+            @test @eval(StructConstUser.scup($p3)) == 44 * 3.0
+            @test @eval(StructConstUser.scup($pw3)) == 55 * 3.0
+            @test @eval(StructConstUser.scup($pww3)) == 2 * 55 * 3.0
 
             rm_precompile("StructConst")
             rm_precompile("StructConstUser")
+            rm_precompile("StructConstUserUser")
             pop!(LOAD_PATH)
         end
     end

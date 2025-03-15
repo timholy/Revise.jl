@@ -125,6 +125,23 @@ function maybe_extract_sigs!(fi::FileInfo)
 end
 maybe_extract_sigs!(pkgdata::PkgData, file::AbstractString) = maybe_extract_sigs!(fileinfo(pkgdata, file))
 
+function maybe_extract_sigs_for_meths(meths)
+    for m in meths
+        methinfo = get(CodeTracking.method_info, m.sig, false)
+        if methinfo === false
+            pkgdata = get(pkgdatas, PkgId(m.module), nothing)
+            pkgdata === nothing && continue
+            for file in srcfiles(pkgdata)
+                fi = fileinfo(pkgdata, file)
+                if (isempty(fi.modexsigs) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
+                    fi = maybe_parse_from_cache!(pkgdata, file)
+                    instantiate_sigs!(fi.modexsigs)
+                end
+            end
+        end
+    end
+end
+
 function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, includes; eval_now::Bool=false)
     for (mod, inc) in includes
         inc = joinpath(splitdir(file)[1], inc)
