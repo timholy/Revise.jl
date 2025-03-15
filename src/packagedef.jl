@@ -882,6 +882,7 @@ function revise(; throw=false)
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())
             end
         end
+        # Handle binding invalidations
         if !isempty(reeval_methods)
             handled = typeof(reeval_methods)()
             while !isempty(reeval_methods)
@@ -894,11 +895,17 @@ function revise(; throw=false)
                 end
                 Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
                 _, ex = methinfo[1]
-                Core.eval(m.module, ex)
+                eval_with_signatures(m.module, ex; mode=:eval)
                 push!(handled, m)
-                f = getglobal(m.module, m.name)
-                if isa(f, DataType)
-                    union!(reeval_methods, setdiff(methods_with(f), handled))
+                if isdefinedglobal(m.module, m.name)
+                    f = getglobal(m.module, m.name)
+                    if isa(f, DataType)
+                        newmeths = setdiff(methods_with(f), handled)
+                        maybe_extract_sigs_for_meths(newmeths)
+                        union!(reeval_methods, newmeths)
+                    end
+                else
+                    push!(trouble, m)
                 end
             end
         end
@@ -935,6 +942,8 @@ function revise(; throw=false)
     nothing
 end
 revise(backend::REPL.REPLBackend) = revise()
+
+trouble = []
 
 """
     revise(mod::Module; force::Bool=true)
