@@ -468,7 +468,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         ofts = fieldtypes(oldtype)
                         if !Core._equiv_typedef(oldtype, newtype) || !all(ab -> ab[1] === ab[2], zip(nfts, ofts))
                             isrequired[pc:end] .= true   # ensure we evaluate all remaining statements (probably not needed, but just in case)
-                            # Find all methods that use `oldtype`
+                            # Find all methods restricted to `oldtype`
                             meths = methods_with(oldtype)
                             # For any modules that have not yet been parsed and had their signatures extracted,
                             # we need to do this now, before the binding changes to the new type
