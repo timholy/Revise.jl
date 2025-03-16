@@ -2444,6 +2444,7 @@ const issue639report = []
                 end
                 firstval(p::Point) = p.x
                 mynorm(p::Point) = sqrt(p.x^2)
+                hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
                 end
                 """)
             # Also create another package that uses it
@@ -2482,6 +2483,8 @@ const issue639report = []
             f = StructConst.Fixed(5)
             v1 = hash(f)
             p = StructConst.Point(5.0)
+            hp = StructConst.hiddenconstructor(5)
+            @test isa(hp, StructConst.Point) && hp.x === 5.0
             pw = StructConstUser.PointWrapper(p)
             pww = StructConstUserUser.PointWrapperWrapper(pw)
             @test StructConst.firstval(p) == 5.0
@@ -2503,6 +2506,7 @@ const issue639report = []
                 end
                 firstval(p::Point) = p.x
                 mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
+                hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
                 end
                 """)
             @yry()
@@ -2518,6 +2522,8 @@ const issue639report = []
             @test_throws MethodError StructConstUser.scup(pww)
             # Call with new objects
             p2 = StructConst.Point(3.0, 4.0)
+            hp = StructConst.hiddenconstructor(5)
+            @test isa(hp, StructConst.Point) && hp.x === 5.0 && hp.y === 5.0
             pw2 = @eval(StructConstUser.PointWrapper($p2))
             pww2 = @eval(StructConstUserUser.PointWrapperWrapper($pw2))
             @test @eval(StructConst.firstval($p2)) == 3.0
@@ -2538,6 +2544,7 @@ const issue639report = []
                 end
                 firstval(p::Point) = p.x
                 mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
+                hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
                 end
                 """)
             @yry()
@@ -2545,6 +2552,8 @@ const issue639report = []
             v3 = hash(f)
             @test v1 == v3
             p3 = StructConst.Point(3.0, 4.0)
+            hp = StructConst.hiddenconstructor(5)
+            @test isa(hp, StructConst.Point) && hp.x === 5 && hp.y === 5
             pw3 = @eval(StructConstUser.PointWrapper($p3))
             pww3 = @eval(StructConstUserUser.PointWrapperWrapper($pw3))
             @test @eval(StructConst.mynorm($p3)) == 5.0

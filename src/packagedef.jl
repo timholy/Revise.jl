@@ -824,7 +824,7 @@ function revise(; throw::Bool=false)
                 end
                 Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
                 _, ex = methinfo[1]
-                eval_with_signatures(m.module, ex; mode=:eval)
+                invokelatest(eval_with_signatures, m.module, ex; mode=:eval)
                 push!(handled, m)
                 if isdefinedglobal(m.module, m.name)
                     f = getglobal(m.module, m.name)
