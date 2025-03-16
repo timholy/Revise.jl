@@ -458,13 +458,16 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                 pc = step_expr!(recurse, frame, stmt, true)
             elseif head === :call
                 f = @lookup(frame, stmt.args[1])
-                if __bpart__ && f === Core._typebody! && length(stmt.args) >= 3
+                if __bpart__ && f === Core._typebody!
                     # Handle type redefinition
                     newtype = Base.unwrap_unionall(@lookup(frame, stmt.args[3]))
                     newtypename = newtype.name
                     oldtype = isdefinedglobal(newtypename.module, newtypename.name) ? getglobal(newtypename.module, newtypename.name) : nothing
                     if oldtype !== nothing
-                        if !Core._equiv_typedef(oldtype, newtype)
+                        nfts = @lookup(frame, stmt.args[4])
+                        ofts = fieldtypes(oldtype)
+                        if !Core._equiv_typedef(oldtype, newtype) || !all(ab -> ab[1] === ab[2], zip(nfts, ofts))
+                            isrequired[pc:end] .= true   # ensure we evaluate all remaining statements (probably not needed, but just in case)
                             # Find all methods that use `oldtype`
                             meths = methods_with(oldtype)
                             # For any modules that have not yet been parsed and had their signatures extracted,
