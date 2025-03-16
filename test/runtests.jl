@@ -2443,6 +2443,7 @@ const issue639report = []
                     x::Float64
                 end
                 firstval(p::Point) = p.x
+                firstvalP(p::P) where P<:Point = p.x
                 mynorm(p::Point) = sqrt(p.x^2)
                 hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
                 end
@@ -2487,7 +2488,7 @@ const issue639report = []
             @test isa(hp, StructConst.Point) && hp.x === 5.0
             pw = StructConstUser.PointWrapper(p)
             pww = StructConstUserUser.PointWrapperWrapper(pw)
-            @test StructConst.firstval(p) == 5.0
+            @test StructConst.firstval(p) == StructConst.firstvalP(p) === 5.0
             @test StructConst.mynorm(p) == 5.0
             @test StructConstUser.scuf(f) == 33 * 5.0
             @test StructConstUser.scup(p) == 44 * 5.0
@@ -2505,6 +2506,7 @@ const issue639report = []
                     y::Float64
                 end
                 firstval(p::Point) = p.x
+                firstvalP(p::P) where P<:Point = p.x
                 mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
                 hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
                 end
@@ -2515,6 +2517,7 @@ const issue639report = []
             @test v1 != v2
             # Call with old objects---ensure we deleted all the outdated methods to reduce user confusion
             @test_throws MethodError StructConst.firstval(p)
+            @test_throws MethodError StructConst.firstvalP(p)
             @test_throws MethodError StructConst.mynorm(p)
             @test StructConstUser.scuf(f) == 33 * 5.0
             @test_throws MethodError StructConstUser.scup(p)
@@ -2526,7 +2529,7 @@ const issue639report = []
             @test isa(hp, StructConst.Point) && hp.x === 5.0 && hp.y === 5.0
             pw2 = @eval(StructConstUser.PointWrapper($p2))
             pww2 = @eval(StructConstUserUser.PointWrapperWrapper($pw2))
-            @test @eval(StructConst.firstval($p2)) == 3.0
+            @test @eval(StructConst.firstval($p2)) == @eval(StructConst.firstvalP($p2)) === 3.0
             @test @eval(StructConst.mynorm($p2)) == 5.0
             @test @eval(StructConstUser.scup($p2)) == 44 * 3.0
             @test @eval(StructConstUser.scup($pw2)) == 55 * 3.0
@@ -2543,6 +2546,7 @@ const issue639report = []
                     y::T
                 end
                 firstval(p::Point) = p.x
+                firstvalP(p::P) where P<:Point = p.x
                 mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
                 hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
                 end
@@ -2556,6 +2560,7 @@ const issue639report = []
             @test isa(hp, StructConst.Point) && hp.x === 5 && hp.y === 5
             pw3 = @eval(StructConstUser.PointWrapper($p3))
             pww3 = @eval(StructConstUserUser.PointWrapperWrapper($pw3))
+            @test @eval(StructConst.firstval($p3)) == @eval(StructConst.firstvalP($p3)) === 3.0
             @test @eval(StructConst.mynorm($p3)) == 5.0
             @test @eval(StructConstUser.scup($p3)) == 44 * 3.0
             @test @eval(StructConstUser.scup($pw3)) == 55 * 3.0
