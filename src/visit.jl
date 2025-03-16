@@ -35,6 +35,7 @@ function methods_with!(meths, @nospecialize(T::Type), world, mod::Module, visite
 end
 
 function hastype(@nospecialize(S), @nospecialize(T))
+    isa(S, TypeVar) && return hassubtype(S.ub, T)
     isa(S, Type) || return false
     S = Base.unwrap_unionall(S)
     isa(S, Core.TypeofBottom) && return false
@@ -45,6 +46,22 @@ function hastype(@nospecialize(S), @nospecialize(T))
     S === T && return true
     for P in S.parameters
         hastype(P, T) && return true
+    end
+    return false
+end
+
+function hassubtype(@nospecialize(S), @nospecialize(T))
+    isa(S, TypeVar) && return hassubtype(S.ub, T)
+    isa(S, Type) || return false
+    S = Base.unwrap_unionall(S)
+    isa(S, Core.TypeofBottom) && return false
+    if isa(S, Union)
+        return hassubtype(S.a, T) | hassubtype(S.b, T)
+    end
+    Base.isvarargtype(S) && return hassubtype(S.T, T)
+    S <: T && return true
+    for P in S.parameters
+        hassubtype(P, T) && return true
     end
     return false
 end
