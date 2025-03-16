@@ -870,8 +870,6 @@ function revise(; throw::Bool=false)
                         maybe_extract_sigs_for_meths(newmeths)
                         union!(reeval_methods, newmeths)
                     end
-                else
-                    push!(trouble, m)
                 end
             end
         end
@@ -908,8 +906,6 @@ function revise(; throw::Bool=false)
     nothing
 end
 revise(backend::REPL.REPLBackend) = revise()
-
-trouble = []
 
 """
     revise(mod::Module; force::Bool=true)
