@@ -374,10 +374,12 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     # Get the line number from the body
                     stmt3 = pc_expr(frame, pc3)::Expr
                     lnn = nothing
-                    sigcode = @lookup(frame, stmt3.args[2])::Core.SimpleVector
-                    lnn = sigcode[end]
-                    if !isa(lnn, LineNumberNode)
-                        lnn = nothing
+                    if line_is_decl
+                        sigcode = @lookup(frame, stmt3.args[2])::Core.SimpleVector
+                        lnn = sigcode[end]
+                        if !isa(lnn, LineNumberNode)
+                            lnn = nothing
+                        end
                     end
                     if lnn === nothing
                         bodycode = stmt3.args[end]
