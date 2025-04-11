@@ -456,6 +456,7 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                     oldtype = isdefinedglobal(newtypename.module, newtypename.name) ? getglobal(newtypename.module, newtypename.name) : nothing
                     if oldtype !== nothing
                         nfts = lookup(frame, stmt.args[4])
+                        oldtype = Base.unwrap_unionall(oldtype)
                         ofts = fieldtypes(oldtype)
                         if !Core._equiv_typedef(oldtype, newtype) || !all(ab -> ab[1] === ab[2], zip(nfts, ofts))
                             isrequired[pc:end] .= true   # ensure we evaluate all remaining statements (probably not needed, but just in case)
