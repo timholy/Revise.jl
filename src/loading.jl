@@ -110,3 +110,18 @@ function modulefiles(mod::Module)
     included_files = filter(mf->mf.id == id, includes)
     return keypath(parentfile), [keypath(mf.filename) for mf in included_files]
 end
+
+function modulefiles_basestlibs(id)
+    cachefile, includes = Revise.pkg_fileinfo(id)
+    # `cachefile` will be nothing for Base and stdlibs that *haven't* been moved out
+    cachefile === nothing && return Iterators.drop(Base._included_files, 1)  # stepping through sysimg.jl rebuilds Base, omit it
+    # stdlibs that are packages
+    mod = Base.loaded_modules[id]
+    return map(includes) do inc
+        submod = mod
+        for sm in inc.modpath
+            submod = getfield(submod, Symbol(sm))
+        end
+        return (submod, inc.filename)
+    end
+end

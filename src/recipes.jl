@@ -63,8 +63,12 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         if pkgdata === nothing
             pkgdata = PkgData(id, srcdir)
         end
+        cachefile, _ = Revise.pkg_fileinfo(id)
+        if cachefile === nothing
+            cachefile = basesrccache
+        end
         lock(revise_lock) do
-            for (submod, filename) in Iterators.drop(Base._included_files, 1)  # stepping through sysimg.jl rebuilds Base, omit it
+            for (submod, filename) in modulefiles_basestlibs(id)
                 ffilename = fixpath(filename)
                 inpath(ffilename, dirs) || continue
                 keypath = ffilename[1:last(findfirst(dirs[end], ffilename))]
@@ -74,7 +78,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
                     cache_file_key[fullpath] = filename
                     src_file_key[filename] = fullpath
                 end
-                push!(pkgdata, rpath=>FileInfo(submod, basesrccache))
+                push!(pkgdata, rpath=>FileInfo(submod, cachefile))
                 if mtime(ffilename) > mtcache
                     with_logger(_debug_logger) do
                         @debug "Recipe for Base/StdLib" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
@@ -205,7 +209,8 @@ const stdlib_names = Set([
 
 # This replacement is needed because the path written during compilation differs from
 # the git source path
-const stdlib_rep = joinpath("usr", "share", "julia", "stdlib", "v$(VERSION.major).$(VERSION.minor)") => "stdlib"
+const stdpath_rep = (joinpath("usr", "share", "julia", "stdlib", "v$(VERSION.major).$(VERSION.minor)") => "stdlib",
+                    joinpath("usr", "share", "julia", "Compiler") => "Compiler")
 
-const juliaf2m = Dict(normpath(replace(file, stdlib_rep))=>mod
+const juliaf2m = Dict(normpath(replace(file, stdpath_rep...))=>mod
     for (mod,file) in Base._included_files)
