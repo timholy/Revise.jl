@@ -3078,6 +3078,8 @@ const issue639report = []
     end
 
     do_test("Recipes") && @testset "Recipes" begin
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
+
         # https://github.com/JunoLab/Juno.jl/issues/257#issuecomment-473856452
         meth = @which gcd(10, 20)
         signatures_at(Base.find_source_file(String(meth.file)), meth.line)  # this should track Base
@@ -3095,6 +3097,8 @@ const issue639report = []
         m = @which redirect_stdout()
         @test definition(m).head ∈ (:function, :(=))
 
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
+
         # Tracking stdlibs
         Revise.track(Unicode)
         id = Base.PkgId(Unicode)
@@ -3104,11 +3108,15 @@ const issue639report = []
         @test definition(m) isa Expr
         @test isfile(whereis(m)[1])
 
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
+
         # Submodule of Pkg (note that package is developed outside the
         # Julia repo, this tests new cases)
         id = Revise.get_tracked_id(Pkg.Types)
         pkgdata = Revise.pkgdatas[id]
         @test definition(first(methods(Pkg.API.add))) isa Expr
+
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
 
         # Test that we skip over files that don't end in ".jl"
         logs, _ = Test.collect_test_logs() do
@@ -3116,8 +3124,13 @@ const issue639report = []
         end
         @test isempty(logs)
 
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
+
         Revise.get_tracked_id(Core)   # just test that this doesn't error
 
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
+
+        #=
         if !haskey(ENV, "BUILDKITE") # disable on buildkite, see discussion in https://github.com/JuliaCI/julia-buildkite/pull/372#issuecomment-2262840304
             # Determine whether a git repo is available. Travis & Appveyor do not have this.
             repo, path = Revise.git_repo(Revise.juliadir)
@@ -3134,6 +3147,9 @@ const issue639report = []
                 @warn "skipping Core.Compiler tests due to lack of git repo"
             end
         end
+        =#
+
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
     end
 
     do_test("CodeTracking #48") && @testset "CodeTracking #48" begin
@@ -4143,9 +4159,9 @@ do_test("includet with mod arg (issue #689)") && @testset "includet with mod arg
     @test Driver.Codes.Common.foo == 2
 end
 
-do_test("misc - coverage") && @testset "misc - coverage" begin
+do_test("misc - coverage") && !isinteractive() && @testset "misc - coverage" begin
     @test Revise.ReviseEvalException("undef", UndefVarError(:foo)).loc isa String
-    @test !Revise.throwto_repl(UndefVarError(:foo))
+    @test !Revise.throwto_repl(UndefVarError(:foo))   # this causes an error in interactive
 
     @test endswith(Revise.fallback_juliadir(), "julia")
 
