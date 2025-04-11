@@ -458,7 +458,7 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                         nfts = lookup(frame, stmt.args[4])
                         oldtype = Base.unwrap_unionall(oldtype)
                         ofts = fieldtypes(oldtype)
-                        if !Core._equiv_typedef(oldtype, newtype) || !all(ab -> ab[1] === ab[2], zip(nfts, ofts))
+                        if !Core._equiv_typedef(oldtype, newtype) || !all(ab -> recursive_egal(ab..., oldtype), zip(nfts, ofts))
                             isrequired[pc:end] .= true   # ensure we evaluate all remaining statements (probably not needed, but just in case)
                             # Find all methods restricted to `oldtype`
                             meths = methods_with(oldtype)
