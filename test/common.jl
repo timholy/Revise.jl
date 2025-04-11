@@ -20,7 +20,7 @@ end
 @static if Sys.isapple()
     const mtimedelay = 3.1  # so the defining files are old enough not to trigger mtime criterion
 else
-    const mtimedelay = 0.1
+    const mtimedelay = 0.2
 end
 
 if isdefined(Core, :var"@latestworld")
