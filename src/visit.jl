@@ -4,8 +4,9 @@ function methods_with(@nospecialize(T::Type), world::UInt = Base.get_world_count
     for mod in Base.loaded_modules_array()
         methods_with!(meths, T, world, mod, visited)
     end
-    # Also handle Type
+    # Also handle the methods defined for Type
     mt = methods(Type).mt
+    T = Base.unwrap_unionall(T)
     Tname = T.name
     for method in Base.MethodList(mt)
         method.module === Tname.module && method.name === Tname.name && continue  # skip constructor
