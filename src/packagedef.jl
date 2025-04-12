@@ -238,6 +238,37 @@ const silence_pkgs = Set{Symbol}()
 const depsdir = joinpath(dirname(@__DIR__), "deps")
 const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
 
+function collect_mis(sigs)
+    mis = Core.MethodInstance[]
+    world = Base.get_world_counter()
+    for tt in sigs
+        matches = Base._methods_by_ftype(tt, 10, world)::Vector
+        for mm in matches
+            m = mm.method
+            for mi in Base.specializations(m)
+                if mi.specTypes <: tt
+                    push!(mis, mi)
+                end
+            end
+        end
+    end
+    return mis
+end
+
+# from Compiler/bootstrap.jl
+const compiler_mis = if __bpart__
+    collect_mis(Any[
+        Tuple{typeof(Core.Compiler.compact!), Vararg{Any}},
+        Tuple{typeof(Core.Compiler.ssa_inlining_pass!), Core.Compiler.IRCode, Core.Compiler.InliningState{Core.Compiler.NativeInterpreter}, Bool},
+        Tuple{typeof(Core.Compiler.optimize), Core.Compiler.NativeInterpreter, Core.Compiler.OptimizationState{Core.Compiler.NativeInterpreter}, Core.Compiler.InferenceResult},
+        Tuple{typeof(Core.Compiler.typeinf_ext), Core.Compiler.NativeInterpreter, Core.MethodInstance, UInt8},
+        Tuple{typeof(Core.Compiler.typeinf), Core.Compiler.NativeInterpreter, Core.Compiler.InferenceState},
+        Tuple{typeof(Core.Compiler.typeinf_edge), Core.Compiler.NativeInterpreter, Method, Any, Core.SimpleVector, Core.Compiler.InferenceState, Bool, Bool},
+    ])
+else
+    Core.MethodInstance[]
+end
+
 ##
 ## The inputs are sets of expressions found in each file.
 ## Some of those expressions will generate methods which are identified via their signatures.
@@ -843,6 +874,11 @@ function revise(; throw::Bool=false)
                 end
             end
         end
+        init_compiler = false
+        for mi in compiler_mis
+            init_compiler |= mi.cache.max_world < typemax(UInt)
+        end
+        init_compiler && Core.Compiler.bootstrap!()
         if interrupt
             for pkgfile in finished
                 haskey(queue_errors, pkgfile) || delete!(revision_queue, pkgfile)
