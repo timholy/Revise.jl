@@ -2516,24 +2516,24 @@ const issue639report = []
             v2 = hash(f)
             @test v1 != v2
             # Call with old objects---ensure we deleted all the outdated methods to reduce user confusion
-            @test_throws MethodError StructConst.firstval(p)
-            @test_throws MethodError StructConst.firstvalP(p)
-            @test_throws MethodError StructConst.mynorm(p)
-            @test StructConstUser.scuf(f) == 33 * 5.0
-            @test_throws MethodError StructConstUser.scup(p)
-            @test_throws MethodError StructConstUser.scup(pw)
-            @test_throws MethodError StructConstUser.scup(pww)
+            @test_throws MethodError @invokelatest(StructConst.firstval(p))
+            @test_throws MethodError @invokelatest(StructConst.firstvalP(p))
+            @test_throws MethodError @invokelatest(StructConst.mynorm(p))
+            @test @invokelatest(StructConstUser.scuf(f)) == 33 * 5.0
+            @test_throws MethodError @invokelatest(StructConstUser.scup(p))
+            @test_throws MethodError @invokelatest(StructConstUser.scup(pw))
+            @test_throws MethodError @invokelatest(StructConstUser.scup(pww))
             # Call with new objects
-            p2 = StructConst.Point(3.0, 4.0)
-            hp = StructConst.hiddenconstructor(5)
+            p2 = @invokelatest(StructConst.Point(3.0, 4.0))
+            hp = @invokelatest(StructConst.hiddenconstructor(5))
             @test isa(hp, StructConst.Point) && hp.x === 5.0 && hp.y === 5.0
-            pw2 = @eval(StructConstUser.PointWrapper($p2))
-            pww2 = @eval(StructConstUserUser.PointWrapperWrapper($pw2))
-            @test @eval(StructConst.firstval($p2)) == @eval(StructConst.firstvalP($p2)) === 3.0
-            @test @eval(StructConst.mynorm($p2)) == 5.0
-            @test @eval(StructConstUser.scup($p2)) == 44 * 3.0
-            @test @eval(StructConstUser.scup($pw2)) == 55 * 3.0
-            @test @eval(StructConstUser.scup($pww2)) == 2 * 55 * 3.0
+            pw2 = @invokelatest(StructConstUser.PointWrapper(p2))
+            pww2 = @invokelatest(StructConstUserUser.PointWrapperWrapper(pw2))
+            @test @invokelatest(StructConst.firstval(p2)) == @invokelatest(StructConst.firstvalP(p2)) === 3.0
+            @test @invokelatest(StructConst.mynorm(p2)) == 5.0
+            @test @invokelatest(StructConstUser.scup(p2)) == 44 * 3.0
+            @test @invokelatest(StructConstUser.scup(pw2)) == 55 * 3.0
+            @test @invokelatest(StructConstUser.scup(pww2)) == 2 * 55 * 3.0
             write(joinpath(dn, "StructConst.jl"), """
                 module StructConst
                 const __hash__ = 0x71716e828e2d6093
@@ -2555,16 +2555,16 @@ const issue639report = []
             @test StructConst.__hash__ == 0x71716e828e2d6093
             v3 = hash(f)
             @test v1 == v3
-            p3 = StructConst.Point(3.0, 4.0)
-            hp = StructConst.hiddenconstructor(5)
+            p3 = @invokelatest(StructConst.Point(3.0, 4.0))
+            hp = @invokelatest(StructConst.hiddenconstructor(5))
             @test isa(hp, StructConst.Point) && hp.x === 5 && hp.y === 5
-            pw3 = @eval(StructConstUser.PointWrapper($p3))
-            pww3 = @eval(StructConstUserUser.PointWrapperWrapper($pw3))
-            @test @eval(StructConst.firstval($p3)) == @eval(StructConst.firstvalP($p3)) === 3.0
-            @test @eval(StructConst.mynorm($p3)) == 5.0
-            @test @eval(StructConstUser.scup($p3)) == 44 * 3.0
-            @test @eval(StructConstUser.scup($pw3)) == 55 * 3.0
-            @test @eval(StructConstUser.scup($pww3)) == 2 * 55 * 3.0
+            pw3 = @invokelatest(StructConstUser.PointWrapper(p3))
+            pww3 = @invokelatest(StructConstUserUser.PointWrapperWrapper(pw3))
+            @test @invokelatest(StructConst.firstval(p3)) == @invokelatest(StructConst.firstvalP(p3)) === 3.0
+            @test @invokelatest(StructConst.mynorm(p3)) == 5.0
+            @test @invokelatest(StructConstUser.scup(p3)) == 44 * 3.0
+            @test @invokelatest(StructConstUser.scup(pw3)) == 55 * 3.0
+            @test @invokelatest(StructConstUser.scup(pww3)) == 2 * 55 * 3.0
 
             rm_precompile("StructConst")
             rm_precompile("StructConstUser")
