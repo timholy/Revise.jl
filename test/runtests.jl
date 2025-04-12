@@ -3135,7 +3135,6 @@ end
 
         @test !isempty(methods(Core.Compiler.NativeInterpreter))
 
-        #=
         if !haskey(ENV, "BUILDKITE") # disable on buildkite, see discussion in https://github.com/JuliaCI/julia-buildkite/pull/372#issuecomment-2262840304
             # Determine whether a git repo is available. Travis & Appveyor do not have this.
             repo, path = Revise.git_repo(Revise.juliadir)
@@ -3152,7 +3151,6 @@ end
                 @warn "skipping Core.Compiler tests due to lack of git repo"
             end
         end
-        =#
 
         @test !isempty(methods(Core.Compiler.NativeInterpreter))
     end

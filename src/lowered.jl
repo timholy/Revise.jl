@@ -454,8 +454,12 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     end
                 end
             elseif LoweredCodeUtils.is_assignment_like(stmt)
-                # If we're here, either isrequired[pc] is true, or the mode forces us to eval assignments
+                if mode === :sigs && stmt.head === :const && (a = stmt.args[1]) isa GlobalRef && @invokelatest(isdefined(mod, a.name))
+                    # avoid redefining types unless we have to
+                    pc = next_or_nothing!(frame)
+                else
                 pc = step_expr!(recurse, frame, stmt, true)
+                end
             elseif head === :call
                 f = @lookup(frame, stmt.args[1])
                 if __bpart__ && f === Core._typebody!
