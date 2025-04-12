@@ -813,25 +813,32 @@ function revise(; throw::Bool=false)
         end
         # Handle binding invalidations
         if !isempty(reeval_methods)
-            handled = typeof(reeval_methods)()
+            handled = Base.IdSet{Type}()
             while !isempty(reeval_methods)
-                m = pop!(reeval_methods)
-                methinfo = get(CodeTracking.method_info, m.sig, missing)
-                methinfo === missing && continue
-                if length(methinfo) != 1
-                    @warn "Multiple definitions for $(m.sig) found, skipping reevaluation"
-                    continue
-                end
-                Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
-                _, ex = methinfo[1]
-                invokelatest(eval_with_signatures, m.module, ex; mode=:eval)
-                push!(handled, m)
-                if isdefinedglobal(m.module, m.name)
-                    f = getglobal(m.module, m.name)
-                    if isa(f, DataType)
-                        newmeths = setdiff(methods_with(f), handled)
-                        maybe_extract_sigs_for_meths(newmeths)
-                        union!(reeval_methods, newmeths)
+                list = collect(reeval_methods)
+                empty!(reeval_methods)
+                for m in list
+                    methinfo = get(CodeTracking.method_info, m.sig, missing)
+                    if methinfo === missing
+                        push!(handled, m.sig)
+                        continue
+                    end
+                    if length(methinfo) != 1 && Base.unwrap_unionall(m.sig).parameters[1] !== typeof(Core.kwcall)
+                        @warn "Multiple definitions for $(m.sig) found, skipping reevaluation"
+                        continue
+                    end
+                    Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
+                    _, ex = methinfo[1]
+                    invokelatest(eval_with_signatures, m.module, ex; mode=:eval)
+                    push!(handled, m.sig)
+                    if isdefinedglobal(m.module, m.name)
+                        f = getglobal(m.module, m.name)
+                        if isa(f, DataType)
+                            newmeths = methods_with(f)
+                            filter!(m -> m.sig ∉ handled, newmeths)
+                            maybe_extract_sigs_for_meths(newmeths)
+                            union!(reeval_methods, newmeths)
+                        end
                     end
                 end
             end
