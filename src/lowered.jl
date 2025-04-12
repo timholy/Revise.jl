@@ -452,11 +452,36 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     end
                 end
             elseif LoweredCodeUtils.is_assignment_like(stmt)
-                # If we're here, either isrequired[pc] is true, or the mode forces us to eval assignments
+                if mode === :sigs && stmt.head === :const && (a = stmt.args[1]) isa GlobalRef && @invokelatest(isdefined(mod, a.name))
+                    # avoid redefining types unless we have to
+                    pc = next_or_nothing!(frame)
+                else
                 pc = step_expr!(recurse, frame, stmt, true)
+                end
             elseif head === :call
                 f = @lookup(frame, stmt.args[1])
-                if isdefined(Core, :_defaultctors) && f === Core._defaultctors && length(stmt.args) == 3
+                if __bpart__ && f === Core._typebody!
+                    # Handle type redefinition
+                    newtype = Base.unwrap_unionall(@lookup(frame, stmt.args[3]))
+                    newtypename = newtype.name
+                    oldtype = isdefinedglobal(newtypename.module, newtypename.name) ? getglobal(newtypename.module, newtypename.name) : nothing
+                    if oldtype !== nothing
+                        nfts = @lookup(frame, stmt.args[4])
+                        oldtype = Base.unwrap_unionall(oldtype)
+                        ofts = fieldtypes(oldtype)
+                        if !Core._equiv_typedef(oldtype, newtype) || !all(ab -> recursive_egal(ab..., oldtype), zip(nfts, ofts))
+                            isrequired[pc:end] .= true   # ensure we evaluate all remaining statements (probably not needed, but just in case)
+                            # Find all methods restricted to `oldtype`
+                            meths = methods_with(oldtype)
+                            # For any modules that have not yet been parsed and had their signatures extracted,
+                            # we need to do this now, before the binding changes to the new type
+                            maybe_extract_sigs_for_meths(meths)
+                            union!(reeval_methods, meths)
+                        end
+                    end
+                    pc = step_expr!(recurse, frame, stmt, true)
+                elseif isdefined(Core, :_defaultctors) && f === Core._defaultctors && length(stmt.args) == 3
+                    # Create the constructors for a type (i.e., a method definition)
                     T = @lookup(frame, stmt.args[2])
                     lnn = @lookup(frame, stmt.args[3])
                     if T isa Type && lnn isa LineNumberNode
