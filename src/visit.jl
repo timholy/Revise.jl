@@ -1,5 +1,5 @@
 function methods_with(@nospecialize(T::Type), world::UInt = Base.get_world_counter())
-    meths = Method[]
+    meths = Set{Method}()
     visited = Set{Module}()
     for mod in Base.loaded_modules_array()
         methods_with!(meths, T, world, mod, visited)
