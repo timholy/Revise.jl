@@ -266,7 +266,7 @@ end
         @test length(dvs) == 3
         (def, val) = dvs[1]
         @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(square(x) = x^2)))
-        @test val == [Tuple{typeof(ReviseTest.square),Any}]
+        @test val == [nothing => Tuple{typeof(ReviseTest.square),Any}]
         @test Revise.firstline(Revise.unwrap(def)).line == 5
         m = @which ReviseTest.square(1)
         @test m.line == 5
@@ -274,14 +274,14 @@ end
         @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
         (def, val) = dvs[2]
         @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(cube(x) = x^3)))
-        @test val == [Tuple{typeof(ReviseTest.cube),Any}]
+        @test val == [nothing => Tuple{typeof(ReviseTest.cube),Any}]
         m = @which ReviseTest.cube(1)
         @test m.line == 7
         @test whereis(m) == (tmpfile, 7)
         @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
         (def, val) = dvs[3]
         @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(fourth(x) = x^4)))
-        @test val == [Tuple{typeof(ReviseTest.fourth),Any}]
+        @test val == [nothing => Tuple{typeof(ReviseTest.fourth),Any}]
         m = @which ReviseTest.fourth(1)
         @test m.line == 9
         @test whereis(m) == (tmpfile, 9)
@@ -291,7 +291,7 @@ end
         @test length(dvs) == 5
         (def, val) = dvs[1]
         @test isequal(Revise.unwrap(def),  Revise.RelocatableExpr(:(mult2(x) = 2*x)))
-        @test val == [Tuple{typeof(ReviseTest.Internal.mult2),Any}]
+        @test val == [nothing => Tuple{typeof(ReviseTest.Internal.mult2),Any}]
         @test Revise.firstline(Revise.unwrap(def)).line == 13
         m = @which ReviseTest.Internal.mult2(1)
         @test m.line == 11
@@ -299,7 +299,7 @@ end
         @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
         (def, val) = dvs[2]
         @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(mult3(x) = 3*x)))
-        @test val == [Tuple{typeof(ReviseTest.Internal.mult3),Any}]
+        @test val == [nothing => Tuple{typeof(ReviseTest.Internal.mult3),Any}]
         m = @which ReviseTest.Internal.mult3(1)
         @test m.line == 14
         @test whereis(m) == (tmpfile, 14)
@@ -327,10 +327,10 @@ end
         cmpdiff(logs[4], "Eval"; deltainfo=(ReviseTest, :(cube(x) = x^3)))
         cmpdiff(logs[5], "Eval"; deltainfo=(ReviseTest, :(fourth(x) = x^4)))
         stmpfile = Symbol(tmpfile)
-        cmpdiff(logs[6], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.mult2),Any}], LineNumberNode(11,stmpfile)=>LineNumberNode(13,stmpfile)))
+        cmpdiff(logs[6], "LineOffset"; deltainfo=(Any[nothing => Tuple{typeof(ReviseTest.Internal.mult2),Any}], LineNumberNode(11,stmpfile)=>LineNumberNode(13,stmpfile)))
         cmpdiff(logs[7], "Eval"; deltainfo=(ReviseTest.Internal, :(mult3(x) = 3*x)))
-        cmpdiff(logs[8], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.unchanged),Any}], LineNumberNode(18,stmpfile)=>LineNumberNode(19,stmpfile)))
-        cmpdiff(logs[9], "LineOffset"; deltainfo=(Any[Tuple{typeof(ReviseTest.Internal.unchanged2),Any}], LineNumberNode(20,stmpfile)=>LineNumberNode(21,stmpfile)))
+        cmpdiff(logs[8], "LineOffset"; deltainfo=(Any[nothing => Tuple{typeof(ReviseTest.Internal.unchanged),Any}], LineNumberNode(18,stmpfile)=>LineNumberNode(19,stmpfile)))
+        cmpdiff(logs[9], "LineOffset"; deltainfo=(Any[nothing => Tuple{typeof(ReviseTest.Internal.unchanged2),Any}], LineNumberNode(20,stmpfile)=>LineNumberNode(21,stmpfile)))
         @test length(Revise.actions(rlogger)) == 6  # by default LineOffset is skipped
         @test length(Revise.actions(rlogger; line=true)) == 9
         @test_broken length(Revise.diffs(rlogger)) == 2
@@ -503,8 +503,8 @@ end
                 m3 = first(methods(eval(fn3)))
                 m3file = joinpath(dn, "subdir", "file3.jl")
                 @test whereis(m3) == (m3file, 1)
-                @test signatures_at(m3file, 1) == [m3.sig]
-                @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [m3.sig]
+                @test signatures_at(m3file, 1) == [nothing => m3.sig]
+                @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [nothing => m3.sig]
 
                 id = Base.PkgId(eval(Symbol(modname)))   # for testing #596
                 pkgdata = Revise.pkgdatas[id]
@@ -1398,7 +1398,7 @@ end
             """)
         @yry()
         @test MacroSigs.blah() == 1
-        @test haskey(CodeTracking.method_info, (@which MacroSigs.blah()).sig)
+        @test haskey(CodeTracking.method_info, CodeTracking.method_info_key(@which MacroSigs.blah()))
         rm_precompile("MacroSigs")
 
         # Issue #568 (a macro *execution* bug)
@@ -1896,8 +1896,8 @@ end
         ex2 = :(methspecificity(x::Integer) = 2)
         Core.eval(ReviseTestPrivate, ex1)
         Core.eval(ReviseTestPrivate, ex2)
-        exsig1 = Revise.RelocatableExpr(ex1)=>[Tuple{typeof(ReviseTestPrivate.methspecificity),Int}]
-        exsig2 = Revise.RelocatableExpr(ex2)=>[Tuple{typeof(ReviseTestPrivate.methspecificity),Integer}]
+        exsig1 = Revise.RelocatableExpr(ex1) => [nothing => Tuple{typeof(ReviseTestPrivate.methspecificity),Int}]
+        exsig2 = Revise.RelocatableExpr(ex2) => [nothing => Tuple{typeof(ReviseTestPrivate.methspecificity),Integer}]
         f_old, f_new = Revise.ExprsSigs(exsig1, exsig2), Revise.ExprsSigs(exsig2)
         Revise.delete_missing!(f_old, f_new)
         m = @which ReviseTestPrivate.methspecificity(1)
@@ -3084,6 +3084,87 @@ end
         @test B670.x == 6
         @test B670.y == 7
         rm_precompile("B670")
+    end
+
+    do_test("External method tables") && @testset "External method tables" begin
+        function retval(m)
+            src = Base.uncompressed_ast(m)
+            node = src.code[1]::Core.ReturnNode
+            node.val
+        end
+
+        testdir = newtestdir()
+
+        unique_name(base) = Symbol(replace(lstrip(String(gensym(base)), '#'), '#' => '_'))
+        first_revision(name) = """
+            module $name
+
+            Base.Experimental.@MethodTable(method_table)
+
+            foo() = 1
+            Base.Experimental.@overlay method_table foo() = 2
+
+            bar() = foo()
+
+            end
+            """
+        second_revision(name) = """
+            module $name
+
+            Base.Experimental.@MethodTable(method_table)
+
+            foo() = 1
+            Base.Experimental.@overlay method_table foo() = 3
+
+            bar() = foo() + 1
+
+            end
+            """
+
+        name = unique_name(:ExternalMT)
+        dn = joinpath(testdir, "$name", "src")
+        mkpath(dn)
+        write(joinpath(dn, "$name.jl"), first_revision(name))
+        sleep(mtimedelay)
+        @eval import $name
+        ExternalMT = @eval $name
+        foo, bar, mt = ExternalMT.foo, ExternalMT.bar, ExternalMT.method_table
+        sleep(mtimedelay)
+        @test foo() == 1
+        @test bar() == 1
+        (; ms) = Base.MethodList(mt)
+        @test retval(first(ms)) == 2
+        write(joinpath(dn, "$name.jl"), second_revision(name))
+        sleep(mtimedelay)
+        @yry()
+        @test foo() == 1
+        @test bar() == 2
+        (; ms) = Base.MethodList(mt)
+        @test retval(first(ms)) == 3
+
+        file = tempname() * ".jl"
+        name = unique_name(:ExternalMT_includet)
+        write(file, first_revision(name))
+        sleep(mtimedelay)
+        Revise.track(@__MODULE__(), file; mode=:includet)
+        sleep(mtimedelay)
+        @eval import .$name
+        ExternalMT = @eval $name
+        foo, bar, mt = ExternalMT.foo, ExternalMT.bar, ExternalMT.method_table
+        sleep(mtimedelay)
+        @test foo() == 1
+        @test bar() == 1
+        (; ms) = Base.MethodList(mt)
+        @test retval(first(ms)) == 2
+        rm(file)
+        sleep(mtimedelay)
+        write(file, second_revision(name))
+        sleep(mtimedelay)
+        @yry()
+        @test foo() == 1
+        @test bar() == 2
+        (; ms) = Base.MethodList(mt)
+        @test retval(first(ms)) == 3
     end
 end
 

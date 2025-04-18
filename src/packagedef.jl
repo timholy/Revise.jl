@@ -4,7 +4,7 @@ using FileWatching, REPL, UUIDs
 import LibGit2
 using Base: PkgId
 using Base.Meta: isexpr
-using Core: CodeInfo
+using Core: CodeInfo, MethodTable
 
 export revise, includet, entr, MethodSummary
 
@@ -286,14 +286,14 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
             haskey(exs_sigs_new, ex) && continue
             # ex was deleted
             sigs === nothing && continue
-            for sig in sigs
-                ret = Base._methods_by_ftype(sig, -1, Base.get_world_counter())
+            for (mt, sig) in sigs
+                ret = Base._methods_by_ftype(sig, mt, -1, Base.get_world_counter())
                 success = false
                 if !isempty(ret)
                     m = get_method_from_match(ret[end])   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
                     methsig = m.sig
                     if sig <: methsig && methsig <: sig
-                        locdefs = get(CodeTracking.method_info, sig, nothing)
+                        locdefs = get(CodeTracking.method_info, mt => sig, nothing)
                         if isa(locdefs, Vector{Tuple{LineNumberNode,Expr}})
                             if length(locdefs) > 1
                                 # Just delete this reference but keep the method
@@ -312,14 +312,14 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                         for get_workers in workers_functions
                             for p in @invokelatest get_workers()
                                 try  # guard against serialization errors if the type isn't defined on the worker
-                                    @invokelatest remotecall_impl(Core.eval, p, Main, :(delete_method_by_sig($sig)))
+                                    @invokelatest remotecall_impl(Core.eval, p, Main, :(delete_method_by_sig($mt, $sig)))
                                 catch
                                 end
                             end
                         end
                         Base.delete_method(m)
                         # Remove the entries from CodeTracking data
-                        delete!(CodeTracking.method_info, sig)
+                        delete!(CodeTracking.method_info, mt => sig)
                         # Remove frame from JuliaInterpreter, if applicable. Otherwise debuggers
                         # may erroneously work with outdated code (265-like problems)
                         if haskey(JuliaInterpreter.framedict, m)
@@ -1161,7 +1161,7 @@ function get_def(method::Method; modified_files=revision_queue)
     # We need to find the right file.
     if method.module == Base || method.module == Core || method.module == Core.Compiler
         @warn "skipping $method to avoid parsing too much code"
-        CodeTracking.invoked_setindex!(CodeTracking.method_info, method.sig, missing)
+        CodeTracking.invoked_setindex!(CodeTracking.method_info, CodeTracking.method_info_key(method), missing)
         return false
     end
     parentfile, included_files = modulefiles(method.module)
@@ -1178,15 +1178,15 @@ function get_def(method::Method; modified_files=revision_queue)
         def = get_def(method, pkgdata, file)
         def !== nothing && return true
     end
-    @warn "$(method.sig) was not found"
+    @warn "$(method.sig)$(isdefined(method, :external_mt) ? " (overlayed)" : "") was not found"
     # So that we don't call it again, store missingness info in CodeTracking
-    CodeTracking.invoked_setindex!(CodeTracking.method_info, method.sig, missing)
+    CodeTracking.invoked_setindex!(CodeTracking.method_info, CodeTracking.method_info_key(method), missing)
     return false
 end
 
 function get_def(method, pkgdata, filename)
     maybe_extract_sigs!(maybe_parse_from_cache!(pkgdata, filename))
-    return get(CodeTracking.method_info, method.sig, nothing)
+    return get(CodeTracking.method_info, CodeTracking.method_info_key(method), nothing)
 end
 
 function get_tracked_id(id::PkgId; modified_files=revision_queue)
@@ -1245,10 +1245,9 @@ function update_stacktrace_lineno!(trace)
         end
         if linfo isa Core.MethodInstance
             m = linfo.def
-            sigt = m.sig
             # Why not just call `whereis`? Because that forces tracking. This is being
             # clever by recognizing that these entries exist only if there have been updates.
-            updated = get(CodeTracking.method_info, sigt, nothing)
+            updated = get(CodeTracking.method_info, CodeTracking.method_info_key(m), nothing)
             if updated !== nothing
                 lnn = updated[1][1]     # choose the first entry by default
                 lineoffset = lnn.line - m.line
@@ -1263,7 +1262,7 @@ end
 function method_location(method::Method)
     # Why not just call `whereis`? Because that forces tracking. This is being
     # clever by recognizing that these entries exist only if there have been updates.
-    updated = get(CodeTracking.method_info, method.sig, nothing)
+    updated = get(CodeTracking.method_info, CodeTracking.method_info_key(method), nothing)
     if updated !== nothing
         lnn = updated[1][1]
         return lnn.file, lnn.line
@@ -1321,16 +1320,16 @@ Revise itself does not need to be running on `p`.
 """
 function init_worker(p::AbstractWorker)
     @invokelatest remotecall_impl(Core.eval, p, Main, quote
-        function whichtt(@nospecialize sig)
-            ret = Base._methods_by_ftype(sig, -1, Base.get_world_counter())
+        function whichtt(mt::Union{Nothing, MethodTable}, @nospecialize sig)
+            ret = Base._methods_by_ftype(sig, mt, -1, Base.get_world_counter())
             isempty(ret) && return nothing
             m = ret[end][3]::Method   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
             methsig = m.sig
             (sig <: methsig && methsig <: sig) || return nothing
             return m
         end
-        function delete_method_by_sig(@nospecialize sig)
-            m = whichtt(sig)
+        function delete_method_by_sig(mt::Union{Nothing, MethodTable}, @nospecialize sig)
+            m = whichtt(mt, sig)
             isa(m, Method) && Base.delete_method(m)
         end
     end)
