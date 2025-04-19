@@ -452,8 +452,12 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     end
                 end
             elseif LoweredCodeUtils.get_lhs_rhs(stmt) !== nothing
-                # If we're here, either isrequired[pc] is true, or the mode forces us to eval assignments
-                pc = step_expr!(recurse, frame, stmt, true)
+                if mode === :sigs && stmt.head === :const && (a = stmt.args[1]) isa GlobalRef && @invokelatest(isdefined(mod, a.name))
+                    # avoid redefining types unless we have to
+                    pc = next_or_nothing!(frame)
+                else
+                    pc = step_expr!(recurse, frame, stmt, true)
+                end
             elseif head === :call
                 f = @lookup(frame, stmt.args[1])
                 if isdefined(Core, :_defaultctors) && f === Core._defaultctors && length(stmt.args) == 3
