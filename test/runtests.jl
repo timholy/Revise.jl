@@ -823,22 +823,32 @@ end
         pop!(LOAD_PATH)
     end
 
-    do_test("Recursive types (issue #417)") && @testset "Recursive types (issue #417)" begin
+    do_test("Recursive types (issues #417 and #883)") && @testset "Recursive types (issues #417 and #883)" begin
         testdir = newtestdir()
         fn = joinpath(testdir, "recursive.jl")
         write(fn, """
             module RecursiveTypes
+            # issue #417
             struct Foo
                 x::Vector{Foo}
 
                 Foo() = new(Foo[])
             end
+
+            # issue #883
+            @static if Base.VERSION >= v"1.12-"
+                struct NestedDict{K, V} <: AbstractDict{K, Union{V, NestedDict}} end
+            end
+
             end
             """)
         sleep(mtimedelay)
         includet(fn)
         @latestworld
         @test isa(RecursiveTypes.Foo().x, Vector{RecursiveTypes.Foo})
+        if Base.VERSION >= v"1.12-"
+            @test isa(RecursiveTypes.NestedDict{Int, String}(), AbstractDict{Int, Union{String, RecursiveTypes.NestedDict}})
+        end
 
         pop!(LOAD_PATH)
     end
