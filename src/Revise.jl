@@ -39,7 +39,7 @@ using CodeTracking: PkgFiles, basedir, srcfiles, basepath
 using JuliaInterpreter: whichtt, is_doc_expr, step_expr!, finish_and_return!, get_return,
                         @lookup, moduleof, scopeof, pc_expr, is_quotenode_egal,
                         linetable, codelocs, LineTypes, isassign, isidentical
-using LoweredCodeUtils: next_or_nothing!, trackedheads, callee_matches
+using LoweredCodeUtils: next_or_nothing!, callee_matches
 
 include("packagedef.jl")
 
