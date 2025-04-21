@@ -226,9 +226,9 @@ Most of Revise's magic comes down to just three internal variables:
 
 Two "maps" are central to Revise's inner workings: `ExprsSigs` maps link
 definition=>signature-types (the forward workflow), while `CodeTracking` (specifically,
-its internal variable `method_info`) links from
-signature-type=>definition (the backward workflow).
-Concretely, `CodeTracking.method_info` is just an `IdDict` mapping `sigt=>(locationinfo, def)`.
+its internal variable `method_info`) links from a
+method table/signature-type pair to the corresponding definition (the backward workflow).
+Concretely, `CodeTracking.method_info` is just an `IdDict` mapping `(mt => sigt) => (locationinfo, def)`.
 Of note, a stack frame typically contains a link to a method, which stores the equivalent
 of `sigt`; consequently, this information allows one to look up the corresponding
 `locationinfo` and `def`. (When methods move, the location information stored by CodeTracking
@@ -237,8 +237,8 @@ gets updated by Revise.)
 Some additional notes about Revise's `ExprsSigs` maps:
 
 - For expressions that do not define a method, it is just `def=>nothing`
-- For expressions that do define a method, it is `def=>[sigt1, ...]`.
-  `[sigt1, ...]` is the list of signature-types generated from `def` (often just one,
+- For expressions that do define a method, it is `def=>[mt_sigt1, ...]`.
+  `[mt_sigt1, ...]` is the list of method table/signature-type pairs generated from `def` (often just one,
   but more in the case of methods with default arguments or keyword arguments).
 - They are represented as an `OrderedDict` so as to preserve the sequence in which expressions
   occur in the file.
@@ -255,7 +255,7 @@ Some additional notes about Revise's `ExprsSigs` maps:
   the location information stored by `CodeTracking`.
 
 `ExprsSigs` are organized by module and then file, so that one can map
-`filename`=>`module`=>`def`=>`sigts`.
+`filename`=>`module`=>`def`=>`mt_sigts`.
 Importantly, single-file modules can be "reconstructed" from the keys of the corresponding
 `ExprsSigs` (and multi-file modules from a collection of such items), since they hold
 the complete ordered set of expressions that would be `eval`ed to define the module.
@@ -334,13 +334,13 @@ FileInfo(Items=>ExprsSigs with the following expressions:
       end), )
 ```
 
-This is just a summary; to see the actual `def=>sigts` map, do the following:
+This is just a summary; to see the actual `def=>mt_sigts` map, do the following:
 
 ```julia
 julia> pkgdata.fileinfos[2].modexsigs[Items]
-OrderedCollections.OrderedDict{Revise.RelocatableExpr,Union{Nothing, Array{Any,1}}} with 2 entries:
-  :(indent(::UInt16) = begin…                       => Any[Tuple{typeof(indent),UInt16}]
-  :(indent(::UInt8) = begin…                        => Any[Tuple{typeof(indent),UInt8}]
+OrderedCollections.OrderedDict{Module, OrderedCollections.OrderedDict{Revise.RelocatableExpr, Union{Nothing, Vector{Pair{Union{Nothing, Core.MethodTable}, Type}}}}} with 2 entries:
+  :(indent(::UInt16) = begin…                       => Pair{Union{Nothing, MethodTable}, Type}[nothing => Tuple{typeof(indent),UInt16}]
+  :(indent(::UInt8) = begin…                        => Pair{Union{Nothing, MethodTable}, Type}[nothing => Tuple{typeof(indent),UInt8}]
 ```
 
 These are populated now because we specified `__precompile__(false)`, which forces
