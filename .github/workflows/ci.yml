@@ -81,6 +81,7 @@ jobs:
         # We also need to pick up the Git tests, but for that we need to `dev` the package
         echo "Git tests"
         julia --code-coverage=user -e '
+          using Pkg; pkg"add https://github.com/serenity4/JuliaInterpreter.jl#codetracking-v2 https://github.com/serenity4/CodeTracking.jl#parametrize-by-mt https://github.com/serenity4/LoweredCodeUtils.jl#support-external-methodtables"
           using Pkg; Pkg.develop(PackageSpec(path="."))
           include(joinpath("test", "runtests.jl"))
         ' "Git"
