@@ -16,7 +16,7 @@ end
 # This defines the API needed to store signatures using methods_by_execution!
 # This default version is simple and only used for testing purposes.
 # The "real" one is CodeTrackingMethodInfo in Revise.jl.
-const MethodInfo = IdDict{Pair{<:Union{Nothing, MethodTable},<:Type},LineNumberNode}
+const MethodInfo = IdDict{MethodInfoKey,LineNumberNode}
 add_signature!(methodinfo::MethodInfo, @nospecialize(sig), ln) = push!(methodinfo, sig=>ln)
 push_expr!(methodinfo::MethodInfo, mod::Module, ex::Expr) = methodinfo
 pop_expr!(methodinfo::MethodInfo) = methodinfo
@@ -320,7 +320,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
     mod = moduleof(frame)
     # Hoist this lookup for performance. Don't throw even when `mod` is a baremodule:
     modinclude = isdefined(mod, :include) ? getfield(mod, :include) : nothing
-    signatures = []  # temporary for method signature storage
+    signatures = MethodInfoKey[]  # temporary for method signature storage
     pc = frame.pc
     while true
         JuliaInterpreter.is_leaf(frame) || (@warn("not a leaf"); break)

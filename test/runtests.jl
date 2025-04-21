@@ -1,6 +1,7 @@
 # REVISE: DO NOT PARSE   # For people with JULIA_REVISE_INCLUDE=1
 using Revise
 using Revise.CodeTracking
+using Revise.CodeTracking: MethodInfoKey
 using Revise.JuliaInterpreter
 using Test
 
@@ -1408,7 +1409,7 @@ end
             """)
         @yry()
         @test MacroSigs.blah() == 1
-        @test haskey(CodeTracking.method_info, CodeTracking.method_info_key(@which MacroSigs.blah()))
+        @test haskey(CodeTracking.method_info, MethodInfoKey(@which MacroSigs.blah()))
         rm_precompile("MacroSigs")
 
         # Issue #568 (a macro *execution* bug)
@@ -2945,7 +2946,7 @@ end
     do_test("Recipes") && @testset "Recipes" begin
         # https://github.com/JunoLab/Juno.jl/issues/257#issuecomment-473856452
         meth = @which gcd(10, 20)
-        sigs = signatures_at(Base.find_source_file(String(meth.file)), meth.line)  # this should track Base
+        signatures_at(Base.find_source_file(String(meth.file)), meth.line)  # this should track Base
 
         # Tracking Base
         # issue #250

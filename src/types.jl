@@ -16,7 +16,7 @@ mutable struct WatchList
 end
 
 const DocExprs = Dict{Module,Vector{Expr}}
-const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Any}}}
+const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Pair{Union{Nothing, MethodTable}, Type}}}}
 const DepDictVals = Tuple{Module,RelocatableExpr}
 const DepDict = Dict{Symbol,Set{DepDictVals}}
 

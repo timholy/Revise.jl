@@ -282,18 +282,19 @@ get_method_from_match(mm::Core.MethodMatch) = mm.method
 
 function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
     with_logger(_debug_logger) do
-        for (ex, sigs) in exs_sigs_old
+        for (ex, mt_sigs) in exs_sigs_old
             haskey(exs_sigs_new, ex) && continue
             # ex was deleted
-            sigs === nothing && continue
-            for (mt, sig) in sigs
+            mt_sigs === nothing && continue
+            for mt_sig in mt_sigs
+                mt, sig = mt_sig
                 ret = Base._methods_by_ftype(sig, mt, -1, Base.get_world_counter())
                 success = false
                 if !isempty(ret)
                     m = get_method_from_match(ret[end])   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
                     methsig = m.sig
                     if sig <: methsig && methsig <: sig
-                        locdefs = get(CodeTracking.method_info, mt => sig, nothing)
+                        locdefs = get(CodeTracking.method_info, mt_sig, nothing)
                         if isa(locdefs, Vector{Tuple{LineNumberNode,Expr}})
                             if length(locdefs) > 1
                                 # Just delete this reference but keep the method
@@ -319,7 +320,7 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                         end
                         Base.delete_method(m)
                         # Remove the entries from CodeTracking data
-                        delete!(CodeTracking.method_info, mt => sig)
+                        delete!(CodeTracking.method_info, mt_sig)
                         # Remove frame from JuliaInterpreter, if applicable. Otherwise debuggers
                         # may erroneously work with outdated code (265-like problems)
                         if haskey(JuliaInterpreter.framedict, m)
@@ -352,14 +353,14 @@ end
 
 function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
     return with_logger(_debug_logger) do
-        sigs, includes = nothing, nothing
+        mt_sigs, includes = nothing, nothing
         rexo = getkey(exs_sigs_old, rex, nothing)
         # extract the signatures and update the line info
         if rexo === nothing
             ex = rex.ex
             # ex is not present in old
             @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
-            sigs, deps, includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
+            mt_sigs, deps, includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end
@@ -376,14 +377,14 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
             end
             storedeps(deps, rex, mod)
         else
-            sigs = exs_sigs_old[rexo]
+            mt_sigs = exs_sigs_old[rexo]
             # Update location info
             ln, lno = firstline(unwrap(rex)), firstline(unwrap(rexo))
-            if sigs !== nothing && !isempty(sigs) && ln != lno
+            if mt_sigs !== nothing && !isempty(mt_sigs) && ln != lno
                 ln, lno = ln::LineNumberNode, lno::LineNumberNode
-                @debug "LineOffset" _group="Action" time=time() deltainfo=(sigs, lno=>ln)
-                for sig in sigs
-                    locdefs = CodeTracking.method_info[sig]::AbstractVector
+                @debug "LineOffset" _group="Action" time=time() deltainfo=(mt_sigs, lno=>ln)
+                for mt_sig in mt_sigs
+                    locdefs = CodeTracking.method_info[mt_sig]::AbstractVector
                     ld = let lno=lno
                         map(pr->linediff(lno, pr[1]), locdefs)
                     end
@@ -397,7 +398,7 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
                 end
             end
         end
-        return sigs, includes
+        return mt_sigs, includes
     end
 end
 
@@ -453,20 +454,20 @@ It also has the following fields:
 """
 struct CodeTrackingMethodInfo
     exprstack::Vector{Expr}
-    allsigs::Vector{Any}
+    allsigs::Vector{Pair{Union{Nothing, MethodTable}, Type}}
     deps::Set{Union{GlobalRef,Symbol}}
     includes::Vector{Pair{Module,String}}
 end
 CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Set{Union{GlobalRef,Symbol}}(), Pair{Module,String}[])
 
-function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), ln)
-    locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, sig)
+function add_signature!(methodinfo::CodeTrackingMethodInfo, mt_sig::MethodInfoKey, ln)
+    locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, mt_sig)
     newdef = unwrap(methodinfo.exprstack[end])
     if newdef !== nothing
         if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
             push!(locdefs, (fixpath(ln), newdef))
         end
-        push!(methodinfo.allsigs, sig)
+        push!(methodinfo.allsigs, mt_sig)
     end
     return methodinfo
 end
@@ -1161,7 +1162,7 @@ function get_def(method::Method; modified_files=revision_queue)
     # We need to find the right file.
     if method.module == Base || method.module == Core || method.module == Core.Compiler
         @warn "skipping $method to avoid parsing too much code"
-        CodeTracking.invoked_setindex!(CodeTracking.method_info, CodeTracking.method_info_key(method), missing)
+        CodeTracking.invoked_setindex!(CodeTracking.method_info, missing, MethodInfoKey(method))
         return false
     end
     parentfile, included_files = modulefiles(method.module)
@@ -1180,13 +1181,13 @@ function get_def(method::Method; modified_files=revision_queue)
     end
     @warn "$(method.sig)$(isdefined(method, :external_mt) ? " (overlayed)" : "") was not found"
     # So that we don't call it again, store missingness info in CodeTracking
-    CodeTracking.invoked_setindex!(CodeTracking.method_info, CodeTracking.method_info_key(method), missing)
+    CodeTracking.invoked_setindex!(CodeTracking.method_info, missing, MethodInfoKey(method))
     return false
 end
 
 function get_def(method, pkgdata, filename)
     maybe_extract_sigs!(maybe_parse_from_cache!(pkgdata, filename))
-    return get(CodeTracking.method_info, CodeTracking.method_info_key(method), nothing)
+    return get(CodeTracking.method_info, MethodInfoKey(method), nothing)
 end
 
 function get_tracked_id(id::PkgId; modified_files=revision_queue)
@@ -1247,7 +1248,7 @@ function update_stacktrace_lineno!(trace)
             m = linfo.def
             # Why not just call `whereis`? Because that forces tracking. This is being
             # clever by recognizing that these entries exist only if there have been updates.
-            updated = get(CodeTracking.method_info, CodeTracking.method_info_key(m), nothing)
+            updated = get(CodeTracking.method_info, MethodInfoKey(m), nothing)
             if updated !== nothing
                 lnn = updated[1][1]     # choose the first entry by default
                 lineoffset = lnn.line - m.line
@@ -1262,7 +1263,7 @@ end
 function method_location(method::Method)
     # Why not just call `whereis`? Because that forces tracking. This is being
     # clever by recognizing that these entries exist only if there have been updates.
-    updated = get(CodeTracking.method_info, CodeTracking.method_info_key(method), nothing)
+    updated = get(CodeTracking.method_info, MethodInfoKey(method), nothing)
     if updated !== nothing
         lnn = updated[1][1]
         return lnn.file, lnn.line
@@ -1320,7 +1321,7 @@ Revise itself does not need to be running on `p`.
 """
 function init_worker(p::AbstractWorker)
     @invokelatest remotecall_impl(Core.eval, p, Main, quote
-        function whichtt(mt::Union{Nothing, MethodTable}, @nospecialize sig)
+        function whichtt(mt::Union{Nothing, Core.MethodTable}, @nospecialize sig)
             ret = Base._methods_by_ftype(sig, mt, -1, Base.get_world_counter())
             isempty(ret) && return nothing
             m = ret[end][3]::Method   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
@@ -1328,7 +1329,7 @@ function init_worker(p::AbstractWorker)
             (sig <: methsig && methsig <: sig) || return nothing
             return m
         end
-        function delete_method_by_sig(mt::Union{Nothing, MethodTable}, @nospecialize sig)
+        function delete_method_by_sig(mt::Union{Nothing, Core.MethodTable}, @nospecialize sig)
             m = whichtt(mt, sig)
             isa(m, Method) && Base.delete_method(m)
         end
