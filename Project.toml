@@ -1,6 +1,6 @@
 name = "Revise"
 uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
-version = "3.7.3"
+version = "3.7.4"
 
 [deps]
 CodeTracking = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
@@ -24,7 +24,7 @@ DistributedExt = "Distributed"
 CodeTracking = "1.2"
 Distributed = "1"
 JuliaInterpreter = "0.9"
-LoweredCodeUtils = "3.0.1"
+LoweredCodeUtils = "3.2"
 OrderedCollections = "1"
 # Exclude Requires-1.1.0 - see https://github.com/JuliaPackaging/Requires.jl/issues/94
 Requires = "~1.0, ^1.1.1"

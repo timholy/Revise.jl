@@ -54,7 +54,7 @@ end
 
 
 # This is not generally used, see `is_method_or_eval` instead
-function hastrackedexpr(stmt, code; heads=LoweredCodeUtils.trackedheads)
+function hastrackedexpr(@nospecialize(stmt), code)
     haseval = false
     if isa(stmt, Expr)
         haseval = matches_eval(stmt)
@@ -68,8 +68,8 @@ function hastrackedexpr(stmt, code; heads=LoweredCodeUtils.trackedheads)
             is_some_include(f) && return true, haseval
         elseif stmt.head === :thunk
             newcode = (stmt.args[1]::Core.CodeInfo).code
-            any(s->any(hastrackedexpr(s, newcode; heads=heads)), newcode) && return true, haseval
-        elseif stmt.head ∈ heads
+            any(s->any(hastrackedexpr(s, newcode)), newcode) && return true, haseval
+        elseif stmt.head === :method
             return true, haseval
         end
     end
@@ -146,8 +146,8 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, mod::Module, 
                 name = GlobalRef(mod, name)
             end
             namedconstassigned[name::GlobalRef] = false
-        elseif LoweredCodeUtils.is_assignment_like(stmt)
-            lhs = (stmt::Expr).args[1]
+        elseif (lhs_rhs = LoweredCodeUtils.get_lhs_rhs(stmt); lhs_rhs !== nothing)
+            lhs, _ = lhs_rhs
             if isa(lhs, Symbol)
                 lhs = GlobalRef(mod, lhs)
             end
@@ -325,7 +325,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
     while true
         JuliaInterpreter.is_leaf(frame) || (@warn("not a leaf"); break)
         stmt = pc_expr(frame, pc)
-        if !isrequired[pc] && mode !== :eval && !(mode === :evalassign && LoweredCodeUtils.is_assignment_like(stmt))
+        if !isrequired[pc] && mode !== :eval && !(mode === :evalassign && LoweredCodeUtils.get_lhs_rhs(stmt) !== nothing)
             pc = next_or_nothing!(frame)
             pc === nothing && break
             continue
@@ -451,9 +451,13 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         end
                     end
                 end
-            elseif LoweredCodeUtils.is_assignment_like(stmt)
-                # If we're here, either isrequired[pc] is true, or the mode forces us to eval assignments
-                pc = step_expr!(recurse, frame, stmt, true)
+            elseif LoweredCodeUtils.get_lhs_rhs(stmt) !== nothing
+                if mode === :sigs && stmt.head === :const && (a = stmt.args[1]) isa GlobalRef && @invokelatest(isdefined(mod, a.name))
+                    # avoid redefining types unless we have to
+                    pc = next_or_nothing!(frame)
+                else
+                    pc = step_expr!(recurse, frame, stmt, true)
+                end
             elseif head === :call
                 f = @lookup(frame, stmt.args[1])
                 if isdefined(Core, :_defaultctors) && f === Core._defaultctors && length(stmt.args) == 3
