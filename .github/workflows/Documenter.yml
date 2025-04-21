@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - run: julia --project -e 'using Pkg; pkg"add https://github.com/serenity4/JuliaInterpreter.jl#codetracking-v2 https://github.com/serenity4/CodeTracking.jl#parametrize-by-mt https://github.com/serenity4/LoweredCodeUtils.jl#support-external-methodtables"'
+      - run: cd docs && julia --project -e 'using Pkg; pkg"add https://github.com/serenity4/JuliaInterpreter.jl#codetracking-v2 https://github.com/serenity4/CodeTracking.jl#parametrize-by-mt https://github.com/serenity4/LoweredCodeUtils.jl#support-external-methodtables"'
       - uses: julia-actions/julia-buildpkg@latest
       - uses: julia-actions/julia-docdeploy@latest
         env:
