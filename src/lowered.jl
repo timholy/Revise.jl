@@ -15,7 +15,7 @@ end
 
 # This defines the API needed to store signatures using methods_by_execution!
 # This default version is simple and only used for testing purposes.
-# The "real" one is CodeTrackingMethodInfo in Revise.jl.
+# The "real" one is CodeTrackingMethodInfo in packagedef.jl.
 const MethodInfo = IdDict{MethodInfoKey,LineNumberNode}
 add_signature!(methodinfo::MethodInfo, @nospecialize(sig), ln) = push!(methodinfo, sig=>ln)
 push_expr!(methodinfo::MethodInfo, mod::Module, ex::Expr) = methodinfo
