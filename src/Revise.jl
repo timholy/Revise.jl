@@ -36,9 +36,10 @@ module Revise
 using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
 
 using CodeTracking: PkgFiles, basedir, srcfiles, basepath
-using JuliaInterpreter: whichtt, is_doc_expr, step_expr!, finish_and_return!, get_return,
-                        @lookup, moduleof, scopeof, pc_expr, is_quotenode_egal,
-                        linetable, codelocs, LineTypes, isassign, isidentical
+using JuliaInterpreter: codelocs, finish_and_return!, get_return, is_doc_expr,
+                        isassign, isidentical, is_quotenode_egal, linetable,
+                        LineTypes, lookup, moduleof, pc_expr, scopeof,
+                        step_expr!, whichtt
 using LoweredCodeUtils: next_or_nothing!, callee_matches
 
 include("packagedef.jl")
