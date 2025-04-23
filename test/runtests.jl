@@ -3108,13 +3108,25 @@ do_test("Utilities") && @testset "Utilities" begin
 end
 
 do_test("Switching free/dev") && @testset "Switching free/dev" begin
-    function make_a2d(path, val, mode="r"; generate=true)
+    function make_a2d(path, val, mode="r"; generate=true, uuid=nothing)
         # Create a new "read-only package" (which mimics how Pkg works when you `add` a package)
+        # use generate=false and copy the Project.toml to use the same UUID
         cd(path) do
             pkgpath = normpath(joinpath(path, "A2D"))
             srcpath = joinpath(pkgpath, "src")
             if generate
                 Pkg.generate("A2D")
+                projpath = joinpath(pkgpath, "Project.toml")
+                open(projpath, "a") do io
+                    write(io, """
+
+                    [weakdeps]
+                    Dummy = "$uuid"
+
+                    [extensions]
+                    A2DDummyExt = "Dummy"
+                    """)
+                end
             else
                 mkpath(srcpath)
             end
@@ -3122,9 +3134,20 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
             write(filepath, """
                 module A2D
                 f() = $val
+                function g end
                 end
                 """)
             chmod(filepath, mode=="r" ? 0o100444 : 0o100644)
+            mkdir(joinpath(pkgpath, "ext"))
+            extpath = joinpath(pkgpath, "ext", "A2DDummyExt.jl")
+            write(extpath, """
+                module A2DDummyExt
+                using A2D
+                using Dummy
+                A2D.g() = $val
+                end
+                """)
+            chmod(extpath, mode=="r" ? 0o100444 : 0o100644)
             return pkgpath
         end
     end
@@ -3138,12 +3161,21 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     Base.ACTIVE_PROJECT[] = joinpath(depot, "environments", "v$(VERSION.major).$(VERSION.minor)", "Project.toml")
     mkpath(dirname(Base.ACTIVE_PROJECT[]))
     write(Base.ACTIVE_PROJECT[], "[deps]")
-    ropkgpath = make_a2d(depot, 1)
+    cd(depot) do
+        Pkg.generate("Dummy")
+    end
+    dummypath = joinpath(depot, "Dummy")
+    Pkg.develop(PackageSpec(path=dummypath))
+    dummyuuid = match(r"uuid = \"([0-9a-f].*)\"", read(joinpath(dummypath, "Project.toml"), String)).captures[1]
+    ropkgpath = make_a2d(depot, 1; uuid=dummyuuid)
     Pkg.develop(PackageSpec(path=ropkgpath))
     sleep(mtimedelay)
     @eval using A2D
     sleep(mtimedelay)
     @test Base.invokelatest(A2D.f) == 1
+    @test_throws MethodError Base.invokelatest(A2D.g)
+    @eval using Dummy
+    @test Base.invokelatest(A2D.g) == 1
     for dir in keys(Revise.watched_files)
         @test !startswith(dir, ropkgpath)
     end
@@ -3157,9 +3189,11 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     Pkg.develop(PackageSpec(path=pkgdevpath))
     @yry()
     @test Base.invokelatest(A2D.f) == 2
+    @test Base.invokelatest(A2D.g) == 2
     Pkg.develop(PackageSpec(path=ropkgpath))
     @yry()
     @test Base.invokelatest(A2D.f) == 1
+    @test Base.invokelatest(A2D.g) == 1
     for dir in keys(Revise.watched_files)
         @test !startswith(dir, ropkgpath)
     end
