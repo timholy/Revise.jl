@@ -12,8 +12,6 @@ using Revise.OrderedCollections: OrderedSet
 using Test: collect_test_logs
 using Base.CoreLogging: Debug,Info
 
-using Revise.CodeTracking: line_is_decl
-
 # In addition to using this for the "More arg-modifying macros" test below,
 # this package is used on CI to test what happens when you have multiple
 # *.ji files for the package.
@@ -825,22 +823,32 @@ end
         pop!(LOAD_PATH)
     end
 
-    do_test("Recursive types (issue #417)") && @testset "Recursive types (issue #417)" begin
+    do_test("Recursive types (issues #417 and #883)") && @testset "Recursive types (issues #417 and #883)" begin
         testdir = newtestdir()
         fn = joinpath(testdir, "recursive.jl")
         write(fn, """
             module RecursiveTypes
+            # issue #417
             struct Foo
                 x::Vector{Foo}
 
                 Foo() = new(Foo[])
             end
+
+            # issue #883
+            @static if Base.VERSION >= v"1.12-"
+                struct NestedDict{K, V} <: AbstractDict{K, Union{V, NestedDict}} end
+            end
+
             end
             """)
         sleep(mtimedelay)
         includet(fn)
         @latestworld
         @test isa(RecursiveTypes.Foo().x, Vector{RecursiveTypes.Foo})
+        if Base.VERSION >= v"1.12-"
+            @test isa(RecursiveTypes.NestedDict{Int, String}(), AbstractDict{Int, Union{String, RecursiveTypes.NestedDict}})
+        end
 
         pop!(LOAD_PATH)
     end
@@ -1589,8 +1597,7 @@ end
         io = IOBuffer()
         if isdefined(Base, :methodloc_callback)
             print(io, methods(triggered))
-            mline = line_is_decl ? 1 : 2
-            @test occursin(filename * ":$mline", String(take!(io)))
+            @test occursin(filename * ":1", String(take!(io)))
         end
         write(filename, """
             # A comment to change the line numbers
@@ -1625,8 +1632,7 @@ end
         @test occursin(targetstr, String(take!(io)))
         if isdefined(Base, :methodloc_callback)
             print(io, methods(triggered))
-            mline = line_is_decl ? 2 : 3
-            @test occursin(basename(filename * ":$mline"), String(take!(io)))
+            @test occursin(basename(filename * ":2"), String(take!(io)))
         end
 
         push!(to_remove, filename)

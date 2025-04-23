@@ -54,7 +54,7 @@ end
 
 
 # This is not generally used, see `is_method_or_eval` instead
-function hastrackedexpr(stmt, code; heads=LoweredCodeUtils.trackedheads)
+function hastrackedexpr(@nospecialize(stmt), code)
     haseval = false
     if isa(stmt, Expr)
         haseval = matches_eval(stmt)
@@ -68,8 +68,8 @@ function hastrackedexpr(stmt, code; heads=LoweredCodeUtils.trackedheads)
             is_some_include(f) && return true, haseval
         elseif stmt.head === :thunk
             newcode = (stmt.args[1]::Core.CodeInfo).code
-            any(s->any(hastrackedexpr(s, newcode; heads=heads)), newcode) && return true, haseval
-        elseif stmt.head ∈ heads
+            any(s->any(hastrackedexpr(s, newcode)), newcode) && return true, haseval
+        elseif stmt.head === :method
             return true, haseval
         end
     end
@@ -146,8 +146,8 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, mod::Module, 
                 name = GlobalRef(mod, name)
             end
             namedconstassigned[name::GlobalRef] = false
-        elseif LoweredCodeUtils.is_assignment_like(stmt)
-            lhs = (stmt::Expr).args[1]
+        elseif (lhs_rhs = LoweredCodeUtils.get_lhs_rhs(stmt); lhs_rhs !== nothing)
+            lhs, _ = lhs_rhs
             if isa(lhs, Symbol)
                 lhs = GlobalRef(mod, lhs)
             end
@@ -325,7 +325,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
     while true
         JuliaInterpreter.is_leaf(frame) || (@warn("not a leaf"); break)
         stmt = pc_expr(frame, pc)
-        if !isrequired[pc] && mode !== :eval && !(mode === :evalassign && LoweredCodeUtils.is_assignment_like(stmt))
+        if !isrequired[pc] && mode !== :eval && !(mode === :evalassign && LoweredCodeUtils.get_lhs_rhs(stmt) !== nothing)
             pc = next_or_nothing!(frame)
             pc === nothing && break
             continue
@@ -374,17 +374,15 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     # Get the line number from the body
                     stmt3 = pc_expr(frame, pc3)::Expr
                     lnn = nothing
-                    if line_is_decl
-                        sigcode = @lookup(frame, stmt3.args[2])::Core.SimpleVector
-                        lnn = sigcode[end]
-                        if !isa(lnn, LineNumberNode)
-                            lnn = nothing
-                        end
+                    sigcode = lookup(frame, stmt3.args[2])::Core.SimpleVector
+                    lnn = sigcode[end]
+                    if !isa(lnn, LineNumberNode)
+                        lnn = nothing
                     end
                     if lnn === nothing
                         bodycode = stmt3.args[end]
                         if !isa(bodycode, CodeInfo)
-                            bodycode = @lookup(frame, bodycode)
+                            bodycode = lookup(frame, bodycode)
                         end
                         if isa(bodycode, CodeInfo)
                             lnn = linetable(bodycode, 1)
@@ -453,7 +451,7 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                         end
                     end
                 end
-            elseif LoweredCodeUtils.is_assignment_like(stmt)
+            elseif LoweredCodeUtils.get_lhs_rhs(stmt) !== nothing
                 if mode === :sigs && stmt.head === :const && (a = stmt.args[1]) isa GlobalRef && @invokelatest(isdefined(mod, a.name))
                     # avoid redefining types unless we have to
                     pc = next_or_nothing!(frame)
@@ -461,14 +459,14 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                 pc = step_expr!(recurse, frame, stmt, true)
                 end
             elseif head === :call
-                f = @lookup(frame, stmt.args[1])
+                f = lookup(frame, stmt.args[1])
                 if __bpart__ && f === Core._typebody!
                     # Handle type redefinition
-                    newtype = Base.unwrap_unionall(@lookup(frame, stmt.args[3]))
+                    newtype = Base.unwrap_unionall(lookup(frame, stmt.args[3]))
                     newtypename = newtype.name
                     oldtype = isdefinedglobal(newtypename.module, newtypename.name) ? getglobal(newtypename.module, newtypename.name) : nothing
                     if oldtype !== nothing
-                        nfts = @lookup(frame, stmt.args[4])
+                        nfts = lookup(frame, stmt.args[4])
                         oldtype = Base.unwrap_unionall(oldtype)
                         ofts = fieldtypes(oldtype)
                         if !Core._equiv_typedef(oldtype, newtype) || !all(ab -> recursive_egal(ab..., oldtype), zip(nfts, ofts))
@@ -484,8 +482,8 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     pc = step_expr!(recurse, frame, stmt, true)
                 elseif isdefined(Core, :_defaultctors) && f === Core._defaultctors && length(stmt.args) == 3
                     # Create the constructors for a type (i.e., a method definition)
-                    T = @lookup(frame, stmt.args[2])
-                    lnn = @lookup(frame, stmt.args[3])
+                    T = lookup(frame, stmt.args[2])
+                    lnn = lookup(frame, stmt.args[3])
                     if T isa Type && lnn isa LineNumberNode
                         empty!(signatures)
                         uT = Base.unwrap_unionall(T)::DataType
@@ -509,8 +507,8 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     end
                 elseif f === Core.eval
                     # an @eval or eval block: this may contain method definitions, so intercept it.
-                    evalmod = @lookup(frame, stmt.args[2])::Module
-                    evalex = @lookup(frame, stmt.args[3])
+                    evalmod = lookup(frame, stmt.args[2])::Module
+                    evalex = lookup(frame, stmt.args[3])
                     value = nothing
                     for (newmod, newex) in ExprSplitter(evalmod, evalex)
                         if is_doc_expr(newex)
@@ -528,9 +526,9 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     # include calls need to be managed carefully from several standpoints, including
                     # path management and parsing new expressions
                     if length(stmt.args) == 2
-                        add_includes!(methodinfo, mod, @lookup(frame, stmt.args[2]))
+                        add_includes!(methodinfo, mod, lookup(frame, stmt.args[2]))
                     elseif length(stmt.args) == 3
-                        add_includes!(methodinfo, @lookup(frame, stmt.args[2]), @lookup(frame, stmt.args[3]))
+                        add_includes!(methodinfo, lookup(frame, stmt.args[2]), lookup(frame, stmt.args[3]))
                     else
                         error("Bad call to Core.include")
                     end
@@ -538,11 +536,11 @@ function methods_by_execution!(@nospecialize(recurse), methodinfo, docexprs, fra
                     pc = next_or_nothing!(frame)
                 elseif skip_include && f === Base.include
                     if length(stmt.args) == 2
-                        add_includes!(methodinfo, mod, @lookup(frame, stmt.args[2]))
+                        add_includes!(methodinfo, mod, lookup(frame, stmt.args[2]))
                     else # either include(module, path) or include(mapexpr, path)
-                        mod_or_mapexpr = @lookup(frame, stmt.args[2])
+                        mod_or_mapexpr = lookup(frame, stmt.args[2])
                         if isa(mod_or_mapexpr, Module)
-                            add_includes!(methodinfo, mod_or_mapexpr, @lookup(frame, stmt.args[3]))
+                            add_includes!(methodinfo, mod_or_mapexpr, lookup(frame, stmt.args[3]))
                         else
                             error("include(mapexpr, path) is not supported") # TODO (issue #634)
                         end
