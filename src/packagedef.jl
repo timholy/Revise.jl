@@ -516,7 +516,7 @@ end
 function eval_with_signatures(mod, ex::Expr; mode=:eval, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
     docexprs = DocExprs()
-    frame = methods_by_execution!(finish_and_return!, methodinfo, docexprs, mod, ex; mode=mode, kwargs...)[2]
+    frame = methods_by_execution!(methodinfo, docexprs, mod, ex; mode=mode, kwargs...)[2]
     return methodinfo.allsigs, methodinfo.deps, methodinfo.includes, frame
 end
 
