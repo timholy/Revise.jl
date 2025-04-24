@@ -3100,7 +3100,8 @@ end
     do_test("External method tables") && @testset "External method tables" begin
         function retval(m)
             src = Base.uncompressed_ast(m)
-            node = src.code[1]::Core.ReturnNode
+            i = findfirst(!isnothing, src.code)
+            node = src.code[i]::Core.ReturnNode
             node.val
         end
 
@@ -3111,9 +3112,20 @@ end
             module $name
 
             Base.Experimental.@MethodTable(method_table)
+            Base.Experimental.@MethodTable(method_table_2)
+            get_method_table() = method_table
+
+            macro override(ex) esc(:(Base.Experimental.@overlay \$method_table \$ex)) end
+            macro override_2(ex) esc(:(Base.Experimental.@overlay $name.method_table \$ex)) end
+            macro override_3(ex) esc(:(Base.Experimental.@overlay get_method_table() \$ex)) end
 
             foo() = 1
-            Base.Experimental.@overlay method_table foo() = 2
+
+            @override print(x) = "print"
+            @override cos(x) = "cos"
+            @override_2 sin(x) = "sin"
+            @override_3 sincos(x) = "sincos"
+            Base.Experimental.@overlay method_table_2 foo() = 2
 
             bar() = foo()
 
@@ -3123,14 +3135,47 @@ end
             module $name
 
             Base.Experimental.@MethodTable(method_table)
+            Base.Experimental.@MethodTable(method_table_2)
+            get_method_table() = method_table
+
+            macro override(ex) esc(:(Base.Experimental.@overlay \$method_table \$ex)) end
+            macro override_2(ex) esc(:(Base.Experimental.@overlay $name.method_table \$ex)) end
+            macro override_3(ex) esc(:(Base.Experimental.@overlay get_method_table() \$ex)) end
 
             foo() = 1
-            Base.Experimental.@overlay method_table foo() = 3
+
+            @override print(x) = "print"
+            @override cos(x) = "sin"
+            @override_2 sin(x) = "cos"
+            @override_3 sincos(x) = "cossin"
+            Base.Experimental.@overlay method_table_2 foo() = 3
 
             bar() = foo() + 1
 
             end
             """
+
+        function test_first_revision(mod)
+            foo, bar, mt, mt2 = mod.foo, mod.bar, mod.method_table, mod.method_table_2
+            @test foo() == 1
+            @test bar() == 1
+            (; ms) = Base.MethodList(mt)
+            @test length(ms) == 4 # cos/sin/sincos/print
+            (; ms) = Base.MethodList(mt2)
+            @test length(ms) == 1 # foo
+            @test retval(first(ms)) == 2
+        end
+
+        function test_second_revision(mod)
+            foo, bar, mt, mt2 = mod.foo, mod.bar, mod.method_table, mod.method_table_2
+            @test foo() == 1
+            @test bar() == 2
+            (; ms) = Base.MethodList(mt)
+            @test length(ms) == 7 # cos/sin/sincos x2 + print x1
+            (; ms) = Base.MethodList(mt2)
+            @test length(ms) == 2 # foo x2
+            @test retval(first(ms)) == 3
+        end
 
         name = unique_name(:ExternalMT)
         dn = joinpath(testdir, "$name", "src")
@@ -3138,20 +3183,11 @@ end
         write(joinpath(dn, "$name.jl"), first_revision(name))
         sleep(mtimedelay)
         @eval import $name
-        ExternalMT = @eval $name
-        foo, bar, mt = ExternalMT.foo, ExternalMT.bar, ExternalMT.method_table
         sleep(mtimedelay)
-        @test foo() == 1
-        @test bar() == 1
-        (; ms) = Base.MethodList(mt)
-        @test retval(first(ms)) == 2
+        test_first_revision(@eval $name)
         write(joinpath(dn, "$name.jl"), second_revision(name))
-        sleep(mtimedelay)
         @yry()
-        @test foo() == 1
-        @test bar() == 2
-        (; ms) = Base.MethodList(mt)
-        @test retval(first(ms)) == 3
+        test_second_revision(@eval $name)
 
         file = tempname() * ".jl"
         name = unique_name(:ExternalMT_includet)
@@ -3160,22 +3196,11 @@ end
         Revise.track(@__MODULE__(), file; mode=:includet)
         sleep(mtimedelay)
         @eval import .$name
-        ExternalMT = @eval $name
-        foo, bar, mt = ExternalMT.foo, ExternalMT.bar, ExternalMT.method_table
         sleep(mtimedelay)
-        @test foo() == 1
-        @test bar() == 1
-        (; ms) = Base.MethodList(mt)
-        @test retval(first(ms)) == 2
-        rm(file)
-        sleep(mtimedelay)
+        test_first_revision(@eval $name)
         write(file, second_revision(name))
-        sleep(mtimedelay)
         @yry()
-        @test foo() == 1
-        @test bar() == 2
-        (; ms) = Base.MethodList(mt)
-        @test retval(first(ms)) == 3
+        test_second_revision(@eval $name)
     end
 end
 
