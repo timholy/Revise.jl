@@ -3122,12 +3122,14 @@ end
             foo() = 1
 
             @override print(x) = "print"
+            @override show(x) = "show"
             @override cos(x) = "cos"
             @override_2 sin(x) = "sin"
             @override_3 sincos(x) = "sincos"
             Base.Experimental.@overlay method_table_2 foo() = 2
 
             bar() = foo()
+            baz() = bar()
 
             end
             """
@@ -3145,35 +3147,39 @@ end
             foo() = 1
 
             @override print(x) = "print"
+            # @override show(x) = "show"
             @override cos(x) = "sin"
             @override_2 sin(x) = "cos"
             @override_3 sincos(x) = "cossin"
             Base.Experimental.@overlay method_table_2 foo() = 3
 
             bar() = foo() + 1
+            # baz() = bar()
 
             end
             """
 
-        function test_first_revision(mod)
-            foo, bar, mt, mt2 = mod.foo, mod.bar, mod.method_table, mod.method_table_2
-            @test foo() == 1
-            @test bar() == 1
-            (; ms) = Base.MethodList(mt)
-            @test length(ms) == 4 # cos/sin/sincos/print
-            (; ms) = Base.MethodList(mt2)
+        function test_first_revision(mod::Module)
+            @test mod.foo() == 1
+            @test mod.bar() == 1
+            @test length(methods(mod.baz)) == 1
+            (; ms) = Base.MethodList(mod.method_table)
+            @test length(ms) == 5 # cos/sin/sincos/print/show
+            (; ms) = Base.MethodList(mod.method_table_2)
             @test length(ms) == 1 # foo
             @test retval(first(ms)) == 2
         end
 
-        function test_second_revision(mod)
-            foo, bar, mt, mt2 = mod.foo, mod.bar, mod.method_table, mod.method_table_2
-            @test foo() == 1
-            @test bar() == 2
-            (; ms) = Base.MethodList(mt)
-            @test length(ms) == 7 # cos/sin/sincos x2 + print x1
-            (; ms) = Base.MethodList(mt2)
+        function test_second_revision(mod::Module)
+            @test mod.foo() == 1
+            @test mod.bar() == 2
+            @test isempty(methods(mod.baz))
+            (; ms) = Base.MethodList(mod.method_table)
+            @test length(ms) == 8 # cos/sin/sincos x2 + print/show
+            @test count(x -> x.deleted_world < Base.tls_world_age(), ms) == 4 # deleted cos/sin/sincos/show
+            (; ms) = Base.MethodList(mod.method_table_2)
             @test length(ms) == 2 # foo x2
+            @test count(x -> x.deleted_world < Base.tls_world_age(), ms) == 1 # deleted foo
             @test retval(first(ms)) == 3
         end
 
