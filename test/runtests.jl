@@ -3171,15 +3171,16 @@ end
         end
 
         function test_second_revision(mod::Module)
+            current_world_age = isdefined(Base, :tls_world_age) ? Base.tls_world_age() : Base.get_world_counter()
             @test mod.foo() == 1
             @test mod.bar() == 2
             @test isempty(methods(mod.baz))
             (; ms) = Base.MethodList(mod.method_table)
             @test length(ms) == 8 # cos/sin/sincos x2 + print/show
-            @test count(x -> x.deleted_world < Base.tls_world_age(), ms) == 4 # deleted cos/sin/sincos/show
+            @test count(x -> x.deleted_world < current_world_age, ms) == 4 # deleted cos/sin/sincos/show
             (; ms) = Base.MethodList(mod.method_table_2)
             @test length(ms) == 2 # foo x2
-            @test count(x -> x.deleted_world < Base.tls_world_age(), ms) == 1 # deleted foo
+            @test count(x -> x.deleted_world < current_world_age, ms) == 1 # deleted foo
             @test retval(first(ms)) == 3
         end
 
