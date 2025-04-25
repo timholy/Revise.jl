@@ -137,6 +137,7 @@ Tuple{typeof(print_item),IO,Any,Integer,String}     # print_item(io, item, 2, " 
 ```
 
 In Revise's internal code, a definition is often represented with a variable `def`, and a signature-type with `sigt`.
+The method table for which the method was defined is also represented, to form a `mt_sigt` pair.
 Recent versions of Revise do not make extensive use of signature expressions.
 
 ### Computing signatures

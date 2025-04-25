@@ -264,7 +264,7 @@ const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests d
 ##     + add to the ModuleExprsSigs
 ##     + add to CodeTracking.method_info
 ##
-## Interestingly, the ex=>sigs link may not be the same as the sigs=>ex link.
+## Interestingly, the ex=>mt_sigs link may not be the same as the mt_sigs=>ex link.
 ## Consider a conditional block,
 ##     if Sys.islinux()
 ##         f() = 1
@@ -407,9 +407,9 @@ end
 function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Symbol=:eval)
     includes = Vector{Pair{Module,String}}()
     for rex in keys(exs_sigs_new)
-        sigs, _includes = eval_rex(rex, exs_sigs_old, mod; mode=mode)
-        if sigs !== nothing
-            exs_sigs_new[rex] = sigs
+        mt_sigs, _includes = eval_rex(rex, exs_sigs_old, mod; mode=mode)
+        if mt_sigs !== nothing
+            exs_sigs_new[rex] = mt_sigs
         end
         if _includes !== nothing
             append!(includes, _includes)
@@ -524,8 +524,8 @@ function instantiate_sigs!(modexsigs::ModuleExprsSigs; mode=:sigs, kwargs...)
     for (mod, exsigs) in modexsigs
         for rex in keys(exsigs)
             is_doc_expr(rex.ex) && continue
-            sigs, deps, _ = eval_with_signatures(mod, rex.ex; mode=mode, kwargs...)
-            exsigs[rex] = sigs
+            mt_sigs, deps, _ = eval_with_signatures(mod, rex.ex; mode=mode, kwargs...)
+            exsigs[rex] = mt_sigs
             storedeps(deps, rex, mod)
         end
     end
@@ -848,9 +848,9 @@ function revise(; throw=false)
                         mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
                         exsold = get(fi.modexsigs, mod, empty_exs_sigs)
                         for rex in keys(exsnew)
-                            sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
-                            if sigs !== nothing
-                                exsnew[rex] = sigs
+                            mt_sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
+                            if mt_sigs !== nothing
+                                exsnew[rex] = mt_sigs
                             end
                             if includes !== nothing
                                 maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
@@ -1144,8 +1144,8 @@ function get_def(method::Method; modified_files=revision_queue)
         fi = add_definitions_from_repl(filename)
         hassig = false
         for (mod, exs) in fi.modexsigs
-            for sigs in values(exs)
-                hassig |= !isempty(sigs)
+            for mt_sigs in values(exs)
+                hassig |= !isempty(mt_sigs)
             end
         end
         return hassig

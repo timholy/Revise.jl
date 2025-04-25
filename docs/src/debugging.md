@@ -159,13 +159,13 @@ julia> rlogger.logs
           #= /tmp/revisetest.jl:9 =#
           x ^ 4
       end))))
- Revise.LogRecord(Debug, LineOffset, Action, Revise_fb38a7f7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 296, (time=1.557996459331061e9, deltainfo=(Any[Tuple{typeof(mult2),Any}], :(#= /tmp/revisetest.jl:11 =#) => :(#= /tmp/revisetest.jl:13 =#))))
+ Revise.LogRecord(Debug, LineOffset, Action, Revise_fb38a7f7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 296, (time=1.557996459331061e9, deltainfo=(Pair{Union{Nothing, MethodTable}, Type}[nothing => Tuple{typeof(mult2),Any}], :(#= /tmp/revisetest.jl:11 =#) => :(#= /tmp/revisetest.jl:13 =#))))
  Revise.LogRecord(Debug, Eval, Action, Revise_9147188b, "/home/tim/.julia/dev/Revise/src/Revise.jl", 276, (time=1.557996459391182e9, deltainfo=(Main.ReviseTest.Internal, :(mult3(x) = begin
           #= /tmp/revisetest.jl:14 =#
           3x
       end))))
- Revise.LogRecord(Debug, LineOffset, Action, Revise_fb38a7f7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 296, (time=1.557996459391642e9, deltainfo=(Any[Tuple{typeof(unchanged),Any}], :(#= /tmp/revisetest.jl:18 =#) => :(#= /tmp/revisetest.jl:19 =#))))
- Revise.LogRecord(Debug, LineOffset, Action, Revise_fb38a7f7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 296, (time=1.557996459391695e9, deltainfo=(Any[Tuple{typeof(unchanged2),Any}], :(#= /tmp/revisetest.jl:20 =#) => :(#= /tmp/revisetest.jl:21 =#))))
+ Revise.LogRecord(Debug, LineOffset, Action, Revise_fb38a7f7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 296, (time=1.557996459391642e9, deltainfo=(Pair{Union{Nothing, MethodTable}, Type}[nothing => Tuple{typeof(unchanged),Any}], :(#= /tmp/revisetest.jl:18 =#) => :(#= /tmp/revisetest.jl:19 =#))))
+ Revise.LogRecord(Debug, LineOffset, Action, Revise_fb38a7f7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 296, (time=1.557996459391695e9, deltainfo=(Pair{Union{Nothing, MethodTable}, Type}[nothing => Tuple{typeof(unchanged2),Any}], :(#= /tmp/revisetest.jl:20 =#) => :(#= /tmp/revisetest.jl:21 =#))))
 ```
 
 You can see that Revise started by deleting three methods, followed by evaluating three new versions of those methods. Interspersed are various changes to the line numbering.

@@ -88,8 +88,8 @@ module Lowering end
             end
         end
     end
-    sigs, _ = Revise.eval_with_signatures(Lowering, ex)
-    @test length(sigs) >= 2
+    mt_sigs, _ = Revise.eval_with_signatures(Lowering, ex)
+    @test length(mt_sigs) >= 2
 end
 
 try # Suppress world age increments, since the instantiation messes with base
