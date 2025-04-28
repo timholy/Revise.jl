@@ -155,11 +155,17 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
             end
             fmod = get(juliaf2m, fullpath, Core.Compiler)  # Core.Compiler is not cached
             if fmod === Core.Compiler
-                endswith(fullpath, "compiler.jl") && continue  # defines the module, skip
+                endswith(fullpath, "compiler.jl") && continue  # defines the module (v1.11-), skip
+                endswith(fullpath, "/Compiler/src/Compiler.jl") && continue  # defines the module (v1.12+), skip
                 @static if isdefined(Core.Compiler, :EscapeAnalysis)
                     # after https://github.com/JuliaLang/julia/pull/43800
-                    if contains(fullpath, "compiler/ssair/EscapeAnalysis")
+                    if endswith(fullpath, "/compiler/ssair/EscapeAnalysis.jl") || contains(fullpath, "/Compiler/src/ssair/EscapeAnalysis.jl")
                         fmod = Core.Compiler.EscapeAnalysis
+                    end
+                end
+                @static if isdefined(Core.Compiler, :TrimVerifier)
+                    if endswith(fullpath, "/Compiler/src/verifytrim.jl")
+                        fmod = Core.Compiler.TrimVerifier
                     end
                 end
             end
