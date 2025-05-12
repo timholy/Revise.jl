@@ -802,6 +802,7 @@ If `throw` is `true`, throw any errors that occur during revision or callback;
 otherwise these are only logged.
 """
 function revise(; throw=false)
+    printstyled("Revising…", color=:light_black)
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
     lock(revise_lock) do
         have_queue_errors = !isempty(queue_errors)
@@ -881,6 +882,7 @@ function revise(; throw=false)
         else
             empty!(revision_queue)
         end
+        isempty(revision_errors) || println() # newline after the Revising… message, which will remain because we're showing errors
         errors(revision_errors)
         if !isempty(queue_errors)
             if !have_queue_errors    # only print on the first time errors occur
@@ -902,6 +904,7 @@ function revise(; throw=false)
         tracking_Main_includes[] && queue_includes(Main)
 
         process_user_callbacks!(throw=throw)
+        isempty(revision_errors) && print("\r\e[2K") # clear the Revising… message
     end
 
     nothing
