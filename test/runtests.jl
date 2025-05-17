@@ -1,6 +1,7 @@
 # REVISE: DO NOT PARSE   # For people with JULIA_REVISE_INCLUDE=1
 using Revise
 using Revise.RelocatableExprs
+using Revise.CodeManagement
 using Revise.CodeTracking
 using Revise.JuliaInterpreter
 using Test
@@ -9,7 +10,6 @@ using Test
 
 using Pkg, Unicode, Distributed, InteractiveUtils, REPL, UUIDs
 import LibGit2
-using Revise.OrderedCollections: OrderedSet
 using Test: collect_test_logs
 using Base.CoreLogging: Debug,Info
 
@@ -74,13 +74,6 @@ end
 const issue639report = []
 
 @testset "Revise" begin
-    do_test("PkgData") && @testset "PkgData" begin
-        # Related to #358
-        id = Base.PkgId(Main)
-        pd = Revise.PkgData(id)
-        @test isempty(Revise.basedir(pd))
-    end
-
     do_test("Package contents") && @testset "Package contents" begin
         id = Base.PkgId(EponymTuples)
         path, mods_files_mtimes = Revise.pkg_fileinfo(id)
@@ -270,7 +263,11 @@ const issue639report = []
                 logval = record.kwargs[kw]
                 for (v, lv) in zip(val, logval)
                     isa(v, Expr) && (v = RelocatableExpr(v))
+<<<<<<< HEAD
                     isa(lv, Expr) && (lv = RelocatableExpr(RelocatableExprs.unwrap(lv)))
+=======
+                    isa(lv, Expr) && (lv = RelocatableExpr(unwrap(lv)))
+>>>>>>> 097cc5a (wip: CodeRepository.jl)
                     @test lv == v
                 end
             end
@@ -349,7 +346,11 @@ const issue639report = []
 
         # coverage
         rex = convert(RelocatableExpr, :(a = 1))
+<<<<<<< HEAD
         @test RelocatableExprs.striplines!(rex) isa RelocatableExpr
+=======
+        @test CodeManagement.striplines!(rex) isa RelocatableExpr
+>>>>>>> 097cc5a (wip: CodeRepository.jl)
         @test copy(rex) !== rex
     end
 

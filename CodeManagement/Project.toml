@@ -1,0 +1,17 @@
+name = "CodeManagement"
+uuid = "e3aa46a8-e9bc-434c-843a-2a8ca567387e"
+version = "0.1.0"
+authors = ["Shuhei Kadowaki <aviatesk@gmail.com>"]
+
+[deps]
+OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
+
+[compat]
+OrderedCollections = "1"
+julia = "1.10"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]

@@ -38,7 +38,7 @@ Its job is to organize the files and expressions defining the module so that lat
 detect and process revisions.
 """
 function parse_pkg_files(id::PkgId)
-    pkgdata = get!(()->PkgData(id), pkgdatas, id)
+    pkgdata = get!(()->RevisePkgData(id), pkgdatas, id)
     if use_compiled_modules()
         cachefile_includes_reqs_buildid = pkg_fileinfo(id)
         if cachefile_includes_reqs_buildid !== nothing
@@ -58,7 +58,7 @@ function parse_pkg_files(id::PkgId)
                 fname = relpath(chi.filename, pkgdata)
                 # For precompiled packages, we can read the source later (whenever we need it)
                 # from the *.ji cachefile.
-                push!(pkgdata, fname=>FileInfo(mod, cachefile))
+                push!(pkgdata, fname=>ReviseFileInfo(mod, cachefile))
             end
             CodeTracking._pkgfiles[id] = pkgdata.info
             return pkgdata

@@ -127,7 +127,7 @@ Global variable, `revision_queue` holds `(pkgdata,filename)` pairs that we need 
 that these files have changed since we last processed a revision.
 This list gets populated by callbacks that watch directories for updates.
 """
-const revision_queue = Set{Tuple{PkgData,String}}()
+const revision_queue = Set{Tuple{RevisePkgData,String}}()
 
 """
     Revise.queue_errors
@@ -135,7 +135,7 @@ const revision_queue = Set{Tuple{PkgData,String}}()
 Global variable, maps `(pkgdata, filename)` pairs that errored upon last revision to
 `(exception, backtrace)`.
 """
-const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}()
+const queue_errors = Dict{Tuple{RevisePkgData,String},Tuple{Exception, Any}}()
 
 """
     Revise.NOPACKAGE
@@ -152,9 +152,9 @@ const NOPACKAGE = PkgId(nothing, "")
 `pkgdatas` is the core information that tracks the relationship between source code
 and julia objects, and allows re-evaluation of code in the proper module scope.
 It is a dictionary indexed by PkgId:
-`pkgdatas[id]` returns a value of type [`Revise.PkgData`](@ref).
+`pkgdatas[id]` returns a value of type [`Revise.RevisePkgData`](@ref).
 """
-const pkgdatas = Dict{PkgId,PkgData}(NOPACKAGE => PkgData(NOPACKAGE))
+const pkgdatas = Dict{PkgId,RevisePkgData}(NOPACKAGE => RevisePkgData(NOPACKAGE))
 
 """
     Revise.included_files
@@ -489,7 +489,7 @@ end
 
 """
     Revise.init_watching(files)
-    Revise.init_watching(pkgdata::PkgData, files)
+    Revise.init_watching(pkgdata::RevisePkgData, files)
 
 For every filename in `files`, monitor the filesystem for updates. When the file is
 updated, either [`Revise.revise_dir_queued`](@ref) or [`Revise.revise_file_queued`](@ref) will
@@ -497,7 +497,7 @@ be called.
 
 Use the `pkgdata` version if the files are supplied using relative paths.
 """
-function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
+function init_watching(pkgdata::RevisePkgData, files=srcfiles(pkgdata))
     udirs = Set{String}()
     for file in files
         file = String(file)::String
@@ -575,14 +575,14 @@ end
 
 # See #66.
 """
-    revise_file_queued(pkgdata::PkgData, filename)
+    revise_file_queued(pkgdata::RevisePkgData, filename)
 
 Wait for modifications to `filename`, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
 This is generally called via a [`Revise.TaskThunk`](@ref).
 
 This is used only on platforms (like BSD) which cannot use [`Revise.revise_dir_queued`](@ref).
 """
-function revise_file_queued(pkgdata::PkgData, file)
+function revise_file_queued(pkgdata::RevisePkgData, file)
     if !isabspath(file)
         file = joinpath(basedir(pkgdata), file)
     end
@@ -658,7 +658,7 @@ function handle_deletions(pkgdata, file)
 end
 
 """
-    Revise.revise_file_now(pkgdata::PkgData, file)
+    Revise.revise_file_now(pkgdata::RevisePkgData, file)
 
 Process revisions to `file`. This parses `file` and computes an expression-level diff
 between the current state of the file and its most recently evaluated state.
@@ -669,7 +669,7 @@ that move from one file to another.
 `id` must be a key in [`Revise.pkgdatas`](@ref), and `file` a key in
 `Revise.pkgdatas[id].fileinfos`.
 """
-function revise_file_now(pkgdata::PkgData, file)
+function revise_file_now(pkgdata::RevisePkgData, file)
     # @assert !isabspath(file)
     i = fileindex(pkgdata, file)
     if i === nothing
@@ -680,7 +680,7 @@ function revise_file_now(pkgdata::PkgData, file)
     if mexsnew != nothing
         _, includes = eval_new!(mexsnew, mexsold)
         fi = fileinfo(pkgdata, i)
-        pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+        pkgdata.fileinfos[i] = ReviseFileInfo(mexsnew, fi)
         maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
     end
     nothing
@@ -737,8 +737,8 @@ function revise(; throw::Bool=false)
 
         # Do all the deletion first. This ensures that a method that moved from one file to another
         # won't get redefined first and deleted second.
-        revision_errors = Tuple{PkgData,String}[]
-        queue = sort!(collect(revision_queue); lt=pkgfileless)
+        revision_errors = Tuple{RevisePkgData,String}[]
+        queue = sort!(collect(revision_queue); lt=CodeManagement.pkgfileless)
         finished = eltype(revision_queue)[]
         mexsnews = ModuleExprsSigs[]
         interrupt = false
@@ -792,7 +792,7 @@ function revise(; throw::Bool=false)
                 end
             end
             if isempty(modsremaining) || isa(err, LoweringException)   # fix #877
-                pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+                pkgdata.fileinfos[i] = ReviseFileInfo(mexsnew, fi)
             end
             if isempty(modsremaining)
                 delete!(queue_errors, (pkgdata, file))
@@ -918,12 +918,12 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
         end
         pkgdata = get(pkgdatas, id, nothing)
         if pkgdata === nothing
-            pkgdata = PkgData(id, pathof(mod))
+            pkgdata = RevisePkgData(id, pathof(mod))
         end
         if !haskey(CodeTracking._pkgfiles, id)
             CodeTracking._pkgfiles[id] = pkgdata.info
         end
-        push!(pkgdata, relpath(file, pkgdata)=>FileInfo(fm))
+        push!(pkgdata, relpath(file, pkgdata)=>ReviseFileInfo(fm))
         init_watching(pkgdata, (String(file)::String,))
         pkgdatas[id] = pkgdata
     end
@@ -1152,7 +1152,7 @@ function add_definitions_from_repl(filename::String)
     mexs = ModuleExprsSigs(Main::Module)
     parse_source!(mexs, src, filename, Main::Module)
     instantiate_sigs!(mexs)
-    fi = FileInfo(mexs)
+    fi = ReviseFileInfo(mexs)
     push!(pkgdata, filename=>fi)
     return fi
 end
@@ -1322,7 +1322,7 @@ function __init__()
     end
     # Set up a repository for methods defined at the REPL
     id = PkgId(nothing, "@REPL")
-    pkgdatas[id] = pkgdata = PkgData(id, nothing)
+    pkgdatas[id] = pkgdata = RevisePkgData(id, nothing)
     # Set the lookup callbacks
     CodeTracking.method_lookup_callback[] = get_def
     CodeTracking.expressions_callback[] = get_expressions
@@ -1403,10 +1403,10 @@ end
 
 function add_revise_deps()
     # Populate CodeTracking data for dependencies and initialize watching on code that Revise depends on
-    for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils, Revise)
+    for mod in (CodeManagement, CodeManagement.OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils, Revise)
         id = PkgId(mod)
         pkgdata = parse_pkg_files(id)
-        init_watching(pkgdata, srcfiles(pkgdata))
+        init_watching(pkgdata)
         pkgdatas[id] = pkgdata
     end
     return nothing

@@ -1,25 +1,3 @@
-relpath_safe(path::AbstractString, startpath::AbstractString) = isempty(startpath) ? path : relpath(path, startpath)
-
-function Base.relpath(filename::AbstractString, pkgdata::PkgData)
-    if isabspath(filename)
-        # `Base.locate_package`, which is how `pkgdata` gets initialized, might strip pieces of the path.
-        # For example, on Travis macOS the paths returned by `abspath`
-        # can be preceded by "/private" which is not present in the value returned by `Base.locate_package`.
-        idx = findfirst(basedir(pkgdata), filename)
-        if idx !== nothing
-            idx = first(idx)
-            if idx > 1
-                filename = filename[idx:end]
-            end
-            filename = relpath_safe(filename, basedir(pkgdata))
-        end
-    elseif startswith(filename, "compiler")
-        # Core.Compiler's pkgid includes "compiler/" in the path
-        filename = relpath(filename, "compiler")
-    end
-    return filename
-end
-
 function iswritable(file::AbstractString)  # note this trashes the Base definition, but we don't need it
     return uperm(stat(file)) & 0x02 != 0x00
 end
@@ -56,32 +34,6 @@ function linediff(la::LineNumberNode, lb::LineNumberNode)
     return abs(la.line - lb.line)
 end
 
-function unwrap_where(ex::Expr)
-    while isexpr(ex, :where)
-        ex = ex.args[1]
-    end
-    return ex::Expr
-end
-
-function pushex!(exsigs::ExprsSigs, ex::Expr)
-    uex = unwrap(ex)
-    if is_doc_expr(uex)
-        body = uex.args[4]
-        # Don't trigger for exprs where the documented expression is just a signature
-        # (e.g. `"docstr" f(x::Int)`, `"docstr" f(x::T) where T` etc.)
-        if isa(body, Expr) && unwrap_where(body).head !== :call
-            exsigs[RelocatableExpr(body)] = nothing
-        end
-        if length(uex.args) < 5
-            push!(uex.args, false)
-        else
-            uex.args[5] = false
-        end
-    end
-    exsigs[RelocatableExpr(ex)] = nothing
-    return exsigs
-end
-
 ## WatchList utilities
 function updatetime!(wl::WatchList)
     wl.timestamp = time()
@@ -90,7 +42,7 @@ Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgId}) =
     push!(wl.trackedfiles, filenameid)
 Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgFiles}) =
     push!(wl, filenameid.first=>filenameid.second.id)
-Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgData}) =
+Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,RevisePkgData}) =
     push!(wl, filenameid.first=>filenameid.second.info)
 WatchList() = WatchList(time(), Dict{String,PkgId}())
 Base.in(file, wl::WatchList) = haskey(wl.trackedfiles, file)

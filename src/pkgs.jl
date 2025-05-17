@@ -14,7 +14,7 @@
 #     we can't use the module-of-evaluation to find it. Here we hope that the
 #     top-level filename follows convention and matches the module. TODO?: it's
 #     possible that this needs to be supplemented with parsing.
-function queue_includes!(pkgdata::PkgData, id::PkgId)
+function queue_includes!(pkgdata::RevisePkgData, id::PkgId)
     modstring = id.name
     delids = Int[]
     for i = 1:length(included_files)
@@ -27,7 +27,7 @@ function queue_includes!(pkgdata::PkgData, id::PkgId)
             modexsigs = parse_source(fname, mod)
             if modexsigs !== nothing
                 fname = relpath(fname, pkgdata)
-                push!(pkgdata, fname=>FileInfo(modexsigs))
+                push!(pkgdata, fname=>ReviseFileInfo(modexsigs))
             end
             push!(delids, i)
         end
@@ -41,7 +41,7 @@ function queue_includes(mod::Module)
     id = PkgId(mod)
     pkgdata = get(pkgdatas, id, nothing)
     if pkgdata === nothing
-        pkgdata = PkgData(id)
+        pkgdata = RevisePkgData(id)
     end
     queue_includes!(pkgdata, id)
     if has_writable_paths(pkgdata)
@@ -68,7 +68,7 @@ function remove_from_included_files(modsym::Symbol)
     end
 end
 
-function read_from_cache(pkgdata::PkgData, file::AbstractString)
+function read_from_cache(pkgdata::RevisePkgData, file::AbstractString)
     fi = fileinfo(pkgdata, file)
     filep = joinpath(basedir(pkgdata), file)
     if fi.cachefile == basesrccache
@@ -81,7 +81,7 @@ function read_from_cache(pkgdata::PkgData, file::AbstractString)
     Base.read_dependency_src(fi.cachefile, filep)
 end
 
-function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
+function maybe_parse_from_cache!(pkgdata::RevisePkgData, file::AbstractString)
     if startswith(file, "REPL[")
         return add_definitions_from_repl(file)
     end
@@ -107,11 +107,7 @@ end
 
 function add_modexs!(fi::FileInfo, modexs)
     for (mod, rex) in modexs
-        exsigs = get(fi.modexsigs, mod, nothing)
-        if exsigs === nothing
-            fi.modexsigs[mod] = exsigs = ExprsSigs()
-        end
-        pushex!(exsigs, rex)
+        pushex!(get!(ExprsSigs, fi.modexsigs, mod), rex)
     end
     return fi
 end
@@ -123,9 +119,9 @@ function maybe_extract_sigs!(fi::FileInfo)
     end
     return fi
 end
-maybe_extract_sigs!(pkgdata::PkgData, file::AbstractString) = maybe_extract_sigs!(fileinfo(pkgdata, file))
+maybe_extract_sigs!(pkgdata::RevisePkgData, file::AbstractString) = maybe_extract_sigs!(fileinfo(pkgdata, file))
 
-function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, includes; eval_now::Bool=false)
+function maybe_add_includes_to_pkgdata!(pkgdata::RevisePkgData, file::AbstractString, includes; eval_now::Bool=false)
     for (mod, inc) in includes
         inc = joinpath(splitdir(file)[1], inc)
         incrp = relpath(inc, pkgdata)
@@ -139,7 +135,7 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
         if !hasfile
             # Add the file to pkgdata
             push!(pkgdata.info.files, incrp)
-            fi = FileInfo(mod)
+            fi = ReviseFileInfo(mod)
             push!(pkgdata.fileinfos, fi)
             # Parse the source of the new file
             fullfile = joinpath(basedir(pkgdata), incrp)
@@ -178,7 +174,7 @@ function add_require(sourcefile::String, modcaller::Module, idmod::String, modna
             files = srcfiles(pkgdata)
             fileidx = length(files) + 1
             push!(files, filekey)
-            push!(pkgdata.fileinfos, FileInfo(modcaller))
+            push!(pkgdata.fileinfos, ReviseFileInfo(modcaller))
         end
         fi = pkgdata.fileinfos[fileidx]
         # Tag the expr to ensure it is unique
@@ -240,7 +236,7 @@ function deferrable_require!(includes, expr::Expr)
     return false
 end
 
-function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourcefile::String, modcaller::Module, expr::Expr)
+function eval_require_now(pkgdata::RevisePkgData, fileidx::Int, filekey::String, sourcefile::String, modcaller::Module, expr::Expr)
     fi = pkgdata.fileinfos[fileidx]
     exsnew = ExprsSigs()
     exsnew[RelocatableExpr(expr)] = nothing
@@ -260,7 +256,7 @@ function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourc
         end
     end
     # Add any new methods or `include`d files to tracked objects
-    pkgdata.fileinfos[fileidx] = FileInfo(mexsnew, fi)
+    pkgdata.fileinfos[fileidx] = ReviseFileInfo(mexsnew, fi)
     ret = maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes; eval_now=true)
     return ret
 end
@@ -328,7 +324,7 @@ function watch_package(id::PkgId)
         end
         pkgdata = parse_pkg_files(id)
         if has_writable_paths(pkgdata)
-            init_watching(pkgdata, srcfiles(pkgdata))
+            init_watching(pkgdata)
         end
         pkgdatas[id] = pkgdata
     finally
@@ -337,7 +333,7 @@ function watch_package(id::PkgId)
     return pkgdata
 end
 
-function has_writable_paths(pkgdata::PkgData)
+function has_writable_paths(pkgdata::RevisePkgData)
     dir = basedir(pkgdata)
     isdir(dir) || return true
     haswritable = false

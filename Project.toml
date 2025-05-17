@@ -4,12 +4,12 @@ version = "3.8.0"
 authors = ["Tim Holy <tim.holy@gmail.com>"]
 
 [deps]
+CodeManagement = "e3aa46a8-e9bc-434c-843a-2a8ca567387e"
 CodeTracking = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
 FileWatching = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 JuliaInterpreter = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"
 LibGit2 = "76f85450-5226-5b5a-8eaa-529ad045b433"
 LoweredCodeUtils = "6f1432cf-f94c-5a45-995e-cdbf5db27b0b"
-OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 RelocatableExprs = "d8335a89-6200-4039-b235-f3a516e6e8f0"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
@@ -30,7 +30,6 @@ CodeTracking = "1.2"
 Distributed = "1"
 JuliaInterpreter = "0.10"
 LoweredCodeUtils = "3.3"
-OrderedCollections = "1"
 Requires = "~1.0, ^1.1.1"
 julia = "1.10"
 
