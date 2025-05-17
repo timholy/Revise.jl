@@ -5,6 +5,7 @@ using LibGit2: LibGit2
 using Base: PkgId
 using Base.Meta: isexpr
 using Core: CodeInfo
+using CodeRepository
 
 export revise, includet, entr, MethodSummary
 
@@ -84,7 +85,6 @@ environment variable to customize it.
 """
 const tracking_Main_includes = Ref(false)
 
-include("relocatable_exprs.jl")
 include("types.jl")
 include("utils.jl")
 include("parsing.jl")
@@ -441,7 +441,7 @@ CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Pair{Modu
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), ln)
     locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, sig)
-    newdef = unwrap(methodinfo.exprstack[end])
+    newdef = unwrap(methodinfo.exprstack[end], #=allow_trivial_blk=#true)
     if newdef !== nothing
         if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
             push!(locdefs, (fixpath(ln), newdef))
@@ -737,7 +737,7 @@ function revise(; throw::Bool=false)
         # Do all the deletion first. This ensures that a method that moved from one file to another
         # won't get redefined first and deleted second.
         revision_errors = Tuple{PkgData,String}[]
-        queue = sort!(collect(revision_queue); lt=pkgfileless)
+        queue = sort!(collect(revision_queue); lt=CodeRepository.pkgfileless)
         finished = eltype(revision_queue)[]
         mexsnews = ModuleExprsSigs[]
         interrupt = false
@@ -860,7 +860,7 @@ function revise(mod::Module; force::Bool=true)
         for (mod, exsigs) in fi.modexsigs
             for def in keys(exsigs)
                 ex = def.ex
-                exuw = unwrap(ex)
+                exuw = unwrap(ex, #=allow_trivial_blk=#true)
                 isexpr(exuw, :call) && is_some_include(exuw.args[1]) && continue
                 try
                     Core.eval(mod, ex)
@@ -1234,7 +1234,7 @@ end
 function revise_first(ex)
     # Special-case `exit()` (issue #562)
     if isa(ex, Expr)
-        exu = unwrap(ex)
+        exu = unwrap(ex, #=allow_trivial_blk=#true)
         isa(exu, Expr) && exu.head === :call && length(exu.args) == 1 && exu.args[1] === :exit && return ex
     end
     # Check for queued revisions, and if so call `revise` first before executing the expression
@@ -1402,10 +1402,10 @@ end
 
 function add_revise_deps()
     # Populate CodeTracking data for dependencies and initialize watching on code that Revise depends on
-    for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils, Revise)
+    for mod in (CodeRepository, CodeRepository.OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils, Revise)
         id = PkgId(mod)
         pkgdata = parse_pkg_files(id)
-        init_watching(pkgdata, srcfiles(pkgdata))
+        init_watching(pkgdata)
         pkgdatas[id] = pkgdata
     end
     return nothing

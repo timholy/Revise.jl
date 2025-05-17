@@ -84,7 +84,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         # Add files to CodeTracking pkgfiles
         CodeTracking._pkgfiles[id] = pkgdata.info
         # Add the files to the watch list
-        init_watching(pkgdata, srcfiles(pkgdata))
+        init_watching(pkgdata)
         # Save the result (unnecessary if already in pkgdatas, but doesn't hurt either)
         pkgdatas[id] = pkgdata
     elseif modname === :Compiler
@@ -178,7 +178,7 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
     if !isempty(pkgdata.fileinfos)
         id = PkgId(pkgdata)
         CodeTracking._pkgfiles[id] = pkgdata.info
-        init_watching(pkgdata, srcfiles(pkgdata))
+        init_watching(pkgdata)
         pkgdatas[id] = pkgdata
     end
     return nothing

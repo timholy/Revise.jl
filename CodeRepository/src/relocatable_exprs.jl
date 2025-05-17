@@ -34,7 +34,7 @@ function Base.:(==)(ra::RelocatableExpr, rb::RelocatableExpr)
     elseif b.head === :block
         b = unwrap(b)
     end
-    return a.head == b.head && isequal(LineSkippingIterator(a.args), LineSkippingIterator(b.args))
+    return a.head === b.head && isequal(LineSkippingIterator(a.args), LineSkippingIterator(b.args))
 end
 
 const hashrex_seed = UInt == UInt64 ? 0x7c4568b6e99c82d9 : 0xb9c82fd8
@@ -49,10 +49,14 @@ function striplines!(ex::Expr)
     if ex.head === :macrocall
         # for macros, the show method in Base assumes the line number is there,
         # so don't strip it
-        args3 = [a isa ExLike ? striplines!(a) : a for a in ex.args[3:end]]
+        args3 = [let a = ex.args[i]
+                     a isa ExLike ? striplines!(a) : a
+                 end for i = 3:length(ex.args)]
         return Expr(ex.head, ex.args[1], nothing, args3...)
     end
-    args = [a isa ExLike ? striplines!(a) : a for a in ex.args]
+    args = [let a = ex.args[i]
+                a isa ExLike ? striplines!(a) : a
+            end for i = 1:length(ex.args)]
     fargs = collect(LineSkippingIterator(args))
     return Expr(ex.head, fargs...)
 end
@@ -139,3 +143,41 @@ function Base.hash(iter::LineSkippingIterator, h::UInt)
     end
     h
 end
+
+function firstline(ex::Expr)
+    for a in ex.args
+        isa(a, LineNumberNode) && return a
+        if isa(a, Expr)
+            line = firstline(a)
+            isa(line, LineNumberNode) && return line
+        end
+    end
+    return nothing
+end
+firstline(rex::RelocatableExpr) = firstline(rex.ex)
+
+# Return the only non-trivial expression in ex, or ex itself
+function unwrap(ex::Expr, allow_trivial_blk::Bool=false)
+    if ex.head === :block || ex.head === :toplevel
+        for i = 1:length(ex.args)
+            a = ex.args[i]
+            if isa(a, Expr)
+                for j = i+1:length(ex.args)
+                    istrivial(ex.args[j]) || return ex
+                end
+                return unwrap(a, allow_trivial_blk)::(allow_trivial_blk ? Union{Nothing,Expr} : Expr)
+            elseif !istrivial(a)
+                return ex
+            end
+        end
+        if allow_trivial_blk
+            return nothing
+        else
+            error("Block with no non-trivial expressions")
+        end
+    end
+    return ex
+end
+unwrap(rex::RelocatableExpr, ::Bool=false) = RelocatableExpr(unwrap(rex.ex, false))
+
+istrivial(@nospecialize a) = a === nothing || isa(a, LineNumberNode)

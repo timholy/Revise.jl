@@ -1,25 +1,3 @@
-relpath_safe(path::AbstractString, startpath::AbstractString) = isempty(startpath) ? path : relpath(path, startpath)
-
-function Base.relpath(filename::AbstractString, pkgdata::PkgData)
-    if isabspath(filename)
-        # `Base.locate_package`, which is how `pkgdata` gets initialized, might strip pieces of the path.
-        # For example, on Travis macOS the paths returned by `abspath`
-        # can be preceded by "/private" which is not present in the value returned by `Base.locate_package`.
-        idx = findfirst(basedir(pkgdata), filename)
-        if idx !== nothing
-            idx = first(idx)
-            if idx > 1
-                filename = filename[idx:end]
-            end
-            filename = relpath_safe(filename, basedir(pkgdata))
-        end
-    elseif startswith(filename, "compiler")
-        # Core.Compiler's pkgid includes "compiler/" in the path
-        filename = relpath(filename, "compiler")
-    end
-    return filename
-end
-
 function iswritable(file::AbstractString)  # note this trashes the Base definition, but we don't need it
     return uperm(stat(file)) & 0x02 != 0x00
 end
@@ -45,18 +23,6 @@ function use_compiled_modules()
     return Base.JLOptions().use_compiled_modules != 0
 end
 
-function firstline(ex::Expr)
-    for a in ex.args
-        isa(a, LineNumberNode) && return a
-        if isa(a, Expr)
-            line = firstline(a)
-            isa(line, LineNumberNode) && return line
-        end
-    end
-    return nothing
-end
-firstline(rex::RelocatableExpr) = firstline(rex.ex)
-
 newloc(methloc::LineNumberNode, ln, lno) = fixpath(ln)
 
 location_string((file, line)::Tuple{AbstractString, Any},) = abspath(file)*':'*string(line)
@@ -66,53 +32,6 @@ location_string(::Nothing) = "unknown location"
 function linediff(la::LineNumberNode, lb::LineNumberNode)
     (isa(la.file, Symbol) && isa(lb.file, Symbol) && (la.file::Symbol === lb.file::Symbol)) || return typemax(Int)
     return abs(la.line - lb.line)
-end
-
-# Return the only non-trivial expression in ex, or ex itself
-function unwrap(ex::Expr)
-    if ex.head === :block || ex.head === :toplevel
-        for (i, a) in enumerate(ex.args)
-            if isa(a, Expr)
-                for j = i+1:length(ex.args)
-                    istrivial(ex.args[j]) || return ex
-                end
-                return unwrap(a)
-            elseif !istrivial(a)
-                return ex
-            end
-        end
-        return nothing
-    end
-    return ex
-end
-unwrap(rex::RelocatableExpr) = RelocatableExpr(unwrap(rex.ex))
-
-istrivial(@nospecialize a) = a === nothing || isa(a, LineNumberNode)
-
-function unwrap_where(ex::Expr)
-    while isexpr(ex, :where)
-        ex = ex.args[1]
-    end
-    return ex::Expr
-end
-
-function pushex!(exsigs::ExprsSigs, ex::Expr)
-    uex = unwrap(ex)
-    if is_doc_expr(uex)
-        body = uex.args[4]
-        # Don't trigger for exprs where the documented expression is just a signature
-        # (e.g. `"docstr" f(x::Int)`, `"docstr" f(x::T) where T` etc.)
-        if isa(body, Expr) && unwrap_where(body).head !== :call
-            exsigs[RelocatableExpr(body)] = nothing
-        end
-        if length(uex.args) < 5
-            push!(uex.args, false)
-        else
-            uex.args[5] = false
-        end
-    end
-    exsigs[RelocatableExpr(ex)] = nothing
-    return exsigs
 end
 
 ## WatchList utilities

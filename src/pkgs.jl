@@ -107,11 +107,7 @@ end
 
 function add_modexs!(fi::FileInfo, modexs)
     for (mod, rex) in modexs
-        exsigs = get(fi.modexsigs, mod, nothing)
-        if exsigs === nothing
-            fi.modexsigs[mod] = exsigs = ExprsSigs()
-        end
-        pushex!(exsigs, rex)
+        pushex!(get!(ExprsSigs, fi.modexsigs, mod), rex)
     end
     return fi
 end
@@ -328,7 +324,7 @@ function watch_package(id::PkgId)
         end
         pkgdata = parse_pkg_files(id)
         if has_writable_paths(pkgdata)
-            init_watching(pkgdata, srcfiles(pkgdata))
+            init_watching(pkgdata)
         end
         pkgdatas[id] = pkgdata
     finally
