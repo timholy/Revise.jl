@@ -59,10 +59,7 @@ function process_source!(mod_exprs_sigs::ModuleExprsSigs, ex, filename, mod::Mod
                 throw(ReviseEvalException(loc, err, Any[(sf, 1) for sf in stacktrace(bt)]))
             end
         end
-        exprs_sigs = get(mod_exprs_sigs, mod, nothing)
-        if exprs_sigs === nothing
-            mod_exprs_sigs[mod] = exprs_sigs = ExprsSigs()
-        end
+        exprs_sigs = get!(ExprsSigs, mod_exprs_sigs, mod)
         if ex.head === :toplevel
             lnn = nothing
             for a in ex.args

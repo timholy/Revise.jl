@@ -1,6 +1,6 @@
 relpath_safe(path, startpath) = isempty(startpath) ? path : relpath(path, startpath)
 
-function Base.relpath(filename, pkgdata::PkgData)
+function Base.relpath(filename::AbstractString, pkgdata::PkgData)
     if isabspath(filename)
         # `Base.locate_package`, which is how `pkgdata` gets initialized, might strip pieces of the path.
         # For example, on Travis macOS the paths returned by `abspath`
