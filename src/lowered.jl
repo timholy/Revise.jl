@@ -200,8 +200,8 @@ end
 function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     methodinfo = MethodInfo()
     docexprs = DocExprs()
-    value, frame = methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, docexprs, mod, ex; kwargs...)
-    return methodinfo, docexprs, frame
+    value, thk = methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, docexprs, mod, ex; kwargs...)
+    return methodinfo, docexprs, thk
 end
 
 """
@@ -252,13 +252,13 @@ function methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocExp
                                mode::Symbol=:eval, disablebp::Bool=true, always_rethrow::Bool=false, kwargs...)
     mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
     lwr = Meta.lower(mod, ex)
-    isa(lwr, Expr) || return nothing, nothing
+    isa(lwr, Expr) || return Pair{Any,Union{Nothing,Expr}}(nothing, nothing)
     if lwr.head === :error || lwr.head === :incomplete
         throw(LoweringException(lwr))
     end
     if lwr.head !== :thunk
-        mode === :sigs && return nothing, nothing
-        return Core.eval(mod, lwr), nothing
+        mode === :sigs && return Pair{Any,Union{Nothing,Expr}}(nothing, nothing)
+        return Pair{Any,Union{Nothing,Expr}}(Core.eval(mod, lwr), nothing)
     end
     frame = Frame(mod, lwr.args[1]::CodeInfo)
     mode === :eval || LoweredCodeUtils.rename_framemethods!(interp, frame)
@@ -292,7 +292,7 @@ function methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocExp
             foreach(disable, active_bp_refs)
         end
         ret = try
-            methods_by_execution!(interp, methodinfo, docexprs, frame, isrequired; mode, kwargs...)
+            _methods_by_execution!(interp, methodinfo, docexprs, frame, isrequired; mode, kwargs...)
         catch err
             (always_rethrow || isa(err, InterruptException)) && (disablebp && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame))
@@ -308,13 +308,13 @@ function methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocExp
             foreach(enable, active_bp_refs)
         end
     end
-    return ret, lwr
+    return Pair{Any,Union{Nothing,Expr}}(ret, lwr)
 end
 methods_by_execution!(methodinfo, docexprs::DocExprs, mod::Module, ex::Expr; kwargs...) =
     methods_by_execution!(Compiled(), methodinfo, docexprs, mod, ex; kwargs...)
 
-function methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocExprs, frame::Frame, isrequired::AbstractVector{Bool};
-                               mode::Symbol=:eval, skip_include::Bool=true)
+function _methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocExprs, frame::Frame, isrequired::AbstractVector{Bool};
+                                mode::Symbol=:eval, skip_include::Bool=true)
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
 
     mod = moduleof(frame)
@@ -336,7 +336,7 @@ function methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocExp
                 local value
                 for ex in stmt.args
                     ex isa Expr || continue
-                    value = methods_by_execution!(interp, methodinfo, docexprs, mod, ex; mode, disablebp=false, skip_include)
+                    value, _ = methods_by_execution!(interp, methodinfo, docexprs, mod, ex; mode, disablebp=false, skip_include)
                 end
                 isassign(frame, pc) && assign_this!(frame, value)
                 pc = next_or_nothing!(frame)
@@ -496,7 +496,7 @@ function methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocExp
                         end
                         newex = unwrap(newex)
                         push_expr!(methodinfo, newmod, newex)
-                        value = methods_by_execution!(interp, methodinfo, docexprs, newmod, newex; mode, skip_include, disablebp=false)
+                        value, _ = methods_by_execution!(interp, methodinfo, docexprs, newmod, newex; mode, skip_include, disablebp=false)
                         pop_expr!(methodinfo)
                     end
                     assign_this!(frame, value)
