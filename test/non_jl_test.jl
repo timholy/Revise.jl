@@ -7,6 +7,7 @@ using Test
 struct MyFile
     file::String
 end
+Base.relpath(file::MyFile, args...) = MyFile(Base.relpath(file.file, args...))
 Base.abspath(file::MyFile) = MyFile(Base.abspath(file.file))
 Base.isabspath(file::MyFile) = Base.isabspath(file.file)
 Base.joinpath(str::String, file::MyFile) = MyFile(Base.joinpath(str, file.file))

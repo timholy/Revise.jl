@@ -23,6 +23,17 @@ else
     const mtimedelay = 0.1
 end
 
+if isdefined(Core, :var"@latestworld")
+    using Core: @latestworld
+else
+    # In older Julia versions, there were more implicit
+    # world age increments, so the macro is generally not
+    # required.
+    macro latestworld()
+        nothing
+    end
+end
+
 yry() = (sleep(mtimedelay); revise(); sleep(mtimedelay))
 macro yry()
     esc(quote

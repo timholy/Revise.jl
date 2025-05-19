@@ -72,17 +72,6 @@ end
 
 const issue639report = []
 
-if isdefined(Core, :var"@latestworld")
-    import Core: @latestworld
-else
-    # In older Julia versions, there were more implicit
-    # world age increments, so the macro is generally not
-    # required.
-    macro latestworld()
-        nothing
-    end
-end
-
 @testset "Revise" begin
     do_test("PkgData") && @testset "PkgData" begin
         # Related to #358
