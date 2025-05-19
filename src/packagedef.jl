@@ -1,13 +1,12 @@
 @eval Base.Experimental.@optlevel 1
 
 using FileWatching, REPL, UUIDs
-import LibGit2
+using LibGit2: LibGit2
 using Base: PkgId
 using Base.Meta: isexpr
 using Core: CodeInfo
 
 export revise, includet, entr, MethodSummary
-
 
 # Abstract type to represent a single worker
 abstract type AbstractWorker end
@@ -1177,7 +1176,11 @@ function update_stacktrace_lineno!(trace)
         linfo = t.linfo
         if linfo isa Core.CodeInstance
             linfo = linfo.def
-            (isdefined(Core, :ABIOverride) && isa(linfo, Core.ABIOverride)) && (linfo = linfo.def)
+            @static if isdefined(Core, :ABIOverride)
+                if isa(linfo, Core.ABIOverride)
+                    linfo = linfo.def
+                end
+            end
         end
         if linfo isa Core.MethodInstance
             m = linfo.def
@@ -1313,10 +1316,7 @@ function __init__()
     if polling == "1"
         polling_files[] = watching_files[] = true
     end
-    rev_include = get(ENV, "JULIA_REVISE_INCLUDE", "0")
-    if rev_include == "1"
-        tracking_Main_includes[] = true
-    end
+    tracking_Main_includes[] = Base.get_bool_env("JULIA_REVISE_INCLUDE", false)
     # Correct line numbers for code moving around
     Base.update_stackframes_callback[] = update_stacktrace_lineno!
     if isdefined(Base, :methodloc_callback)
