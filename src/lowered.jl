@@ -22,7 +22,6 @@ const MethodInfo = IdDict{Type,LineNumberNode}
 add_signature!(methodinfo, @nospecialize(sig), ln) = push!(methodinfo, sig=>ln)
 push_expr!(methodinfo, mod::Module, ex::Expr) = methodinfo
 pop_expr!(methodinfo) = methodinfo
-add_dependencies!(methodinfo, be::CodeEdges, src, isrequired) = methodinfo
 add_includes!(methodinfo, mod::Module, filename) = methodinfo
 
 function is_some_include(@nospecialize(f))
@@ -53,7 +52,6 @@ function is_defaultctors(@nospecialize(f))
     end
     return false
 end
-
 
 # This is not generally used, see `is_method_or_eval` instead
 function hastrackedexpr(@nospecialize(stmt), code)
@@ -186,7 +184,6 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, mod::Module, 
     lines_required!(isrequired, src, edges;)
                     # norequire=mode===:sigs ? LoweredCodeUtils.exclude_named_typedefs(src, edges) : ())
     # LoweredCodeUtils.print_with_code(stdout, src, isrequired)
-    add_dependencies!(methodinfo, edges, src, isrequired)
     return isrequired, evalassign
 end
 @noinline minimal_evaluation!(@nospecialize(predicate), methodinfo, frame::Frame, mode::Symbol) =

@@ -155,14 +155,6 @@ It is a dictionary indexed by PkgId:
 """
 const pkgdatas = Dict{PkgId,PkgData}(NOPACKAGE => PkgData(NOPACKAGE))
 
-const moduledeps = Dict{Module,DepDict}()
-function get_depdict(mod::Module)
-    if !haskey(moduledeps, mod)
-        moduledeps[mod] = DepDict()
-    end
-    return moduledeps[mod]
-end
-
 """
     Revise.included_files
 
@@ -359,7 +351,7 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
             ex = rex.ex
             # ex is not present in old
             @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
-            sigs, deps, includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
+            sigs, includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end
@@ -374,7 +366,6 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
                     end
                 end
             end
-            storedeps(deps, rex, mod)
         else
             sigs = exs_sigs_old[rexo]
             # Update location info
@@ -445,19 +436,15 @@ It also has the following fields:
 - `exprstack`: used when descending into `@eval` statements (via `push_expr` and `pop_expr!`)
   `ex` (used in creating the `CodeTrackingMethodInfo` object) is the first entry in the stack.
 - `allsigs`: a list of all method signatures defined by a given expression
-- `deps`: list of top-level named objects (`Symbol`s and `GlobalRef`s) that method definitions
-  in this block depend on. For example, `if Sys.iswindows() f() = 1 else f() = 2 end` would
-  store `Sys.iswindows` here.
 - `includes`: a list of `module=>filename` for any `include` statements encountered while the
   expression was parsed.
 """
 struct CodeTrackingMethodInfo
     exprstack::Vector{Expr}
     allsigs::Vector{Any}
-    deps::Set{Union{GlobalRef,Symbol}}
     includes::Vector{Pair{Module,String}}
 end
-CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Set{Union{GlobalRef,Symbol}}(), Pair{Module,String}[])
+CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Any[], Pair{Module,String}[])
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), ln)
     locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, sig)
@@ -472,40 +459,6 @@ function add_signature!(methodinfo::CodeTrackingMethodInfo, @nospecialize(sig), 
 end
 push_expr!(methodinfo::CodeTrackingMethodInfo, mod::Module, ex::Expr) = (push!(methodinfo.exprstack, ex); methodinfo)
 pop_expr!(methodinfo::CodeTrackingMethodInfo) = (pop!(methodinfo.exprstack); methodinfo)
-function add_dependencies!(methodinfo::CodeTrackingMethodInfo, edges::CodeEdges, src, musteval)
-    isempty(src.code) && return methodinfo
-    for i = 1:length(src.code)
-        stmt = src.code[i]
-        if isa(stmt, Core.GotoIfNot)
-            dep = stmt.cond
-            while (isa(dep, Core.SSAValue) || isa(dep, JuliaInterpreter.SSAValue))
-                dep = src.code[dep.id]
-            end
-            if isa(dep, Union{GlobalRef,Symbol})
-                # This is basically a hack to look for symbols that control definition of methods via a conditional.
-                # It is aimed at solving #249, but this will have to be generalized for anything real.
-                for (stmt, me) in zip(src.code, musteval)
-                    me || continue
-                    if hastrackedexpr(stmt, src.code)[1]
-                        push!(methodinfo.deps, dep)
-                        break
-                    end
-                end
-            end
-        end
-    end
-    # for (dep, lines) in be.byname
-    #     for ln in lines
-    #         stmt = src.code[ln]
-    #         if isexpr(stmt, :(=)) && stmt.args[1] == dep
-    #             continue
-    #         else
-    #             push!(methodinfo.deps, dep)
-    #         end
-    #     end
-    # end
-    return methodinfo
-end
 function add_includes!(methodinfo::CodeTrackingMethodInfo, mod::Module, filename)
     push!(methodinfo.includes, mod=>filename)
     return methodinfo
@@ -516,35 +469,18 @@ function eval_with_signatures(mod, ex::Expr; mode=:eval, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
     docexprs = DocExprs()
     frame = methods_by_execution!(methodinfo, docexprs, mod, ex; mode=mode, kwargs...)[2]
-    return methodinfo.allsigs, methodinfo.deps, methodinfo.includes, frame
+    return methodinfo.allsigs, methodinfo.includes, frame
 end
 
 function instantiate_sigs!(modexsigs::ModuleExprsSigs; mode=:sigs, kwargs...)
     for (mod, exsigs) in modexsigs
         for rex in keys(exsigs)
             is_doc_expr(rex.ex) && continue
-            sigs, deps, _ = eval_with_signatures(mod, rex.ex; mode=mode, kwargs...)
+            sigs, _ = eval_with_signatures(mod, rex.ex; mode=mode, kwargs...)
             exsigs[rex] = sigs
-            storedeps(deps, rex, mod)
         end
     end
     return modexsigs
-end
-
-function storedeps(deps, rex, mod)
-    for dep in deps
-        if isa(dep, GlobalRef)
-            haskey(moduledeps, dep.mod) || continue
-            ddict, sym = get_depdict(dep.mod), dep.name
-        else
-            ddict, sym = get_depdict(mod), dep
-        end
-        if !haskey(ddict, sym)
-            ddict[sym] = Set{DepDictVals}()
-        end
-        push!(ddict[sym], (mod, rex))
-    end
-    return rex
 end
 
 # This is intended for testing purposes, but not general use. The key problem is

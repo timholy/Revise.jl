@@ -42,12 +42,9 @@ do_test("Backedges") && @testset "Backedges" begin
     end
     """
     mexs = Revise.parse_source!(Revise.ModuleExprsSigs(BackEdgesTest), src, "backedges_test.jl", BackEdgesTest)
-    Revise.moduledeps[BackEdgesTest] = Revise.DepDict()
     Revise.instantiate_sigs!(mexs)
     @test isempty(methods(BackEdgesTest.getdiameter))
     @test !isdefined(BackEdgesTest, :planetdiameters)
-    @test length(Revise.moduledeps[BackEdgesTest]) == 1
-    @test Revise.moduledeps[BackEdgesTest][:flag] == Set([(BackEdgesTest, first(Iterators.drop(mexs[BackEdgesTest], 1))[1])])
 
     # issue #399
     src = """
