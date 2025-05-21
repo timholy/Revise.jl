@@ -155,12 +155,12 @@ Revise.init_worker
 
 ## Teaching Revise about non-julia source codes
 Revise can be made to work for transpilers from non-Julia languages to Julia with a little effort.
-For example, if you wrote a transpiler from C to Julia, you can define a `struct CFile`
-which overrides enough of the common `String` methods (`abspath`,`isabspath`, `joinpath`, `normpath`,`isfile`,`findfirst`, and `String`),
-it will be supported by Revise if you define a method like
+For example, if you have written a C-to-Julia transpiler, you can support `includet("path/to/file.c")`
+by simply registering a function to parse `.c` files in `Revise.parsers`:
 ```julia
-function Revise.parse_source!(mod_exprs_sigs::Revise.ModuleExprsSigs, file::CFile, mod::Module; kwargs...)
-    ex = # julia Expr returned from running transpiler
-    Revise.process_source!(mod_exprs_sigs, ex, file, mod; kwargs...)
+Revise.parsers[".c"] = function (filename::String)
+    text = read(filename, String)
+    ex = ... # Julia Expr returned from running the transpiler
+    return ex
 end
 ```

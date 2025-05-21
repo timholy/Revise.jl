@@ -9,7 +9,7 @@ if `filename` defines more module(s) then these will all have separate entries i
 
 If parsing `filename` fails, `nothing` is returned.
 """
-parse_source(filename, mod::Module; kwargs...) =
+parse_source(filename::AbstractString, mod::Module; kwargs...) =
     parse_source!(ModuleExprsSigs(mod), filename, mod; kwargs...)
 
 """
@@ -26,28 +26,58 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, filename::AbstractString
         @warn "$filename is not a file, omitting from revision tracking"
         return nothing
     end
-    parse_source!(mod_exprs_sigs, read(filename, String), filename, mod; kwargs...)
-end
-
-"""
-    success = parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module)
-
-Parse a string `src` obtained by reading `file` as a single
-string. `pos` is the 1-based byte offset from which to begin parsing `src`.
-
-See also [`Revise.parse_source`](@ref).
-"""
-function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module; kwargs...)
-    startswith(src, "# REVISE: DO NOT PARSE") && return DoNotParse()
-    ex = Base.parse_input_line(src; filename=filename)
-    ex === nothing && return mod_exprs_sigs
-    if isexpr(ex, :error) || isexpr(ex, :incomplete)
-        eval(ex)
+    _, ext = splitext(filename)
+    parser = get(parsers, ext, jl_parser)
+    ex = @invokelatest parser(filename)
+    if ex === nothing
+        return mod_exprs_sigs
+    elseif ex === DoNotParse()
+        return DoNotParse()
+    elseif ex isa Expr
+        return process_ex!(mod_exprs_sigs, ex, filename, mod; kwargs...)
+    else # literals
+        return nothing
     end
-    return process_source!(mod_exprs_sigs, ex, filename, mod; kwargs...)
 end
 
-function process_source!(mod_exprs_sigs::ModuleExprsSigs, ex, filename, mod::Module; mode::Symbol=:sigs)
+jl_parser(filename::AbstractString) = _jl_parser(read(filename, String), filename)
+
+function _jl_parser(text::AbstractString, filename::AbstractString)
+    if startswith(text, "# REVISE: DO NOT PARSE")
+        return DoNotParse()
+    else
+        return Base.parse_input_line(text; filename)
+    end
+end
+
+"""
+    Revise.parsers::Dict{String,Any}
+
+A dictionary of file extensions to parsing functions.
+The parsing function should take a single argument, the `filename::AbstractString`, and
+return `Expr`, literals, `nothing`, or `DoNotParse()`.
+Revise itself only registers the parser for `.jl` files only, but users can add their own
+parsers to support other file types.
+"""
+const parsers = Dict{String,Any}(".jl" => jl_parser)
+
+function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module; kwargs...)
+    ex = _jl_parser(src, filename)
+    if ex === nothing
+        return mod_exprs_sigs
+    elseif ex === DoNotParse()
+        return DoNotParse()
+    elseif ex isa Expr
+        return process_ex!(mod_exprs_sigs, ex, filename, mod; kwargs...)
+    else # literals
+        return nothing
+    end
+end
+
+function process_ex!(mod_exprs_sigs::ModuleExprsSigs, ex::Expr, filename::AbstractString, mod::Module; mode::Symbol=:sigs)
+    if isexpr(ex, :error) || isexpr(ex, :incomplete)
+        return eval(ex)
+    end
     for (mod, ex) in ExprSplitter(mod, ex)
         if mode === :includet
             try
