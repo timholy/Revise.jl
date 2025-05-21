@@ -1,14 +1,5 @@
 ## Analyzing lowered code
 
-function add_docexpr!(docexprs::AbstractDict{Module,V}, mod::Module, ex) where V
-    docexs = get(docexprs, mod, nothing)
-    if docexs === nothing
-        docexs = docexprs[mod] = V()
-    end
-    push!(docexs, ex)
-    return docexprs
-end
-
 function assign_this!(frame, value)
     frame.framedata.ssavalues[frame.pc] = value
 end
@@ -199,13 +190,12 @@ end
 
 function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     methodinfo = MethodInfo()
-    docexprs = DocExprs()
-    value, thk = methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, docexprs, mod, ex; kwargs...)
-    return methodinfo, docexprs, thk
+    value, thk = methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, mod, ex; kwargs...)
+    return methodinfo, thk
 end
 
 """
-    methods_by_execution!([interp::Interpreter=JuliaInterpreter.Compiled(),] methodinfo, docexprs::DocExprs, mod::Module, ex::Expr;
+    methods_by_execution!([interp::Interpreter=JuliaInterpreter.Compiled(),] methodinfo, mod::Module, ex::Expr;
                           mode=:eval, disablebp=true, skip_include=mode!==:eval, always_rethrow=false)
 
 Evaluate or analyze `ex` in the context of `mod`.
@@ -214,19 +204,18 @@ evaluation needed to extract method signatures.
 `interp` controls JuliaInterpreter's evaluation of any non-intercepted statement;
 likely choices are `JuliaInterpreter.Compiled()` or `JuliaInterpreter.RecursiveInterpreter()`.
 `methodinfo` is a cache for storing information about any method definitions (see [`CodeTrackingMethodInfo`](@ref)).
-`docexprs` is a cache for storing documentation expressions; obtain an empty one with `Revise.DocExprs()`.
 
 # Extended help
 
 The action depends on `mode`:
 
-- `:eval` evaluates the expression in `mod`, similar to `Core.eval(mod, ex)` except that `methodinfo` and `docexprs`
-  will be populated with information about any signatures or docstrings. This mode is used to implement `includet`.
-- `:sigs` analyzes `ex` and extracts signatures of methods and docstrings (specifically, statements flagged by
+- `:eval` evaluates the expression in `mod`, similar to `Core.eval(mod, ex)` except that `methodinfo`
+  will be populated with information about any signatures. This mode is used to implement `includet`.
+- `:sigs` analyzes `ex` and extracts signatures of methods (specifically, statements flagged by
   [`Revise.minimal_evaluation!`](@ref)), but does not evaluate `ex` in the traditional sense.
   It will selectively execute statements needed to form the signatures of defined methods.
   It will also expand any `@eval`ed expressions, since these might contain method definitions.
-- `:evalmeth` analyzes `ex` and extracts signatures and docstrings like `:sigs`, but takes the additional step of
+- `:evalmeth` analyzes `ex` and extracts signatures like `:sigs`, but takes the additional step of
   evaluating any `:method` statements.
 - `:evalassign` acts similarly to `:evalmeth`, and also evaluates assignment statements.
 
@@ -248,7 +237,7 @@ The other keyword arguments are more straightforward:
   If false, the error is logged with `@error`. `InterruptException`s are always rethrown.
   This is primarily useful for debugging.
 """
-function methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocExprs, mod::Module, ex::Expr;
+function methods_by_execution!(interp::Interpreter, methodinfo, mod::Module, ex::Expr;
                                mode::Symbol=:eval, disablebp::Bool=true, always_rethrow::Bool=false, kwargs...)
     mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
     lwr = Meta.lower(mod, ex)
@@ -292,7 +281,7 @@ function methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocExp
             foreach(disable, active_bp_refs)
         end
         ret = try
-            _methods_by_execution!(interp, methodinfo, docexprs, frame, isrequired; mode, kwargs...)
+            _methods_by_execution!(interp, methodinfo, frame, isrequired; mode, kwargs...)
         catch err
             (always_rethrow || isa(err, InterruptException)) && (disablebp && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame))
@@ -310,10 +299,10 @@ function methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocExp
     end
     return Pair{Any,Union{Nothing,Expr}}(ret, lwr)
 end
-methods_by_execution!(methodinfo, docexprs::DocExprs, mod::Module, ex::Expr; kwargs...) =
-    methods_by_execution!(Compiled(), methodinfo, docexprs, mod, ex; kwargs...)
+methods_by_execution!(methodinfo, mod::Module, ex::Expr; kwargs...) =
+    methods_by_execution!(Compiled(), methodinfo, mod, ex; kwargs...)
 
-function _methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocExprs, frame::Frame, isrequired::AbstractVector{Bool};
+function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, isrequired::AbstractVector{Bool};
                                 mode::Symbol=:eval, skip_include::Bool=true)
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
 
@@ -336,7 +325,7 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocEx
                 local value
                 for ex in stmt.args
                     ex isa Expr || continue
-                    value, _ = methods_by_execution!(interp, methodinfo, docexprs, mod, ex; mode, disablebp=false, skip_include)
+                    value, _ = methods_by_execution!(interp, methodinfo, mod, ex; mode, disablebp=false, skip_include)
                 end
                 isassign(frame, pc) && assign_this!(frame, value)
                 pc = next_or_nothing!(frame)
@@ -491,12 +480,11 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, docexprs::DocEx
                     value = nothing
                     for (newmod, newex) in ExprSplitter(evalmod, evalex)
                         if is_doc_expr(newex)
-                            add_docexpr!(docexprs, newmod, newex)
                             newex = newex.args[4]
                         end
                         newex = unwrap(newex)
                         push_expr!(methodinfo, newmod, newex)
-                        value, _ = methods_by_execution!(interp, methodinfo, docexprs, newmod, newex; mode, skip_include, disablebp=false)
+                        value, _ = methods_by_execution!(interp, methodinfo, newmod, newex; mode, skip_include, disablebp=false)
                         pop_expr!(methodinfo)
                     end
                     assign_this!(frame, value)

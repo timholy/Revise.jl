@@ -466,8 +466,7 @@ end
 # Eval and insert into CodeTracking data
 function eval_with_signatures(mod, ex::Expr; mode=:eval, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
-    docexprs = DocExprs()
-    _, thk = methods_by_execution!(methodinfo, docexprs, mod, ex; mode, kwargs...)
+    _, thk = methods_by_execution!(methodinfo, mod, ex; mode=mode, kwargs...)
     return methodinfo.allsigs, methodinfo.includes, thk
 end
 
