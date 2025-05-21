@@ -158,10 +158,9 @@ Revise can be made to work for transpilers from non-Julia languages to Julia wit
 For example, if you wrote a transpiler from C to Julia, you can define a `struct CFile`
 which overrides enough of the common `String` methods (`abspath`,`isabspath`, `joinpath`, `normpath`,`isfile`,`findfirst`, and `String`),
 it will be supported by Revise if you define a method like
-```
+```julia
 function Revise.parse_source!(mod_exprs_sigs::Revise.ModuleExprsSigs, file::CFile, mod::Module; kwargs...)
     ex = # julia Expr returned from running transpiler
     Revise.process_source!(mod_exprs_sigs, ex, file, mod; kwargs...)
 end
-
 ```

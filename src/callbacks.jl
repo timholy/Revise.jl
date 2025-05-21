@@ -109,7 +109,7 @@ function remove_callback(key)
     nothing
 end
 
-function process_user_callbacks!(keys = user_callbacks_queue; throw=false)
+function process_user_callbacks!(keys = user_callbacks_queue; throw::Bool=false)
     try
         # use (a)sync so any exceptions get nicely collected into CompositeException
         @sync for key in keys

@@ -1,4 +1,4 @@
-@eval Base.Experimental.@optlevel 1
+Base.Experimental.@optlevel 1
 
 using FileWatching, REPL, UUIDs
 using LibGit2: LibGit2
@@ -350,7 +350,7 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
             ex = rex.ex
             # ex is not present in old
             @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
-            sigs, includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
+            sigs, includes, thunk = eval_with_signatures(mod, ex; mode)  # All signatures defined by `ex`
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end
@@ -396,7 +396,7 @@ end
 function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Symbol=:eval)
     includes = Vector{Pair{Module,String}}()
     for rex in keys(exs_sigs_new)
-        sigs, _includes = eval_rex(rex, exs_sigs_old, mod; mode=mode)
+        sigs, _includes = eval_rex(rex, exs_sigs_old, mod; mode)
         if sigs !== nothing
             exs_sigs_new[rex] = sigs
         end
@@ -415,7 +415,7 @@ function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old; mode::Sy
             mode = getfield(mod, :__revise_mode__)::Symbol
         end
         exs_sigs_old = get(mod_exs_sigs_old, mod, empty_exs_sigs)
-        _, _includes = eval_new!(exs_sigs_new, exs_sigs_old, mod; mode=mode)
+        _, _includes = eval_new!(exs_sigs_new, exs_sigs_old, mod; mode)
         append!(includes, _includes)
     end
     return mod_exs_sigs_new, includes
@@ -467,7 +467,7 @@ end
 function eval_with_signatures(mod, ex::Expr; mode=:eval, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
     docexprs = DocExprs()
-    _, thk = methods_by_execution!(methodinfo, docexprs, mod, ex; mode=mode, kwargs...)
+    _, thk = methods_by_execution!(methodinfo, docexprs, mod, ex; mode, kwargs...)
     return methodinfo.allsigs, methodinfo.includes, thk
 end
 
@@ -475,7 +475,7 @@ function instantiate_sigs!(modexsigs::ModuleExprsSigs; mode=:sigs, kwargs...)
     for (mod, exsigs) in modexsigs
         for rex in keys(exsigs)
             is_doc_expr(rex.ex) && continue
-            sigs, _ = eval_with_signatures(mod, rex.ex; mode=mode, kwargs...)
+            sigs, _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
             exsigs[rex] = sigs
         end
     end
@@ -736,7 +736,7 @@ end
 If `throw` is `true`, throw any errors that occur during revision or callback;
 otherwise these are only logged.
 """
-function revise(; throw=false)
+function revise(; throw::Bool=false)
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
     lock(revise_lock) do
         have_queue_errors = !isempty(queue_errors)
@@ -782,7 +782,7 @@ function revise(; throw=false)
                         mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
                         exsold = get(fi.modexsigs, mod, empty_exs_sigs)
                         for rex in keys(exsnew)
-                            sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
+                            sigs, includes = eval_rex(rex, exsold, mod; mode)
                             if sigs !== nothing
                                 exsnew[rex] = sigs
                             end
@@ -836,7 +836,7 @@ function revise(; throw=false)
         end
         tracking_Main_includes[] && queue_includes(Main)
 
-        process_user_callbacks!(throw=throw)
+        process_user_callbacks!(; throw)
     end
 
     nothing
@@ -912,12 +912,12 @@ function track(mod::Module, file; mode=:sigs, kwargs...)
         file = abspath(file)
     end
     # Set up tracking
-    fm = parse_source(file, mod; mode=mode)
+    fm = parse_source(file, mod; mode)
     if fm !== nothing
         if mode === :includet
             mode = :sigs   # we already handled evaluation in `parse_source`
         end
-        instantiate_sigs!(fm; mode=mode, kwargs...)
+        instantiate_sigs!(fm; mode, kwargs...)
         if !haskey(pkgdatas, id)
             # Wait a bit to see if `mod` gets initialized
             sleep(0.1)
