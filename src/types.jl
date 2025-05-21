@@ -15,7 +15,6 @@ mutable struct WatchList
     trackedfiles::Dict{String,PkgId}
 end
 
-const DocExprs = Dict{Module,Vector{Expr}}
 const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Any}}}
 
 function Base.show(io::IO, exsigs::ExprsSigs)

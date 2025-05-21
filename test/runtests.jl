@@ -1131,9 +1131,8 @@ const issue639report = []
         lwr = Meta.lower(ChangeDocstring, ex)
         frame = Frame(ChangeDocstring, lwr.args[1])
         methodinfo = Revise.MethodInfo()
-        docexprs = Revise.DocExprs()
         ret = Revise._methods_by_execution!(JuliaInterpreter.RecursiveInterpreter(), methodinfo,
-                                            docexprs, frame, trues(length(frame.framecode.src.code)); mode=:sigs)
+                                            frame, trues(length(frame.framecode.src.code)); mode=:sigs)
         ds = @doc(ChangeDocstring.f)
         @test get_docstring(ds) == "g"
 
