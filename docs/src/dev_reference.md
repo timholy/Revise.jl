@@ -152,15 +152,3 @@ Revise.git_repo
 ```@docs
 Revise.init_worker
 ```
-
-## Teaching Revise about non-julia source codes
-Revise can be made to work for transpilers from non-Julia languages to Julia with a little effort.
-For example, if you have written a C-to-Julia transpiler, you can support `includet("path/to/file.c")`
-by simply registering a function to parse `.c` files in `Revise.parsers`:
-```julia
-Revise.parsers[".c"] = function (filename::String)
-    text = read(filename, String)
-    ex = ... # Julia Expr returned from running the transpiler
-    return ex
-end
-```

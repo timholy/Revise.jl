@@ -26,47 +26,16 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, filename::AbstractString
         @warn "$filename is not a file, omitting from revision tracking"
         return nothing
     end
-    _, ext = splitext(filename)
-    parser = get(parsers, ext, jl_parser)
-    ex = @invokelatest parser(filename)
-    if ex === nothing
-        return mod_exprs_sigs
-    elseif ex === DoNotParse()
-        return DoNotParse()
-    elseif ex isa Expr
-        return process_ex!(mod_exprs_sigs, ex, filename, mod; kwargs...)
-    else # literals
-        return nothing
-    end
+    return parse_source!(mod_exprs_sigs, read(filename, String), filename, mod; kwargs...)
 end
-
-jl_parser(filename::AbstractString) = _jl_parser(read(filename, String), filename)
-
-function _jl_parser(text::AbstractString, filename::AbstractString)
-    if startswith(text, "# REVISE: DO NOT PARSE")
-        return DoNotParse()
-    else
-        return Base.parse_input_line(text; filename)
-    end
-end
-
-"""
-    Revise.parsers::Dict{String,Any}
-
-A dictionary of file extensions to parsing functions.
-The parsing function should take a single argument, the `filename::AbstractString`, and
-return `Expr`, literals, `nothing`, or `DoNotParse()`.
-Revise itself only registers the parser for `.jl` files only, but users can add their own
-parsers to support other file types.
-"""
-const parsers = Dict{String,Any}(".jl" => jl_parser)
 
 function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module; kwargs...)
-    ex = _jl_parser(src, filename)
+    if startswith(src, "# REVISE: DO NOT PARSE")
+        return DoNotParse()
+    end
+    ex = Base.parse_input_line(src; filename)
     if ex === nothing
         return mod_exprs_sigs
-    elseif ex === DoNotParse()
-        return DoNotParse()
     elseif ex isa Expr
         return process_ex!(mod_exprs_sigs, ex, filename, mod; kwargs...)
     else # literals
