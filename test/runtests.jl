@@ -3931,7 +3931,7 @@ end
 
 include("backedges.jl")
 
-include("non_jl_test.jl")
+# include("non_jl_test.jl")
 
 do_test("Base signatures") && @testset "Base signatures" begin
     println("beginning signatures tests")

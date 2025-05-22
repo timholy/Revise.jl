@@ -30,8 +30,6 @@ Global variable, maps callback keys to user hooks.
 """
 const user_callbacks_by_key = Dict{Any, Any}()
 
-
-
 """
     key = Revise.add_callback(f, files, modules=nothing; key=gensym())
 

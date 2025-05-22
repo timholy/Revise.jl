@@ -390,7 +390,7 @@ end
 
 # Much of this is adapted from base/loading.jl
 
-function manifest_file(project_file)
+function manifest_file(project_file = Base.active_project())
     if project_file isa String && isfile(project_file)
         mfile = Base.project_file_manifest_path(project_file)
         if mfile isa String
@@ -399,7 +399,6 @@ function manifest_file(project_file)
     end
     return nothing
 end
-manifest_file() = manifest_file(Base.active_project())
 
 function manifest_paths!(pkgpaths::Dict, manifest_file::String)
     d = if isdefined(Base, :get_deps) # `get_deps` is present in versions that support new manifest formats
@@ -427,7 +426,7 @@ end
 manifest_paths(manifest_file::String) =
     manifest_paths!(Dict{PkgId,String}(), manifest_file)
 
-function watch_manifest(mfile)
+function watch_manifest(mfile::String)
     while true
         try
             wait_changed(mfile)

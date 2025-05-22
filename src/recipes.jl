@@ -14,7 +14,7 @@ end
 
 const vstring = "v$(VERSION.major).$(VERSION.minor)"
 
-function inpath(path, dirs)
+function inpath(path::AbstractString, dirs::Vector{String})
     spath = splitpath(path)
     idx = findfirst(isequal(first(dirs)), spath)
     idx === nothing && return false
@@ -29,7 +29,7 @@ function inpath(path, dirs)
     return true
 end
 
-function _track(id, modname; modified_files=revision_queue)
+function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
     haskey(pkgdatas, id) && return nothing  # already tracked
     isbase = modname === :Base
     isstdlib = !isbase && modname ∈ stdlib_names
@@ -37,7 +37,7 @@ function _track(id, modname; modified_files=revision_queue)
         # Test whether we know where to find the files
         if isbase
             srcdir = fixpath(joinpath(juliadir, "base"))
-            dirs = ["base"]
+            dirs = String["base"]
         else
             stdlibv = joinpath("stdlib", vstring, String(modname))
             srcdir = fixpath(joinpath(juliadir, stdlibv))
@@ -48,7 +48,7 @@ function _track(id, modname; modified_files=revision_queue)
                 # This can happen for Pkg, since it's developed out-of-tree
                 srcdir = joinpath(juliadir, "usr", "share", "julia", stdlibv)  # omit fixpath deliberately
             end
-            dirs = ["stdlib", String(modname)]
+            dirs = String["stdlib", String(modname)]
         end
         if !isdir(srcdir)
             @error "unable to find path containing source for $modname, tracking is not possible"

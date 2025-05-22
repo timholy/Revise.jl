@@ -73,7 +73,7 @@ function Base.iterate(iter::LineSkippingIterator, i=0)
     return (iter.args[i], i)
 end
 
-function skip_to_nonline(args, i)
+function skip_to_nonline(args::Vector{Any}, i::Int)
     while true
         i > length(args) && return i
         ex = args[i]

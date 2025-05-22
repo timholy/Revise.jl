@@ -537,13 +537,13 @@ end
 init_watching(files) = init_watching(pkgdatas[NOPACKAGE], files)
 
 """
-    revise_dir_queued(dirname)
+    revise_dir_queued(dirname::AbstractString)
 
 Wait for one or more of the files registered in `Revise.watched_files[dirname]` to be
 modified, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
 This is generally called via a [`Revise.TaskThunk`](@ref).
 """
-@noinline function revise_dir_queued(dirname)
+@noinline function revise_dir_queued(dirname::AbstractString)
     @assert isabspath(dirname)
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
@@ -891,7 +891,7 @@ it defaults to `Main`.
 
 If this produces many errors, check that you specified `mod` correctly.
 """
-function track(mod::Module, file; mode=:sigs, kwargs...)
+function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
     isfile(file) || error(file, " is not a file")
     # Determine whether we're already tracking this file
     id = Base.moduleroot(mod) == Main ? PkgId(mod, string(mod)) : PkgId(mod)  # see #689 for `Main`
@@ -935,13 +935,13 @@ function track(mod::Module, file; mode=:sigs, kwargs...)
     return nothing
 end
 
-function track(file; kwargs...)
+function track(file::AbstractString; kwargs...)
     startswith(file, juliadir) && error("use Revise.track(Base) or Revise.track(<stdlib module>)")
     track(Main, file; kwargs...)
 end
 
 """
-    includet(filename)
+    includet(filename::AbstractString)
 
 Load `filename` and track future changes. `includet` is intended for quick "user scripts"; larger or more
 established projects are encouraged to put the code in one or more packages loaded with `using`
@@ -1001,7 +1001,7 @@ try fixing it with something like `push!(LOAD_PATH, "/path/to/my/private/repos")
 they will not be automatically tracked.
 (Call [`Revise.track`](@ref) manually on each file, if you've already `included`d all the code you need.)
 """
-function includet(mod::Module, file)
+function includet(mod::Module, file::AbstractString)
     prev = Base.source_path(nothing)
     file = if prev === nothing
         abspath(file)
@@ -1033,7 +1033,7 @@ function includet(mod::Module, file)
     end
     return nothing
 end
-includet(file) = includet(Main, file)
+includet(file::AbstractString) = includet(Main, file)
 
 """
     Revise.silence(pkg)

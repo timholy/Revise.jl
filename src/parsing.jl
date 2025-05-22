@@ -9,7 +9,7 @@ if `filename` defines more module(s) then these will all have separate entries i
 
 If parsing `filename` fails, `nothing` is returned.
 """
-parse_source(filename, mod::Module; kwargs...) =
+parse_source(filename::AbstractString, mod::Module; kwargs...) =
     parse_source!(ModuleExprsSigs(mod), filename, mod; kwargs...)
 
 """
@@ -26,28 +26,27 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, filename::AbstractString
         @warn "$filename is not a file, omitting from revision tracking"
         return nothing
     end
-    parse_source!(mod_exprs_sigs, read(filename, String), filename, mod; kwargs...)
+    return parse_source!(mod_exprs_sigs, read(filename, String), filename, mod; kwargs...)
 end
 
-"""
-    success = parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module)
-
-Parse a string `src` obtained by reading `file` as a single
-string. `pos` is the 1-based byte offset from which to begin parsing `src`.
-
-See also [`Revise.parse_source`](@ref).
-"""
 function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module; kwargs...)
-    startswith(src, "# REVISE: DO NOT PARSE") && return DoNotParse()
-    ex = Base.parse_input_line(src; filename=filename)
-    ex === nothing && return mod_exprs_sigs
-    if isexpr(ex, :error) || isexpr(ex, :incomplete)
-        eval(ex)
+    if startswith(src, "# REVISE: DO NOT PARSE")
+        return DoNotParse()
     end
-    return process_source!(mod_exprs_sigs, ex, filename, mod; kwargs...)
+    ex = Base.parse_input_line(src; filename)
+    if ex === nothing
+        return mod_exprs_sigs
+    elseif ex isa Expr
+        return process_ex!(mod_exprs_sigs, ex, filename, mod; kwargs...)
+    else # literals
+        return nothing
+    end
 end
 
-function process_source!(mod_exprs_sigs::ModuleExprsSigs, ex, filename, mod::Module; mode::Symbol=:sigs)
+function process_ex!(mod_exprs_sigs::ModuleExprsSigs, ex::Expr, filename::AbstractString, mod::Module; mode::Symbol=:sigs)
+    if isexpr(ex, :error) || isexpr(ex, :incomplete)
+        return eval(ex)
+    end
     for (mod, ex) in ExprSplitter(mod, ex)
         if mode === :includet
             try
