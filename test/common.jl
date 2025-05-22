@@ -19,6 +19,8 @@ end
 
 @static if Sys.isapple()
     const mtimedelay = 3.1  # so the defining files are old enough not to trigger mtime criterion
+elseif Sys.islinux() && isfile("/etc/wsl.conf")   # WSL
+    const mtimedelay = 2.0
 else
     const mtimedelay = 0.1
 end
