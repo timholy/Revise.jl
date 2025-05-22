@@ -87,7 +87,7 @@ function unwrap(ex::Expr)
 end
 unwrap(rex::RelocatableExpr) = RelocatableExpr(unwrap(rex.ex))
 
-istrivial(a) = a === nothing || isa(a, LineNumberNode)
+istrivial(@nospecialize a) = a === nothing || isa(a, LineNumberNode)
 
 function unwrap_where(ex::Expr)
     while isexpr(ex, :where)

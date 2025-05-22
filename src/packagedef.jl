@@ -537,13 +537,13 @@ end
 init_watching(files) = init_watching(pkgdatas[NOPACKAGE], files)
 
 """
-    revise_dir_queued(dirname)
+    revise_dir_queued(dirname::AbstractString)
 
 Wait for one or more of the files registered in `Revise.watched_files[dirname]` to be
 modified, and then queue the corresponding files on [`Revise.revision_queue`](@ref).
 This is generally called via a [`Revise.TaskThunk`](@ref).
 """
-@noinline function revise_dir_queued(dirname)
+@noinline function revise_dir_queued(dirname::AbstractString)
     @assert isabspath(dirname)
     if !isdir(dirname)
         sleep(0.1)   # in case git has done a delete/replace cycle
