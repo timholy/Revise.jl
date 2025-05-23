@@ -42,7 +42,7 @@ Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgId}) =
     push!(wl.trackedfiles, filenameid)
 Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgFiles}) =
     push!(wl, filenameid.first=>filenameid.second.id)
-Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgData}) =
+Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,RevisePkgData}) =
     push!(wl, filenameid.first=>filenameid.second.info)
 WatchList() = WatchList(time(), Dict{String,PkgId}())
 Base.in(file, wl::WatchList) = haskey(wl.trackedfiles, file)

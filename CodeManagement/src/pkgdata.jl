@@ -1,32 +1,17 @@
-"""
-    mutable struct PkgData
-        info::PkgFiles
-        fileinfos::Vector{FileInfo}
-        requirements::Vector{PkgId}
-    end
-    PkgData(id::PkgId, path, fileinfos::Dict{String,FileInfo})
-
-A structure holding the data required to handle a particular package.
-`path` is the top-level directory defining the package,
-and `fileinfos` holds the [`Revise.FileInfo`](@ref) for each file defining the package.
-
-For the `PkgData` associated with `Main` (e.g., for files loaded with [`includet`](@ref)),
-the corresponding `path` entry will be empty.
-"""
-mutable struct PkgData
+mutable struct PkgData{Attrs}
     info::PkgFiles
-    fileinfos::Vector{FileInfo}
+    fileinfos::Vector{FileInfo{Attrs}}
     requirements::Vector{PkgId}
 end
 
-PkgData(id::PkgId, path) = PkgData(PkgFiles(id, path), FileInfo[], PkgId[])
-PkgData(id::PkgId, ::Nothing) = PkgData(id, "")
-function PkgData(id::PkgId)
+PkgData{Attrs}(id::PkgId, path) where Attrs = PkgData{Attrs}(PkgFiles(id, path), FileInfo[], PkgId[])
+PkgData{Attrs}(id::PkgId, ::Nothing) where Attrs = PkgData{Attrs}(id, "")
+function PkgData{Attrs}(id::PkgId) where Attrs
     bp = basepath(id)
     if !isempty(bp)
         bp = normpath(bp)
     end
-    PkgData(id, bp)
+    PkgData{Attrs}(id, bp)
 end
 
 function Base.show(io::IO, pkgdata::PkgData)
@@ -110,7 +95,7 @@ function fileinfo(pkgdata::PkgData, file::AbstractString)
 end
 fileinfo(pkgdata::PkgData, i::Int) = pkgdata.fileinfos[i]
 
-function Base.push!(pkgdata::PkgData, pr::Pair{<:AbstractString,FileInfo})
+function Base.push!(pkgdata::PkgData{Attrs}, pr::Pair{<:AbstractString,FileInfo{Attrs}}) where Attrs
     push!(srcfiles(pkgdata), pr.first)
     push!(pkgdata.fileinfos, pr.second)
     return pkgdata

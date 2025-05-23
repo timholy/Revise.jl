@@ -1,3 +1,66 @@
+struct ReviseFileInfoAttrs
+    cachefile::String
+    cacheexprs::Vector{Tuple{Module,Expr}}             # "unprocessed" exprs, used to support @require
+    extracted::Base.RefValue{Bool}                     # true if signatures have been processed from modexsigs
+    parsed::Base.RefValue{Bool}                        # true if modexsigs have been parsed from cachefile
+end
+ReviseFileInfoAttrs(cachefile::AbstractString="") = ReviseFileInfoAttrs(cachefile, Tuple{Module,Expr}[], Ref(false), Ref(false))
+
+"""
+    ReviseFileInfo(mexs::ModuleExprsSigs, cachefile="")
+
+Structure to hold the per-module expressions found when parsing a
+single file.
+`mexs` holds the [`Revise.ModuleExprsSigs`](@ref) for the file.
+
+Optionally, a `ReviseFileInfo` can also record the path to a cache file holding the original source code.
+This is applicable only for precompiled modules and `Base`.
+(This cache file is distinct from the original source file that might be edited by the
+developer, and it will always hold the state
+of the code when the package was precompiled or Julia's `Base` was built.)
+When a cache is available, `mexs` will be empty until the file gets edited:
+the original source code gets parsed only when a revision needs to be made.
+
+Source cache files greatly reduce the overhead of using Revise.
+"""
+const ReviseFileInfo = FileInfo{ReviseFileInfoAttrs}
+ReviseFileInfo(modexsigs::ModuleExprsSigs, cachefile::AbstractString="") =
+    ReviseFileInfo(modexsigs, ReviseFileInfoAttrs(cachefile))
+
+"""
+    ReviseFileInfo(mod::Module, cachefile::AbstractString="")
+
+Initialize an empty `ReviseFileInfo` for a file that is `include`d into `mod`.
+"""
+ReviseFileInfo(mod::Module, cachefile::AbstractString="") =
+    ReviseFileInfo(ModuleExprsSigs(mod), ReviseFileInfoAttrs(cachefile))
+
+function Base.copy(attrs::ReviseFileInfoAttrs)
+    return ReviseFileInfoAttrs(attrs.cachefile, copy(attrs.cacheexprs), Ref(attrs.extracted[]), Ref(attrs.parsed[]))
+end
+function Base.show(io::IO, attrs::ReviseFileInfoAttrs)
+    if !isempty(attrs.cachefile)
+        print(io, "with cachefile ", attrs.cachefile)
+    end
+end
+
+"""
+    mutable struct RevisePkgData
+        info::PkgFiles
+        fileinfos::Vector{ReviseFileInfo}
+        requirements::Vector{PkgId}
+    end
+    PkgData(id::PkgId, path, fileinfos::Dict{String,ReviseFileInfo})
+
+A structure holding the data required to handle a particular package.
+`path` is the top-level directory defining the package,
+and `fileinfos` holds the [`Revise.ReviseFileInfo`](@ref) for each file defining the package.
+
+For the `PkgData` associated with `Main` (e.g., for files loaded with [`includet`](@ref)),
+the corresponding `path` entry will be empty.
+"""
+const RevisePkgData = PkgData{ReviseFileInfoAttrs}
+
 """
     Revise.WatchList
 

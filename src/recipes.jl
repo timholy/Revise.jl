@@ -59,7 +59,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         # note any modified since Base was built
         pkgdata = get(pkgdatas, id, nothing)
         if pkgdata === nothing
-            pkgdata = PkgData(id, srcdir)
+            pkgdata = RevisePkgData(id, srcdir)
         end
         lock(revise_lock) do
             for (submod, filename) in Iterators.drop(Base._included_files, 1)  # stepping through sysimg.jl rebuilds Base, omit it
@@ -72,7 +72,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
                     cache_file_key[fullpath] = filename
                     src_file_key[filename] = fullpath
                 end
-                push!(pkgdata, rpath=>FileInfo(submod, basesrccache))
+                push!(pkgdata, rpath=>ReviseFileInfo(submod, basesrccache))
                 if mtime(ffilename) > mtcache
                     with_logger(_debug_logger) do
                         @debug "Recipe for Base/StdLib" _group="Watching" filename=filename mtime=mtime(filename) mtimeref=mtcache
@@ -93,7 +93,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         isdir(compilerdir) || (compilerdir = compilerdir_pre_112)
         pkgdata = get(pkgdatas, id, nothing)
         if pkgdata === nothing
-            pkgdata = PkgData(id, compilerdir)
+            pkgdata = RevisePkgData(id, compilerdir)
         end
         track_subdir_from_git!(pkgdata, compilerdir; modified_files=modified_files)
         # insertion into pkgdatas is done by track_subdir_from_git!
@@ -129,7 +129,7 @@ fixpath(lnn::LineNumberNode; kwargs...) = _fixpath(lnn; kwargs...)
 fixpath(lnn::Core.LineInfoNode; kwargs...) = _fixpath(lnn; kwargs...)
 
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
-function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue)
+function track_subdir_from_git!(pkgdata::RevisePkgData, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue)
     # diff against files at the same commit used to build Julia
     repo, repo_path = git_repo(subdir)
     if repo == nothing
@@ -166,7 +166,7 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
             if src != read(fullpath, String)
                 push!(modified_files, (pkgdata, rpath))
             end
-            fi = FileInfo(fmod)
+            fi = ReviseFileInfo(fmod)
             if parse_source!(fi.modexsigs, src, file, fmod) === nothing
                 @warn "failed to parse Git source text for $file"
             else

@@ -37,9 +37,11 @@ function is_doc_expr(@nospecialize(ex))
         ex::Expr
         length(ex.args) == 4 || return false
         a = ex.args[1]
-        is_global_ref(a, Core, docsym) && return true
-        isa(a, Symbol) && a == docsym && return true
-        if isexpr(a, :.)
+        if isa(a, Symbol) && a === docsym
+            return true
+        elseif is_global_ref(a, Core, docsym)
+            return true
+        elseif isexpr(a, :.)
             mod, name = (a::Expr).args[1], (a::Expr).args[2]
             return mod === :Core && isa(name, QuoteNode) && name.value === docsym
         end
