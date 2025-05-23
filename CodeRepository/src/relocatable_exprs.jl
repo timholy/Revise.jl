@@ -49,16 +49,17 @@ function striplines!(ex::Expr)
     if ex.head === :macrocall
         # for macros, the show method in Base assumes the line number is there,
         # so don't strip it
-        args3 = [let a = ex.args[i]
-                     a isa ExLike ? striplines!(a) : a
-                 end for i = 3:length(ex.args)]
+        args3 = Any[let a = ex.args[i]
+                        a isa ExLike ? striplines!(a) : a
+                    end for i = 3:length(ex.args)]
         return Expr(ex.head, ex.args[1], nothing, args3...)
     end
-    args = [let a = ex.args[i]
-                a isa ExLike ? striplines!(a) : a
-            end for i = 1:length(ex.args)]
-    fargs = collect(LineSkippingIterator(args))
-    return Expr(ex.head, fargs...)
+    args = Any[let a = ex.args[i]
+                   a isa ExLike ? striplines!(a) : a
+               end for i = 1:length(ex.args)]
+    ret = Expr(ex.head)
+    append!(ret.args, LineSkippingIterator(args))
+    return ret
 end
 striplines!(rex::RelocatableExpr) = RelocatableExpr(striplines!(rex.ex))
 
