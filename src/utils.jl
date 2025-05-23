@@ -93,7 +93,7 @@ function unwrap_where(ex::Expr)
     while isexpr(ex, :where)
         ex = ex.args[1]
     end
-    return ex
+    return ex::Expr
 end
 
 function pushex!(exsigs::ExprsSigs, ex::Expr)

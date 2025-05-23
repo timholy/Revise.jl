@@ -89,6 +89,7 @@ include("types.jl")
 include("utils.jl")
 include("parsing.jl")
 include("lowered.jl")
+include("loading.jl")
 include("pkgs.jl")
 include("git.jl")
 include("recipes.jl")
@@ -200,23 +201,18 @@ function fallback_juliadir()
     normpath(candidate)
 end
 
-Core.eval(@__MODULE__, :(global juliadir::String))
-
 """
     Revise.juliadir
 
 Constant specifying full path to julia top-level source directory.
 This should be reliable even for local builds, cross-builds, and binary installs.
 """
-juliadir
-
-juliadir = normpath(
+global juliadir::String =
     if isdir(joinpath(basebuilddir, "base"))
         basebuilddir
     else
         fallback_juliadir()  # Binaries probably end up here. We fall back on Sys.BINDIR
-    end
-)
+    end |> normpath
 
 const cache_file_key = Dict{String,String}() # corrected=>uncorrected filenames
 const src_file_key   = Dict{String,String}() # uncorrected=>corrected filenames
@@ -269,8 +265,6 @@ const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests d
 ## now this is the right strategy.) From the standpoint of CodeTracking, we should
 ## link the signature to the actual method-defining expression (either :(f() = 1) or :(g() = 2)).
 
-get_method_from_match(mm::Core.MethodMatch) = mm.method
-
 function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
     with_logger(_debug_logger) do
         for (ex, sigs) in exs_sigs_old
@@ -281,7 +275,7 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                 ret = Base._methods_by_ftype(sig, -1, Base.get_world_counter())
                 success = false
                 if !isempty(ret)
-                    m = get_method_from_match(ret[end])   # the last method returned is the least-specific that matches, and thus most likely to be type-equal
+                    m = ret[end].method  # the last method returned is the least-specific that matches, and thus most likely to be type-equal
                     methsig = m.sig
                     if sig <: methsig && methsig <: sig
                         locdefs = get(CodeTracking.method_info, sig, nothing)

@@ -30,6 +30,13 @@ function pkg_fileinfo(id::PkgId)
     return nothing
 end
 
+"""
+    parse_pkg_files(id::PkgId)
+
+This function gets called by `watch_package` and runs when a package is first loaded.
+Its job is to organize the files and expressions defining the module so that later we can
+detect and process revisions.
+"""
 function parse_pkg_files(id::PkgId)
     pkgdata = get!(()->PkgData(id), pkgdatas, id)
     if use_compiled_modules()
@@ -67,12 +74,21 @@ function parse_pkg_files(id::PkgId)
     return pkgdata
 end
 
+"""
+    parentfile, included_files = modulefiles(mod::Module)
+
+Return the `parentfile` in which `mod` was defined, as well as a list of any
+other files that were `include`d to define `mod`. If this operation is unsuccessful,
+`(nothing, nothing)` is returned.
+
+All files are returned as absolute paths.
+"""
 function modulefiles(mod::Module)
-    function keypath(filename)
+    function keypath(filename::AbstractString)
         filename = fixpath(filename)
         return get(src_file_key, filename, filename)
     end
-    if isdefined(Base, :moduleloc)
+    @static if isdefined(Base, :moduleloc)
         parentfile = String(Base.moduleloc(mod).file)
     else
         parentfile = String(first(methods(getfield(mod, :eval))).file)

@@ -1,27 +1,3 @@
-using Base: PkgId
-
-include("loading.jl")
-
-"""
-    parse_pkg_files(id::PkgId)
-
-This function gets called by `watch_package` and runs when a package is first loaded.
-Its job is to organize the files and expressions defining the module so that later we can
-detect and process revisions.
-"""
-parse_pkg_files(id::PkgId)
-
-"""
-    parentfile, included_files = modulefiles(mod::Module)
-
-Return the `parentfile` in which `mod` was defined, as well as a list of any
-other files that were `include`d to define `mod`. If this operation is unsuccessful,
-`(nothing, nothing)` is returned.
-
-All files are returned as absolute paths.
-"""
-modulefiles(mod::Module)
-
 # This is primarily used to parse non-precompilable packages.
 # These lack a cache header that lists the files that constitute the package;
 # they also lack the source cache, and so have to parsed immediately or
