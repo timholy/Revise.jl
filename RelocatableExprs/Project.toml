@@ -1,0 +1,10 @@
+name = "RelocatableExprs"
+uuid = "d8335a89-6200-4039-b235-f3a516e6e8f0"
+version = "0.1.0"
+authors = ["Tim Holy <tim.holy@gmail.com>", "Shuhei Kadowaki <aviatesk@gmail.com>"]
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
