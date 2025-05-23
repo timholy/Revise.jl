@@ -5,7 +5,7 @@ using LibGit2: LibGit2
 using Base: PkgId
 using Base.Meta: isexpr
 using Core: CodeInfo
-using CodeRepository
+using CodeManagement
 
 export revise, includet, entr, MethodSummary
 
@@ -737,7 +737,7 @@ function revise(; throw::Bool=false)
         # Do all the deletion first. This ensures that a method that moved from one file to another
         # won't get redefined first and deleted second.
         revision_errors = Tuple{PkgData,String}[]
-        queue = sort!(collect(revision_queue); lt=CodeRepository.pkgfileless)
+        queue = sort!(collect(revision_queue); lt=CodeManagement.pkgfileless)
         finished = eltype(revision_queue)[]
         mexsnews = ModuleExprsSigs[]
         interrupt = false
@@ -1402,7 +1402,7 @@ end
 
 function add_revise_deps()
     # Populate CodeTracking data for dependencies and initialize watching on code that Revise depends on
-    for mod in (CodeRepository, CodeRepository.OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils, Revise)
+    for mod in (CodeManagement, CodeManagement.OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils, Revise)
         id = PkgId(mod)
         pkgdata = parse_pkg_files(id)
         init_watching(pkgdata)

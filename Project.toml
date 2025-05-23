@@ -3,7 +3,7 @@ uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
 version = "3.8.0"
 
 [deps]
-CodeRepository = "e3aa46a8-e9bc-434c-843a-2a8ca567387e"
+CodeManagement = "e3aa46a8-e9bc-434c-843a-2a8ca567387e"
 CodeTracking = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
 FileWatching = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 JuliaInterpreter = "aa1ae85d-cabe-5617-a682-6adf51b2e16a"

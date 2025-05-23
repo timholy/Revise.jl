@@ -1,7 +1,7 @@
 module test_relocatable_exprs
 
 using Test
-using CodeRepository
+using CodeManagement
 
 @testset "Equality and hashing" begin
     # issue #233

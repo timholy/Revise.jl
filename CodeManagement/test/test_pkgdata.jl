@@ -1,7 +1,7 @@
 module test_pkgdata
 
 using Test
-using CodeRepository
+using CodeManagement
 
 let # Related to timholy/Revise.jl#358
     id = Base.PkgId(Main)

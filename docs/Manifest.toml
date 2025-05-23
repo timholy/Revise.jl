@@ -26,9 +26,9 @@ version = "1.11.0"
 uuid = "2a0f44e3-6c83-55bd-87e4-b1978d98bd5f"
 version = "1.11.0"
 
-[[deps.CodeRepository]]
+[[deps.CodeManagement]]
 deps = ["OrderedCollections"]
-path = "../CodeRepository"
+path = "../CodeManagement"
 uuid = "e3aa46a8-e9bc-434c-843a-2a8ca567387e"
 version = "0.1.0"
 
@@ -270,7 +270,7 @@ uuid = "ae029012-a4dd-5104-9daa-d747884805df"
 version = "1.3.1"
 
 [[deps.Revise]]
-deps = ["CodeRepository", "CodeTracking", "FileWatching", "JuliaInterpreter", "LibGit2", "LoweredCodeUtils", "REPL", "Requires", "UUIDs", "Unicode"]
+deps = ["CodeManagement", "CodeTracking", "FileWatching", "JuliaInterpreter", "LibGit2", "LoweredCodeUtils", "REPL", "Requires", "UUIDs", "Unicode"]
 path = ".."
 uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
 version = "3.8.0"

@@ -1,4 +1,4 @@
-module CodeRepository
+module CodeManagement
 
 export RelocatableExpr, LineSkippingIterator, ExprsSigs, ModuleExprsSigs, FileInfo, PkgFiles, PkgData
 export firstline, unwrap, pushex!, srcfiles, basedir, fileindex, hasfile, fileinfo
@@ -15,4 +15,4 @@ include("fileinfo.jl")
 include("pkgfiles.jl")
 include("pkgdata.jl")
 
-end # module CodeRepository
+end # module CodeManagement

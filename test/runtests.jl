@@ -1,6 +1,6 @@
 # REVISE: DO NOT PARSE   # For people with JULIA_REVISE_INCLUDE=1
 using Revise
-using Revise.CodeRepository
+using Revise.CodeManagement
 using Revise.CodeTracking
 using Revise.JuliaInterpreter
 using Test
@@ -341,7 +341,7 @@ const issue639report = []
 
         # coverage
         rex = convert(RelocatableExpr, :(a = 1))
-        @test CodeRepository.striplines!(rex) isa RelocatableExpr
+        @test CodeManagement.striplines!(rex) isa RelocatableExpr
         @test copy(rex) !== rex
     end
 

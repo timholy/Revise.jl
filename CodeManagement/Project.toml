@@ -1,4 +1,4 @@
-name = "CodeRepository"
+name = "CodeManagement"
 uuid = "e3aa46a8-e9bc-434c-843a-2a8ca567387e"
 version = "0.1.0"
 authors = ["Shuhei Kadowaki <aviatesk@gmail.com>"]
