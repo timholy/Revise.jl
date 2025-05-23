@@ -45,7 +45,6 @@ Revise.user_callbacks_by_key
 ## Types
 
 ```@docs
-Revise.RelocatableExpr
 Revise.ModuleExprsSigs
 Revise.FileInfo
 Revise.PkgData

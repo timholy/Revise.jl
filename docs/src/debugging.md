@@ -104,7 +104,7 @@ flavors:
 
 - log entries with message `"Eval"` signify a call to `eval`; for these events,
   keyword `:deltainfo` has value `(mod, expr)` where `mod` is the module of evaluation
-  and `expr` is a [`Revise.RelocatableExpr`](@ref) containing the expression
+  and `expr` is a [`RelocatableExprs.RelocatableExpr`](@ref) containing the expression
   that was evaluated.
 - log entries with message `"DeleteMethod"` signify a method deletion; for these events,
   keyword `:deltainfo` has value `(sigt, methsummary)` where `sigt` is the signature of the

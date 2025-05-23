@@ -42,14 +42,6 @@ macro yry()
     end)
 end
 
-function collectexprs(rex::Revise.RelocatableExpr)
-    items = []
-    for item in Revise.LineSkippingIterator(rex.ex.args)
-        push!(items, isa(item, Expr) ? Revise.RelocatableExpr(item) : item)
-    end
-    items
-end
-
 function get_docstring(obj)
     while !isa(obj, AbstractString)
         fn = fieldnames(typeof(obj))

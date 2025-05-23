@@ -121,7 +121,7 @@ end</code></pre></p>
 ```
 
 This represents the *definition* of a method.
-Definitions are stored as expressions, using a [`Revise.RelocatableExpr`](@ref).
+Definitions are stored as expressions, using a [`RelocatableExprs.RelocatableExpr`](@ref).
 The highlighted portion is the *signature-expression*, specifying the name, argument names
 and their types, and (if applicable) type-parameters of the method.
 
@@ -338,7 +338,7 @@ This is just a summary; to see the actual `def=>sigts` map, do the following:
 
 ```julia
 julia> pkgdata.fileinfos[2].modexsigs[Items]
-OrderedCollections.OrderedDict{Revise.RelocatableExpr,Union{Nothing, Array{Any,1}}} with 2 entries:
+OrderedCollections.OrderedDict{RelocatableExprs.RelocatableExpr,Union{Nothing, Array{Any,1}}} with 2 entries:
   :(indent(::UInt16) = begin…                       => Any[Tuple{typeof(indent),UInt16}]
   :(indent(::UInt8) = begin…                        => Any[Tuple{typeof(indent),UInt8}]
 ```
