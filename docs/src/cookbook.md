@@ -98,7 +98,7 @@ You might be able to open it with
 julia> edit(pathof(MyPkg))
 ```
 
-although that might require [configuring your EDITOR environment variable](https://askubuntu.com/questions/432524/how-do-i-find-and-set-my-editor-environment-variable).
+although that might require configuring your EDITOR environment variable.
 
 You should see something like this:
 
