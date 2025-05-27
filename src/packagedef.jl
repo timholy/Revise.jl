@@ -1088,7 +1088,7 @@ function get_def(method::Method; modified_files=revision_queue)
     # Lookup can fail for macro-defined methods, see https://github.com/JuliaLang/julia/issues/31197
     # We need to find the right file.
     if method.module == Base || method.module == Core || method.module == Core.Compiler
-        @warn "skipping $method to avoid parsing too much code"
+        @warn "skipping $method to avoid parsing too much code" maxlog=1 _id=method
         CodeTracking.invoked_setindex!(CodeTracking.method_info, method.sig, missing)
         return false
     end
