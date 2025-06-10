@@ -1,27 +1,3 @@
-using Base: PkgId
-
-include("loading.jl")
-
-"""
-    parse_pkg_files(id::PkgId)
-
-This function gets called by `watch_package` and runs when a package is first loaded.
-Its job is to organize the files and expressions defining the module so that later we can
-detect and process revisions.
-"""
-parse_pkg_files(id::PkgId)
-
-"""
-    parentfile, included_files = modulefiles(mod::Module)
-
-Return the `parentfile` in which `mod` was defined, as well as a list of any
-other files that were `include`d to define `mod`. If this operation is unsuccessful,
-`(nothing, nothing)` is returned.
-
-All files are returned as absolute paths.
-"""
-modulefiles(mod::Module)
-
 # This is primarily used to parse non-precompilable packages.
 # These lack a cache header that lists the files that constitute the package;
 # they also lack the source cache, and so have to parsed immediately or
@@ -390,7 +366,7 @@ end
 
 # Much of this is adapted from base/loading.jl
 
-function manifest_file(project_file)
+function manifest_file(project_file = Base.active_project())
     if project_file isa String && isfile(project_file)
         mfile = Base.project_file_manifest_path(project_file)
         if mfile isa String
@@ -399,7 +375,6 @@ function manifest_file(project_file)
     end
     return nothing
 end
-manifest_file() = manifest_file(Base.active_project())
 
 function manifest_paths!(pkgpaths::Dict, manifest_file::String)
     d = if isdefined(Base, :get_deps) # `get_deps` is present in versions that support new manifest formats
@@ -427,7 +402,7 @@ end
 manifest_paths(manifest_file::String) =
     manifest_paths!(Dict{PkgId,String}(), manifest_file)
 
-function watch_manifest(mfile)
+function watch_manifest(mfile::String)
     while true
         try
             wait_changed(mfile)

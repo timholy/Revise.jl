@@ -1,6 +1,6 @@
-relpath_safe(path, startpath) = isempty(startpath) ? path : relpath(path, startpath)
+relpath_safe(path::AbstractString, startpath::AbstractString) = isempty(startpath) ? path : relpath(path, startpath)
 
-function Base.relpath(filename, pkgdata::PkgData)
+function Base.relpath(filename::AbstractString, pkgdata::PkgData)
     if isabspath(filename)
         # `Base.locate_package`, which is how `pkgdata` gets initialized, might strip pieces of the path.
         # For example, on Travis macOS the paths returned by `abspath`
@@ -33,7 +33,7 @@ function unique_dirs(iter)
     return udirs
 end
 
-function file_exists(filename)
+function file_exists(filename::AbstractString)
     filename = normpath(filename)
     isfile(filename) && return true
     alt = get(cache_file_key, filename, nothing)
@@ -87,13 +87,13 @@ function unwrap(ex::Expr)
 end
 unwrap(rex::RelocatableExpr) = RelocatableExpr(unwrap(rex.ex))
 
-istrivial(a) = a === nothing || isa(a, LineNumberNode)
+istrivial(@nospecialize a) = a === nothing || isa(a, LineNumberNode)
 
 function unwrap_where(ex::Expr)
     while isexpr(ex, :where)
         ex = ex.args[1]
     end
-    return ex
+    return ex::Expr
 end
 
 function pushex!(exsigs::ExprsSigs, ex::Expr)

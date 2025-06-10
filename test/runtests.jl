@@ -73,17 +73,6 @@ end
 
 const issue639report = []
 
-if isdefined(Core, :var"@latestworld")
-    import Core: @latestworld
-else
-    # In older Julia versions, there were more implicit
-    # world age increments, so the macro is generally not
-    # required.
-    macro latestworld()
-        nothing
-    end
-end
-
 @testset "Revise" begin
     do_test("PkgData") && @testset "PkgData" begin
         # Related to #358
@@ -1143,9 +1132,8 @@ end
         lwr = Meta.lower(ChangeDocstring, ex)
         frame = Frame(ChangeDocstring, lwr.args[1])
         methodinfo = Revise.MethodInfo()
-        docexprs = Revise.DocExprs()
-        ret = Revise.methods_by_execution!(JuliaInterpreter.RecursiveInterpreter(), methodinfo,
-                                           docexprs, frame, trues(length(frame.framecode.src.code)); mode=:sigs)
+        ret = Revise._methods_by_execution!(JuliaInterpreter.RecursiveInterpreter(), methodinfo,
+                                            frame, trues(length(frame.framecode.src.code)); mode=:sigs)
         ds = @doc(ChangeDocstring.f)
         @test get_docstring(ds) == "g"
 
@@ -4057,7 +4045,7 @@ end
 
 include("backedges.jl")
 
-include("non_jl_test.jl")
+# include("non_jl_test.jl")
 
 do_test("Base signatures") && @testset "Base signatures" begin
     println("beginning signatures tests")

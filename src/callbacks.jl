@@ -30,8 +30,6 @@ Global variable, maps callback keys to user hooks.
 """
 const user_callbacks_by_key = Dict{Any, Any}()
 
-
-
 """
     key = Revise.add_callback(f, files, modules=nothing; key=gensym())
 
@@ -109,7 +107,7 @@ function remove_callback(key)
     nothing
 end
 
-function process_user_callbacks!(keys = user_callbacks_queue; throw=false)
+function process_user_callbacks!(keys = user_callbacks_queue; throw::Bool=false)
     try
         # use (a)sync so any exceptions get nicely collected into CompositeException
         @sync for key in keys
