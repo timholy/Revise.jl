@@ -39,7 +39,7 @@ jobs:
         version: ${{ matrix.version }}
         show-versioninfo: ${{ matrix.version == 'nightly' }}
     - uses: julia-actions/cache@v2
-    - run: julia --project -e 'using Pkg; pkg"add https://github.com/serenity4/JuliaInterpreter.jl#codetracking-v2 https://github.com/timholy/CodeTracking.jl#master https://github.com/serenity4/LoweredCodeUtils.jl#support-external-methodtables"'
+    - run: julia --project -e 'using Pkg; using Pkg; Pkg.add([PackageSpec(; url="https://github.com/serenity4/JuliaInterpreter.jl", rev="codetracking-v2"), PackageSpec(; name = "CodeTracking", rev="master"), PackageSpec(; url = "https://github.com/serenity4/LoweredCodeUtils.jl", rev = "support-external-methodtables")])'
     - uses: julia-actions/julia-buildpkg@latest
     # Revise's tests need significant customization
     # Populate the precompile cache with an extraneous file, to catch issues like in #460
@@ -81,7 +81,7 @@ jobs:
         # We also need to pick up the Git tests, but for that we need to `dev` the package
         echo "Git tests"
         julia --code-coverage=user -e '
-          using Pkg; pkg"add https://github.com/serenity4/JuliaInterpreter.jl#codetracking-v2 https://github.com/timholy/CodeTracking.jl#master https://github.com/serenity4/LoweredCodeUtils.jl#support-external-methodtables"
+          using Pkg; using Pkg; using Pkg; Pkg.add([PackageSpec(; url="https://github.com/serenity4/JuliaInterpreter.jl", rev="codetracking-v2"), PackageSpec(; name = "CodeTracking", rev="master"), PackageSpec(; url = "https://github.com/serenity4/LoweredCodeUtils.jl", rev = "support-external-methodtables")])
           using Pkg; Pkg.develop(PackageSpec(path="."))
           include(joinpath("test", "runtests.jl"))
         ' "Git"
