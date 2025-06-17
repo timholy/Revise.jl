@@ -199,7 +199,9 @@ const stdlib_names = Set([
     :Serialization, :SHA, :SharedArrays, :Sockets, :SparseArrays,
     :Statistics, :SuiteSparse, :Test, :Unicode, :UUIDs,
     :TOML, :Artifacts, :LibCURL_jll, :LibCURL, :MozillaCACerts_jll,
-    :Downloads, :Tar, :ArgTools, :NetworkOptions, :PCRE2_jll, :Zlib_jll])
+    :Downloads, :Tar, :ArgTools, :NetworkOptions,
+    # :PCRE2_jll, :Zlib_jll
+])
 
 # This replacement is needed because the path written during compilation differs from
 # the git source path
