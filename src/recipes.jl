@@ -7,7 +7,9 @@ Track updates to the code in Julia's `base` directory, `base/compiler`, or one o
 standard libraries.
 """
 function track(mod::Module; modified_files=revision_queue)
-    id = PkgId(mod)
+    id = Base.moduleroot(mod) == Core.Compiler ?
+        PkgId(mod, "Core.Compiler") :
+        PkgId(mod)
     modname = nameof(mod)
     return _track(id, modname; modified_files=modified_files)
 end
