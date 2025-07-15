@@ -1,5 +1,6 @@
 # REVISE: DO NOT PARSE   # For people with JULIA_REVISE_INCLUDE=1
 using Revise
+using Revise.RelocatableExprs
 using Revise.CodeTracking
 using Revise.JuliaInterpreter
 using Test
@@ -84,39 +85,6 @@ const issue639report = []
         id = Base.PkgId(EponymTuples)
         path, mods_files_mtimes = Revise.pkg_fileinfo(id)
         @test occursin("EponymTuples", path)
-    end
-
-    do_test("LineSkipping") && @testset "LineSkipping" begin
-        rex = Revise.RelocatableExpr(quote
-                                    f(x) = x^2
-                                    g(x) = sin(x)
-                                    end)
-        @test length(rex.ex.args) == 4  # including the line number expressions
-        exs = collectexprs(rex)
-        @test length(exs) == 2
-        @test isequal(exs[1], Revise.RelocatableExpr(:(f(x) = x^2)))
-        @test hash(exs[1]) == hash(Revise.RelocatableExpr(:(f(x) = x^2)))
-        @test !isequal(exs[2], Revise.RelocatableExpr(:(f(x) = x^2)))
-        @test isequal(exs[2], Revise.RelocatableExpr(:(g(x) = sin(x))))
-        @test !isequal(exs[1], Revise.RelocatableExpr(:(g(x) = sin(x))))
-        @test string(rex) == """
-            quote
-                f(x) = begin
-                        x ^ 2
-                    end
-                g(x) = begin
-                        sin(x)
-                    end
-            end"""
-    end
-
-    do_test("Equality and hashing") && @testset "Equality and hashing" begin
-        # issue #233
-        @test  isequal(Revise.RelocatableExpr(:(x = 1)), Revise.RelocatableExpr(:(x = 1)))
-        @test !isequal(Revise.RelocatableExpr(:(x = 1)), Revise.RelocatableExpr(:(x = 1.0)))
-        @test hash(Revise.RelocatableExpr(:(x = 1))) == hash(Revise.RelocatableExpr(:(x = 1)))
-        @test hash(Revise.RelocatableExpr(:(x = 1))) != hash(Revise.RelocatableExpr(:(x = 1.0)))
-        @test hash(Revise.RelocatableExpr(:(x = 1))) != hash(Revise.RelocatableExpr(:(x = 2)))
     end
 
     do_test("Parse errors") && @testset "Parse errors" begin
@@ -205,7 +173,7 @@ const issue639report = []
             end
         end
         mexs = Revise.ModuleExprsSigs(ReviseTestPrivate)
-        mexs[ReviseTestPrivate][Revise.RelocatableExpr(ex)] = nothing
+        mexs[ReviseTestPrivate][RelocatableExpr(ex)] = nothing
         logs, _ = Test.collect_test_logs() do
             Revise.instantiate_sigs!(mexs; mode=:eval)
         end
@@ -254,45 +222,45 @@ const issue639report = []
         dvs = collect(mexsnew[ReviseTest])
         @test length(dvs) == 3
         (def, val) = dvs[1]
-        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(square(x) = x^2)))
+        @test isequal(RelocatableExprs.unwrap(def), RelocatableExpr(:(square(x) = x^2)))
         @test val == [Tuple{typeof(ReviseTest.square),Any}]
-        @test Revise.firstline(Revise.unwrap(def)).line == 5
+        @test RelocatableExprs.firstline(RelocatableExprs.unwrap(def)).line == 5
         m = @which ReviseTest.square(1)
         @test m.line == 5
         @test whereis(m) == (tmpfile, 5)
-        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
+        @test RelocatableExpr(definition(m)) == RelocatableExprs.unwrap(def)
         (def, val) = dvs[2]
-        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(cube(x) = x^3)))
+        @test isequal(RelocatableExprs.unwrap(def), RelocatableExpr(:(cube(x) = x^3)))
         @test val == [Tuple{typeof(ReviseTest.cube),Any}]
         m = @which ReviseTest.cube(1)
         @test m.line == 7
         @test whereis(m) == (tmpfile, 7)
-        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
+        @test RelocatableExpr(definition(m)) == RelocatableExprs.unwrap(def)
         (def, val) = dvs[3]
-        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(fourth(x) = x^4)))
+        @test isequal(RelocatableExprs.unwrap(def), RelocatableExpr(:(fourth(x) = x^4)))
         @test val == [Tuple{typeof(ReviseTest.fourth),Any}]
         m = @which ReviseTest.fourth(1)
         @test m.line == 9
         @test whereis(m) == (tmpfile, 9)
-        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
+        @test RelocatableExpr(definition(m)) == RelocatableExprs.unwrap(def)
 
         dvs = collect(mexsnew[ReviseTest.Internal])
         @test length(dvs) == 5
         (def, val) = dvs[1]
-        @test isequal(Revise.unwrap(def),  Revise.RelocatableExpr(:(mult2(x) = 2*x)))
+        @test isequal(RelocatableExprs.unwrap(def),  RelocatableExpr(:(mult2(x) = 2*x)))
         @test val == [Tuple{typeof(ReviseTest.Internal.mult2),Any}]
-        @test Revise.firstline(Revise.unwrap(def)).line == 13
+        @test RelocatableExprs.firstline(RelocatableExprs.unwrap(def)).line == 13
         m = @which ReviseTest.Internal.mult2(1)
         @test m.line == 11
         @test whereis(m) == (tmpfile, 13)
-        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
+        @test RelocatableExpr(definition(m)) == RelocatableExprs.unwrap(def)
         (def, val) = dvs[2]
-        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(mult3(x) = 3*x)))
+        @test isequal(RelocatableExprs.unwrap(def), RelocatableExpr(:(mult3(x) = 3*x)))
         @test val == [Tuple{typeof(ReviseTest.Internal.mult3),Any}]
         m = @which ReviseTest.Internal.mult3(1)
         @test m.line == 14
         @test whereis(m) == (tmpfile, 14)
-        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
+        @test RelocatableExpr(definition(m)) == RelocatableExprs.unwrap(def)
 
         @test_throws MethodError ReviseTest.Internal.mult4(2)
 
@@ -301,8 +269,8 @@ const issue639report = []
             for (kw, val) in kwargs
                 logval = record.kwargs[kw]
                 for (v, lv) in zip(val, logval)
-                    isa(v, Expr) && (v = Revise.RelocatableExpr(v))
-                    isa(lv, Expr) && (lv = Revise.RelocatableExpr(Revise.unwrap(lv)))
+                    isa(v, Expr) && (v = RelocatableExpr(v))
+                    isa(lv, Expr) && (lv = RelocatableExpr(RelocatableExprs.unwrap(lv)))
                     @test lv == v
                 end
             end
@@ -362,32 +330,32 @@ const issue639report = []
         Revise.debug_logger(; min_level=Info)
 
         # Gensymmed symbols
-        rex1 = Revise.RelocatableExpr(macroexpand(Main, :(t = @elapsed(foo(x)))))
-        rex2 = Revise.RelocatableExpr(macroexpand(Main, :(t = @elapsed(foo(x)))))
+        rex1 = RelocatableExpr(macroexpand(Main, :(t = @elapsed(foo(x)))))
+        rex2 = RelocatableExpr(macroexpand(Main, :(t = @elapsed(foo(x)))))
         @test isequal(rex1, rex2)
         @test hash(rex1) == hash(rex2)
-        rex3 = Revise.RelocatableExpr(macroexpand(Main, :(t = @elapsed(bar(x)))))
+        rex3 = RelocatableExpr(macroexpand(Main, :(t = @elapsed(bar(x)))))
         @test !isequal(rex1, rex3)
         @test hash(rex1) != hash(rex3)
         sym1, sym2 = gensym(:hello), gensym(:hello)
-        rex1 = Revise.RelocatableExpr(:(x = $sym1))
-        rex2 = Revise.RelocatableExpr(:(x = $sym2))
+        rex1 = RelocatableExpr(:(x = $sym1))
+        rex2 = RelocatableExpr(:(x = $sym2))
         @test isequal(rex1, rex2)
         @test hash(rex1) == hash(rex2)
         sym3 = gensym(:world)
-        rex3 = Revise.RelocatableExpr(:(x = $sym3))
+        rex3 = RelocatableExpr(:(x = $sym3))
         @test isequal(rex1, rex3)
         @test hash(rex1) == hash(rex3)
 
         # coverage
-        rex = convert(Revise.RelocatableExpr, :(a = 1))
-        @test Revise.striplines!(rex) isa Revise.RelocatableExpr
+        rex = convert(RelocatableExpr, :(a = 1))
+        @test RelocatableExprs.striplines!(rex) isa RelocatableExpr
         @test copy(rex) !== rex
     end
 
     do_test("Display") && @testset "Display" begin
         io = IOBuffer()
-        show(io, Revise.RelocatableExpr(:(@inbounds x[2])))
+        show(io, RelocatableExpr(:(@inbounds x[2])))
         str = String(take!(io))
         @test str == ":(@inbounds x[2])"
         mod = private_module()
@@ -481,13 +449,13 @@ const issue639report = []
                 @eval @test $(fn5)() == 5
                 @eval @test $(fn6)() == 6
                 m = @eval first(methods($fn1))
-                rex = Revise.RelocatableExpr(definition(m))
-                @test rex == Revise.RelocatableExpr(:( $fn1() = 1 ))
+                rex = RelocatableExpr(definition(m))
+                @test rex == RelocatableExpr(:( $fn1() = 1 ))
                 # Check that definition returns copies
                 rex2 = deepcopy(rex)
                 rex.ex.args[end].args[end] = 2
-                @test Revise.RelocatableExpr(definition(m)) == rex2
-                @test Revise.RelocatableExpr(definition(m)) != rex
+                @test RelocatableExpr(definition(m)) == rex2
+                @test RelocatableExpr(definition(m)) != rex
                 # CodeTracking methods
                 m3 = first(methods(eval(fn3)))
                 m3file = joinpath(dn, "subdir", "file3.jl")
@@ -1894,8 +1862,8 @@ const issue639report = []
         ex2 = :(methspecificity(x::Integer) = 2)
         Core.eval(ReviseTestPrivate, ex1)
         Core.eval(ReviseTestPrivate, ex2)
-        exsig1 = Revise.RelocatableExpr(ex1)=>[Tuple{typeof(ReviseTestPrivate.methspecificity),Int}]
-        exsig2 = Revise.RelocatableExpr(ex2)=>[Tuple{typeof(ReviseTestPrivate.methspecificity),Integer}]
+        exsig1 = RelocatableExpr(ex1)=>[Tuple{typeof(ReviseTestPrivate.methspecificity),Int}]
+        exsig2 = RelocatableExpr(ex2)=>[Tuple{typeof(ReviseTestPrivate.methspecificity),Integer}]
         f_old, f_new = Revise.ExprsSigs(exsig1, exsig2), Revise.ExprsSigs(exsig2)
         Revise.delete_missing!(f_old, f_new)
         m = @which ReviseTestPrivate.methspecificity(1)
@@ -2449,15 +2417,15 @@ const issue639report = []
         @test GetDef.f([1.0]) == 2
         @test GetDef.f([1]) == 3
         m = @which GetDef.f([1])
-        ex = Revise.RelocatableExpr(definition(m))
-        @test ex isa Revise.RelocatableExpr
-        @test isequal(ex, Revise.RelocatableExpr(:(f(v::AbstractVector{<:Integer}) = 3)))
+        ex = RelocatableExpr(definition(m))
+        @test ex isa RelocatableExpr
+        @test isequal(ex, RelocatableExpr(:(f(v::AbstractVector{<:Integer}) = 3)))
 
         st = try GetDef.bar(5.0) catch err stacktrace(catch_backtrace()) end
         linfo = st[2].linfo
         m = isa(linfo, Core.CodeInstance) ? linfo.def.def : linfo.def
-        def = Revise.RelocatableExpr(definition(m))
-        @test def == Revise.RelocatableExpr(:(foo(x::T, y::Integer=1; kw1="hello", kwargs...) where T<:Number = error("stop")))
+        def = RelocatableExpr(definition(m))
+        @test def == RelocatableExpr(:(foo(x::T, y::Integer=1; kw1="hello", kwargs...) where T<:Number = error("stop")))
 
         rm_precompile("GetDef")
 
@@ -3008,7 +2976,7 @@ const issue639report = []
             push!(hp.history, fstr)
             m = first(methods(f))
             @test !isempty(signatures_at(String(m.file), m.line))
-            @test isequal(Revise.RelocatableExpr(definition(m)), Revise.RelocatableExpr(ex))
+            @test isequal(RelocatableExpr(definition(m)), RelocatableExpr(ex))
             @test definition(String, m)[1] == fstr
 
             # Test that revisions work (https://github.com/timholy/CodeTracking.jl/issues/38)
@@ -3021,7 +2989,7 @@ const issue639report = []
             end
             push!(hp.history, fstr)
             m = first(methods(f))
-            @test isequal(Revise.RelocatableExpr(definition(m)), Revise.RelocatableExpr(ex))
+            @test isequal(RelocatableExpr(definition(m)), RelocatableExpr(ex))
             @test definition(String, m)[1] == fstr
             @test !isempty(signatures_at(String(m.file), m.line))
 
