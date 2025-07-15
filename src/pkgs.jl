@@ -416,55 +416,23 @@ function watch_manifest(mfile::String)
                 @debug "Pkg" _group="manifest_update" manifest_file=mfile
                 isfile(mfile) || return nothing
                 pkgdirs = manifest_paths(mfile)
+                pathreplacements = Pair{String,String}[]
                 for (id, pkgdir) in pkgdirs
                     if haskey(pkgdatas, id)
                         pkgdata = pkgdatas[id]
                         if pkgdir != basedir(pkgdata)
                             ## The package directory has changed
                             @debug "Pkg" _group="pathswitch" oldpath=basedir(pkgdata) newpath=pkgdir
-                            # Stop all associated watching tasks
-                            for dir in unique_dirs(srcfiles(pkgdata))
-                                @debug "Pkg" _group="unwatch" dir=dir
-                                delete!(watched_files, joinpath(basedir(pkgdata), dir))
-                                # Note: if the file is revised, the task(s) will run one more time.
-                                # However, because we've removed the directory from the watch list this will be a no-op,
-                                # and then the tasks will be dropped.
-                            end
-                            # Revise code as needed
-                            files = String[]
-                            mustnotify = false
-                            for file in srcfiles(pkgdata)
-                                fi = try
-                                    maybe_parse_from_cache!(pkgdata, file)
-                                catch err
-                                    # https://github.com/JuliaLang/julia/issues/42404
-                                    # Get the source-text from the package source instead
-                                    fi = fileinfo(pkgdata, file)
-                                    if isempty(fi.modexsigs) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
-                                        filep = joinpath(basedir(pkgdata), file)
-                                        src = read(filep, String)
-                                        topmod = first(keys(fi.modexsigs))
-                                        if parse_source!(fi.modexsigs, src, filep, topmod) === nothing
-                                            @error "failed to parse source text for $filep"
-                                        end
-                                        add_modexs!(fi, fi.cacheexprs)
-                                        empty!(fi.cacheexprs)
-                                        fi.parsed[] = true
-                                    end
-                                    fi
-                                end
-                                maybe_extract_sigs!(fi)
-                                push!(revision_queue, (pkgdata, file))
-                                push!(files, file)
-                                mustnotify = true
-                            end
-                            mustnotify && notify(revision_event)
-                            # Update the directory
-                            pkgdata.info.basedir = pkgdir
-                            # Restart watching, if applicable
-                            if has_writable_paths(pkgdata)
-                                init_watching(pkgdata, files)
-                            end
+                            push!(pathreplacements, basedir(pkgdata)=>pkgdir)
+                            switch_basepath(pkgdata, pkgdir)
+                        end
+                    end
+                end
+                # Update the paths in the watchlist
+                for (oldpath, newpath) in pathreplacements
+                    for (_, pkgdata) in pkgdatas
+                        if basedir(pkgdata) == oldpath
+                            switch_basepath(pkgdata, newpath)
                         end
                     end
                 end
@@ -473,6 +441,53 @@ function watch_manifest(mfile::String)
             @error "Error watching manifest" exception=(err, trim_toplevel!(catch_backtrace()))
         end
     end
+end
+
+function switch_basepath(pkgdata::PkgData, newpath::String)
+    # Stop all associated watching tasks
+    for dir in unique_dirs(srcfiles(pkgdata))
+        @debug "Pkg" _group="unwatch" dir=dir
+        delete!(watched_files, joinpath(basedir(pkgdata), dir))
+        # Note: if the file is revised, the task(s) will run one more time.
+        # However, because we've removed the directory from the watch list this will be a no-op,
+        # and then the tasks will be dropped.
+    end
+    # Revise code as needed
+    files = String[]
+    mustnotify = false
+    for file in srcfiles(pkgdata)
+        fi = try
+            maybe_parse_from_cache!(pkgdata, file)
+        catch err
+            # https://github.com/JuliaLang/julia/issues/42404
+            # Get the source-text from the package source instead
+            fi = fileinfo(pkgdata, file)
+            if isempty(fi.modexsigs) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
+                filep = joinpath(basedir(pkgdata), file)
+                src = read(filep, String)
+                topmod = first(keys(fi.modexsigs))
+                if parse_source!(fi.modexsigs, src, filep, topmod) === nothing
+                    @error "failed to parse source text for $filep"
+                end
+                add_modexs!(fi, fi.cacheexprs)
+                empty!(fi.cacheexprs)
+                fi.parsed[] = true
+            end
+            fi
+        end
+        maybe_extract_sigs!(fi)
+        push!(revision_queue, (pkgdata, file))
+        push!(files, file)
+        mustnotify = true
+    end
+    mustnotify && notify(revision_event)
+    # Update the directory
+    pkgdata.info.basedir = newpath
+    # Restart watching, if applicable
+    if has_writable_paths(pkgdata)
+        init_watching(pkgdata, files)
+    end
+    return nothing
 end
 
 function active_project_watcher()
