@@ -436,9 +436,9 @@ It also has the following fields:
 struct CodeTrackingMethodInfo
     exprstack::Vector{Expr}
     allsigs::Vector{Pair{Union{Nothing, MethodTable}, Type}}
-    includes::Vector{Pair{Module,String}}
+    includes::Vector{Pair{Module,Union{String, MapExprFile}}}
 end
-CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Pair{Union{Nothing, MethodTable}, Type}[], Pair{Module,String}[])
+CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Pair{Union{Nothing, MethodTable}, Type}[], Pair{Module,Union{String, MapExprFile}}[])
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, mt_sig::MethodInfoKey, ln)
     locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, mt_sig)
@@ -466,14 +466,16 @@ function eval_with_signatures(mod, ex::Expr; mode=:eval, kwargs...)
 end
 
 function instantiate_sigs!(modexsigs::ModuleExprsSigs; mode=:sigs, kwargs...)
+    includes = Pair{Module,Union{String, MapExprFile}}[]
     for (mod, exsigs) in modexsigs
         for rex in keys(exsigs)
             is_doc_expr(rex.ex) && continue
-            mt_sigs, _ = eval_with_signatures(mod, rex.ex; mode=mode, kwargs...)
+            mt_sigs, _includes = eval_with_signatures(mod, rex.ex; mode=mode, kwargs...)
+            append!(includes, _includes)
             exsigs[rex] = mt_sigs
         end
     end
-    return modexsigs
+    return includes
 end
 
 # This is intended for testing purposes, but not general use. The key problem is
@@ -485,6 +487,7 @@ function eval_revised(mod_exs_sigs_new, mod_exs_sigs_old)
     delete_missing!(mod_exs_sigs_old, mod_exs_sigs_new)
     eval_new!(mod_exs_sigs_new, mod_exs_sigs_old)  # note: drops `includes`
     instantiate_sigs!(mod_exs_sigs_new)
+    return mod_exs_sigs_new
 end
 
 """
@@ -631,16 +634,24 @@ function handle_deletions(pkgdata, file)
     maybe_extract_sigs!(fi)
     mexsold = fi.modexsigs
     idx = fileindex(pkgdata, file)
-    filep = pkgdata.info.files[idx]
-    if isa(filep, AbstractString)
+    filename = filep = pkgdata.info.files[idx]
+    if isa(filep, MapExprFile)
+        filename = String(filep.filename)::String
+    end
+    if isa(filename, AbstractString)
         if file ≠ "."
-            filep = normpath(basedir(pkgdata), file)
+            filename = normpath(basedir(pkgdata), file)
         else
-            filep = normpath(basedir(pkgdata))
+            filename = normpath(basedir(pkgdata))
         end
     end
+    if isa(filep, MapExprFile)
+        filep = MapExprFile(filep.mapexpr, filename)
+    else
+        filep = filename
+    end
     topmod = first(keys(mexsold))
-    fileok = file_exists(String(filep)::String)
+    fileok = file_exists(filename)
     mexsnew = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
     if mexsnew !== nothing && mexsnew !== DoNotParse()
         delete_missing!(mexsold, mexsnew)

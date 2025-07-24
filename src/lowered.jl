@@ -495,7 +495,12 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                     if length(stmt.args) == 2
                         add_includes!(methodinfo, mod, lookup(interp, frame, stmt.args[2]))
                     elseif length(stmt.args) == 3
-                        add_includes!(methodinfo, lookup(interp, frame, stmt.args[2]), lookup(interp, frame, stmt.args[3]))
+                        mod_or_mapexpr = lookup(interp, frame, stmt.args[2])
+                        if isa(mod_or_mapexpr, Module)
+                            add_includes!(methodinfo, mod_or_mapexpr, lookup(interp, frame, stmt.args[3]))
+                        else
+                            add_includes!(methodinfo, mod, MapExprFile(mod_or_mapexpr, lookup(interp, frame, stmt.args[3])))
+                        end
                     else
                         error("Bad call to Core.include")
                     end
@@ -509,7 +514,7 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                         if isa(mod_or_mapexpr, Module)
                             add_includes!(methodinfo, mod_or_mapexpr, lookup(interp, frame, stmt.args[3]))
                         else
-                            error("include(mapexpr, path) is not supported") # TODO (issue #634)
+                            add_includes!(methodinfo, mod, MapExprFile(mod_or_mapexpr, lookup(interp, frame, stmt.args[3])))
                         end
                     end
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`

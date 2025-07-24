@@ -150,7 +150,11 @@ CodeTracking.srcfiles(pkgdata::PkgData) = srcfiles(pkgdata.info)
 
 function fileindex(info::PkgData, file::AbstractString)
     for (i, f) in enumerate(srcfiles(info))
-        String(f) == String(file) && return i
+        f == file && return i
+        # FIXME: what if the file gets included twice with different mapexprs?
+        if isa(f, MapExprFile) && !isa(file, MapExprFile)
+            f.filename == file && return i
+        end
     end
     return nothing
 end
@@ -162,7 +166,7 @@ function hasfile(info::PkgData, file::AbstractString)
     fileindex(info, file) !== nothing
 end
 
-function fileinfo(pkgdata::PkgData, file::String)
+function fileinfo(pkgdata::PkgData, file::Union{String, MapExprFile})
     i = fileindex(pkgdata, file)
     i === nothing && error("file ", file, " not found")
     return pkgdata.fileinfos[i]

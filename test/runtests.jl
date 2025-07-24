@@ -3197,6 +3197,53 @@ const issue639report = []
         @yry()
         test_second_revision(@eval $name)
     end
+
+    do_test("mapexpr include") && @testset "mapexpr include" begin
+        # Test is inspired by #634, modified to simplify testing
+        # Changes all appearances of `c` in the right-hand side of an assignment
+        # to `11 * c`
+        testdir = newtestdir()
+        dn = joinpath(testdir, "MapExprInclude", "src")
+        mkpath(dn)
+        write(joinpath(dn, "MapExprInclude.jl"), """
+            module MapExprInclude
+            function c211c!(expr)
+                expr0 = expr
+                while expr.head !== :(=)
+                    expr = expr.args[end]
+                end
+                if expr.head === :(=)
+                    lhs, rhs = expr.args
+                    while rhs.args[end] !== :c
+                        rhs = rhs.args[end]
+                    end
+                    if rhs.args[end] === :c
+                        rhs.args[end] = :(11 * c)
+                    else
+                        error("unexpected rhs: ", rhs)
+                    end
+                end
+                return expr0
+            end
+
+            include(c211c!, "getsmapped.jl")
+            end
+            """)
+        write(joinpath(dn, "getsmapped.jl"), """
+            foo(a, b, c) = a * b + c
+            """)
+        sleep(mtimedelay)
+        @eval using MapExprInclude
+        sleep(mtimedelay)
+        @test MapExprInclude.foo(1.0, 2.0, 3.0) == 35.0
+        Revise.parseall(MapExprInclude)   # DELETEME Julia 1.13
+        write(joinpath(dn, "getsmapped.jl"), """
+            foo(a, b, c) = a + b * c
+            """)
+        @yry()
+        @test MapExprInclude.foo(1.0, 2.0, 3.0) == 67.0
+        rm_precompile("MapExprInclude")
+    end
 end
 
 do_test("Utilities") && @testset "Utilities" begin
