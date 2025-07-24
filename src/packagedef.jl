@@ -1020,7 +1020,7 @@ function includet(mod::Module, file::AbstractString)
         end
         if isa(err, ReviseEvalException)
             printstyled(stderr, "ERROR: "; color=Base.error_color());
-            showerror(stderr, err; blame_revise=false)
+            invokelatest(showerror, stderr, err; blame_revise=false)
             println(stderr, "\nin expression starting at ", err.loc)
         else
             throw(err)
