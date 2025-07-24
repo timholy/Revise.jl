@@ -15,15 +15,18 @@ mutable struct WatchList
     trackedfiles::Dict{String,PkgId}
 end
 
-const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Any}}}
+const DocExprs = Dict{Module,Vector{Expr}}
+const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Pair{Union{Nothing, MethodTable}, Type}}}}
+const DepDictVals = Tuple{Module,RelocatableExpr}
+const DepDict = Dict{Symbol,Set{DepDictVals}}
 
 function Base.show(io::IO, exsigs::ExprsSigs)
     compact = get(io, :compact, false)
     if compact
         n = 0
-        for (rex, sigs) in exsigs
-            sigs === nothing && continue
-            n += length(sigs)
+        for (rex, mt_sigs) in exsigs
+            mt_sigs === nothing && continue
+            n += length(mt_sigs)
         end
         print(io, "ExprsSigs(<$(length(exsigs)) expressions>, <$n signatures>)")
     else
@@ -39,11 +42,11 @@ end
     ModuleExprsSigs
 
 For a particular source file, the corresponding `ModuleExprsSigs` is a mapping
-`mod=>exprs=>sigs` of the expressions `exprs` found in `mod` and the signatures `sigs`
+`mod=>exprs=>mt_sigs` of the expressions `exprs` found in `mod` and the method table/signature pairs `mt_sigs`
 that arise from them. Specifically, if `mes` is a `ModuleExprsSigs`, then `mes[mod][ex]`
-is a list of signatures that result from evaluating `ex` in `mod`. It is possible that
+is a list of method table/signature pairs that result from evaluating `ex` in `mod`. It is possible that
 this returns `nothing`, which can mean either that `ex` does not define any methods
-or that the signatures have not yet been cached.
+or that the method table/signature pairs have not yet been cached.
 
 The first `mod` key is guaranteed to be the module into which this file was `include`d.
 
@@ -147,7 +150,11 @@ CodeTracking.srcfiles(pkgdata::PkgData) = srcfiles(pkgdata.info)
 
 function fileindex(info::PkgData, file::AbstractString)
     for (i, f) in enumerate(srcfiles(info))
-        String(f) == String(file) && return i
+        f == file && return i
+        # FIXME: what if the file gets included twice with different mapexprs?
+        if isa(f, MapExprFile) && !isa(file, MapExprFile)
+            f.filename == file && return i
+        end
     end
     return nothing
 end
@@ -159,7 +166,7 @@ function hasfile(info::PkgData, file::AbstractString)
     fileindex(info, file) !== nothing
 end
 
-function fileinfo(pkgdata::PkgData, file::String)
+function fileinfo(pkgdata::PkgData, file::Union{String, MapExprFile})
     i = fileindex(pkgdata, file)
     i === nothing && error("file ", file, " not found")
     return pkgdata.fileinfos[i]
@@ -181,10 +188,10 @@ function Base.show(io::IO, pkgdata::PkgData)
         for fi in pkgdata.fileinfos
             thisnexs, thisnsigs = 0, 0
             for (mod, exsigs) in fi.modexsigs
-                for (rex, sigs) in exsigs
+                for (rex, mt_sigs) in exsigs
                     thisnexs += 1
-                    sigs === nothing && continue
-                    thisnsigs += length(sigs)
+                    mt_sigs === nothing && continue
+                    thisnsigs += length(mt_sigs)
                 end
             end
             nexs += thisnexs

@@ -78,7 +78,7 @@ function read_from_cache(pkgdata::PkgData, file::AbstractString)
             Base._read_dependency_src(io, filec)
         end
     end
-    Base.read_dependency_src(fi.cachefile, filep)
+    Base.read_dependency_src(fi.cachefile, String(filep))
 end
 
 function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
@@ -105,6 +105,25 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
     return fi
 end
 
+function parseall!(pkgdata::PkgData)
+    # Parse all files in the package
+    for file in srcfiles(pkgdata)
+        fi = maybe_parse_from_cache!(pkgdata, file)
+        includes = maybe_extract_sigs!(fi)
+        for (mod, filename) in includes
+            if isa(filename, MapExprFile)
+                fn = joinpath(dirname(file), String(filename))
+                i = fileindex(pkgdata, fn)
+                if i !== nothing
+                    pkgdata.info.files[i] = MapExprFile(filename.mapexpr, fn)
+                end
+            end
+        end
+    end
+end
+parseall(pkgid::PkgId) = parseall!(pkgdatas[pkgid])
+parseall(m::Module) = parseall!(pkgdatas[PkgId(m)])
+
 function add_modexs!(fi::FileInfo, modexs)
     for (mod, rex) in modexs
         exsigs = get(fi.modexsigs, mod, nothing)
@@ -117,11 +136,12 @@ function add_modexs!(fi::FileInfo, modexs)
 end
 
 function maybe_extract_sigs!(fi::FileInfo)
+    includes = nothing
     if !fi.extracted[]
-        instantiate_sigs!(fi.modexsigs)
+        includes = instantiate_sigs!(fi.modexsigs)
         fi.extracted[] = true
     end
-    return fi
+    return includes
 end
 maybe_extract_sigs!(pkgdata::PkgData, file::AbstractString) = maybe_extract_sigs!(fileinfo(pkgdata, file))
 

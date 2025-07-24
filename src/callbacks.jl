@@ -21,7 +21,7 @@ const user_callbacks_queue = Set{Any}()
 Global variable, maps files (identified by their absolute path) to the set of
 callback keys registered for them.
 """
-const user_callbacks_by_file = Dict{String, Set{Any}}()
+const user_callbacks_by_file = Dict{Union{String, MapExprFile}, Set{Any}}()
 
 """
     Revise.user_callbacks_by_key

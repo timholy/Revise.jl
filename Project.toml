@@ -21,7 +21,7 @@ Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 DistributedExt = "Distributed"
 
 [compat]
-CodeTracking = "1.2"
+CodeTracking = "2"
 Distributed = "1"
 JuliaInterpreter = "0.10"
 LoweredCodeUtils = "3.3"

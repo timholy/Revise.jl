@@ -43,6 +43,21 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
     end
 end
 
+function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, mapfile::MapExprFile, mod::Module; kwargs...)
+    if startswith(src, "# REVISE: DO NOT PARSE")
+        return DoNotParse()
+    end
+    (; mapexpr, filename) = mapfile
+    ex = Base.parse_input_line(src; filename)
+    if ex === nothing
+        return mod_exprs_sigs
+    elseif ex isa Expr
+        return process_ex!(mod_exprs_sigs, mapexpr(ex), filename, mod; kwargs...)
+    else # literals
+        return nothing
+    end
+end
+
 function process_ex!(mod_exprs_sigs::ModuleExprsSigs, ex::Expr, filename::AbstractString, mod::Module; mode::Symbol=:sigs)
     if isexpr(ex, :error) || isexpr(ex, :incomplete)
         return eval(ex)

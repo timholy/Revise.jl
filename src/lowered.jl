@@ -9,7 +9,7 @@ end
 # This defines the API needed to store signatures using methods_by_execution!
 # This default version is simple and only used for testing purposes.
 # The "real" one is CodeTrackingMethodInfo in Revise.jl.
-const MethodInfo = IdDict{Type,LineNumberNode}
+const MethodInfo = IdDict{MethodInfoKey,LineNumberNode}
 add_signature!(methodinfo, @nospecialize(sig), ln) = push!(methodinfo, sig=>ln)
 push_expr!(methodinfo, mod::Module, ex::Expr) = methodinfo
 pop_expr!(methodinfo) = methodinfo
@@ -309,7 +309,7 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
     mod = moduleof(frame)
     # Hoist this lookup for performance. Don't throw even when `mod` is a baremodule:
     modinclude = isdefined(mod, :include) ? getfield(mod, :include) : nothing
-    signatures = []  # temporary for method signature storage
+    signatures = MethodInfoKey[]  # temporary for method signature storage
     pc = frame.pc
     while true
         JuliaInterpreter.is_leaf(frame) || (@warn("not a leaf"); break)
@@ -457,13 +457,13 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                         uT = Base.unwrap_unionall(T)::DataType
                         ft = uT.types
                         sig1 = Tuple{Base.rewrap_unionall(Type{uT}, T), Any[Any for i in 1:length(ft)]...}
-                        push!(signatures, sig1)
+                        push!(signatures, nothing => sig1)
                         sig2 = Base.rewrap_unionall(Tuple{Type{T}, ft...}, T)
                         while T isa UnionAll
                             sig2 isa UnionAll || (sig2 = sig1; break) # sig2 doesn't define all parameters, so drop it
                             T = T.body
                         end
-                        sig1 == sig2 || push!(signatures, sig2)
+                        sig1 == sig2 || push!(signatures, nothing => sig2)
                         for sig in signatures
                             add_signature!(methodinfo, sig, lnn)
                         end
@@ -495,7 +495,12 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                     if length(stmt.args) == 2
                         add_includes!(methodinfo, mod, lookup(interp, frame, stmt.args[2]))
                     elseif length(stmt.args) == 3
-                        add_includes!(methodinfo, lookup(interp, frame, stmt.args[2]), lookup(interp, frame, stmt.args[3]))
+                        mod_or_mapexpr = lookup(interp, frame, stmt.args[2])
+                        if isa(mod_or_mapexpr, Module)
+                            add_includes!(methodinfo, mod_or_mapexpr, lookup(interp, frame, stmt.args[3]))
+                        else
+                            add_includes!(methodinfo, mod, MapExprFile(mod_or_mapexpr, lookup(interp, frame, stmt.args[3])))
+                        end
                     else
                         error("Bad call to Core.include")
                     end
@@ -509,7 +514,7 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                         if isa(mod_or_mapexpr, Module)
                             add_includes!(methodinfo, mod_or_mapexpr, lookup(interp, frame, stmt.args[3]))
                         else
-                            error("include(mapexpr, path) is not supported") # TODO (issue #634)
+                            add_includes!(methodinfo, mod, MapExprFile(mod_or_mapexpr, lookup(interp, frame, stmt.args[3])))
                         end
                     end
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
