@@ -63,8 +63,13 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         if pkgdata === nothing
             pkgdata = PkgData(id, srcdir)
         end
-        cachefile, _ = Revise.pkg_fileinfo(id)
-        if cachefile === nothing
+        ret = Revise.pkg_fileinfo(id)
+        if ret !== nothing
+            cachefile, _ = ret
+            if cachefile === nothing
+                @error "unable to find cache file for $id, tracking is not possible"
+            end
+        else
             cachefile = basesrccache
         end
         lock(revise_lock) do
