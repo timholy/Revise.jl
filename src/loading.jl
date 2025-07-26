@@ -113,7 +113,7 @@ end
 
 function modulefiles_basestlibs(id)
     ret = Revise.pkg_fileinfo(id)
-    cachefile = ret === nothing ? nothing : ret[1]
+    cachefile, includes = ret === nothing ? (nothing, nothing) : ret[1:2]
     # `cachefile` will be nothing for Base and stdlibs that *haven't* been moved out
     cachefile === nothing && return Iterators.drop(Base._included_files, 1)  # stepping through sysimg.jl rebuilds Base, omit it
     # stdlibs that are packages
