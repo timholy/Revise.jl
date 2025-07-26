@@ -382,8 +382,8 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
         if rexo === nothing
             ex = rex.ex
             # ex is not present in old
-            @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
-            mt_sigs, includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
+            @debug titlecase(String(mode)) _group="Action" time=time() deltainfo=(mod, ex)
+            mt_sigs, includes, thunk = eval_with_signatures(mod, ex; mode)  # All signatures defined by `ex`
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end
@@ -855,13 +855,11 @@ function revise(; throw::Bool=false)
                         continue
                     end
                     if length(methinfo) != 1 && Base.unwrap_unionall(m.sig).parameters[1] !== typeof(Core.kwcall)
-                        @warn "Multiple definitions for $(m.sig) found, skipping reevaluation"
+                        with_logger(_debug_logger) do
+                            @debug "FailedDeletion" _group="Action" time=time() deltainfo=(m.sig, methinfo)
+                        end
                         continue
                     end
-                    Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
-                    _, ex = methinfo[1]
-                    invokelatest(eval_with_signatures, m.module, ex; mode=:eval)
-                    push!(handled, m.sig)
                     if isdefinedglobal(m.module, m.name)
                         f = getglobal(m.module, m.name)
                         if isa(f, DataType)
@@ -871,6 +869,15 @@ function revise(; throw::Bool=false)
                             union!(reeval_methods, newmeths)
                         end
                     end
+                    with_logger(_debug_logger) do
+                        @debug "DeleteMethod" _group="Action" time=time() deltainfo=(m.sig, MethodSummary(m))
+                        Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
+                        delete!(CodeTracking.method_info, m.sig)
+                        _, ex = methinfo[1]
+                        @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
+                        invokelatest(eval_with_signatures, m.module, ex; mode=:eval)
+                    end
+                    push!(handled, m.sig)
                 end
             end
         end

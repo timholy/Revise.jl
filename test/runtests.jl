@@ -2442,9 +2442,12 @@ const issue639report = []
                 struct Point
                     x::Float64
                 end
+                # Two methods that won't need to be explicitly redefined (but will need re-evaluation for new type)
                 firstval(p::Point) = p.x
                 firstvalP(p::P) where P<:Point = p.x
+                # Method that will need to be explicitly redefined
                 mynorm(p::Point) = sqrt(p.x^2)
+                # Method that uses `Point` without it being in the signature
                 hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
                 end
                 """)
