@@ -35,7 +35,7 @@ module Revise
 
 using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
 
-using CodeTracking: PkgFiles, basedir, srcfiles, basepath
+using CodeTracking: PkgFiles, basedir, srcfiles, basepath, MethodInfoKey
 using JuliaInterpreter: Compiled, Frame, Interpreter, LineTypes, RecursiveInterpreter
 using JuliaInterpreter: codelocs, finish_and_return!, get_return, is_doc_expr, isassign,
                         isidentical, is_quotenode_egal, linetable, lookup, moduleof,

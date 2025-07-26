@@ -3,6 +3,10 @@
 This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
+## Revise 3.8
+
+* Methods defined on external method tables via `Base.Experimental.@overlay` can now be correctly revised ([#904]).
+
 ## Revise 3.3
 
 * Upgrade to JuliaInterpreter 0.9 and drop support for Julia prior to 1.6 (the new LTS).
@@ -151,3 +155,4 @@ New features:
 [#243]: https://github.com/timholy/Revise.jl/pull/243
 [#245]: https://github.com/timholy/Revise.jl/pull/245
 [#278]: https://github.com/timholy/Revise.jl/pull/278
+[#904]: https://github.com/timholy/Revise.jl/pull/904
