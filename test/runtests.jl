@@ -2572,6 +2572,39 @@ const issue639report = []
             rm_precompile("StructConst")
             rm_precompile("StructConstUser")
             rm_precompile("StructConstUserUser")
+
+            # Example from https://github.com/timholy/Revise.jl/pull/894#issuecomment-2824111764
+            dn = joinpath(testdir, "StructExample", "src")
+            mkpath(dn)
+            write(joinpath(dn, "StructExample.jl"),
+            """
+            module StructExample
+            export hello, Hello
+            struct Hello
+                who::String
+            end
+            hello(x::Hello) = hello(x.who)
+            hello(who::String) = "Hello, \$who"
+            end
+            """)
+            sleep(mtimedelay)
+            @eval using StructExample
+            sleep(mtimedelay)
+            @test StructExample.hello(StructExample.Hello("World")) == "Hello, World"
+            write(joinpath(dn, "StructExample.jl"),
+            """
+            module StructExample
+            export hello, Hello
+            struct Hello
+                who2::String
+            end
+            hello(x::Hello) = hello(x.who2 * " (changed)")
+            hello(who::String) = "Hello, \$who"
+            end
+            """)
+            @yry()
+            @test StructExample.hello(StructExample.Hello("World")) == "Hello, World (changed)"
+
             pop!(LOAD_PATH)
         end
     end
