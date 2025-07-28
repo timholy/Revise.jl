@@ -167,7 +167,7 @@ You can see that Revise started by deleting three methods, followed by evaluatin
 
 In verbose mode, the same information looks like this:
 
-```
+```julia-repl
 julia> show(IOContext(stdout, :verbose=>true), MIME("text/plain"), rlogger.logs)
 9-element Vector{Revise.LogRecord}:
  Revise.LogRecord(Debug, DeleteMethod, Action, Revise_4ac0f476, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 296, (time=1.753703251773368e9, deltainfo=(Tuple{typeof(Main.ReviseTest.cube), Any}, cube(::Any))))
