@@ -37,7 +37,7 @@ Once all the revisions have been triggered and the mistake has been reproduced,
 it's time to capture the logs.
 To capture all the logs, use
 
-```julia
+```julia-repl
 julia> using Base.CoreLogging: Debug
 
 julia> logs = filter(r->r.level==Debug, rlogger.logs);
@@ -45,7 +45,7 @@ julia> logs = filter(r->r.level==Debug, rlogger.logs);
 
 You can capture just the changes that Revise made to running code with
 
-```julia
+```julia-repl
 julia> logs = Revise.actions(rlogger)
 ```
 
@@ -135,7 +135,7 @@ See [`Revise.debug_logger`](@ref) for information on groups besides "Action."
 
 From within Revise's `test/` directory, try the following:
 
-```julia
+```julia-repl
 julia> rlogger = Revise.debug_logger();
 
 shell> cp revisetest.jl /tmp/
@@ -211,7 +211,7 @@ and pasted into the bug report.
 
 During certain types of usage you might receive messages like
 
-```julia
+```
 Warning: /some/system/path/stdlib/v1.0/SHA/src is not an existing directory, Revise is not watching
 ```
 
