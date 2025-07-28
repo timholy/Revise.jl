@@ -87,6 +87,11 @@ open("/tmp/revise.logs", "w") do io
     for log in logs
         println(io, log)
     end
+    # also print in verbose form
+    ioctx = IOContext(io, :verbose=>true)
+    for log in logs
+        println(ioctx, log)
+    end
 end
 ```
 
@@ -146,29 +151,55 @@ julia> ReviseTest.cube(3)
 27
 
 julia> rlogger.logs
-julia> rlogger.logs
-9-element Array{Revise.LogRecord,1}:
- Revise.LogRecord(Debug, DeleteMethod, Action, Revise_4ac0f476, "/home/tim/.julia/dev/Revise/src/Revise.jl", 226, (time=1.557996459055345e9, deltainfo=(Tuple{typeof(Main.ReviseTest.cube),Any}, MethodSummary(:cube, :ReviseTest, Symbol("/tmp/revisetest.jl"), 7, Tuple{typeof(Main.ReviseTest.cube),Any}))))
- Revise.LogRecord(Debug, DeleteMethod, Action, Revise_4ac0f476, "/home/tim/.julia/dev/Revise/src/Revise.jl", 226, (time=1.557996459167895e9, deltainfo=(Tuple{typeof(Main.ReviseTest.Internal.mult3),Any}, MethodSummary(:mult3, :Internal, Symbol("/tmp/revisetest.jl"), 12, Tuple{typeof(Main.ReviseTest.Internal.mult3),Any}))))
- Revise.LogRecord(Debug, DeleteMethod, Action, Revise_4ac0f476, "/home/tim/.julia/dev/Revise/src/Revise.jl", 226, (time=1.557996459167956e9, deltainfo=(Tuple{typeof(Main.ReviseTest.Internal.mult4),Any}, MethodSummary(:mult4, :Internal, Symbol("/tmp/revisetest.jl"), 13, Tuple{typeof(Main.ReviseTest.Internal.mult4),Any}))))
- Revise.LogRecord(Debug, Eval, Action, Revise_9147188b, "/home/tim/.julia/dev/Revise/src/Revise.jl", 276, (time=1.557996459259605e9, deltainfo=(Main.ReviseTest, :(cube(x) = begin
-          #= /tmp/revisetest.jl:7 =#
-          x ^ 3
-      end))))
- Revise.LogRecord(Debug, Eval, Action, Revise_9147188b, "/home/tim/.julia/dev/Revise/src/Revise.jl", 276, (time=1.557996459330512e9, deltainfo=(Main.ReviseTest, :(fourth(x) = begin
-          #= /tmp/revisetest.jl:9 =#
-          x ^ 4
-      end))))
- Revise.LogRecord(Debug, LineOffset, Action, Revise_fb38a7f7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 296, (time=1.557996459331061e9, deltainfo=(Pair{Union{Nothing, MethodTable}, Type}[nothing => Tuple{typeof(mult2),Any}], :(#= /tmp/revisetest.jl:11 =#) => :(#= /tmp/revisetest.jl:13 =#))))
- Revise.LogRecord(Debug, Eval, Action, Revise_9147188b, "/home/tim/.julia/dev/Revise/src/Revise.jl", 276, (time=1.557996459391182e9, deltainfo=(Main.ReviseTest.Internal, :(mult3(x) = begin
-          #= /tmp/revisetest.jl:14 =#
-          3x
-      end))))
- Revise.LogRecord(Debug, LineOffset, Action, Revise_fb38a7f7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 296, (time=1.557996459391642e9, deltainfo=(Pair{Union{Nothing, MethodTable}, Type}[nothing => Tuple{typeof(unchanged),Any}], :(#= /tmp/revisetest.jl:18 =#) => :(#= /tmp/revisetest.jl:19 =#))))
- Revise.LogRecord(Debug, LineOffset, Action, Revise_fb38a7f7, "/home/tim/.julia/dev/Revise/src/Revise.jl", 296, (time=1.557996459391695e9, deltainfo=(Pair{Union{Nothing, MethodTable}, Type}[nothing => Tuple{typeof(unchanged2),Any}], :(#= /tmp/revisetest.jl:20 =#) => :(#= /tmp/revisetest.jl:21 =#))))
+9-element Vector{Revise.LogRecord}:
+ Revise DeleteMethod: cube(::Any)
+ Revise DeleteMethod: mult3(::Any)
+ Revise DeleteMethod: mult4(::Any)
+ Revise Eval: #= /tmp/revisetest.jl:7 =#
+ Revise Eval: #= /tmp/revisetest.jl:9 =#
+ Revise LineOffset
+ Revise Eval: #= /tmp/revisetest.jl:14 =#
+ Revise LineOffset
+ Revise LineOffset
 ```
 
 You can see that Revise started by deleting three methods, followed by evaluating three new versions of those methods. Interspersed are various changes to the line numbering.
+
+In verbose mode, the same information looks like this:
+
+```
+julia> show(IOContext(stdout, :verbose=>true), MIME("text/plain"), rlogger.logs)
+9-element Vector{Revise.LogRecord}:
+ Revise.LogRecord(Debug, DeleteMethod, Action, Revise_4ac0f476, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 296, (time=1.753703251773368e9, deltainfo=(Tuple{typeof(Main.ReviseTest.cube), Any}, cube(::Any))))
+ Revise.LogRecord(Debug, DeleteMethod, Action, Revise_4ac0f476, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 296, (time=1.753703251782686e9, deltainfo=(Tuple{typeof(Main.ReviseTest.Internal.mult3), Any}, mult3(::Any))))
+ Revise.LogRecord(Debug, DeleteMethod, Action, Revise_4ac0f476, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 296, (time=1.753703251782706e9, deltainfo=(Tuple{typeof(Main.ReviseTest.Internal.mult4), Any}, mult4(::Any))))
+ Revise.LogRecord(Debug, Eval, Action, Revise_9147188b, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 347, (time=1.753703251786138e9, deltainfo=(Main.ReviseTest, quote
+    #= /tmp/revisetest.jl:7 =#
+    cube(x) = begin
+            #= /tmp/revisetest.jl:7 =#
+            x ^ 3
+        end
+end)))
+ Revise.LogRecord(Debug, Eval, Action, Revise_9147188b, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 347, (time=1.75370325178672e9, deltainfo=(Main.ReviseTest, quote
+    #= /tmp/revisetest.jl:9 =#
+    fourth(x) = begin
+            #= /tmp/revisetest.jl:9 =#
+            x ^ 4
+        end
+end)))
+ Revise.LogRecord(Debug, LineOffset, Action, Revise_fcadbd44, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 369, (time=1.753703251787128e9, deltainfo=(Pair{Union{Nothing, Core.MethodTable}, Type}[nothing => Tuple{typeof(Main.ReviseTest.Internal.mult2), Any}], :(#= /tmp/revisetest.jl:11 =#) => :(#= /tmp/revisetest.jl:13 =#))))
+ Revise.LogRecord(Debug, Eval, Action, Revise_9147188b, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 347, (time=1.753703251793889e9, deltainfo=(Main.ReviseTest.Internal, quote
+    #= /tmp/revisetest.jl:14 =#
+    mult3(x) = begin
+            #= /tmp/revisetest.jl:14 =#
+            3x
+        end
+end)))
+ Revise.LogRecord(Debug, LineOffset, Action, Revise_fcadbd44, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 369, (time=1.753703251795383e9, deltainfo=(Pair{Union{Nothing, Core.MethodTable}, Type}[nothing => Tuple{typeof(Main.ReviseTest.Internal.unchanged), Any}], :(#= /tmp/revisetest.jl:18 =#) => :(#= /tmp/revisetest.jl:19 =#))))
+ Revise.LogRecord(Debug, LineOffset, Action, Revise_fcadbd44, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 369, (time=1.753703251795399e9, deltainfo=(Pair{Union{Nothing, Core.MethodTable}, Type}[nothing => Tuple{typeof(Main.ReviseTest.Internal.unchanged2), Any}], :(#= /tmp/revisetest.jl:20 =#) => :(#= /tmp/revisetest.jl:21 =#))))
+ ```
+
+Perhaps the most useful component of this is the timing information, as it gives clues to what you might have been doing to trigger revisions.
 
 In rare cases it might be helpful to independently record the sequence of edits to the file.
 You can make copies `cp editedfile.jl > /tmp/version1.jl`, edit code, `cp editedfile.jl > /tmp/version2.jl`,
