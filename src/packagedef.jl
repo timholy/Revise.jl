@@ -8,6 +8,8 @@ using Core: CodeInfo, MethodTable
 
 export revise, includet, entr, MethodSummary
 
+## BEGIN abstract Distributed API
+
 # Abstract type to represent a single worker
 abstract type AbstractWorker end
 
@@ -37,6 +39,15 @@ function remotecall_impl end
 #   process is the master.
 # - is_master_worker(w::MyWorkerType): check if `w` is the master.
 function is_master_worker end
+
+## END abstract Distributed API
+
+"""
+    Revise.active[]
+
+If `false`, Revise will stop updating code.
+"""
+const active = Ref(true)
 
 """
     Revise.watching_files[]
@@ -731,6 +742,7 @@ If `throw` is `true`, throw any errors that occur during revision or callback;
 otherwise these are only logged.
 """
 function revise(; throw::Bool=false)
+    active[] || return nothing
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
     lock(revise_lock) do
         have_queue_errors = !isempty(queue_errors)
@@ -1243,6 +1255,14 @@ function revise_first(ex)
         end
         if isa(exu, Expr)
             exu.head === :call && length(exu.args) == 1 && exu.args[1] === :exit && return ex
+            lhsrhs = LoweredCodeUtils.get_lhs_rhs(exu)
+            if lhsrhs !== nothing
+                lhs, _ = lhsrhs
+                if isexpr(lhs, :ref) && length(lhs.args) == 1
+                    arg1 = lhs.args[1]
+                    isexpr(arg1, :(.), 2) && arg1.args[1] === :Revise && is_quotenode_egal(arg1.args[2], :active) && return ex
+                end
+            end
         end
     end
     # Check for queued revisions, and if so call `revise` first before executing the expression

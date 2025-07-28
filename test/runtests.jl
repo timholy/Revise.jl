@@ -518,6 +518,10 @@ const issue639report = []
 
                     end
                     """)  # just for fun we skipped the whitespace
+                Revise.active[] = false
+                @yry()
+                @eval @test $(fn1)() == 1
+                Revise.active[] = true
                 @yry()
                 fi = pkgdata.fileinfos[1]
                 @test fi.extracted[]          # issue 596
