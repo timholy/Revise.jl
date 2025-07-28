@@ -1233,15 +1233,17 @@ end
 # reduces the overhead of using Revise.
 function revise_first(ex)
     # Special-case `exit()` (issue #562)
-    exu = unwrap(ex)
-    if isexpr(exu, :block, 2)
-        arg1 = exu.args[1]
-        if isexpr(arg1, :softscope)
-            exu = exu.args[2]
+    if isa(ex, Expr)
+        exu = unwrap(ex)
+        if isexpr(exu, :block, 2)
+            arg1 = exu.args[1]
+            if isexpr(arg1, :softscope)
+                exu = exu.args[2]
+            end
         end
-    end
-    if isa(exu, Expr)
-        exu.head === :call && length(exu.args) == 1 && exu.args[1] === :exit && return ex
+        if isa(exu, Expr)
+            exu.head === :call && length(exu.args) == 1 && exu.args[1] === :exit && return ex
+        end
     end
     # Check for queued revisions, and if so call `revise` first before executing the expression
     return Expr(:toplevel, :($isempty($revision_queue) || $(Base.invokelatest)($revise)), ex)
