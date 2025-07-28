@@ -7,6 +7,7 @@
 These are set during execution of Revise's `__init__` function.
 
 ```@docs
+Revise.active
 Revise.watching_files
 Revise.polling_files
 Revise.tracking_Main_includes
