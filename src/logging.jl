@@ -42,12 +42,21 @@ end
 
 CoreLogging.catch_exceptions(::ReviseLogger) = false
 
-function Base.show(io::IO, l::LogRecord; verbose::Bool=true)
+function Base.show(io::IO, l::LogRecord; kwargs...)
+    verbose = get(io, :verbose, false)::Bool
+    if !isempty(kwargs)
+        Base.depwarn("Supplying keyword arguments to `show(io, l::Revise.LogRecord; verbose)` is deprecated, use `IOContext` instead.", :show)
+        for (kw, val) in kwargs
+            if kw === :verbose
+                verbose = val::Bool
+            end
+        end
+    end
     if verbose
         print(io, LogRecord)
         print(io, '(', l.level, ", ", l.message, ", ", l.group, ", ", l.id, ", \"", l.file, "\", ", l.line)
     else
-        printstyled(io, "Revise ", l.message, '\n'; color=Base.error_color())
+        print(io, "Revise ", l.message)
     end
     exc = nothing
     if !isempty(l.kwargs)
@@ -55,7 +64,23 @@ function Base.show(io::IO, l::LogRecord; verbose::Bool=true)
         prefix = ""
         for (kw, val) in l.kwargs
             kw === :exception && (exc = val; continue)
-            verbose && print(io, prefix, kw, "=", val)
+            if verbose
+                print(io, prefix, kw, "=", val)
+            elseif kw === :deltainfo
+                keepitem = nothing
+                for item in val
+                    if isa(item, DataType) || isa(item, MethodSummary) || (keepitem === nothing && isa(item, Union{RelocatableExpr,Expr}))
+                        keepitem = item
+                    end
+                end
+                if isa(keepitem, MethodSummary)
+                    print(io, ": ", keepitem)
+                elseif isa(keepitem, Union{RelocatableExpr,Expr})
+                    print(io, ": ", firstline(keepitem))
+                elseif isa(keepitem, DataType)
+                    print(io, ": ", keepitem)
+                end
+            end
             prefix = ", "
         end
         verbose && print(io, ')')
@@ -65,7 +90,9 @@ function Base.show(io::IO, l::LogRecord; verbose::Bool=true)
         showerror(io, ex, bt; backtrace = bt!==nothing)
         verbose || println(io)
     end
-    verbose && println(io, ')')
+    if verbose
+        print(io, ')')
+    end
 end
 
 const _debug_logger = ReviseLogger()
@@ -143,3 +170,5 @@ struct MethodSummary
     sig::Type
 end
 MethodSummary(m::Method) = MethodSummary(m.name, nameof(m.module), m.file, m.line, m.sig)
+
+Base.show(io::IO, ms::MethodSummary) = Base.show_tuple_as_call(io, ms.name, ms.sig)

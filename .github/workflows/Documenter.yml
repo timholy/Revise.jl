@@ -7,10 +7,17 @@ on:
 
 jobs:
   Documenter:
+    permissions:
+      contents: write
+      statuses: write
     name: Documentation
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: julia-actions/setup-julia@v2
+        with:
+          version: 'pre'                         # replace this with '1' once 1.12 is release
+          show-versioninfo: true
       - uses: julia-actions/julia-buildpkg@latest
       - uses: julia-actions/julia-docdeploy@latest
         env:
