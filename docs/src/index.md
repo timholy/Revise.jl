@@ -214,3 +214,11 @@ If you still encounter problems, please [file an issue](https://github.com/timho
 Especially if you think Revise is making mistakes in adding or deleting methods, please
 see the page on [Debugging Revise](@ref) for information about how to attach logs
 to your bug report.
+
+You can prevent Revise from attempting to make further changes to running code with
+
+```
+julia> Revise.active[] = false
+```
+
+This can be useful if Revise is throwing an error when making revisions but you want to keep using your REPL.
