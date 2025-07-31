@@ -108,7 +108,7 @@ function defines_function(@nospecialize(ci))
 end
 
 """
-    isrequired, evalassign = minimal_evaluation!([predicate,] methodinfo, src::Core.CodeInfo, mode::Symbol)
+    isrequired, evalassign = minimal_evaluation!([predicate,] src::Core.CodeInfo, mode::Symbol)
 
 Mark required statements in `src`: `isrequired[i]` is `true` if `src.code[i]` should be evaluated.
 Statements are analyzed by `isreq, haseval = predicate(stmt)`, and `predicate` defaults
@@ -117,7 +117,7 @@ to `Revise.is_method_or_eval`.
 Since the contents of such expression are difficult to analyze, it is generally
 safest to execute all such evals.
 """
-function minimal_evaluation!(@nospecialize(predicate), methodinfo, mod::Module, src::Core.CodeInfo, mode::Symbol)
+function minimal_evaluation!(@nospecialize(predicate), mod::Module, src::Core.CodeInfo, mode::Symbol)
     edges = CodeEdges(mod, src)
     # LoweredCodeUtils.print_with_code(stdout, src, edges)
     isrequired = fill(false, length(src.code))
@@ -177,11 +177,11 @@ function minimal_evaluation!(@nospecialize(predicate), methodinfo, mod::Module, 
     # LoweredCodeUtils.print_with_code(stdout, src, isrequired)
     return isrequired, evalassign
 end
-@noinline minimal_evaluation!(@nospecialize(predicate), methodinfo, frame::Frame, mode::Symbol) =
-    minimal_evaluation!(predicate, methodinfo, moduleof(frame), frame.framecode.src, mode)
+@noinline minimal_evaluation!(@nospecialize(predicate), frame::Frame, mode::Symbol) =
+    minimal_evaluation!(predicate, moduleof(frame), frame.framecode.src, mode)
 
-function minimal_evaluation!(methodinfo, frame::Frame, mode::Symbol)
-    minimal_evaluation!(methodinfo, frame, mode) do @nospecialize(stmt), code::Vector{Any}
+function minimal_evaluation!(frame::Frame, mode::Symbol)
+    minimal_evaluation!(frame, mode) do @nospecialize(stmt), code::Vector{Any}
         ismeth, haseval, isinclude, isnamespace, istoplevel = categorize_stmt(stmt, code)
         isreq = ismeth | isinclude | istoplevel
         return mode === :sigs ? (isreq, haseval) : (isreq | isnamespace, haseval)
@@ -190,7 +190,7 @@ end
 
 function methods_by_execution(mod::Module, ex::Expr; kwargs...)
     methodinfo = MethodInfo()
-    value, thk = methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, mod, ex; kwargs...)
+    _, thk = methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, mod, ex; kwargs...)
     return methodinfo, thk
 end
 
@@ -252,7 +252,7 @@ function methods_by_execution!(interp::Interpreter, methodinfo, mod::Module, ex:
     frame = Frame(mod, lwr.args[1]::CodeInfo)
     mode === :eval || LoweredCodeUtils.rename_framemethods!(interp, frame)
     # Determine whether we need interpreted mode
-    isrequired, evalassign = minimal_evaluation!(methodinfo, frame, mode)
+    isrequired, evalassign = minimal_evaluation!(frame, mode)
     # LoweredCodeUtils.print_with_code(stdout, frame.framecode.src, isrequired)
     if !any(isrequired) && (mode===:eval || !evalassign)
         # We can evaluate the entire expression in compiled mode
@@ -283,7 +283,7 @@ function methods_by_execution!(interp::Interpreter, methodinfo, mod::Module, ex:
         ret = try
             _methods_by_execution!(interp, methodinfo, frame, isrequired; mode, kwargs...)
         catch err
-            (always_rethrow || isa(err, InterruptException)) && (disablebp && foreach(enable, active_bp_refs); rethrow(err))
+            (always_rethrow || isa(err, InterruptException)) && (@isdefined(active_bp_refs) && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame))
             sfs = []  # crafted for interaction with Base.show_backtrace
             frame = JuliaInterpreter.leaf(frame)
@@ -293,7 +293,7 @@ function methods_by_execution!(interp::Interpreter, methodinfo, mod::Module, ex:
             end
             throw(ReviseEvalException(loc, err, sfs))
         end
-        if disablebp
+        if @isdefined active_bp_refs
             foreach(enable, active_bp_refs)
         end
     end
@@ -327,7 +327,7 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                     ex isa Expr || continue
                     value, _ = methods_by_execution!(interp, methodinfo, mod, ex; mode, disablebp=false, skip_include)
                 end
-                isassign(frame, pc) && assign_this!(frame, value)
+                isassign(frame, pc) && @isdefined(value) && assign_this!(frame, value)
                 pc = next_or_nothing!(frame)
             elseif head === :thunk && defines_function(only(stmt.args))
                 mode !== :sigs && Core.eval(mod, stmt)
