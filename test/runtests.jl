@@ -325,9 +325,12 @@ const issue639report = []
         @test length(Revise.actions(rlogger; line=true)) == 9
         @test_broken length(Revise.diffs(rlogger)) == 2
         io = PipeBuffer()
-        foreach(rec -> show(io, rec), rlogger.logs)
-        foreach(rec -> show(io, rec; verbose=false), rlogger.logs)
-        @test count("Revise.LogRecord", read(io, String)) > 8
+        foreach(rec -> (show(io, rec); println(io)), rlogger.logs)
+        str = String(take!(io))
+        @test occursin("Revise DeleteMethod: mult4(::Any)", str)
+        foreach(rec -> (show(IOContext(io, :verbose=>true), rec); println(io)), rlogger.logs)
+        str = String(take!(io))
+        @test count("Revise.LogRecord", str) > 8
         empty!(rlogger.logs)
 
         # Backtraces. Note this doesn't test the line-number correction
@@ -518,6 +521,10 @@ const issue639report = []
 
                     end
                     """)  # just for fun we skipped the whitespace
+                Revise.active[] = false
+                @yry()
+                @eval @test $(fn1)() == 1
+                Revise.active[] = true
                 @yry()
                 fi = pkgdata.fileinfos[1]
                 @test fi.extracted[]          # issue 596

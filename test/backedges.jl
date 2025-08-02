@@ -15,8 +15,7 @@ do_test("Backedges") && @testset "Backedges" begin
     # Find the inner struct def for the anonymous function
     idtype = findall(stmt->isexpr(stmt, :thunk) && isa(stmt.args[1], Core.CodeInfo), src.code)[end]
     src2 = src.code[idtype].args[1]
-    methodinfo = Revise.MethodInfo()
-    isrequired = Revise.minimal_evaluation!(methodinfo, frame, :sigs)[1]
+    isrequired = Revise.minimal_evaluation!(frame, :sigs)[1]
     laststmt = src.code[end]
     @assert isa(laststmt, Core.ReturnNode)
     to_skip = isa(laststmt.val, Revise.JuliaInterpreter.SSAValue) ? 2 : 1
