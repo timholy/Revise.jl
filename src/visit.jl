@@ -1,8 +1,9 @@
-function methods_with(@nospecialize(T::Type), world::UInt = Base.get_world_counter())
+function methods_with(@nospecialize(T::Type))
     meths = Set{Method}()
     T = Base.unwrap_unionall(T)
     Tname = T.name
-    Base.visit(Core.GlobalMethods) do method
+    methodtable = @static isdefinedglobal(Core, :methodtable) ? Core.methodtable : Core.GlobalMethods
+    Base.visit(methodtable) do method
         if method.module !== Tname.module || method.name !== Tname.name  # skip constructor
             hastype(method.sig, T) && push!(meths, method)
         end
