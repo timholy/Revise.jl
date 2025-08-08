@@ -183,11 +183,20 @@ It's used to track non-precompiled packages and, optionally, user scripts (see d
 const included_files = Tuple{Module,String}[]  # (module, filename)
 
 """
+    expected_juliadir()
+
+This is the path where we ordinarily expect to find a copy of the julia source files,
+as well as the source cache. For `juliadir` we additionally search some fallback
+locations to handle various corrupt and incomplete installations.
+"""
+expected_juliadir() = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
+
+"""
     Revise.basesrccache
 
 Full path to the running Julia's cache of source code defining `Base`.
 """
-const basesrccache = normpath(joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia", "base.cache"))
+const basesrccache = normpath(joinpath(expected_juliadir(), "base.cache"))
 
 """
     Revise.basebuilddir
@@ -200,8 +209,7 @@ const basebuilddir = begin
     dirname(dirname(sysimg))
 end
 
-function fallback_juliadir()
-    candidate = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
+function fallback_juliadir(candidate = expected_juliadir())
     if !isdir(joinpath(candidate, "base"))
         while true
             trydir = joinpath(candidate, "base")
@@ -219,18 +227,31 @@ function fallback_juliadir()
     normpath(candidate)
 end
 
+function find_juliadir()
+    candidate = expected_juliadir()
+    isdir(candidate) && return normpath(candidate)
+    # Couldn't find julia dir in the expected place.
+    # Let's look in the source build also - it's possible that the Makefile didn't
+    # set up the symlinks.
+    # N.B.: We need to make sure here that the julia we're running is actually
+    # the one being built. It's very common on buildbots that the original build
+    # dir exists, but is a different julia that is currently being built.
+    if Sys.BINDIR == joinpath(basebuilddir, "usr", "bin")
+        return normpath(basebuilddir)
+    end
+
+    @warn "Unable to find julia source directory in the expected places.\n
+           Looking in fallback locations. If this happens on a non-development build, please file an issue."
+    return fallback_juliadir(candidate)
+end
+
 """
     Revise.juliadir
 
 Constant specifying full path to julia top-level source directory.
 This should be reliable even for local builds, cross-builds, and binary installs.
 """
-global juliadir::String =
-    if isdir(joinpath(basebuilddir, "base"))
-        basebuilddir
-    else
-        fallback_juliadir()  # Binaries probably end up here. We fall back on Sys.BINDIR
-    end |> normpath
+global juliadir::String = find_juliadir()
 
 const cache_file_key = Dict{String,String}() # corrected=>uncorrected filenames
 const src_file_key   = Dict{String,String}() # uncorrected=>corrected filenames
