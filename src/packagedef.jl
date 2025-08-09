@@ -914,11 +914,11 @@ function revise(; throw::Bool=false)
                 end
             end
         end
-        init_compiler = false
-        for mi in compiler_mis
-            init_compiler |= mi.cache.max_world < typemax(UInt)
-        end
-        init_compiler && Core.Compiler.bootstrap!()
+        # init_compiler = false
+        # for mi in compiler_mis
+        #     init_compiler |= mi.cache.max_world < typemax(UInt)
+        # end
+        # init_compiler && Core.Compiler.bootstrap!()
         if interrupt
             for pkgfile in finished
                 haskey(queue_errors, pkgfile) || delete!(revision_queue, pkgfile)
