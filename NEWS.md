@@ -3,6 +3,11 @@
 This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
+## Revise 3.9
+
+* Add ability to turn Revise off with `Revise.active[] = false` ([#943])
+* Revise's debugging logs pretty-print by default ([#944])
+
 ## Revise 3.8
 
 * Methods defined on external method tables via `Base.Experimental.@overlay` can now be correctly revised ([#904]).
@@ -156,3 +161,5 @@ New features:
 [#245]: https://github.com/timholy/Revise.jl/pull/245
 [#278]: https://github.com/timholy/Revise.jl/pull/278
 [#904]: https://github.com/timholy/Revise.jl/pull/904
+[#943]: https://github.com/timholy/Revise.jl/pull/943
+[#944]: https://github.com/timholy/Revise.jl/pull/944
