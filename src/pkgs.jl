@@ -16,23 +16,25 @@
 #     possible that this needs to be supplemented with parsing.
 function queue_includes!(pkgdata::PkgData, id::PkgId)
     modstring = id.name
-    delids = Int[]
-    for i = 1:length(included_files)
-        mod, fname = included_files[i]
-        if mod == Base.__toplevel__
-            mod = Main
-        end
-        modname = String(Symbol(mod))
-        if startswith(modname, modstring) || endswith(fname, modstring*".jl")
-            modexsigs = parse_source(fname, mod)
-            if modexsigs !== nothing
-                fname = relpath(fname, pkgdata)
-                push!(pkgdata, fname=>FileInfo(modexsigs))
+    @lock included_files_lock begin
+        delids = Int[]
+        for i = 1:length(included_files)
+            mod, fname = included_files[i]
+            if mod == Base.__toplevel__
+                mod = Main
             end
-            push!(delids, i)
+            modname = String(Symbol(mod))
+            if startswith(modname, modstring) || endswith(fname, modstring*".jl")
+                modexsigs = parse_source(fname, mod)
+                if modexsigs !== nothing
+                    fname = relpath(fname, pkgdata)
+                    push!(pkgdata, fname=>FileInfo(modexsigs))
+                end
+                push!(delids, i)
+            end
         end
+        deleteat!(included_files, delids)
     end
-    deleteat!(included_files, delids)
     CodeTracking._pkgfiles[id] = pkgdata.info
     return pkgdata
 end
@@ -47,7 +49,7 @@ function queue_includes(mod::Module)
     if has_writable_paths(pkgdata)
         init_watching(pkgdata)
     end
-    pkgdatas[id] = pkgdata
+    @lock pkgdatas_lock pkgdatas[id] = pkgdata
     return pkgdata
 end
 
@@ -57,13 +59,15 @@ end
 function remove_from_included_files(modsym::Symbol)
     i = 1
     modstring = string(modsym)
-    while i <= length(included_files)
-        mod, fname = included_files[i]
-        modname = String(Symbol(mod))
-        if startswith(modname, modstring) || endswith(fname, modstring*".jl")
-            deleteat!(included_files, i)
-        else
-            i += 1
+    @lock included_files_lock begin
+        while i <= length(included_files)
+            mod, fname = included_files[i]
+            modname = String(Symbol(mod))
+            if startswith(modname, modstring) || endswith(fname, modstring*".jl")
+                deleteat!(included_files, i)
+            else
+                i += 1
+            end
         end
     end
 end
@@ -330,7 +334,7 @@ function watch_package(id::PkgId)
         if has_writable_paths(pkgdata)
             init_watching(pkgdata, srcfiles(pkgdata))
         end
-        pkgdatas[id] = pkgdata
+        @lock pkgdatas_lock pkgdatas[id] = pkgdata
     finally
         unlock(wplock)
     end
@@ -359,7 +363,7 @@ function has_writable_paths(pkgdata::PkgData)
 end
 
 function watch_includes(mod::Module, fn::AbstractString)
-    push!(included_files, (mod, normpath(abspath(fn))))
+    @lock included_files_lock push!(included_files, (mod, normpath(abspath(fn))))
 end
 
 ## Working with Pkg and code-loading
@@ -447,7 +451,7 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
     # Stop all associated watching tasks
     for dir in unique_dirs(srcfiles(pkgdata))
         @debug "Pkg" _group="unwatch" dir=dir
-        delete!(watched_files, joinpath(basedir(pkgdata), dir))
+        @lock watched_files_lock delete!(watched_files, joinpath(basedir(pkgdata), dir))
         # Note: if the file is revised, the task(s) will run one more time.
         # However, because we've removed the directory from the watch list this will be a no-op,
         # and then the tasks will be dropped.

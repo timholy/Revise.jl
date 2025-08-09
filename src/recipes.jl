@@ -63,7 +63,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         if pkgdata === nothing
             pkgdata = PkgData(id, srcdir)
         end
-        lock(revise_lock) do
+        lock(revision_queue_lock) do
             for (submod, filename) in Iterators.drop(Base._included_files, 1)  # stepping through sysimg.jl rebuilds Base, omit it
                 ffilename = fixpath(filename)
                 inpath(ffilename, dirs) || continue
@@ -88,7 +88,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         # Add the files to the watch list
         init_watching(pkgdata, srcfiles(pkgdata))
         # Save the result (unnecessary if already in pkgdatas, but doesn't hurt either)
-        pkgdatas[id] = pkgdata
+        @lock pkgdatas_lock pkgdatas[id] = pkgdata
     elseif modname === :Compiler
         compilerdir = normpath(joinpath(juliadir, "Compiler", "src"))
         compilerdir_pre_112 = normpath(joinpath(juliadir, "base", "compiler"))
@@ -141,7 +141,7 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
     tree = git_tree(repo, commit)
     files = Iterators.filter(file->startswith(file, prefix) && endswith(file, ".jl"), keys(tree))
     ccall((:giterr_clear, :libgit2), Cvoid, ())  # necessary to avoid errors like "the global/xdg file 'attributes' doesn't exist: No such file or directory"
-    lock(revise_lock) do
+    lock(revision_queue_lock) do
         for file in files
             fullpath = joinpath(repo_path, file)
             rpath = relpath(fullpath, pkgdata)  # this might undo the above, except for Core.Compiler
@@ -187,7 +187,7 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
         id = PkgId(pkgdata)
         CodeTracking._pkgfiles[id] = pkgdata.info
         init_watching(pkgdata, srcfiles(pkgdata))
-        pkgdatas[id] = pkgdata
+        @lock pkgdatas_lock pkgdatas[id] = pkgdata
     end
     return nothing
 end
