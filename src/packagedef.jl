@@ -6,6 +6,10 @@ using Base: PkgId
 using Base.Meta: isexpr
 using Core: CodeInfo, MethodTable
 
+if !isdefined(Core, :isdefinedglobal)
+    isdefinedglobal(m::Module, s::Symbol) = isdefined(m, s)
+end
+
 export revise, includet, entr, MethodSummary
 
 ## BEGIN abstract Distributed API
