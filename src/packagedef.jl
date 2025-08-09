@@ -101,6 +101,7 @@ include("utils.jl")
 include("parsing.jl")
 include("lowered.jl")
 include("loading.jl")
+include("visit.jl")
 include("pkgs.jl")
 include("git.jl")
 include("recipes.jl")
@@ -146,6 +147,12 @@ Global variable, maps `(pkgdata, filename)` pairs that errored upon last revisio
 `(exception, backtrace)`.
 """
 const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}()
+
+# Can we revise types?
+const __bpart__ = Base.VERSION >= v"1.12.0-DEV.2047"
+# Julia 1.12+: when bindings switch to a new type, we need to re-evaluate method
+# definitions using the new binding resolution.
+const reeval_methods = Set{Method}()
 
 """
     Revise.NOPACKAGE
@@ -263,6 +270,37 @@ const silence_pkgs = Set{Symbol}()
 const depsdir = joinpath(dirname(@__DIR__), "deps")
 const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
 
+function collect_mis(sigs)
+    mis = Core.MethodInstance[]
+    world = Base.get_world_counter()
+    for tt in sigs
+        matches = Base._methods_by_ftype(tt, 10, world)::Vector
+        for mm in matches
+            m = mm.method
+            for mi in Base.specializations(m)
+                if mi.specTypes <: tt
+                    push!(mis, mi)
+                end
+            end
+        end
+    end
+    return mis
+end
+
+# from Compiler/bootstrap.jl
+const compiler_mis = if __bpart__
+    collect_mis(Any[
+        Tuple{typeof(Core.Compiler.compact!), Vararg{Any}},
+        Tuple{typeof(Core.Compiler.ssa_inlining_pass!), Core.Compiler.IRCode, Core.Compiler.InliningState{Core.Compiler.NativeInterpreter}, Bool},
+        Tuple{typeof(Core.Compiler.optimize), Core.Compiler.NativeInterpreter, Core.Compiler.OptimizationState{Core.Compiler.NativeInterpreter}, Core.Compiler.InferenceResult},
+        Tuple{typeof(Core.Compiler.typeinf_ext), Core.Compiler.NativeInterpreter, Core.MethodInstance, UInt8},
+        Tuple{typeof(Core.Compiler.typeinf), Core.Compiler.NativeInterpreter, Core.Compiler.InferenceState},
+        Tuple{typeof(Core.Compiler.typeinf_edge), Core.Compiler.NativeInterpreter, Method, Any, Core.SimpleVector, Core.Compiler.InferenceState, Bool, Bool},
+    ])
+else
+    Core.MethodInstance[]
+end
+
 ##
 ## The inputs are sets of expressions found in each file.
 ## Some of those expressions will generate methods which are identified via their signatures.
@@ -376,8 +414,8 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
         if rexo === nothing
             ex = rex.ex
             # ex is not present in old
-            @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
-            mt_sigs, includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
+            @debug titlecase(String(mode)) _group="Action" time=time() deltainfo=(mod, ex)
+            mt_sigs, includes, thunk = eval_with_signatures(mod, ex; mode)  # All signatures defined by `ex`
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end
@@ -709,7 +747,7 @@ function revise_file_now(pkgdata::PkgData, file)
         error(file, " is not currently being tracked.")
     end
     mexsnew, mexsold = handle_deletions(pkgdata, file)
-    if mexsnew != nothing
+    if mexsnew !== nothing
         _, includes = eval_new!(mexsnew, mexsold)
         fi = fileinfo(pkgdata, i)
         pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
@@ -767,6 +805,7 @@ function revise(; throw::Bool=false)
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
     lock(revise_lock) do
         have_queue_errors = !isempty(queue_errors)
+        empty!(reeval_methods)
 
         # Do all the deletion first. This ensures that a method that moved from one file to another
         # won't get redefined first and deleted second.
@@ -836,6 +875,50 @@ function revise(; throw::Bool=false)
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())
             end
         end
+        # Handle binding invalidations
+        if !isempty(reeval_methods)
+            handled = Base.IdSet{Type}()
+            while !isempty(reeval_methods)
+                list = collect(reeval_methods)
+                empty!(reeval_methods)
+                for m in list
+                    methinfo = get(CodeTracking.method_info, m.sig, missing)
+                    if methinfo === missing
+                        push!(handled, m.sig)
+                        continue
+                    end
+                    if length(methinfo) != 1 && Base.unwrap_unionall(m.sig).parameters[1] !== typeof(Core.kwcall)
+                        with_logger(_debug_logger) do
+                            @debug "FailedDeletion" _group="Action" time=time() deltainfo=(m.sig, methinfo)
+                        end
+                        continue
+                    end
+                    if isdefinedglobal(m.module, m.name)
+                        f = getglobal(m.module, m.name)
+                        if isa(f, DataType)
+                            newmeths = methods_with(f)
+                            filter!(m -> m.sig ∉ handled, newmeths)
+                            maybe_extract_sigs_for_meths(newmeths)
+                            union!(reeval_methods, newmeths)
+                        end
+                    end
+                    with_logger(_debug_logger) do
+                        @debug "DeleteMethod" _group="Action" time=time() deltainfo=(m.sig, MethodSummary(m))
+                        Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
+                        delete!(CodeTracking.method_info, m.sig)
+                        _, ex = methinfo[1]
+                        @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
+                        invokelatest(eval_with_signatures, m.module, ex; mode=:eval)
+                    end
+                    push!(handled, m.sig)
+                end
+            end
+        end
+        # init_compiler = false
+        # for mi in compiler_mis
+        #     init_compiler |= mi.cache.max_world < typemax(UInt)
+        # end
+        # init_compiler && Core.Compiler.bootstrap!()
         if interrupt
             for pkgfile in finished
                 haskey(queue_errors, pkgfile) || delete!(revision_queue, pkgfile)
