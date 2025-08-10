@@ -18,9 +18,9 @@ using Base.CoreLogging: Debug,Info
 # *.ji files for the package.
 using EponymTuples
 
-# Also ensure packages that we'll `@require` are precompiled, as otherwise Pkg `@info`
-# may contaminate the log and cause test failures.
-Pkg.precompile(["EndpointRanges", "CatIndices", "IndirectArrays", "RoundingIntegers", "UnsafeArrays"])
+# # Also ensure packages that we'll `@require` are precompiled, as otherwise Pkg `@info`
+# # may contaminate the log and cause test failures.
+# Pkg.precompile(["EndpointRanges", "CatIndices", "IndirectArrays", "RoundingIntegers", "UnsafeArrays"])
 
 include("common.jl")
 
