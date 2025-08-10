@@ -104,7 +104,7 @@ on to `rlogger`.)
 ### The structure of the logs
 
 For those who want to do a little investigating on their own, it may be helpful to
-know that Revise's core decisions are captured in the group called "Action," and they come in three
+know that Revise's core changes are captured in the group called "Action," and they come in three
 flavors:
 
 - log entries with message `"Eval"` signify a call to `eval`; for these events,
