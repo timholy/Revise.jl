@@ -807,6 +807,13 @@ otherwise these are only logged.
 function revise(; throw::Bool=false)
     active[] || return nothing
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
+    # To ensure we don't just call `Core.Compiler.bootstrap!()` for reasons of invalidation rather than redefinition,
+    # record the pre-revision max world ages of the compiler methods.
+    # This means that if those methods get invalidated by loading packages, automatic revision of the compiler won't
+    # work anymore---Revise's changes won't lower the world age to anything less than it already is.
+    # But people testing the compiler often do so in a fresh & slim session, so there's still some value in
+    # automatic revision. One can always call `Compiler.bootstrap!()` manually to reinitialize the compiler.
+    cmaxworlds = Dict(mi => mi.cache.max_world for mi in compiler_mis)
     lock(revise_lock) do
         have_queue_errors = !isempty(queue_errors)
         empty!(reeval_methods)
@@ -918,11 +925,12 @@ function revise(; throw::Bool=false)
                 end
             end
         end
-        # init_compiler = false
-        # for mi in compiler_mis
-        #     init_compiler |= mi.cache.max_world < typemax(UInt)
-        # end
-        # init_compiler && Core.Compiler.bootstrap!()
+        # If needed, reinitialize the compiler
+        init_compiler = false
+        for mi in compiler_mis
+            init_compiler |= mi.cache.max_world < cmaxworlds[mi]
+        end
+        init_compiler && Core.Compiler.bootstrap!()
         if interrupt
             for pkgfile in finished
                 haskey(queue_errors, pkgfile) || delete!(revision_queue, pkgfile)
