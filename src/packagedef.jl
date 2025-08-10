@@ -891,9 +891,12 @@ function revise(; throw::Bool=false)
             handled = Base.IdSet{Type}()
             while !isempty(reeval_methods)
                 list = collect(reeval_methods)
+                with_logger(_debug_logger) do
+                    @debug "OldTypeMethods" _group="Bindings" time=time() deltainfo=(MethodSummary.(list),)
+                end
                 empty!(reeval_methods)
                 for m in list
-                    methinfo = get(CodeTracking.method_info, m.sig, missing)
+                    methinfo = get(CodeTracking.method_info, Pair{Union{Nothing, Core.MethodTable}, Type}(nothing, m.sig), missing)
                     if methinfo === missing
                         push!(handled, m.sig)
                         continue
