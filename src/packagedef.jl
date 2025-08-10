@@ -124,6 +124,7 @@ This variable allows us to watch directories rather than files, reducing the bur
 the OS.
 """
 const watched_files = Dict{String,WatchList}()
+const watched_files_lock = ReentrantLock()
 
 """
     Revise.watched_manifests
@@ -131,9 +132,7 @@ const watched_files = Dict{String,WatchList}()
 Global variable, a set of `Manifest.toml` files from the active projects used during this session.
 """
 const watched_manifests = Set{String}()
-
-# Locks access to `revision_queue` to prevent race conditions, see issues #837 and #845
-const revise_lock = ReentrantLock()
+const watched_manifests_lock = ReentrantLock()
 
 """
     Revise.revision_queue
@@ -143,6 +142,7 @@ that these files have changed since we last processed a revision.
 This list gets populated by callbacks that watch directories for updates.
 """
 const revision_queue = Set{Tuple{PkgData,String}}()
+const revision_queue_lock = ReentrantLock() # see issues #837 and #845
 
 """
     Revise.queue_errors
@@ -150,7 +150,7 @@ const revision_queue = Set{Tuple{PkgData,String}}()
 Global variable, maps `(pkgdata, filename)` pairs that errored upon last revision to
 `(exception, backtrace)`.
 """
-const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}()
+const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}() # locking is covered by revision_queue_lock
 
 # Can we revise types?
 const __bpart__ = Base.VERSION >= v"1.12.0-DEV.2047"
@@ -176,6 +176,7 @@ It is a dictionary indexed by PkgId:
 `pkgdatas[id]` returns a value of type [`Revise.PkgData`](@ref).
 """
 const pkgdatas = Dict{PkgId,PkgData}(NOPACKAGE => PkgData(NOPACKAGE))
+const pkgdatas_lock = ReentrantLock()
 
 """
     Revise.included_files
@@ -185,6 +186,7 @@ It's used to track non-precompiled packages and, optionally, user scripts (see d
 `JULIA_REVISE_INCLUDE`).
 """
 const included_files = Tuple{Module,String}[]  # (module, filename)
+const included_files_lock = ReentrantLock()    # issue #947
 
 """
     expected_juliadir()
@@ -578,7 +580,9 @@ function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
         dir, basename = splitdir(file)
         dirfull = joinpath(basedir(pkgdata), dir)
         already_watching_dir = haskey(watched_files, dirfull)
-        already_watching_dir || (watched_files[dirfull] = WatchList())
+        @lock watched_files_lock begin
+            already_watching_dir || (watched_files[dirfull] = WatchList())
+        end
         watchlist = watched_files[dirfull]
         current_id = get(watchlist.trackedfiles, basename, nothing)
         new_id = pkgdata.info.id
@@ -595,7 +599,7 @@ function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
     end
     for dir in udirs
         dirfull = joinpath(basedir(pkgdata), dir)
-        updatetime!(watched_files[dirfull])
+        @lock watched_files_lock updatetime!(watched_files[dirfull])
         if !watching_files[]
             dwatcher = TaskThunk(revise_dir_queued, (dirfull,))
             schedule(Task(dwatcher))
@@ -635,7 +639,7 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
             end
             if id != NOPACKAGE
                 pkgdata = pkgdatas[id]
-                lock(revise_lock) do
+                lock(revision_queue_lock) do
                     if hasfile(pkgdata, key)  # issue #228
                         push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
                         notify(revision_event)
@@ -691,7 +695,7 @@ function revise_file_queued(pkgdata::PkgData, file)
         # Check to see if we're still watching this file
         stillwatching = haskey(watched_files, dirfull)
         if PkgId(pkgdata) != NOPACKAGE
-            lock(revise_lock) do
+            lock(revision_queue_lock) do
                 push!(revision_queue, (pkgdata, relpath(file, pkgdata)))
             end
         end
@@ -789,7 +793,7 @@ end
 Attempt to perform previously-failed revisions. This can be useful in cases of order-dependent errors.
 """
 function retry()
-    lock(revise_lock) do
+    lock(revision_queue_lock) do
         for (k, v) in queue_errors
             push!(revision_queue, k)
         end
@@ -814,7 +818,7 @@ function revise(; throw::Bool=false)
     # But people testing the compiler often do so in a fresh & slim session, so there's still some value in
     # automatic revision. One can always call `Compiler.bootstrap!()` manually to reinitialize the compiler.
     cmaxworlds = Dict(mi => mi.cache.max_world for mi in compiler_mis)
-    lock(revise_lock) do
+    lock(revision_queue_lock) do
         have_queue_errors = !isempty(queue_errors)
         empty!(reeval_methods)
 
@@ -1054,9 +1058,11 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
         if !haskey(CodeTracking._pkgfiles, id)
             CodeTracking._pkgfiles[id] = pkgdata.info
         end
-        push!(pkgdata, relpath(file, pkgdata)=>FileInfo(fm))
-        init_watching(pkgdata, (String(file)::String,))
-        pkgdatas[id] = pkgdata
+        @lock pkgdatas_lock begin
+            push!(pkgdata, relpath(file, pkgdata)=>FileInfo(fm))
+            init_watching(pkgdata, (String(file)::String,))
+            pkgdatas[id] = pkgdata
+        end
     end
     return nothing
 end
@@ -1468,7 +1474,9 @@ function __init__()
     end
     # Set up a repository for methods defined at the REPL
     id = PkgId(nothing, "@REPL")
-    pkgdatas[id] = pkgdata = PkgData(id, nothing)
+    @lock pkgdatas_lock begin
+        pkgdatas[id] = pkgdata = PkgData(id, nothing)
+    end
     # Set the lookup callbacks
     CodeTracking.method_lookup_callback[] = get_def
     CodeTracking.expressions_callback[] = get_expressions
@@ -1476,9 +1484,11 @@ function __init__()
     # Watch the manifest file for changes
     mfile = manifest_file()
     if mfile !== nothing
-        push!(watched_manifests, mfile)
-        wmthunk = TaskThunk(watch_manifest, (mfile,))
-        schedule(Task(wmthunk))
+        @lock watched_manifests_lock begin
+            push!(watched_manifests, mfile)
+            wmthunk = TaskThunk(watch_manifest, (mfile,))
+            schedule(Task(wmthunk))
+        end
     end
     push!(Base.include_callbacks, watch_includes)
     push!(Base.package_callbacks, watch_package_callback)
@@ -1549,11 +1559,13 @@ end
 
 function add_revise_deps()
     # Populate CodeTracking data for dependencies and initialize watching on code that Revise depends on
-    for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils, Revise)
-        id = PkgId(mod)
-        pkgdata = parse_pkg_files(id)
-        init_watching(pkgdata, srcfiles(pkgdata))
-        pkgdatas[id] = pkgdata
+    @lock pkgdatas_lock begin
+        for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils, Revise)
+            id = PkgId(mod)
+            pkgdata = parse_pkg_files(id)
+            init_watching(pkgdata, srcfiles(pkgdata))
+            pkgdatas[id] = pkgdata
+        end
     end
     return nothing
 end
