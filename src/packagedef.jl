@@ -1045,7 +1045,7 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
         if mode === :includet
             mode = :sigs   # we already handled evaluation in `parse_source`
         end
-        instantiate_sigs!(mod_exs_sigs; mode, kwargs...)
+        invokelatest(instantiate_sigs!, mod_exs_sigs; mode, kwargs...)
         if !haskey(pkgdatas, id)
             # Wait a bit to see if `mod` gets initialized
             sleep(0.1)
