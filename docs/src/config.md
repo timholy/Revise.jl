@@ -13,7 +13,7 @@ Users should weigh this penalty against whatever benefit they may derive from no
 This can be as simple as adding
 
 ```julia
-using Revise
+import Revise # or using Revise
 ```
 as the first line in your `startup.jl`. If you have a Unix terminal available, simply run
 ```bash
@@ -24,7 +24,7 @@ If you use different package environments and do not always have Revise availabl
 
 ```julia
 try
-    using Revise
+    import Revise # or using Revise
 catch e
     @warn "Error initializing Revise" exception=(e, catch_backtrace())
 end
