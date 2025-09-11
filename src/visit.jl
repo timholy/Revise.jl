@@ -4,9 +4,11 @@ function methods_with(@nospecialize(T::Type))
     Tname = T.name
     methodtable = @static isdefinedglobal(Core, :methodtable) ? Core.methodtable : Core.GlobalMethods
     Base.visit(methodtable) do method
-        if method.module !== Tname.module || method.name !== Tname.name  # skip constructor
+        # condition commented out due to https://github.com/timholy/Revise.jl/pull/894#issuecomment-3274102493
+        # see the "MoreConstructors" test case in test/runtests.jl
+        # if method.module !== Tname.module || method.name !== Tname.name  # skip constructor
             hastype(method.sig, T) && push!(meths, method)
-        end
+        # end
     end
     return meths
 end

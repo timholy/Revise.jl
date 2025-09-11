@@ -920,7 +920,7 @@ function revise(; throw::Bool=false)
                             union!(reeval_methods, newmeths)
                         end
                     end
-                    with_logger(_debug_logger) do
+                    !iszero(m.dispatch_status) && with_logger(_debug_logger) do
                         @debug "DeleteMethod" _group="Action" time=time() deltainfo=(m.sig, MethodSummary(m))
                         Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
                         delete!(CodeTracking.method_info, m.sig)
