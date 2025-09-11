@@ -2453,13 +2453,19 @@ const issue639report = []
                 struct Point
                     x::Float64
                 end
-                # Two methods that won't need to be explicitly redefined (but will need re-evaluation for new type)
+                # Three methods that won't need to be explicitly redefined (but will need re-evaluation for new type)
                 firstval(p::Point) = p.x
                 firstvalP(p::P) where P<:Point = p.x
+                returnsconst(::Point) = 1
                 # Method that will need to be explicitly redefined
                 mynorm(p::Point) = sqrt(p.x^2)
                 # Method that uses `Point` without it being in the signature
                 hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
+                # Change of field that has no parameters (https://github.com/timholy/Revise.jl/pull/894#issuecomment-3271461024)
+                struct ChangePrimitiveType
+                    x::Int
+                end
+                useprimitivetype(::ChangePrimitiveType) = 1
                 end
                 """)
             # Also create another package that uses it
@@ -2503,11 +2509,14 @@ const issue639report = []
             pw = StructConstUser.PointWrapper(p)
             pww = StructConstUserUser.PointWrapperWrapper(pw)
             @test StructConst.firstval(p) == StructConst.firstvalP(p) === 5.0
+            @test StructConst.returnsconst(p) === 1
             @test StructConst.mynorm(p) == 5.0
             @test StructConstUser.scuf(f) == 33 * 5.0
             @test StructConstUser.scup(p) == 44 * 5.0
             @test StructConstUser.scup(pw) == 55 * 5.0
             @test StructConstUser.scup(pww) == 2 * 55 * 5.0
+            spt = StructConst.ChangePrimitiveType(3)
+            @test StructConst.useprimitivetype(spt) === 1
             write(joinpath(dn, "StructConst.jl"), """
                 module StructConst
                 const __hash__ = 0xddaab158621d200c
@@ -2521,8 +2530,13 @@ const issue639report = []
                 end
                 firstval(p::Point) = p.x
                 firstvalP(p::P) where P<:Point = p.x
+                returnsconst(::Point) = 1
                 mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
                 hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
+                struct ChangePrimitiveType
+                    x::Float64
+                end
+                useprimitivetype(::ChangePrimitiveType) = 1
                 end
                 """)
             @yry()
@@ -2532,11 +2546,13 @@ const issue639report = []
             # Call with old objects---ensure we deleted all the outdated methods to reduce user confusion
             @test_throws MethodError @invokelatest(StructConst.firstval(p))
             @test_throws MethodError @invokelatest(StructConst.firstvalP(p))
+            @test_throws MethodError @invokelatest(StructConst.returnsconst(p))
             @test_throws MethodError @invokelatest(StructConst.mynorm(p))
             @test @invokelatest(StructConstUser.scuf(f)) == 33 * 5.0
             @test_throws MethodError @invokelatest(StructConstUser.scup(p))
             @test_throws MethodError @invokelatest(StructConstUser.scup(pw))
             @test_throws MethodError @invokelatest(StructConstUser.scup(pww))
+            @test_throws MethodError StructConst.useprimitivetype(spt)
             # Call with new objects
             p2 = @invokelatest(StructConst.Point(3.0, 4.0))
             hp = @invokelatest(StructConst.hiddenconstructor(5))
@@ -2544,10 +2560,13 @@ const issue639report = []
             pw2 = @invokelatest(StructConstUser.PointWrapper(p2))
             pww2 = @invokelatest(StructConstUserUser.PointWrapperWrapper(pw2))
             @test @invokelatest(StructConst.firstval(p2)) == @invokelatest(StructConst.firstvalP(p2)) === 3.0
+            @test StructConst.returnsconst(p2) === 1
             @test @invokelatest(StructConst.mynorm(p2)) == 5.0
             @test @invokelatest(StructConstUser.scup(p2)) == 44 * 3.0
             @test @invokelatest(StructConstUser.scup(pw2)) == 55 * 3.0
             @test @invokelatest(StructConstUser.scup(pww2)) == 2 * 55 * 3.0
+            spt2 = StructConst.ChangePrimitiveType(3.0)
+            @test StructConst.useprimitivetype(spt2) === 1
             write(joinpath(dn, "StructConst.jl"), """
                 module StructConst
                 const __hash__ = 0x71716e828e2d6093
@@ -2561,6 +2580,7 @@ const issue639report = []
                 end
                 firstval(p::Point) = p.x
                 firstvalP(p::P) where P<:Point = p.x
+                returnsconst(::Point) = 1
                 mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
                 hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
                 end
