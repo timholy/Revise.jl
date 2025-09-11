@@ -2473,6 +2473,12 @@ const issue639report = []
                     x::Int
                 end
                 useprimitivetype(::ChangePrimitiveType) = 1
+                # Additional constructors (https://github.com/timholy/Revise.jl/pull/894#issuecomment-3274102493)
+                abstract type AbstractMoreConstructors end
+                struct MoreConstructors
+                    x::Int
+                end
+                MoreConstructors() = MoreConstructors(1)
                 end
                 """)
             # Also create another package that uses it
@@ -2524,6 +2530,8 @@ const issue639report = []
             @test StructConstUser.scup(pww) == 2 * 55 * 5.0
             spt = StructConst.ChangePrimitiveType(3)
             @test StructConst.useprimitivetype(spt) === 1
+            mc = StructConst.MoreConstructors()
+            @test mc.x == 1 && supertype(typeof(mc)) === Any
             write(joinpath(dn, "StructConst.jl"), """
                 module StructConst
                 const __hash__ = 0xddaab158621d200c
@@ -2544,6 +2552,11 @@ const issue639report = []
                     x::Float64
                 end
                 useprimitivetype(::ChangePrimitiveType) = 1
+                abstract type AbstractMoreConstructors end
+                struct MoreConstructors <: AbstractMoreConstructors
+                    x::Int
+                end
+                MoreConstructors() = MoreConstructors(1)
                 end
                 """)
             @yry()
@@ -2574,6 +2587,8 @@ const issue639report = []
             @test @invokelatest(StructConstUser.scup(pww2)) == 2 * 55 * 3.0
             spt2 = StructConst.ChangePrimitiveType(3.0)
             @test StructConst.useprimitivetype(spt2) === 1
+            mc = StructConst.MoreConstructors()
+            @test mc.x == 1 && supertype(typeof(mc)) === StructConst.AbstractMoreConstructors
             write(joinpath(dn, "StructConst.jl"), """
                 module StructConst
                 const __hash__ = 0x71716e828e2d6093
