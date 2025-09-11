@@ -106,6 +106,7 @@ function recursive_egal(@nospecialize(a), @nospecialize(b), @nospecialize(bskip)
     a = Base.unwrap_unionall(a)
     b = Base.unwrap_unionall(b)
     length(a.parameters) === length(b.parameters) || return false
+    length(a.parameters) == 0 && return a === b
     for (ap, bp) in zip(a.parameters, b.parameters)
         recursive_egal(ap, bp, bskip) || return false
     end
