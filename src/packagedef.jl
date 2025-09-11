@@ -420,7 +420,7 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
         if rexo === nothing
             ex = rex.ex
             # ex is not present in old
-            @debug titlecase(String(mode)) _group="Action" time=time() deltainfo=(mod, ex)
+            @debug titlecase(String(mode)) _group="Action" time=time() deltainfo=(mod, ex, mode)
             mt_sigs, includes, thunk = eval_with_signatures(mod, ex; mode)  # All signatures defined by `ex`
             if !isexpr(thunk, :thunk)
                 thunk = ex
