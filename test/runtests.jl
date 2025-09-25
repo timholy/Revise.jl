@@ -2651,6 +2651,58 @@ const issue639report = []
             @yry()
             @test StructExample.hello(StructExample.Hello("World")) == "Hello, World (changed)"
 
+            # Full-circle parametric removal and restoration
+            # Start with a parametric struct and a method depending on its type parameter.
+            # Switch the struct to non-parametric (with its own method), then switch back
+            # to the original parametric definition and ensure calls work again.
+            dn4 = joinpath(testdir, "StructParamFullCircle", "src")
+            mkpath(dn4)
+            fn4 = joinpath(dn4, "StructParamFullCircle.jl")
+            write(fn4, raw"""
+                module StructParamFullCircle
+                export Foo, bar
+                struct Foo{T}
+                    x::T
+                end
+                bar(::Foo{T}) where {T} = "parametric with $T"
+                end
+                """)
+            sleep(mtimedelay)
+            @eval using StructParamFullCircle
+            sleep(mtimedelay)
+            foo1 = StructParamFullCircle.Foo(1)
+            @test StructParamFullCircle.bar(foo1) == "parametric with Int64"
+
+            # Change Foo to be non-parametric
+            write(fn4, raw"""
+                module StructParamFullCircle
+                export Foo, bar
+                struct Foo
+                    x::Int
+                end
+                bar(::Foo{T}) where {T} = "parametric with $T"
+                end
+                """)
+            @yry()
+            foo2 = @invokelatest(StructParamFullCircle.Foo(1))
+            @test @invokelatest(StructParamFullCircle.bar(foo2)) == "nonparam"
+
+            # Now change Foo back to its original parametric definition
+            write(fn4, raw"""
+                module StructParamFullCircle
+                export Foo, bar
+                struct Foo{T}
+                    x::T
+                end
+                bar(::Foo{T}) where {T} = "parametric with $T"
+                end
+                """)
+            @yry()
+            foo3 = @invokelatest(StructParamFullCircle.Foo(1))
+            @test @invokelatest(StructParamFullCircle.bar(foo3)) == "parametric with Int64"
+
+            rm_precompile("StructParamFullCircle")
+
             pop!(LOAD_PATH)
         end
     end
