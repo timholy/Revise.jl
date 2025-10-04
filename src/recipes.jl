@@ -11,7 +11,9 @@ function track(mod::Module; modified_files=revision_queue)
         PkgId(mod, "Core.Compiler") :
         PkgId(mod)
     modname = nameof(mod)
-    return _track(id, modname; modified_files=modified_files)
+    ret = _track(id, modname; modified_files=modified_files)
+    revise() # force revision so following calls in the same block work
+    return ret
 end
 
 const vstring = "v$(VERSION.major).$(VERSION.minor)"
