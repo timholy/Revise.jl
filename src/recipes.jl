@@ -4,7 +4,8 @@
     Revise.track(stdlib)
 
 Track updates to the code in Julia's `base` directory, `base/compiler`, or one of its
-standard libraries.
+standard libraries. Calls `revise()` after tracking to ensure that any changes
+detected during tracking are applied immediately.
 """
 function track(mod::Module; modified_files=revision_queue)
     id = Base.moduleroot(mod) == Core.Compiler ?
