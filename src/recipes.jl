@@ -1,14 +1,14 @@
 """
-    Revise.track(Base; revise_throw::Bool=false)
-    Revise.track(Core.Compiler; revise_throw::Bool=false)
-    Revise.track(stdlib; revise_throw::Bool=false)
+    Revise.track(Base; revise_throw::Bool=!isinteractive())
+    Revise.track(Core.Compiler; revise_throw::Bool=!isinteractive())
+    Revise.track(stdlib; revise_throw::Bool=!isinteractive())
 
 Track updates to the code in Julia's `base` directory, `base/compiler`, or one of its
 standard libraries. Calls `revise()` after tracking to ensure that any changes
 detected during tracking are applied immediately. Optionally, if `revise_throw` is
 `true`, `revise()` will throw if any exceptions are encountered while revising.
 """
-function track(mod::Module; modified_files=revision_queue, revise_throw::Bool=false)
+function track(mod::Module; modified_files=revision_queue, revise_throw::Bool=!isinteractive())
     id = Base.moduleroot(mod) == Core.Compiler ?
         PkgId(mod, "Core.Compiler") :
         PkgId(mod)
