@@ -16,7 +16,128 @@ mutable struct WatchList
 end
 
 const DocExprs = Dict{Module,Vector{Expr}}
-const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{MethodInfoKey}}}
+
+"""
+    ExtendedData
+
+Linked list structure for storing extension data from multiple tools.
+Each node contains:
+- `owner::Symbol`: The extension that owns this data (e.g., `:jet`, `:coverage`)
+- `data`: The extension-specific data (untyped for flexibility)
+- `next::Union{ExtendedData,Nothing}`: Link to the next extension's data
+
+The linked list allows multiple extensions to attach data to the same signature
+without interfering with each other.
+"""
+struct ExtendedData
+    owner::Symbol
+    data::Any
+    next::Union{ExtendedData,Nothing}
+    ExtendedData(owner::Symbol, @nospecialize(data), next::Union{ExtendedData,Nothing}) = new(owner, data, next)
+    ExtendedData(owner::Symbol, @nospecialize(data)) = new(owner, data, nothing)
+    ExtendedData() = new(:Revise, nothing, nothing)
+end
+
+"""
+    no_extended_data
+
+Sentinel value representing the absence of extension data.
+"""
+const no_extended_data = ExtendedData()
+
+"""
+    SigInfo
+
+Extended signature type that can carry additional extension data.
+This is a Revise-internal data structure; when interacting with CodeTracking,
+use `MethodInfoKey(::SigInfo)` to convert to `MethodInfoKey`.
+
+Fields:
+- `mt`: Method table (or `nothing`)
+- `sig`: Signature type
+- `ext`: Extension data (for external tools like JET), stored as a linked list of `ExtendedData`
+"""
+struct SigInfo
+    mt::Union{Nothing,MethodTable}
+    sig::Type
+    ext::ExtendedData
+end
+
+SigInfo(mt::Union{Nothing,MethodTable}, sig::Type) = SigInfo(mt, sig, no_extended_data)
+SigInfo((mt, sig)::MethodInfoKey) = SigInfo(mt, sig, no_extended_data)
+
+function Base.iterate(e::SigInfo, st::Int=0)
+    if st == 0
+        return e.mt, 1
+    elseif st == 1
+        return e.sig, 2
+    elseif st == 2
+        return e.ext, 3
+    else
+        return nothing
+    end
+end
+
+CodeTracking.MethodInfoKey(si::SigInfo) = MethodInfoKey(si.mt, si.sig)
+
+"""
+    get_extended_data(ext::ExtendedData, owner::Symbol) -> Union{Any,Nothing}
+
+Retrieve extension data for a specific owner from the linked list.
+Returns `nothing` if no data is found for the given owner.
+"""
+function get_extended_data(ext::ExtendedData, owner::Symbol)
+    current = ext
+    while isdefined(current, :next)
+        current.owner === owner && return current.data
+        next = current.next
+        next === nothing && break
+        current = next
+    end
+    return nothing
+end
+
+"""
+    get_extended_data(siginfo::SigInfo, owner::Symbol) -> Union{Any,Nothing}
+
+Retrieve extension data for a specific owner from the `SigInfo`'s extension data.
+Returns `nothing` if no data is found for the given owner.
+"""
+get_extended_data(siginfo::SigInfo, owner::Symbol) = get_extended_data(siginfo.ext, owner)
+
+"""
+    replace_extended_data(ext::ExtendedData, owner::Symbol, @nospecialize(data)) -> ExtendedData
+
+Replace extension data for a specific owner, or add it if not present.
+Returns a new ExtendedData linked list with the updated data.
+"""
+function replace_extended_data(ext::ExtendedData, owner::Symbol, @nospecialize(data))
+    # Base case: if this is the node to replace
+    if ext.owner === owner
+        return ExtendedData(owner, data, ext.next)
+    end
+
+    # If this is the last node and we haven't found the owner, add new node at end
+    if ext.next === nothing
+        return ExtendedData(ext.owner, ext.data, ExtendedData(owner, data, nothing))
+    end
+
+    # Recursive case: rebuild this node with updated next
+    return ExtendedData(ext.owner, ext.data, replace_extended_data(ext.next, owner, data))
+end
+
+"""
+    replace_extended_data(siginfo::SigInfo, owner::Symbol, @nospecialize(data)) -> SigInfo
+
+Replace extension data for a specific owner in a `SigInfo`, or add it if not present.
+Returns a new `SigInfo` with the updated extension data.
+"""
+function replace_extended_data(siginfo::SigInfo, owner::Symbol, @nospecialize(data))
+    new_ext = replace_extended_data(siginfo.ext, owner, data)
+    return SigInfo(siginfo.mt, siginfo.sig, new_ext)
+end
+
+const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{SigInfo}}}
 const DepDictVals = Tuple{Module,RelocatableExpr}
 const DepDict = Dict{Symbol,Set{DepDictVals}}
 
@@ -213,6 +334,27 @@ function pkgfileless((pkgdata1,file1)::Tuple{PkgData,String}, (pkgdata2,file2)::
     PkgId(pkgdata1) ∈ pkgdata2.requirements && return true
     PkgId(pkgdata1) == PkgId(pkgdata2) && return fileindex(pkgdata1, file1) < fileindex(pkgdata2, file2)
     return false
+end
+
+"""
+    SigInfoState
+
+State context passed to signature extension callbacks.
+Contains the package, file, module, and expression context for a signature.
+
+Fields:
+- `pkgdata`: Package data containing file information
+- `fileinfo`: File information containing module expressions
+- `mod`: Module where the expression is evaluated
+- `rex`: Relocatable expression that defines the signature
+- `idx`: Index of this signature in the signature vector for the current expression
+"""
+struct SigInfoState
+    pkgdata::PkgData
+    fileinfo::FileInfo
+    mod::Module
+    rex::RelocatableExpr
+    idx::Int
 end
 
 """

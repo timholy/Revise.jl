@@ -191,70 +191,55 @@ It's used to track non-precompiled packages and, optionally, user scripts (see d
 const included_files = Tuple{Module,String}[]  # (module, filename)
 const included_files_lock = ReentrantLock()    # issue #947
 
-## External callback registries for extension points
+## Signature extension system for external tools
 
 """
-    Revise._deletion_callbacks
+    Revise.SigExtensionRegistry
 
-Global variable, stores callback functions that are invoked when an expression/method is deleted.
-External tools can register callbacks via `register_deletion_callback!`.
+Registry structure for signature extension callbacks.
+
+Fields:
+- `on_sig_evaluated::Base.Callable`: Called when a signature is evaluated/re-evaluated.
+  Signature: `(state::SigInfoState, siginfo::SigInfo) -> ext_data`
+- `on_sig_deleted::Base.Callable`: Called when a signature is about to be deleted.
+  Signature: `(state::SigInfoState, siginfo::SigInfo) -> nothing`
 """
-const _deletion_callbacks = Base.Callable[]
+struct SigExtensionRegistry
+    on_sig_evaluated::Base.Callable
+    on_sig_deleted::Base.Callable
+end
 
 """
-    Revise._evaluation_callbacks
+    Revise._sig_extensions
 
-Global variable, stores callback functions that are invoked when an expression is evaluated/re-evaluated.
-External tools can register callbacks via `register_evaluation_callback!`.
+Global variable, stores signature extension registries.
+External tools can register extensions via `register_sig_extension!`.
 """
-const _evaluation_callbacks = Base.Callable[]
+const _sig_extensions = Dict{Symbol, SigExtensionRegistry}()
 
 """
-    Revise.register_deletion_callback!(f::Base.Callable)
+    Revise.register_sig_extension!(name::Symbol, registry::SigExtensionRegistry)
 
-Register a callback function `f` that will be called whenever Revise deletes a method.
-The callback signature should be: `f(mod::Module, rex::RelocatableExpr, sigs)`.
+Register a signature extension registry for external tools like JET.
 
-# Arguments
-- `mod`: The module where the expression was defined
-- `rex`: The RelocatableExpr that was deleted
-- `sigs`: The method signatures that were associated with the expression
+The registry provides callbacks that are invoked at key points in the signature lifecycle:
+- `on_sig_evaluated`: Called when a signature's method is evaluated or re-evaluated
+- `on_sig_deleted`: Called before a signature's method is deleted
+
+The `on_sig_evaluated` callback can return extension data that will be stored in `SigInfo.ext`.
 
 # Example
 ```julia
-Revise.register_deletion_callback! do mod, rex, sigs
-    println("Deleted expression from \$mod: \$rex")
-end
+registry = Revise.SigExtensionRegistry(
+    (state, siginfo) -> update_extension_data(siginfo),
+    (state, siginfo) -> cleanup_extension_data(siginfo)
+)
+Revise.register_sig_extension!(:my_tool, registry)
 ```
 """
-function register_deletion_callback!(f::Base.Callable)
-    push!(_deletion_callbacks, f)
-    return f
-end
-
-"""
-    Revise.register_evaluation_callback!(f::Base.Callable)
-
-Register a callback function `f` that will be called whenever Revise evaluates/re-evaluates an expression.
-The callback signature should be: `f(pkgdata::PkgData, fileinfo::FileInfo, mod::Module, rex::RelocatableExpr, sigs)`.
-
-# Arguments
-- `pkgdata`: The PkgData for the package being revised
-- `fileinfo`: The FileInfo for the file being revised
-- `mod`: The module where the expression is being evaluated
-- `rex`: The RelocatableExpr being evaluated
-- `sigs`: The method signatures extracted from the expression (or nothing)
-
-# Example
-```julia
-Revise.register_evaluation_callback! do pkgdata, fileinfo, mod, rex, sigs
-    println("Evaluated expression in \$mod: \$rex")
-end
-```
-"""
-function register_evaluation_callback!(f::Base.Callable)
-    push!(_evaluation_callbacks, f)
-    return f
+function register_sig_extension!(name::Symbol, registry::SigExtensionRegistry)
+    _sig_extensions[name] = registry
+    return registry
 end
 
 """
@@ -410,7 +395,7 @@ end
 ## now this is the right strategy.) From the standpoint of CodeTracking, we should
 ## link the signature to the actual method-defining expression (either :(f() = 1) or :(g() = 2)).
 
-function delete_missing!(callback, exs_sigs_old::ExprsSigs, exs_sigs_new)
+function delete_missing!(callback, exs_sigs_old::ExprsSigs, exs_sigs_new::ExprsSigs)
     with_logger(_debug_logger) do
         for (ex, mt_sigs) in exs_sigs_old
             haskey(exs_sigs_new, ex) && continue
@@ -424,7 +409,7 @@ function delete_missing!(callback, exs_sigs_old::ExprsSigs, exs_sigs_new)
                     m = ret[end].method  # the last method returned is the least-specific that matches, and thus most likely to be type-equal
                     methsig = m.sig
                     if sig <: methsig && methsig <: sig
-                        locdefs = get(CodeTracking.method_info, mt_sig, nothing)
+                        locdefs = get(CodeTracking.method_info, MethodInfoKey(mt_sig), nothing)
                         if isa(locdefs, Vector{Tuple{LineNumberNode,Expr}})
                             if length(locdefs) > 1
                                 # Just delete this reference but keep the method
@@ -450,7 +435,7 @@ function delete_missing!(callback, exs_sigs_old::ExprsSigs, exs_sigs_new)
                         end
                         Base.delete_method(m)
                         # Remove the entries from CodeTracking data
-                        delete!(CodeTracking.method_info, mt_sig)
+                        delete!(CodeTracking.method_info, MethodInfoKey(mt_sig))
                         # Remove frame from JuliaInterpreter, if applicable. Otherwise debuggers
                         # may erroneously work with outdated code (265-like problems)
                         if haskey(JuliaInterpreter.framedict, m)
@@ -472,9 +457,11 @@ function delete_missing!(callback, exs_sigs_old::ExprsSigs, exs_sigs_new)
     end
     return exs_sigs_old
 end
+delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new::ExprsSigs) =
+    delete_missing!(Returns(nothing), exs_sigs_old, exs_sigs_new)
 
 const empty_exs_sigs = ExprsSigs()
-function delete_missing!(pkgdata::PkgData, fi::FileInfo, mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new)
+function delete_missing!(pkgdata::PkgData, fi::FileInfo, mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new::ModuleExprsSigs)
     for (mod, exs_sigs_old) in mod_exs_sigs_old
         exs_sigs_new = get(mod_exs_sigs_new, mod, empty_exs_sigs)
         delete_missing!(pkgdata, fi, mod, exs_sigs_old, exs_sigs_new)
@@ -484,11 +471,15 @@ end
 
 function delete_missing!(pkgdata::PkgData, fi::FileInfo, mod::Module, exs_sigs_old::ExprsSigs, exs_sigs_new::ExprsSigs)
     delete_missing!(exs_sigs_old, exs_sigs_new) do ex, mt_sigs
-        for cb in _deletion_callbacks
-            try
-                cb(pkgdata, fi, mod, ex, mt_sigs)
-            catch err
-                @error "Deletion callback error" exception=(err, catch_backtrace())
+        mt_sigs === nothing && return
+        for (idx, mt_sig) in enumerate(mt_sigs)
+            state = SigInfoState(pkgdata, fi, mod, ex, idx)
+            for (name, registry) in _sig_extensions
+                try
+                    registry.on_sig_deleted(state, mt_sig)
+                catch err
+                    @error "Signature extension error" name exception=(err, catch_backtrace())
+                end
             end
         end
     end
@@ -526,7 +517,7 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
                 ln, lno = ln::LineNumberNode, lno::LineNumberNode
                 @debug "LineOffset" _group="Action" time=time() deltainfo=(mt_sigs, lno=>ln)
                 for mt_sig in mt_sigs
-                    locdefs = CodeTracking.method_info[mt_sig]::AbstractVector
+                    locdefs = CodeTracking.method_info[MethodInfoKey(mt_sig)]::AbstractVector
                     ld = let lno=lno
                         map(pr->linediff(lno, pr[1]), locdefs)
                     end
@@ -546,7 +537,7 @@ end
 
 # These are typically bypassed in favor of expression-by-expression evaluation to
 # allow handling of new `include` statements.
-function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Symbol=:eval)
+function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
     includes = Vector{Pair{Module,String}}()
     for rex in keys(exs_sigs_new)
         mt_sigs, _includes = eval_rex(rex, exs_sigs_old, mod; mode=mode)
@@ -560,7 +551,7 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Sym
     return exs_sigs_new, includes
 end
 
-function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old; mode::Symbol=:eval)
+function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old::ModuleExprsSigs; mode::Symbol=:eval)
     includes = Vector{Pair{Module,String}}()
     for (mod, exs_sigs_new) in mod_exs_sigs_new
         # Allow packages to override the supplied mode
@@ -593,19 +584,19 @@ It also has the following fields:
 """
 struct CodeTrackingMethodInfo
     exprstack::Vector{Expr}
-    allsigs::Vector{MethodInfoKey}
+    allsigs::Vector{SigInfo}
     includes::Vector{Pair{Module,String}}
 end
-CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], MethodInfoKey[], Pair{Module,String}[])
+CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], SigInfo[], Pair{Module,String}[])
 
-function add_signature!(methodinfo::CodeTrackingMethodInfo, mt_sig::MethodInfoKey, ln)
+function add_signature!(methodinfo::CodeTrackingMethodInfo, mt_sig::MethodInfoKey, ln::LineNumberNode)
     locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, mt_sig)
     newdef = unwrap(methodinfo.exprstack[end])
     if newdef !== nothing
         if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
             push!(locdefs, (fixpath(ln), newdef))
         end
-        push!(methodinfo.allsigs, mt_sig)
+        push!(methodinfo.allsigs, SigInfo(mt_sig))
     end
     return methodinfo
 end
@@ -617,13 +608,13 @@ function add_includes!(methodinfo::CodeTrackingMethodInfo, mod::Module, filename
 end
 
 # Eval and insert into CodeTracking data
-function eval_with_signatures(mod, ex::Expr; mode=:eval, kwargs...)
+function eval_with_signatures(mod::Module, ex::Expr; mode::Symbol=:eval, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
     _, thk = methods_by_execution!(methodinfo, mod, ex; mode=mode, kwargs...)
     return methodinfo.allsigs, methodinfo.includes, thk
 end
 
-function instantiate_sigs!(modexsigs::ModuleExprsSigs; mode=:sigs, kwargs...)
+function instantiate_sigs!(modexsigs::ModuleExprsSigs; mode::Symbol=:sigs, kwargs...)
     for (mod, exsigs) in modexsigs
         for rex in keys(exsigs)
             is_doc_expr(rex.ex) && continue
@@ -639,8 +630,11 @@ end
 # risk you could end up deleting the method altogether depending on the order in which you
 # process these.
 # See `revise` for the proper approach.
-function eval_revised(mod_exs_sigs_new, mod_exs_sigs_old)
-    delete_missing!(Returns(nothing), mod_exs_sigs_old, mod_exs_sigs_new)
+function eval_revised(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old::ModuleExprsSigs)
+    for (mod, exs_sigs_old) in mod_exs_sigs_old
+        exs_sigs_new = get(mod_exs_sigs_new, mod, empty_exs_sigs)
+        delete_missing!(exs_sigs_old, exs_sigs_new)
+    end
     eval_new!(mod_exs_sigs_new, mod_exs_sigs_old)  # note: drops `includes`
     instantiate_sigs!(mod_exs_sigs_new)
 end
@@ -947,14 +941,22 @@ function revise(; throw::Bool=false)
                         for rex in keys(exsnew)
                             mt_sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
                             if mt_sigs !== nothing
-                                exsnew[rex] = mt_sigs
-                            end
-                            for cb in _evaluation_callbacks
-                                try
-                                    cb(pkgdata, fi, mod, rex, mt_sigs)
-                                catch err
-                                    @error "Evaluation callback error" exception=(err, catch_backtrace())
+                                # Invoke signature extension evaluation callbacks and populate ext fields
+                                for (idx, mt_sig) in enumerate(mt_sigs)
+                                    state = SigInfoState(pkgdata, fi, mod, rex, idx)
+                                    new_ext = mt_sig.ext
+                                    for (name, registry) in _sig_extensions
+                                        ext_data = try
+                                            registry.on_sig_evaluated(state, mt_sig)
+                                        catch err
+                                            @error "Signature extension error" name exception=(err, catch_backtrace())
+                                            nothing
+                                        end
+                                        new_ext = replace_extended_data(new_ext, name, ext_data)
+                                    end
+                                    mt_sigs[idx] = SigInfo(mt_sig.mt, mt_sig.sig, new_ext)
                                 end
+                                exsnew[rex] = mt_sigs
                             end
                             if includes !== nothing
                                 maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
@@ -989,8 +991,12 @@ function revise(; throw::Bool=false)
                 end
                 empty!(reeval_methods)
                 for m in list
+<<<<<<< HEAD
                     mt_sig = MethodInfoKey(nothing, m.sig)
                     methinfo = get(CodeTracking.method_info, mt_sig, missing)
+=======
+                    methinfo = get(CodeTracking.method_info, MethodInfoKey(nothing, m.sig), missing)
+>>>>>>> 06c1841 (sig-based extension interface)
                     if methinfo === missing
                         push!(handled, m.sig)
                         continue
