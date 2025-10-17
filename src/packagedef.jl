@@ -191,6 +191,72 @@ It's used to track non-precompiled packages and, optionally, user scripts (see d
 const included_files = Tuple{Module,String}[]  # (module, filename)
 const included_files_lock = ReentrantLock()    # issue #947
 
+## External callback registries for extension points
+
+"""
+    Revise._deletion_callbacks
+
+Global variable, stores callback functions that are invoked when an expression/method is deleted.
+External tools can register callbacks via `register_deletion_callback!`.
+"""
+const _deletion_callbacks = Base.Callable[]
+
+"""
+    Revise._evaluation_callbacks
+
+Global variable, stores callback functions that are invoked when an expression is evaluated/re-evaluated.
+External tools can register callbacks via `register_evaluation_callback!`.
+"""
+const _evaluation_callbacks = Base.Callable[]
+
+"""
+    Revise.register_deletion_callback!(f::Base.Callable)
+
+Register a callback function `f` that will be called whenever Revise deletes a method.
+The callback signature should be: `f(mod::Module, rex::RelocatableExpr, sigs)`.
+
+# Arguments
+- `mod`: The module where the expression was defined
+- `rex`: The RelocatableExpr that was deleted
+- `sigs`: The method signatures that were associated with the expression
+
+# Example
+```julia
+Revise.register_deletion_callback! do mod, rex, sigs
+    println("Deleted expression from \$mod: \$rex")
+end
+```
+"""
+function register_deletion_callback!(f::Base.Callable)
+    push!(_deletion_callbacks, f)
+    return f
+end
+
+"""
+    Revise.register_evaluation_callback!(f::Base.Callable)
+
+Register a callback function `f` that will be called whenever Revise evaluates/re-evaluates an expression.
+The callback signature should be: `f(pkgdata::PkgData, fileinfo::FileInfo, mod::Module, rex::RelocatableExpr, sigs)`.
+
+# Arguments
+- `pkgdata`: The PkgData for the package being revised
+- `fileinfo`: The FileInfo for the file being revised
+- `mod`: The module where the expression is being evaluated
+- `rex`: The RelocatableExpr being evaluated
+- `sigs`: The method signatures extracted from the expression (or nothing)
+
+# Example
+```julia
+Revise.register_evaluation_callback! do pkgdata, fileinfo, mod, rex, sigs
+    println("Evaluated expression in \$mod: \$rex")
+end
+```
+"""
+function register_evaluation_callback!(f::Base.Callable)
+    push!(_evaluation_callbacks, f)
+    return f
+end
+
 """
     expected_juliadir()
 
@@ -344,7 +410,7 @@ end
 ## now this is the right strategy.) From the standpoint of CodeTracking, we should
 ## link the signature to the actual method-defining expression (either :(f() = 1) or :(g() = 2)).
 
-function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
+function delete_missing!(callback, exs_sigs_old::ExprsSigs, exs_sigs_new)
     with_logger(_debug_logger) do
         for (ex, mt_sigs) in exs_sigs_old
             haskey(exs_sigs_new, ex) && continue
@@ -401,18 +467,31 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                     @debug "FailedDeletion" _group="Action" time=time() deltainfo=(sig,)
                 end
             end
+            callback(ex, mt_sigs)
         end
     end
     return exs_sigs_old
 end
 
 const empty_exs_sigs = ExprsSigs()
-function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new)
+function delete_missing!(pkgdata::PkgData, fi::FileInfo, mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new)
     for (mod, exs_sigs_old) in mod_exs_sigs_old
         exs_sigs_new = get(mod_exs_sigs_new, mod, empty_exs_sigs)
-        delete_missing!(exs_sigs_old, exs_sigs_new)
+        delete_missing!(pkgdata, fi, mod, exs_sigs_old, exs_sigs_new)
     end
     return mod_exs_sigs_old
+end
+
+function delete_missing!(pkgdata::PkgData, fi::FileInfo, mod::Module, exs_sigs_old::ExprsSigs, exs_sigs_new::ExprsSigs)
+    delete_missing!(exs_sigs_old, exs_sigs_new) do ex, mt_sigs
+        for cb in _deletion_callbacks
+            try
+                cb(pkgdata, fi, mod, ex, mt_sigs)
+            catch err
+                @error "Deletion callback error" exception=(err, catch_backtrace())
+            end
+        end
+    end
 end
 
 function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
@@ -561,7 +640,7 @@ end
 # process these.
 # See `revise` for the proper approach.
 function eval_revised(mod_exs_sigs_new, mod_exs_sigs_old)
-    delete_missing!(mod_exs_sigs_old, mod_exs_sigs_new)
+    delete_missing!(Returns(nothing), mod_exs_sigs_old, mod_exs_sigs_new)
     eval_new!(mod_exs_sigs_new, mod_exs_sigs_old)  # note: drops `includes`
     instantiate_sigs!(mod_exs_sigs_new)
 end
@@ -724,7 +803,7 @@ function handle_deletions(pkgdata, file)
     fileok = file_exists(String(filep)::String)
     mexsnew = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
     if mexsnew !== nothing && mexsnew !== DoNotParse()
-        delete_missing!(mexsold, mexsnew)
+        delete_missing!(pkgdata, fi, mexsold, mexsnew)
     end
     if !fileok
         @warn("$filep no longer exists, deleted all methods")
@@ -869,6 +948,13 @@ function revise(; throw::Bool=false)
                             mt_sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
                             if mt_sigs !== nothing
                                 exsnew[rex] = mt_sigs
+                            end
+                            for cb in _evaluation_callbacks
+                                try
+                                    cb(pkgdata, fi, mod, rex, mt_sigs)
+                                catch err
+                                    @error "Evaluation callback error" exception=(err, catch_backtrace())
+                                end
                             end
                             if includes !== nothing
                                 maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
@@ -1508,7 +1594,7 @@ function __init__()
     # Set up a repository for methods defined at the REPL
     id = PkgId(nothing, "@REPL")
     @lock pkgdatas_lock begin
-        pkgdatas[id] = pkgdata = PkgData(id, nothing)
+        pkgdatas[id] = PkgData(id, nothing)
     end
     # Set the lookup callbacks
     CodeTracking.method_lookup_callback[] = get_def
