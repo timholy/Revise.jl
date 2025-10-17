@@ -299,21 +299,21 @@ const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests d
 ## now this is the right strategy.) From the standpoint of CodeTracking, we should
 ## link the signature to the actual method-defining expression (either :(f() = 1) or :(g() = 2)).
 
-function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
+function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new::ExprsSigs)
     with_logger(_debug_logger) do
-        for (ex, mt_sigs) in exs_sigs_old
+        for (ex, siginfos) in exs_sigs_old
             haskey(exs_sigs_new, ex) && continue
             # ex was deleted
-            mt_sigs === nothing && continue
-            for mt_sig in mt_sigs
-                mt, sig = mt_sig
+            siginfos === nothing && continue
+            for siginfo in siginfos
+                mt, sig = siginfo
                 ret = Base._methods_by_ftype(sig, mt, -1, Base.get_world_counter())
                 success = false
                 if !isempty(ret)
                     m = ret[end].method  # the last method returned is the least-specific that matches, and thus most likely to be type-equal
                     methsig = m.sig
                     if sig <: methsig && methsig <: sig
-                        locdefs = get(CodeTracking.method_info, mt_sig, nothing)
+                        locdefs = get(CodeTracking.method_info, MethodInfoKey(siginfo), nothing)
                         if isa(locdefs, Vector{Tuple{LineNumberNode,Expr}})
                             if length(locdefs) > 1
                                 # Just delete this reference but keep the method
@@ -339,7 +339,7 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
                         end
                         Base.delete_method(m)
                         # Remove the entries from CodeTracking data
-                        delete!(CodeTracking.method_info, mt_sig)
+                        delete!(CodeTracking.method_info, MethodInfoKey(siginfo))
                         # Remove frame from JuliaInterpreter, if applicable. Otherwise debuggers
                         # may erroneously work with outdated code (265-like problems)
                         if haskey(JuliaInterpreter.framedict, m)
@@ -362,7 +362,7 @@ function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new)
 end
 
 const empty_exs_sigs = ExprsSigs()
-function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new)
+function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new::ModuleExprsSigs)
     for (mod, exs_sigs_old) in mod_exs_sigs_old
         exs_sigs_new = get(mod_exs_sigs_new, mod, empty_exs_sigs)
         delete_missing!(exs_sigs_old, exs_sigs_new)
@@ -370,16 +370,16 @@ function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new)
     return mod_exs_sigs_old
 end
 
-function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
+function eval_rex(rex_new::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
     return with_logger(_debug_logger) do
-        mt_sigs, includes = nothing, nothing
-        rexo = getkey(exs_sigs_old, rex, nothing)
+        siginfos, includes = nothing, nothing
+        rex_old = getkey(exs_sigs_old, rex_new, nothing)
         # extract the signatures and update the line info
-        if rexo === nothing
-            ex = rex.ex
+        if rex_old === nothing
+            ex = rex_new.ex
             # ex is not present in old
-            @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
-            mt_sigs, includes, thunk = eval_with_signatures(mod, ex; mode=mode)  # All signatures defined by `ex`
+            @debug titlecase(String(mode)) _group="Action" time=time() deltainfo=(mod, ex, mode)
+            siginfos, includes, thunk = eval_with_signatures(mod, ex; mode)  # All signatures defined by `ex`
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end
@@ -395,14 +395,14 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
                 end
             end
         else
-            mt_sigs = exs_sigs_old[rexo]
+            siginfos = exs_sigs_old[rex_old]
             # Update location info
-            ln, lno = firstline(unwrap(rex)), firstline(unwrap(rexo))
-            if mt_sigs !== nothing && !isempty(mt_sigs) && ln != lno
+            ln, lno = firstline(unwrap(rex_new)), firstline(unwrap(rex_old))
+            if siginfos !== nothing && !isempty(siginfos) && ln != lno
                 ln, lno = ln::LineNumberNode, lno::LineNumberNode
-                @debug "LineOffset" _group="Action" time=time() deltainfo=(mt_sigs, lno=>ln)
-                for mt_sig in mt_sigs
-                    locdefs = CodeTracking.method_info[mt_sig]::AbstractVector
+                @debug "LineOffset" _group="Action" time=time() deltainfo=(siginfos, lno=>ln)
+                for siginfo in siginfos
+                    locdefs = CodeTracking.method_info[MethodInfoKey(siginfo)]::AbstractVector
                     ld = let lno=lno
                         map(pr->linediff(lno, pr[1]), locdefs)
                     end
@@ -416,18 +416,18 @@ function eval_rex(rex::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mo
                 end
             end
         end
-        return mt_sigs, includes
+        return siginfos, includes
     end
 end
 
 # These are typically bypassed in favor of expression-by-expression evaluation to
 # allow handling of new `include` statements.
-function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Symbol=:eval)
+function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
     includes = Vector{Pair{Module,String}}()
     for rex in keys(exs_sigs_new)
-        mt_sigs, _includes = eval_rex(rex, exs_sigs_old, mod; mode=mode)
-        if mt_sigs !== nothing
-            exs_sigs_new[rex] = mt_sigs
+        siginfos, _includes = eval_rex(rex, exs_sigs_old, mod; mode)
+        if siginfos !== nothing
+            exs_sigs_new[rex] = siginfos
         end
         if _includes !== nothing
             append!(includes, _includes)
@@ -436,7 +436,7 @@ function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old, mod::Module; mode::Sym
     return exs_sigs_new, includes
 end
 
-function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old; mode::Symbol=:eval)
+function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old::ModuleExprsSigs; mode::Symbol=:eval)
     includes = Vector{Pair{Module,String}}()
     for (mod, exs_sigs_new) in mod_exs_sigs_new
         # Allow packages to override the supplied mode
@@ -469,23 +469,23 @@ It also has the following fields:
 """
 struct CodeTrackingMethodInfo
     exprstack::Vector{Expr}
-    allsigs::Vector{Pair{Union{Nothing, MethodTable}, Type}}
+    allsigs::Vector{SigInfo}
     includes::Vector{Pair{Module,String}}
 end
-CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], Pair{Union{Nothing, MethodTable}, Type}[], Pair{Module,String}[])
+CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], SigInfo[], Pair{Module,String}[])
 
-function add_signature!(methodinfo::CodeTrackingMethodInfo, mt_sig::MethodInfoKey, ln)
+function add_signature!(methodinfo::CodeTrackingMethodInfo, mt_sig::MethodInfoKey, ln::LineNumberNode)
     locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, mt_sig)
     newdef = unwrap(methodinfo.exprstack[end])
     if newdef !== nothing
         if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
             push!(locdefs, (fixpath(ln), newdef))
         end
-        push!(methodinfo.allsigs, mt_sig)
+        push!(methodinfo.allsigs, SigInfo(mt_sig))
     end
     return methodinfo
 end
-push_expr!(methodinfo::CodeTrackingMethodInfo, mod::Module, ex::Expr) = (push!(methodinfo.exprstack, ex); methodinfo)
+push_expr!(methodinfo::CodeTrackingMethodInfo, ex::Expr) = (push!(methodinfo.exprstack, ex); methodinfo)
 pop_expr!(methodinfo::CodeTrackingMethodInfo) = (pop!(methodinfo.exprstack); methodinfo)
 function add_includes!(methodinfo::CodeTrackingMethodInfo, mod::Module, filename)
     push!(methodinfo.includes, mod=>filename)
@@ -493,21 +493,20 @@ function add_includes!(methodinfo::CodeTrackingMethodInfo, mod::Module, filename
 end
 
 # Eval and insert into CodeTracking data
-function eval_with_signatures(mod, ex::Expr; mode=:eval, kwargs...)
+function eval_with_signatures(mod::Module, ex::Expr; mode::Symbol=:eval, kwargs...)
     methodinfo = CodeTrackingMethodInfo(ex)
-    _, thk = methods_by_execution!(methodinfo, mod, ex; mode=mode, kwargs...)
+    _, thk = methods_by_execution!(methodinfo, mod, ex; mode, kwargs...)
     return methodinfo.allsigs, methodinfo.includes, thk
 end
 
-function instantiate_sigs!(modexsigs::ModuleExprsSigs; mode=:sigs, kwargs...)
-    for (mod, exsigs) in modexsigs
+function instantiate_sigs!(mod_exs_sigs::ModuleExprsSigs; mode::Symbol=:sigs, kwargs...)
+    for (mod, exsigs) in mod_exs_sigs
         for rex in keys(exsigs)
             is_doc_expr(rex.ex) && continue
-            mt_sigs, _ = eval_with_signatures(mod, rex.ex; mode=mode, kwargs...)
-            exsigs[rex] = mt_sigs
+            exsigs[rex], _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
         end
     end
-    return modexsigs
+    return mod_exs_sigs
 end
 
 # This is intended for testing purposes, but not general use. The key problem is
@@ -515,7 +514,7 @@ end
 # risk you could end up deleting the method altogether depending on the order in which you
 # process these.
 # See `revise` for the proper approach.
-function eval_revised(mod_exs_sigs_new, mod_exs_sigs_old)
+function eval_revised(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old::ModuleExprsSigs)
     delete_missing!(mod_exs_sigs_old, mod_exs_sigs_new)
     eval_new!(mod_exs_sigs_new, mod_exs_sigs_old)  # note: drops `includes`
     instantiate_sigs!(mod_exs_sigs_new)
@@ -665,7 +664,7 @@ end
 function handle_deletions(pkgdata, file)
     fi = maybe_parse_from_cache!(pkgdata, file)
     maybe_extract_sigs!(fi)
-    mexsold = fi.modexsigs
+    mod_exs_sigs_old = fi.modexsigs
     idx = fileindex(pkgdata, file)
     filep = pkgdata.info.files[idx]
     if isa(filep, AbstractString)
@@ -675,11 +674,11 @@ function handle_deletions(pkgdata, file)
             filep = normpath(basedir(pkgdata))
         end
     end
-    topmod = first(keys(mexsold))
+    topmod = first(keys(mod_exs_sigs_old))
     fileok = file_exists(String(filep)::String)
-    mexsnew = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
-    if mexsnew !== nothing && mexsnew !== DoNotParse()
-        delete_missing!(mexsold, mexsnew)
+    mod_exs_sigs_new = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
+    if mod_exs_sigs_new !== nothing && mod_exs_sigs_new !== DoNotParse()
+        delete_missing!(mod_exs_sigs_old, mod_exs_sigs_new)
     end
     if !fileok
         @warn("$filep no longer exists, deleted all methods")
@@ -690,7 +689,7 @@ function handle_deletions(pkgdata, file)
             delete!(wl.trackedfiles, file)
         end
     end
-    return mexsnew, mexsold
+    return mod_exs_sigs_new, mod_exs_sigs_old
 end
 
 """
@@ -813,9 +812,9 @@ function revise(; throw::Bool=false)
                         mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
                         exsold = get(fi.modexsigs, mod, empty_exs_sigs)
                         for rex in keys(exsnew)
-                            mt_sigs, includes = eval_rex(rex, exsold, mod; mode=mode)
-                            if mt_sigs !== nothing
-                                exsnew[rex] = mt_sigs
+                            siginfos, includes = eval_rex(rex, exsold, mod; mode)
+                            if siginfos !== nothing
+                                exsnew[rex] = siginfos
                             end
                             if includes !== nothing
                                 maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
@@ -823,8 +822,8 @@ function revise(; throw::Bool=false)
                         end
                         delete!(modsremaining, mod)
                         changed = true
-                    catch _err
-                        err = _err
+                    catch e
+                        err = e
                     end
                 end
             end
@@ -943,12 +942,12 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
         file = abspath(file)
     end
     # Set up tracking
-    fm = parse_source(file, mod; mode)
-    if fm !== nothing
+    mod_exs_sigs = parse_source(file, mod; mode)
+    if mod_exs_sigs !== nothing
         if mode === :includet
             mode = :sigs   # we already handled evaluation in `parse_source`
         end
-        instantiate_sigs!(fm; mode, kwargs...)
+        instantiate_sigs!(mod_exs_sigs; mode, kwargs...)
         if !haskey(pkgdatas, id)
             # Wait a bit to see if `mod` gets initialized
             sleep(0.1)
@@ -961,7 +960,7 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
             CodeTracking._pkgfiles[id] = pkgdata.info
         end
         @lock pkgdatas_lock begin
-            push!(pkgdata, relpath(file, pkgdata)=>FileInfo(fm))
+            push!(pkgdata, relpath(file, pkgdata)=>FileInfo(mod_exs_sigs))
             init_watching(pkgdata, (String(file)::String,))
             pkgdatas[id] = pkgdata
         end
@@ -1111,8 +1110,8 @@ function get_def(method::Method; modified_files=revision_queue)
         fi = add_definitions_from_repl(filename)
         hassig = false
         for (mod, exs) in fi.modexsigs
-            for mt_sigs in values(exs)
-                hassig |= !isempty(mt_sigs)
+            for siginfos in values(exs)
+                hassig |= !isempty(siginfos)
             end
         end
         return hassig
@@ -1188,10 +1187,10 @@ function add_definitions_from_repl(filename::String)
     src = hp.history[hp.start_idx+hist_idx]
     id = PkgId(nothing, "@REPL")
     pkgdata = pkgdatas[id]
-    mexs = ModuleExprsSigs(Main::Module)
-    parse_source!(mexs, src, filename, Main::Module)
-    instantiate_sigs!(mexs)
-    fi = FileInfo(mexs)
+    mod_exs_sigs = ModuleExprsSigs(Main::Module)
+    parse_source!(mod_exs_sigs, src, filename, Main::Module)
+    instantiate_sigs!(mod_exs_sigs)
+    fi = FileInfo(mod_exs_sigs)
     push!(pkgdata, filename=>fi)
     return fi
 end
@@ -1377,7 +1376,7 @@ function __init__()
     # Set up a repository for methods defined at the REPL
     id = PkgId(nothing, "@REPL")
     @lock pkgdatas_lock begin
-        pkgdatas[id] = pkgdata = PkgData(id, nothing)
+        pkgdatas[id] = PkgData(id, nothing)
     end
     # Set the lookup callbacks
     CodeTracking.method_lookup_callback[] = get_def
