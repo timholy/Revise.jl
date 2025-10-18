@@ -859,7 +859,8 @@ function revise(; throw::Bool=false)
                 end
                 empty!(reeval_methods)
                 for m in list
-                    methinfo = get(CodeTracking.method_info, Pair{Union{Nothing, Core.MethodTable}, Type}(nothing, m.sig), missing)
+                    mt_sig = MethodInfoKey(nothing, m.sig)
+                    methinfo = get(CodeTracking.method_info, mt_sig, missing)
                     if methinfo === missing
                         push!(handled, m.sig)
                         continue
@@ -882,7 +883,7 @@ function revise(; throw::Bool=false)
                     !iszero(m.dispatch_status) && with_logger(_debug_logger) do
                         @debug "DeleteMethod" _group="Action" time=time() deltainfo=(m.sig, MethodSummary(m))
                         Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
-                        delete!(CodeTracking.method_info, m.sig)
+                        delete!(CodeTracking.method_info, mt_sig)
                         _, ex = methinfo[1]
                         @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
                         invokelatest(eval_with_signatures, m.module, ex; mode=:eval)
