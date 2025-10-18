@@ -157,6 +157,9 @@ const __bpart__ = Base.VERSION >= v"1.12.0-DEV.2047"
 # Julia 1.12+: when bindings switch to a new type, we need to re-evaluate method
 # definitions using the new binding resolution.
 const reeval_methods = Set{Method}()
+# Track deleted method signatures that need re-evaluation when types become compatible again
+# Each entry is a tuple of (MethodInfoKey, Module) where Module is where the method should be evaluated
+const reeval_deleted_sigs = Set{Tuple{MethodInfoKey, Module}}()
 
 """
     Revise.NOPACKAGE
@@ -924,12 +927,41 @@ function revise(; throw::Bool=false)
                     !iszero(m.dispatch_status) && with_logger(_debug_logger) do
                         @debug "DeleteMethod" _group="Action" time=time() deltainfo=(m.sig, MethodSummary(m))
                         Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
-                        delete!(CodeTracking.method_info, mt_sig)
                         _, ex = methinfo[1]
-                        @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
-                        invokelatest(eval_with_signatures, m.module, ex; mode=:eval)
+                        @debug "Eval" _group="Action" time=time() deltainfo=(m.module, ex)
+                        eval_success = false
+                        try
+                            invokelatest(eval_with_signatures, m.module, ex; mode=:eval)
+                            eval_success = true
+                        catch err
+                            # Re-evaluation may fail if the method signature references a type that has changed
+                            # (e.g., method expects parametric type but current binding is non-parametric).
+                            # This is expected during type transitions; the method will be re-evaluated
+                            # when the type changes back to a compatible form.
+                            @debug "EvalFailed" _group="Action" time=time() deltainfo=(m.module, ex, err)
+                        end
+                        # Only delete from method_info if re-evaluation succeeded
+                        # Otherwise, keep it so we can try again when the type becomes compatible
+                        eval_success && delete!(CodeTracking.method_info, mt_sig)
                     end
                     push!(handled, m.sig)
+                end
+            end
+        end
+        # Handle deleted method signatures that need re-evaluation
+        if !isempty(reeval_deleted_sigs)
+            for (mt_sig, mod) in collect(reeval_deleted_sigs)
+                methinfo = get(CodeTracking.method_info, mt_sig, nothing)
+                if methinfo !== nothing && length(methinfo) == 1
+                    lnn, ex = methinfo[1]
+                    try
+                        invokelatest(eval_with_signatures, mod, ex; mode=:eval)
+                        # If successful, remove from both queues
+                        delete!(CodeTracking.method_info, mt_sig)
+                        delete!(reeval_deleted_sigs, (mt_sig, mod))
+                    catch
+                        # Keep in queue for potential future re-evaluation
+                    end
                 end
             end
         end

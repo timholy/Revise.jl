@@ -2699,7 +2699,7 @@ const issue639report = []
                 """)
             @yry()
             foo3 = @invokelatest(StructParamFullCircle.Foo(1))
-            @test_broken @invokelatest(StructParamFullCircle.bar(foo3)) == "parametric with $Int"
+            @test @invokelatest(StructParamFullCircle.bar(foo3)) == "parametric with $Int"
 
             rm_precompile("StructParamFullCircle")
 

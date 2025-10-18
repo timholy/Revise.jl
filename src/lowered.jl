@@ -466,6 +466,16 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                             # we need to do this now, before the binding changes to the new type
                             maybe_extract_sigs_for_meths(meths)
                             union!(reeval_methods, meths)
+                            # Also check for deleted methods in CodeTracking.method_info that reference this type
+                            # This handles cases where methods were deleted during previous type changes but need
+                            # to be re-evaluated when the type becomes compatible again
+                            for (mt_sig, methinfo) in CodeTracking.method_info
+                                if hastype_by_name(mt_sig[2], newtypename)
+                                    # Add to the global queue for re-evaluation after type binding changes
+                                    # Store both the signature and the module where it should be evaluated
+                                    push!(reeval_deleted_sigs, (mt_sig, newtypename.module))
+                                end
+                            end
                         end
                     end
                     pc = step_expr!(interp, frame, stmt, true)
