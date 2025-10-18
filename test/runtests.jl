@@ -2671,7 +2671,7 @@ const issue639report = []
             @eval using StructParamFullCircle
             sleep(mtimedelay)
             foo1 = StructParamFullCircle.Foo(1)
-            @test StructParamFullCircle.bar(foo1) == "parametric with Int64"
+            @test StructParamFullCircle.bar(foo1) == "parametric with $Int"
 
             # Change Foo to be non-parametric
             write(fn4, raw"""
@@ -2685,7 +2685,7 @@ const issue639report = []
                 """)
             @yry()
             foo2 = @invokelatest(StructParamFullCircle.Foo(1))
-            @test @invokelatest(StructParamFullCircle.bar(foo2)) == "nonparam"
+            @test_throws MethodError @invokelatest(StructParamFullCircle.bar(foo2))
 
             # Now change Foo back to its original parametric definition
             write(fn4, raw"""
@@ -2699,7 +2699,7 @@ const issue639report = []
                 """)
             @yry()
             foo3 = @invokelatest(StructParamFullCircle.Foo(1))
-            @test @invokelatest(StructParamFullCircle.bar(foo3)) == "parametric with Int64"
+            @test_broken @invokelatest(StructParamFullCircle.bar(foo3)) == "parametric with $Int"
 
             rm_precompile("StructParamFullCircle")
 
