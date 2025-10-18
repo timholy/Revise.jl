@@ -131,7 +131,7 @@ maybe_extract_sigs!(pkgdata::PkgData, file::AbstractString) = maybe_extract_sigs
 
 function maybe_extract_sigs_for_meths(meths)
     for m in meths
-        methinfo = get(CodeTracking.method_info, m.sig, false)
+        methinfo = get(CodeTracking.method_info, MethodInfoKey(m), false)
         if methinfo === false
             pkgdata = get(pkgdatas, PkgId(m.module), nothing)
             pkgdata === nothing && continue
