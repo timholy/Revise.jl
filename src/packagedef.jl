@@ -157,6 +157,9 @@ const __bpart__ = Base.VERSION >= v"1.12.0-DEV.2047"
 # Julia 1.12+: when bindings switch to a new type, we need to re-evaluate method
 # definitions using the new binding resolution.
 const reeval_methods = Set{Method}()
+# Track (signature, module, method) tuples for methods that failed to re-evaluate
+# due to type incompatibility and need retry when types become compatible again
+const pending_eval_sigs = Set{Tuple{MethodInfoKey, Module, Method}}()
 
 """
     Revise.NOPACKAGE
@@ -849,6 +852,26 @@ function revise(; throw::Bool=false)
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())
             end
         end
+        # Retry methods that previously failed to re-evaluate
+        if !isempty(pending_eval_sigs)
+            for (mt_sig, mod, m) in collect(pending_eval_sigs)
+                methinfo = get(CodeTracking.method_info, mt_sig, nothing)
+                if methinfo !== nothing && length(methinfo) == 1
+                    _, ex = methinfo[1]
+                    try
+                        invokelatest(eval_with_signatures, mod, ex; mode=:eval)
+                        # If successful, remove from both queues
+                        delete!(CodeTracking.method_info, mt_sig)
+                        delete!(pending_eval_sigs, (mt_sig, mod, m))
+                        with_logger(_debug_logger) do
+                            @debug "RetrySucceeded" _group="Action" time=time() deltainfo=(mod, ex)
+                        end
+                    catch
+                        # Keep in queue for later
+                    end
+                end
+            end
+        end
         # Handle binding invalidations
         if !isempty(reeval_methods)
             handled = Base.IdSet{Type}()
@@ -883,10 +906,17 @@ function revise(; throw::Bool=false)
                     !iszero(m.dispatch_status) && with_logger(_debug_logger) do
                         @debug "DeleteMethod" _group="Action" time=time() deltainfo=(m.sig, MethodSummary(m))
                         Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
-                        delete!(CodeTracking.method_info, mt_sig)
                         _, ex = methinfo[1]
-                        @debug "Eval" _group="Action" time=time() deltainfo=(mod, ex)
-                        invokelatest(eval_with_signatures, m.module, ex; mode=:eval)
+                        @debug "Eval" _group="Action" time=time() deltainfo=(m.module, ex)
+                        try
+                            invokelatest(eval_with_signatures, m.module, ex; mode=:eval)
+                            delete!(CodeTracking.method_info, mt_sig)
+                        catch err
+                            # Re-evaluation failed, likely due to type incompatibility
+                            # Store in pending_eval_sigs for retry when types become compatible
+                            push!(pending_eval_sigs, (mt_sig, m.module, m))
+                            @debug "EvalFailed" _group="Action" time=time() deltainfo=(m.module, ex, err)
+                        end
                     end
                     push!(handled, m.sig)
                 end
