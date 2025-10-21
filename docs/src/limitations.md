@@ -2,7 +2,6 @@
 
 There are some kinds of changes that Revise (or often, Julia itself) cannot incorporate into a running Julia session:
 
-- changes to type definitions or `const`s
 - conflicts between variables and functions sharing the same name
 - removal of `export`s
 
