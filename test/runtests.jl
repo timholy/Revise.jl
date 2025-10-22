@@ -256,7 +256,7 @@ const issue639report = []
         @test length(dvs) == 3
         (def, val) = dvs[1]
         @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(square(x) = x^2)))
-        @test val == [nothing => Tuple{typeof(ReviseTest.square),Any}]
+        @test val == [Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.square),Any})]
         @test Revise.firstline(Revise.unwrap(def)).line == 5
         m = @which ReviseTest.square(1)
         @test m.line == 5
@@ -264,14 +264,14 @@ const issue639report = []
         @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
         (def, val) = dvs[2]
         @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(cube(x) = x^3)))
-        @test val == [nothing => Tuple{typeof(ReviseTest.cube),Any}]
+        @test val == [Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.cube),Any})]
         m = @which ReviseTest.cube(1)
         @test m.line == 7
         @test whereis(m) == (tmpfile, 7)
         @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
         (def, val) = dvs[3]
         @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(fourth(x) = x^4)))
-        @test val == [nothing => Tuple{typeof(ReviseTest.fourth),Any}]
+        @test val == [Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.fourth),Any})]
         m = @which ReviseTest.fourth(1)
         @test m.line == 9
         @test whereis(m) == (tmpfile, 9)
@@ -281,7 +281,7 @@ const issue639report = []
         @test length(dvs) == 5
         (def, val) = dvs[1]
         @test isequal(Revise.unwrap(def),  Revise.RelocatableExpr(:(mult2(x) = 2*x)))
-        @test val == [nothing => Tuple{typeof(ReviseTest.Internal.mult2),Any}]
+        @test val == [Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.mult2),Any})]
         @test Revise.firstline(Revise.unwrap(def)).line == 13
         m = @which ReviseTest.Internal.mult2(1)
         @test m.line == 11
@@ -289,7 +289,7 @@ const issue639report = []
         @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
         (def, val) = dvs[2]
         @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(mult3(x) = 3*x)))
-        @test val == [nothing => Tuple{typeof(ReviseTest.Internal.mult3),Any}]
+        @test val == [Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.mult3),Any})]
         m = @which ReviseTest.Internal.mult3(1)
         @test m.line == 14
         @test whereis(m) == (tmpfile, 14)
@@ -317,10 +317,10 @@ const issue639report = []
         cmpdiff(logs[4], "Eval"; deltainfo=(ReviseTest, :(cube(x) = x^3)))
         cmpdiff(logs[5], "Eval"; deltainfo=(ReviseTest, :(fourth(x) = x^4)))
         stmpfile = Symbol(tmpfile)
-        cmpdiff(logs[6], "LineOffset"; deltainfo=(Any[nothing => Tuple{typeof(ReviseTest.Internal.mult2),Any}], LineNumberNode(11,stmpfile)=>LineNumberNode(13,stmpfile)))
+        cmpdiff(logs[6], "LineOffset"; deltainfo=(Any[Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.mult2),Any})], LineNumberNode(11,stmpfile)=>LineNumberNode(13,stmpfile)))
         cmpdiff(logs[7], "Eval"; deltainfo=(ReviseTest.Internal, :(mult3(x) = 3*x)))
-        cmpdiff(logs[8], "LineOffset"; deltainfo=(Any[nothing => Tuple{typeof(ReviseTest.Internal.unchanged),Any}], LineNumberNode(18,stmpfile)=>LineNumberNode(19,stmpfile)))
-        cmpdiff(logs[9], "LineOffset"; deltainfo=(Any[nothing => Tuple{typeof(ReviseTest.Internal.unchanged2),Any}], LineNumberNode(20,stmpfile)=>LineNumberNode(21,stmpfile)))
+        cmpdiff(logs[8], "LineOffset"; deltainfo=(Any[Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.unchanged),Any})], LineNumberNode(18,stmpfile)=>LineNumberNode(19,stmpfile)))
+        cmpdiff(logs[9], "LineOffset"; deltainfo=(Any[Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.unchanged2),Any})], LineNumberNode(20,stmpfile)=>LineNumberNode(21,stmpfile)))
         @test length(Revise.actions(rlogger)) == 6  # by default LineOffset is skipped
         @test length(Revise.actions(rlogger; line=true)) == 9
         @test_broken length(Revise.diffs(rlogger)) == 2
@@ -496,8 +496,8 @@ const issue639report = []
                 m3 = first(methods(eval(fn3)))
                 m3file = joinpath(dn, "subdir", "file3.jl")
                 @test whereis(m3) == (m3file, 1)
-                @test signatures_at(m3file, 1) == [nothing => m3.sig]
-                @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [nothing => m3.sig]
+                @test signatures_at(m3file, 1) == [Revise.SigInfo(nothing, m3.sig)]
+                @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [Revise.SigInfo(nothing, m3.sig)]
 
                 id = Base.PkgId(eval(Symbol(modname)))   # for testing #596
                 pkgdata = Revise.pkgdatas[id]
@@ -1902,8 +1902,8 @@ const issue639report = []
         ex2 = :(methspecificity(x::Integer) = 2)
         Core.eval(ReviseTestPrivate, ex1)
         Core.eval(ReviseTestPrivate, ex2)
-        exsig1 = Revise.RelocatableExpr(ex1) => [nothing => Tuple{typeof(ReviseTestPrivate.methspecificity),Int}]
-        exsig2 = Revise.RelocatableExpr(ex2) => [nothing => Tuple{typeof(ReviseTestPrivate.methspecificity),Integer}]
+        exsig1 = Revise.RelocatableExpr(ex1) => [Revise.SigInfo(nothing, Tuple{typeof(ReviseTestPrivate.methspecificity),Int})]
+        exsig2 = Revise.RelocatableExpr(ex2) => [Revise.SigInfo(nothing, Tuple{typeof(ReviseTestPrivate.methspecificity),Integer})]
         f_old, f_new = Revise.ExprsSigs(exsig1, exsig2), Revise.ExprsSigs(exsig2)
         Revise.delete_missing!(f_old, f_new)
         m = @which ReviseTestPrivate.methspecificity(1)

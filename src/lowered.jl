@@ -10,10 +10,10 @@ end
 # This default version is simple and only used for testing purposes.
 # The "real" one is CodeTrackingMethodInfo in Revise.jl.
 const MethodInfo = IdDict{MethodInfoKey,LineNumberNode}
-add_signature!(methodinfo, @nospecialize(sig), ln) = push!(methodinfo, sig=>ln)
-push_expr!(methodinfo, mod::Module, ex::Expr) = methodinfo
-pop_expr!(methodinfo) = methodinfo
-add_includes!(methodinfo, mod::Module, filename) = methodinfo
+add_signature!(methodinfo::MethodInfo, sig::MethodInfoKey, ln::LineNumberNode) = push!(methodinfo, sig=>ln)
+push_expr!(methodinfo::MethodInfo, ::Expr) = methodinfo
+pop_expr!(methodinfo::MethodInfo) = methodinfo
+add_includes!(methodinfo::MethodInfo, mod::Module, filename) = methodinfo
 
 function is_some_include(@nospecialize(f))
     @assert !isa(f, Core.SSAValue) && !isa(f, JuliaInterpreter.SSAValue)
@@ -457,13 +457,13 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                         uT = Base.unwrap_unionall(T)::DataType
                         ft = uT.types
                         sig1 = Tuple{Base.rewrap_unionall(Type{uT}, T), Any[Any for i in 1:length(ft)]...}
-                        push!(signatures, nothing => sig1)
+                        push!(signatures, MethodInfoKey(nothing, sig1))
                         sig2 = Base.rewrap_unionall(Tuple{Type{T}, ft...}, T)
                         while T isa UnionAll
                             sig2 isa UnionAll || (sig2 = sig1; break) # sig2 doesn't define all parameters, so drop it
                             T = T.body
                         end
-                        sig1 == sig2 || push!(signatures, nothing => sig2)
+                        sig1 == sig2 || push!(signatures, MethodInfoKey(nothing, sig2))
                         for sig in signatures
                             add_signature!(methodinfo, sig, lnn)
                         end
@@ -483,7 +483,7 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                             newex = newex.args[4]
                         end
                         newex = unwrap(newex)
-                        push_expr!(methodinfo, newmod, newex)
+                        push_expr!(methodinfo, newex)
                         value, _ = methods_by_execution!(interp, methodinfo, newmod, newex; mode, skip_include, disablebp=false)
                         pop_expr!(methodinfo)
                     end
