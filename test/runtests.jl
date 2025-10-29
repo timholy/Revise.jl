@@ -4101,4 +4101,7 @@ end
 
 # Run this test in a separate julia process, since it messes with projects, and we don't want to have to
 # worry about making sure it resets cleanly.
-do_test("Switch Versions") && @test success(pipeline(`$(Base.julia_cmd()) switch_version.jl`, stderr=stderr))
+do_test("Switch Versions") && let
+    switch_version = normpath(@__DIR__, "switch_version.jl")
+    @test success(pipeline(`$(Base.julia_cmd()) $switch_version`, stderr=stderr))
+end

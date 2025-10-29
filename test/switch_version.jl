@@ -29,6 +29,7 @@ mktempdir() do thisdir
         t = @async run(pipeline(Cmd(`$(Base.julia_cmd()) -e $v2_cmd`; dir=$thisdir); stderr, stdout))
         isdefined(Base, :errormonitor) && Base.errormonitor(t)
         wait(Revise.revision_event)
+        reset(Revise.revision_event)
         revise()
         @latestworld
         @test PkgChange.somemethod() === 1   # present in v2
@@ -37,6 +38,7 @@ mktempdir() do thisdir
         t = @async run(pipeline(Cmd(`$(Base.julia_cmd()) -e $v1_cmd`; dir=$thisdir); stderr, stdout))
         isdefined(Base, :errormonitor) && Base.errormonitor(t)
         wait(Revise.revision_event)
+        reset(Revise.revision_event)
         revise()
         @latestworld
         @test_throws MethodError PkgChange.somemethod() # not present in v1
