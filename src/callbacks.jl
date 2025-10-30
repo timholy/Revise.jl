@@ -1,11 +1,11 @@
 # Globals needed to support `entr` and other callbacks
 
 """
-    Revise.revision_event
+    Revise.revision_event::Base.Event
 
-This `Condition` is used to notify `entr` that one of the watched files has changed.
+This event is used to notify `entr` that one of the watched files has changed.
 """
-const revision_event = Condition()
+const revision_event = Base.Event()
 
 """
     Revise.user_callbacks_queue
@@ -160,6 +160,7 @@ function entr(f::Function, files, modules=nothing; all=false, postpone=false, pa
     try
         while true
             wait(revision_event)
+            reset(revision_event)
             revise(throw=true)
         end
     catch err
