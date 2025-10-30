@@ -1,6 +1,6 @@
 name = "Revise"
 uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
-version = "3.11.0"
+version = "3.12.0"
 
 [workspace]
 projects = ["docs", "test"]
