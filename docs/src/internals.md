@@ -154,8 +154,7 @@ for T in (Float16, Float32, Float64)
     @eval sizefloat(x::$T) = sizeof($T)
 end
 ```
-!!! clarification
-
+!!! tip "clarification"
     This is equivalent to the following explicit definitions:
     ```
     sizefloat(x::Float16) = 2
