@@ -3,7 +3,7 @@ uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
 version = "3.11.0"
 
 [workspace]
-projects = ["test"]
+projects = ["docs", "test"]
 
 [deps]
 CodeTracking = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
