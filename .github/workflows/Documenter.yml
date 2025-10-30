@@ -16,7 +16,7 @@ jobs:
       - uses: actions/checkout@v5
       - uses: julia-actions/setup-julia@v2
         with:
-          version: 'pre'                         # replace this with '1' once 1.12 is release
+          version: '1'
           show-versioninfo: true
       - uses: julia-actions/julia-buildpkg@latest
       - uses: julia-actions/julia-docdeploy@latest

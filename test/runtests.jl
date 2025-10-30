@@ -13,6 +13,11 @@ using Revise.OrderedCollections: OrderedSet
 using Test: collect_test_logs
 using Base.CoreLogging: Debug,Info
 
+# Some test cases (especially those that redirect stderr during precompilation)
+# assume that dependency packages are already precompiled, so we make an
+# explicit `precompile()` call here to ensure this.
+Pkg.precompile()
+
 # In addition to using this for the "More arg-modifying macros" test below,
 # this package is used on CI to test what happens when you have multiple
 # *.ji files for the package.
