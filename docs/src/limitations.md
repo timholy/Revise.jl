@@ -10,7 +10,7 @@ These kinds of changes require that you restart your Julia session.
 
 During early stages of development, it's quite common to want to change type definitions. You can work around Julia's/Revise's limitations by temporary renaming. We'll illustrate this below, using `write` to be explicit about when updates to the file happen. But in ordinary usage, these are changes you'd likely make with your editor.
 
-```julia
+```julia-repl
 julia> using Pkg, Revise
 
 julia> Pkg.generate("MyPkg")
@@ -83,7 +83,7 @@ This works as long as the new type name doesn't conflict with an existing name; 
 
 Once your development has converged on a solution, it's best to switch to the "permanent" name: in the example above, `FooStruct` is a non-constant global variable, and if used internally in a function there will be consequent performance penalties. Switching to the permanent name will force you to restart your session.
 
-```julia
+```julia-repl
 julia> isconst(MyPkg, :FooStruct)
 true
 

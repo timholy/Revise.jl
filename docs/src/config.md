@@ -167,7 +167,7 @@ fs.inotify.max_user_watches = 524288
 ```
 
 For Revise usage, `max_user_watches >= 65536` is recommended, and more can be helpful; the value of 524288 above is common on modern systems. One can set higher values as needed, e.g.,
-```
+```sh
 $ sudo sysctl fs.inotify.max_user_instances=2048
 ```
 After changing these values, it is advised to run Revise's unit tests to see if they pass.
