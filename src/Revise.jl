@@ -2,7 +2,7 @@
 Revise.jl tracks source code changes and incorporates the changes to a running Julia session.
 
 Revise.jl works behind-the-scenes. To track a package, e.g. `Example`:
-```julia
+```julia-repl
 (@v1.6) pkg> dev Example        # make a development copy of the package
 [...pkg output omitted...]
 

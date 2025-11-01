@@ -45,7 +45,7 @@ Both options are described below.
 
 Let's create a new package, `MyPkg`, to play with.
 
-```julia
+```julia-repl
 julia> using PkgTemplates
 
 julia> t = Template()
@@ -73,7 +73,7 @@ the directory `/home/tim/.julia/dev/MyPkg`.
 Press `]` to enter the [Pkg REPL](https://pkgdocs.julialang.org/v1/getting-started/#Basic-Usage).
 Then add the new package to your current environment with the `dev` command.
 
-```julia
+```julia-repl
 (<environment>) pkg> dev MyPkg   # the dev command will look in the ~/.julia/dev folder automatically
 ```
 
@@ -81,7 +81,7 @@ Press the backspace key to return to the Julia REPL.
 
 Now let's try it out:
 
-```julia
+```julia-repl
 julia> using Revise   # you must do this before loading any revisable packages
 
 julia> using MyPkg
@@ -94,7 +94,7 @@ You'll note that Julia found your package without you having to take any extra s
 *Without* quitting this Julia session, open the `MyPkg.jl` file in an editor.
 You might be able to open it with
 
-```julia
+```julia-repl
 julia> edit(pathof(MyPkg))
 ```
 
@@ -124,7 +124,7 @@ end # module
 Now go back to that same Julia session, and try calling `greet`.
 After a pause (while Revise's internal code compiles), you should see
 
-```julia
+```julia-repl
 julia> MyPkg.greet()
 Hello World!
 ```
@@ -141,7 +141,7 @@ Let's create a blank `MyPkg` using `Pkg`. (If you tried the `PkgTemplates` versi
 above, you might first have to delete the package with `Pkg.rm("MyPkg")` following by
 a complete removal from your `dev` directory.)
 
-```julia
+```julia-repl
 julia> using Revise, Pkg
 
 julia> cd(Pkg.devdir())   # take us to the standard "development directory"
@@ -161,7 +161,7 @@ then type `generate MyPkg`.
 The next line, `dev MyPkg`, is necessary to tell `Pkg` about the existence of this new package.
 
 Now you can do the following:
-```julia
+```julia-repl
 julia> using MyPkg
 [ Info: Precompiling MyPkg [efe7ebfe-4313-4388-9b6c-3590daf47143]
 
@@ -193,7 +193,7 @@ Save it as `mygreet.jl` in some directory. Here we will assume it's being saved 
 
 Now load the code with `includet`, which stands for "include and track":
 
-```julia
+```julia-repl
 julia> using Revise
 
 julia> includet("/tmp/mygreet.jl")
@@ -210,7 +210,7 @@ mygreeting() = "Hello, revised world!"
 
 and then try it in the same session:
 
-```julia
+```julia-repl
 julia> mygreeting()
 "Hello, revised world!"
 ```
