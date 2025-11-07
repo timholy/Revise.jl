@@ -34,25 +34,11 @@ is recommended instead.
 
 ### Using Revise automatically within Jupyter/IJulia
 
-If you want Revise to launch automatically within IJulia, then you should also create a `.julia/config/startup_ijulia.jl` file with the contents
-
-```julia
-try
-    @eval using Revise
-catch e
-    @warn "Error initializing Revise" exception=(e, catch_backtrace())
-end
-```
-or simply run
-```bash
-mkdir -p ~/.julia/config/ && tee -a  ~/.julia/config/startup_ijulia.jl << END
-try
-    @eval using Revise
-catch e
-    @warn "Error initializing Revise" exception=(e, catch_backtrace())
-end
-END
-```
+IJulia has an integration with Revise and will automatically add it as a
+[preexecute
+hook](https://julialang.github.io/IJulia.jl/stable/library/public/#IJulia.push_preexecute_hook)
+if Revise is loaded (e.g. through your `startup.jl`), *unless* the
+`JULIA_REVISE` environment variable is set to something other than `auto`.
 
 ## [Editor configuration](@id edcfg)
 
