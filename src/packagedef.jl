@@ -1396,29 +1396,26 @@ function __init__()
 
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
-        if isdefined(Main, :IJulia)
-            Main.IJulia.push_preexecute_hook(revise)
+        pushfirst!(REPL.repl_ast_transforms, revise_first)
+        # #664: once a REPL is started, it no longer interacts with REPL.repl_ast_transforms
+        if active_repl_backend_available()
+            push!(Base.active_repl_backend.ast_transforms, revise_first)
         else
-            pushfirst!(REPL.repl_ast_transforms, revise_first)
-            # #664: once a REPL is started, it no longer interacts with REPL.repl_ast_transforms
-            if active_repl_backend_available()
-                push!(Base.active_repl_backend.ast_transforms, revise_first)
-            else
-                # wait for active_repl_backend to exist
-                # #719: do this async in case Revise is being loaded from startup.jl
-                t = @async begin
-                    iter = 0
-                    while !active_repl_backend_available() && iter < 20
-                        sleep(0.05)
-                        iter += 1
-                    end
-                    if active_repl_backend_available()
-                        push!(Base.active_repl_backend.ast_transforms, revise_first)
-                    end
+            # wait for active_repl_backend to exist
+            # #719: do this async in case Revise is being loaded from startup.jl
+            t = @async begin
+                iter = 0
+                while !active_repl_backend_available() && iter < 20
+                    sleep(0.05)
+                    iter += 1
                 end
-                isdefined(Base, :errormonitor) && Base.errormonitor(t)
+                if active_repl_backend_available()
+                    push!(Base.active_repl_backend.ast_transforms, revise_first)
+                end
             end
+            isdefined(Base, :errormonitor) && Base.errormonitor(t)
         end
+
         if isdefined(Main, :Atom)
             Atom = getfield(Main, :Atom)
             if Atom isa Module && isdefined(Atom, :handlers)
