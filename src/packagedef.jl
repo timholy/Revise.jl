@@ -262,7 +262,7 @@ See also [`Revise.silence`](@ref).
 """
 const dont_watch_pkgs = Set{Symbol}()
 const silence_pkgs = Set{Symbol}()
-const depsdir::String
+global depsdir::String
 const silencefile = Ref{String}()  # Ref so that tests don't clobber
 
 ##
