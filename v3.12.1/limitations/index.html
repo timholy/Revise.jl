@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/><title>Limitations · Revise.jl</title><meta name="title" content="Limitations · Revise.jl"/><meta property="og:title" content="Limitations · Revise.jl"/><meta property="twitter:title" content="Limitations · Revise.jl"/><meta name="description" content="Documentation for Revise.jl."/><meta property="og:description" content="Documentation for Revise.jl."/><meta property="twitter:description" content="Documentation for Revise.jl."/><script data-outdated-warner src="../assets/warner.js"></script><link href="https://cdnjs.cloudflare.com/ajax/libs/lato-font/3.0.0/css/lato-font.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/juliamono/0.050/juliamono.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/fontawesome.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/solid.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.2/css/brands.min.css" rel="stylesheet" type="text/css"/><link href="https://cdnjs.cloudflare.com/ajax/libs/KaTeX/0.16.8/katex.min.css" rel="stylesheet" type="text/css"/><script>documenterBaseURL=".."</script><script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js" data-main="../assets/documenter.js"></script><script src="../search_index.js"></script><script src="../siteinfo.js"></script><script src="../../versions.js"></script><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-mocha.css" data-theme-name="catppuccin-mocha"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-macchiato.css" data-theme-name="catppuccin-macchiato"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-frappe.css" data-theme-name="catppuccin-frappe"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/catppuccin-latte.css" data-theme-name="catppuccin-latte"/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-dark.css" data-theme-name="documenter-dark" data-theme-primary-dark/><link class="docs-theme-link" rel="stylesheet" type="text/css" href="../assets/themes/documenter-light.css" data-theme-name="documenter-light" data-theme-primary/><script src="../assets/themeswap.js"></script></head><body><div id="documenter"><nav class="docs-sidebar"><a class="docs-logo" href="../"><img src="../assets/logo.svg" alt="Revise.jl logo"/></a><div class="docs-package-name"><span class="docs-autofit"><a href="../">Revise.jl</a></span></div><button class="docs-search-query input is-rounded is-small is-clickable my-2 mx-auto py-1 px-2" id="documenter-search-query">Search docs (Ctrl + /)</button><ul class="docs-menu"><li><a class="tocitem" href="../">Home</a></li><li><a class="tocitem" href="../config/">Configuration</a></li><li><a class="tocitem" href="../cookbook/">Revise usage: a cookbook</a></li><li class="is-active"><a class="tocitem" href>Limitations</a></li><li><a class="tocitem" href="../tricks/">Tricks</a></li><li><a class="tocitem" href="../debugging/">Debugging Revise</a></li><li><a class="tocitem" href="../internals/">How Revise works</a></li><li><a class="tocitem" href="../user_reference/">User reference</a></li><li><a class="tocitem" href="../dev_reference/">Developer reference</a></li></ul><div class="docs-version-selector field has-addons"><div class="control"><span class="docs-label button is-static is-size-7">Version</span></div><div class="docs-selector control is-expanded"><div class="select is-fullwidth is-size-7"><select id="documenter-version-selector"></select></div></div></div></nav><div class="docs-main"><header class="docs-navbar"><a class="docs-sidebar-button docs-navbar-link fa-solid fa-bars is-hidden-desktop" id="documenter-sidebar-button" href="#"></a><nav class="breadcrumb"><ul class="is-hidden-mobile"><li class="is-active"><a href>Limitations</a></li></ul><ul class="is-hidden-tablet"><li class="is-active"><a href>Limitations</a></li></ul></nav><div class="docs-right"><a class="docs-navbar-link" href="https://github.com/timholy/Revise.jl" title="View the repository on GitHub"><span class="docs-icon fa-brands"></span><span class="docs-label is-hidden-touch">GitHub</span></a><a class="docs-navbar-link" href="https://github.com/timholy/Revise.jl/blob/master/docs/src/limitations.md" title="Edit source on GitHub"><span class="docs-icon fa-solid"></span></a><a class="docs-settings-button docs-navbar-link fa-solid fa-gear" id="documenter-settings-button" href="#" title="Settings"></a><a class="docs-article-toggle-button fa-solid fa-chevron-up" id="documenter-article-toggle-button" href="javascript:;" title="Collapse all docstrings"></a></div></header><article class="content" id="documenter-page"><h1 id="Limitations"><a class="docs-heading-anchor" href="#Limitations">Limitations</a><a id="Limitations-1"></a><a class="docs-heading-anchor-permalink" href="#Limitations" title="Permalink"></a></h1><p>There are some kinds of changes that Revise (or often, Julia itself) cannot incorporate into a running Julia session:</p><ul><li>changes to type definitions or <code>const</code>s</li><li>conflicts between variables and functions sharing the same name</li><li>removal of <code>export</code>s</li></ul><p>These kinds of changes require that you restart your Julia session.</p><p>During early stages of development, it&#39;s quite common to want to change type definitions. You can work around Julia&#39;s/Revise&#39;s limitations by temporary renaming. We&#39;ll illustrate this below, using <code>write</code> to be explicit about when updates to the file happen. But in ordinary usage, these are changes you&#39;d likely make with your editor.</p><pre><code class="language-julia-repl hljs">julia&gt; using Pkg, Revise
+
+julia&gt; Pkg.generate(&quot;MyPkg&quot;)
+  Generating  project MyPkg:
+    MyPkg/Project.toml
+    MyPkg/src/MyPkg.jl
+Dict{String, Base.UUID} with 1 entry:
+  &quot;MyPkg&quot; =&gt; UUID(&quot;69940cda-0c72-4a1a-ae0b-fd3109336fe8&quot;)
+
+julia&gt; cd(&quot;MyPkg&quot;)
+
+julia&gt; write(&quot;src/MyPkg.jl&quot;,&quot;&quot;&quot;
+       module MyPkg
+
+       export FooStruct, processFoo
+
+       abstract type AbstractFooStruct end
+       struct FooStruct1 &lt;: AbstractFooStruct
+           bar::Int
+       end
+       FooStruct = FooStruct1
+       function processFoo(foo::AbstractFooStruct)
+           @info foo.bar
+       end
+
+       end
+       &quot;&quot;&quot;)
+230
+
+julia&gt; Pkg.activate(&quot;.&quot;)
+  Activating project at `~/blah/MyPkg`
+
+julia&gt; using MyPkg
+  No Changes to `~/blah/MyPkg/Project.toml`
+  No Changes to `~/blah/MyPkg/Manifest.toml`
+Precompiling MyPkg
+  1 dependency successfully precompiled in 2 seconds
+
+julia&gt; processFoo(FooStruct(1))
+[ Info: 1
+
+julia&gt; write(&quot;src/MyPkg.jl&quot;,&quot;&quot;&quot;
+       module MyPkg
+
+       export FooStruct, processFoo
+
+       abstract type AbstractFooStruct end
+       struct FooStruct2 &lt;: AbstractFooStruct # change version nuumber
+           bar::Float64 # change type of the field
+       end
+       FooStruct = FooStruct2 # update alias reference
+       function processFoo(foo::AbstractFooStruct)
+           @info foo.bar
+       end
+
+       end
+       &quot;&quot;&quot;)
+234
+
+julia&gt; FooStruct # make sure FooStruct refers to FooStruct2
+MyPkg.FooStruct2
+
+julia&gt; processFoo(FooStruct(3.5))
+[ Info: 3.5</code></pre><p>Here, note that we made two changes: we updated the &quot;version number&quot; of FooStruct when we changed something about its fields, and we also re-assigned FooStruct to alias the new version. We did not change the definition of any methods that have been typed AbstractFooStruct.</p><p>This works as long as the new type name doesn&#39;t conflict with an existing name; within a session you need to change the name each time you change the definition.</p><p>Once your development has converged on a solution, it&#39;s best to switch to the &quot;permanent&quot; name: in the example above, <code>FooStruct</code> is a non-constant global variable, and if used internally in a function there will be consequent performance penalties. Switching to the permanent name will force you to restart your session.</p><pre><code class="language-julia-repl hljs">julia&gt; isconst(MyPkg, :FooStruct)
+true
+
+julia&gt; write(&quot;src/MyPkg.jl&quot;,&quot;&quot;&quot;
+       module MyPkg
+
+       export FooStruct, processFoo
+
+       abstract type AbstractFooStruct end # this could be removed
+       struct FooStruct &lt;: AbstractFooStruct # change to just FooStruct
+           bar::Float64
+       end
+
+       function processFoo(foo::AbstractFooStruct) # consider changing to FooStruct
+           @info foo.bar
+       end
+
+       end
+       &quot;&quot;&quot;)
+
+julia&gt; run(Base.julia_cmd()) # start a new Julia session, alternatively exit() and restart julia
+
+
+julia&gt; using Pkg, Revise # NEW Julia Session
+
+julia&gt; Pkg.activate(&quot;.&quot;)
+  Activating project at `~/blah/MyPkg`
+
+julia&gt; using MyPkg
+Precompiling MyPkg
+  1 dependency successfully precompiled in 2 seconds
+
+julia&gt; isconst(MyPkg, :FooStruct)
+true
+</code></pre><p>In addition, some situations may require special handling:</p><h3 id="Macros-and-generated-functions"><a class="docs-heading-anchor" href="#Macros-and-generated-functions">Macros and generated functions</a><a id="Macros-and-generated-functions-1"></a><a class="docs-heading-anchor-permalink" href="#Macros-and-generated-functions" title="Permalink"></a></h3><p>If you change a macro definition or methods that get called by <code>@generated</code> functions outside their <code>quote</code> block, these changes will not be propagated to functions that have already evaluated the macro or generated function.</p><p>You may explicitly call <code>revise(MyModule)</code> to force reevaluating every definition in module <code>MyModule</code>. Note that when a macro changes, you have to revise all of the modules that <em>use</em> it.</p><h3 id="Distributed-computing-(multiple-workers)-and-anonymous-functions"><a class="docs-heading-anchor" href="#Distributed-computing-(multiple-workers)-and-anonymous-functions">Distributed computing (multiple workers) and anonymous functions</a><a id="Distributed-computing-(multiple-workers)-and-anonymous-functions-1"></a><a class="docs-heading-anchor-permalink" href="#Distributed-computing-(multiple-workers)-and-anonymous-functions" title="Permalink"></a></h3><p>Revise supports changes to code in worker processes. The code must be loaded in the main process in which Revise is running.</p><p>Revise cannot handle changes in anonymous functions used in <code>remotecall</code>s. Consider the following module definition:</p><pre><code class="language-julia hljs">module ParReviseExample
+using Distributed
+
+greet(x) = println(&quot;Hello, &quot;, x)
+
+foo() = for p in workers()
+    remotecall_fetch(() -&gt; greet(&quot;Bar&quot;), p)
+end
+
+end # module</code></pre><p>Changing the remotecall to <code>remotecall_fetch((x) -&gt; greet(&quot;Bar&quot;), p, 1)</code> will fail, because the new anonymous function is not defined on all workers. The workaround is to write the code to use named functions, e.g.,</p><pre><code class="language-julia hljs">module ParReviseExample
+using Distributed
+
+greet(x) = println(&quot;Hello, &quot;, x)
+greetcaller() = greet(&quot;Bar&quot;)
+
+foo() = for p in workers()
+    remotecall_fetch(greetcaller, p)
+end
+
+end # module</code></pre><p>and the corresponding edit to the code would be to modify it to <code>greetcaller(x) = greet(&quot;Bar&quot;)</code> and <code>remotecall_fetch(greetcaller, p, 1)</code>.</p></article><nav class="docs-footer"><a class="docs-footer-prevpage" href="../cookbook/">« Revise usage: a cookbook</a><a class="docs-footer-nextpage" href="../tricks/">Tricks »</a><div class="flexbox-break"></div><p class="footer-message">Powered by <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> and the <a href="https://julialang.org/">Julia Programming Language</a>.</p></nav></div><div class="modal" id="documenter-settings"><div class="modal-background"></div><div class="modal-card"><header class="modal-card-head"><p class="modal-card-title">Settings</p><button class="delete"></button></header><section class="modal-card-body"><p><label class="label">Theme</label><div class="select"><select id="documenter-themepicker"><option value="auto">Automatic (OS)</option><option value="documenter-light">documenter-light</option><option value="documenter-dark">documenter-dark</option><option value="catppuccin-latte">catppuccin-latte</option><option value="catppuccin-frappe">catppuccin-frappe</option><option value="catppuccin-macchiato">catppuccin-macchiato</option><option value="catppuccin-mocha">catppuccin-mocha</option></select></div></p><hr/><p>This document was generated with <a href="https://github.com/JuliaDocs/Documenter.jl">Documenter.jl</a> version 1.15.0 on <span class="colophon-date" title="Tuesday 11 November 2025 03:46">Tuesday 11 November 2025</span>. Using Julia version 1.12.1.</p></section><footer class="modal-card-foot"></footer></div></div></div></body></html>
