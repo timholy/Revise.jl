@@ -21,7 +21,7 @@ ReviseLogger(; min_level=Info) = ReviseLogger(LogRecord[], min_level)
 
 CoreLogging.min_enabled_level(logger::ReviseLogger) = logger.min_level
 
-CoreLogging.shouldlog(logger::ReviseLogger, level, _module, group, id) = _module == Revise
+CoreLogging.shouldlog(::ReviseLogger, level, _module, group, id) = _module == Revise
 
 function CoreLogging.handle_message(logger::ReviseLogger, level, msg, _module,
                                     group, id, file, line; kwargs...)
