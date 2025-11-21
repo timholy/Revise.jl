@@ -57,8 +57,6 @@ function firstline(ex::Expr)
 end
 firstline(rex::RelocatableExpr) = firstline(rex.ex)
 
-newloc(methloc::LineNumberNode, ln, lno) = fixpath(ln)
-
 location_string((file, line)::Tuple{AbstractString, Any},) = abspath(file)*':'*string(line)
 location_string((file, line)::Tuple{Symbol, Any},) = location_string((string(file), line))
 location_string(::Nothing) = "unknown location"
@@ -178,7 +176,7 @@ function printf_maxsize(f::Function, io::IO, args...; maxchars::Integer=500, max
     for i = 1:half
         f(io, lines[i])
     end
-    maxlines > 1 && f(io, ⋮)
+    maxlines > 1 && f(io, '⋮')
     for i = length(lines) - (maxlines-half) + 1:length(lines)
         f(io, lines[i])
     end

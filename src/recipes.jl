@@ -112,7 +112,6 @@ end
 # Fix paths to files that define Julia (base and stdlibs)
 function fixpath(filename::AbstractString; badpath=basebuilddir, goodpath=juliadir)
     startswith(filename, badpath) || return normpath(filename)
-    filec = filename
     relfilename = relpath(filename, badpath)
     relfilename0 = relfilename
     for strippath in (#joinpath("usr", "share", "julia", "stdlib", "v$(VERSION.major).$(VERSION.minor)"),

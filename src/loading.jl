@@ -8,7 +8,7 @@ function pkg_fileinfo(id::PkgId)
         ret = @static if VERSION ≥ v"1.11.0-DEV.683" # https://github.com/JuliaLang/julia/pull/49866
             io = open(cachepath, "r")
             checksum = Base.isvalid_cache_header(io)
-            iszero(checksum) && (close(io); return badfile)
+            iszero(checksum) && (close(io); return nothing)
             provides, (_, includes_srcfiles_only, requires), required_modules, _... =
                 Base.parse_cache_header(io, cachepath)
             close(io)
@@ -18,7 +18,7 @@ function pkg_fileinfo(id::PkgId)
             Base.parse_cache_header(cachepath; srcfiles_only = true)
         end
         ret
-    catch err
+    catch
         return nothing
     end
     includes, _ = includes_requires

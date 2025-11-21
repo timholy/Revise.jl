@@ -164,7 +164,9 @@ end
 # Use locking to prevent races between inner and outer @require blocks
 const requires_lock = ReentrantLock()
 
-function add_require(sourcefile::String, modcaller::Module, idmod::String, modname::String, expr::Expr)
+# This is used by Requires.jl: therefore even if it appears unused by Revise.jl,
+# it cannot be removed as long as we support integration with Requires.jl
+function add_require(sourcefile::String, modcaller::Module, idmod::String, ::String, expr::Expr)
     id = PkgId(modcaller)
     # If this fires when the module is first being loaded (because the dependency
     # was already loaded), Revise may not yet have the pkgdata for this package.
@@ -172,8 +174,7 @@ function add_require(sourcefile::String, modcaller::Module, idmod::String, modna
         watch_package(id)
     end
 
-    lock(requires_lock)
-    try
+    @lock requires_lock begin
         # Get/create the FileInfo specifically for tracking @require blocks
         pkgdata = pkgdatas[id]
         filekey = relpath(sourcefile, pkgdata) * "__@require__"
@@ -212,12 +213,10 @@ function add_require(sourcefile::String, modcaller::Module, idmod::String, modna
         if complex
             Base.invokelatest(eval_require_now, pkgdata, fileidx, filekey, sourcefile, modcaller, expr)
         end
-    finally
-        unlock(requires_lock)
     end
 end
 
-function deferrable_require(expr)
+function deferrable_require(expr::Expr)
     includes = String[]
     complex = deferrable_require!(includes, expr)
     return includes, complex
@@ -269,7 +268,7 @@ function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourc
     return ret
 end
 
-function watch_files_via_dir(dirname)
+function watch_files_via_dir(dirname::AbstractString)
     try
         wait_changed(dirname)  # this will block until there is a modification
     catch e
@@ -462,7 +461,7 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
     for file in srcfiles(pkgdata)
         fi = try
             maybe_parse_from_cache!(pkgdata, file)
-        catch err
+        catch
             # https://github.com/JuliaLang/julia/issues/42404
             # Get the source-text from the package source instead
             fi = fileinfo(pkgdata, file)

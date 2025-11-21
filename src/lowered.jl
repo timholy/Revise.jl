@@ -13,7 +13,7 @@ const MethodInfo = IdDict{MethodInfoKey,LineNumberNode}
 add_signature!(methodinfo::MethodInfo, sig::MethodInfoKey, ln::LineNumberNode) = push!(methodinfo, sig=>ln)
 push_expr!(methodinfo::MethodInfo, ::Expr) = methodinfo
 pop_expr!(methodinfo::MethodInfo) = methodinfo
-add_includes!(methodinfo::MethodInfo, mod::Module, filename) = methodinfo
+add_includes!(methodinfo::MethodInfo, ::Module, _) = methodinfo
 
 function is_some_include(@nospecialize(f))
     @assert !isa(f, Core.SSAValue) && !isa(f, JuliaInterpreter.SSAValue)
@@ -42,29 +42,6 @@ function is_defaultctors(@nospecialize(f))
         return f.mod === Core && f.name === :_defaultctors
     end
     return false
-end
-
-# This is not generally used, see `is_method_or_eval` instead
-function hastrackedexpr(@nospecialize(stmt), code)
-    haseval = false
-    if isa(stmt, Expr)
-        haseval = matches_eval(stmt)
-        if stmt.head === :call
-            f = stmt.args[1]
-            while isa(f, Core.SSAValue) || isa(f, JuliaInterpreter.SSAValue)
-                f = code[f.id]
-            end
-            callee_matches(f, Core, :_typebody!) && return true, haseval
-            callee_matches(f, Core, :_setsuper!) && return true, haseval
-            is_some_include(f) && return true, haseval
-        elseif stmt.head === :thunk
-            newcode = (stmt.args[1]::Core.CodeInfo).code
-            any(s->any(hastrackedexpr(s, newcode)), newcode) && return true, haseval
-        elseif stmt.head === :method
-            return true, haseval
-        end
-    end
-    return false, haseval
 end
 
 function matches_eval(stmt::Expr)
@@ -111,8 +88,7 @@ end
     isrequired, evalassign = minimal_evaluation!([predicate,] src::Core.CodeInfo, mode::Symbol)
 
 Mark required statements in `src`: `isrequired[i]` is `true` if `src.code[i]` should be evaluated.
-Statements are analyzed by `isreq, haseval = predicate(stmt)`, and `predicate` defaults
-to `Revise.is_method_or_eval`.
+Statements are analyzed by `isreq, haseval = predicate(stmt)`.
 `haseval` is true if the statement came from `@eval` or `eval(...)` call.
 Since the contents of such expression are difficult to analyze, it is generally
 safest to execute all such evals.
@@ -456,7 +432,7 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                         empty!(signatures)
                         uT = Base.unwrap_unionall(T)::DataType
                         ft = uT.types
-                        sig1 = Tuple{Base.rewrap_unionall(Type{uT}, T), Any[Any for i in 1:length(ft)]...}
+                        sig1 = Tuple{Base.rewrap_unionall(Type{uT}, T), Any[Any for _ in 1:length(ft)]...}
                         push!(signatures, MethodInfoKey(nothing, sig1))
                         sig2 = Base.rewrap_unionall(Tuple{Type{T}, ft...}, T)
                         while T isa UnionAll
@@ -477,7 +453,7 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                     # an @eval or eval block: this may contain method definitions, so intercept it.
                     evalmod = lookup(interp, frame, stmt.args[2])::Module
                     evalex = lookup(interp, frame, stmt.args[3])
-                    value = nothing
+                    local value = nothing
                     for (newmod, newex) in ExprSplitter(evalmod, evalex)
                         if is_doc_expr(newex)
                             newex = newex.args[4]

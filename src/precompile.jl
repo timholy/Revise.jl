@@ -67,7 +67,6 @@ function _precompile_()
     mbody = bodymethod(mfr)
     @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, typeof(_methods_by_execution!), Compiled, MI, Frame, Vector{Bool}})
 
-    @warnpcfail precompile(Tuple{typeof(hastrackedexpr), Expr, Vector{Any}})
     @warnpcfail precompile(Tuple{typeof(get_def), Method})
     @warnpcfail precompile(Tuple{typeof(parse_pkg_files), PkgId})
     if isdefined(Revise, :filter_valid_cachefiles)

@@ -411,8 +411,8 @@ function eval_rex(rex_new::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module
                         # println("Missing linediff for $lno and $(first.(locdefs)) with ", rex.ex)
                         idx = length(locdefs)
                     end
-                    methloc, methdef = locdefs[idx]
-                    locdefs[idx] = (newloc(methloc, ln, lno), methdef)
+                    _, methdef = locdefs[idx]
+                    locdefs[idx] = (fixpath(ln), methdef)
                 end
             end
         end
@@ -625,7 +625,7 @@ function revise_file_queued(pkgdata::PkgData, file)
         sleep(0.1)  # in case git has done a delete/replace cycle
     end
 
-    dirfull, basename = splitdir(file)
+    dirfull, _ = splitdir(file)
     stillwatching = true
     while stillwatching
         if !file_exists(file) && !isdir(file)
@@ -751,7 +751,7 @@ Attempt to perform previously-failed revisions. This can be useful in cases of o
 """
 function retry()
     lock(revision_queue_lock) do
-        for (k, v) in queue_errors
+        for k in keys(queue_errors)
             push!(revision_queue, k)
         end
     end
@@ -871,7 +871,7 @@ function revise(; throw::Bool=false)
 
     nothing
 end
-revise(backend::REPL.REPLBackend) = revise()
+revise(::REPL.REPLBackend) = revise()
 
 """
     revise(mod::Module; force::Bool=true)
@@ -892,7 +892,7 @@ function revise(mod::Module; force::Bool=true)
     end
     revise()
     force || return true
-    for (i, file) in enumerate(srcfiles(pkgdata))
+    for i = 1:length(srcfiles(pkgdata))
         fi = fileinfo(pkgdata, i)
         for (mod, exsigs) in fi.modexsigs
             for def in keys(exsigs)
@@ -1109,7 +1109,7 @@ function get_def(method::Method; modified_files=revision_queue)
         isdefined(Base, :active_repl) || return false
         fi = add_definitions_from_repl(filename)
         hassig = false
-        for (mod, exs) in fi.modexsigs
+        for (_, exs) in fi.modexsigs
             for siginfos in values(exs)
                 hassig |= !isempty(siginfos)
             end
@@ -1223,7 +1223,12 @@ function update_stacktrace_lineno!(trace)
                 lnn = updated[1][1]     # choose the first entry by default
                 lineoffset = lnn.line - m.line
                 t = StackTraces.StackFrame(t.func, lnn.file, t.line+lineoffset, t.linfo, t.from_c, t.inlined, t.pointer)
-                trace[i] = has_nrep ? (t, nrep) : t
+                if has_nrep
+                    @assert @isdefined(nrep) "Assertion to tell the compiler about the definedness of this variable"
+                    trace[i] = t, nrep
+                else
+                    trace[i] = t
+                end
             end
         end
     end
@@ -1295,7 +1300,10 @@ function revise_first(ex)
     return Expr(:toplevel, :($isempty($revision_queue) || $(Base.invokelatest)($revise)), ex)
 end
 
-steal_repl_backend(args...) = @warn "`steal_repl_backend` has been removed from Revise, please update your `~/.julia/config/startup.jl`.\nSee https://timholy.github.io/Revise.jl/stable/config/"
+steal_repl_backend(_...) = @warn """
+    `steal_repl_backend` has been removed from Revise, please update your `~/.julia/config/startup.jl`.
+    See https://timholy.github.io/Revise.jl/stable/config/
+    """
 wait_steal_repl_backend() = steal_repl_backend()
 async_steal_repl_backend() = steal_repl_backend()
 

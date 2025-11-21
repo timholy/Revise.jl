@@ -15,8 +15,6 @@ mutable struct WatchList
     trackedfiles::Dict{String,PkgId}
 end
 
-const DocExprs = Dict{Module,Vector{Expr}}
-
 """
     ExtendedData
 
@@ -148,7 +146,7 @@ function Base.show(io::IO, exsigs::ExprsSigs)
     compact = get(io, :compact, false)
     if compact
         n = 0
-        for (rex, mt_sigs) in exsigs
+        for (_, mt_sigs) in exsigs
             mt_sigs === nothing && continue
             n += length(mt_sigs)
         end
@@ -178,7 +176,7 @@ To create a `ModuleExprsSigs` from a source file, see [`Revise.parse_source`](@r
 """
 const ModuleExprsSigs = OrderedDict{Module,ExprsSigs}
 
-function Base.typeinfo_prefix(io::IO, mexs::ModuleExprsSigs)
+function Base.typeinfo_prefix(::IO, mexs::ModuleExprsSigs)
     tn = typeof(mexs).name
     return string(tn.module, '.', tn.name), true
 end
@@ -307,8 +305,8 @@ function Base.show(io::IO, pkgdata::PkgData)
         nexs, nsigs, nparsed = 0, 0, 0
         for fi in pkgdata.fileinfos
             thisnexs, thisnsigs = 0, 0
-            for (mod, exsigs) in fi.modexsigs
-                for (rex, mt_sigs) in exsigs
+            for (_, exsigs) in fi.modexsigs
+                for (_, mt_sigs) in exsigs
                     thisnexs += 1
                     mt_sigs === nothing && continue
                     thisnsigs += length(mt_sigs)
