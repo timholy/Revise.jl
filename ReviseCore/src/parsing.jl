@@ -52,7 +52,7 @@ function process_ex!(mod_exprs_sigs::ModuleExprsSigs, ex::Expr, filename::Abstra
             try
                 Core.eval(mod, ex)
             catch err
-                bt = trim_toplevel!(catch_backtrace())
+                bt = trim_toplevel!(catch_backtrace(), @__MODULE__)
                 lnn = firstline(ex)
                 loc = location_string((lnn.file, lnn.line))
                 throw(ReviseEvalException(loc, err, Any[(sf, 1) for sf in stacktrace(bt)]))

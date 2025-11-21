@@ -99,8 +99,8 @@ try # Suppress world age increments, since the instantiation messes with base
         Base.VERSION < v"1.7" && Sys.iswindows() && endswith(file, "RNGs.jl") && continue  # invalid redefinition of constant RandomDevice
         file = Revise.fixpath(file)
         push!(basefiles, reljpath(file))
-        mexs = Revise.parse_source(file, mod)
-        Revise.instantiate_sigs!(mexs; always_rethrow=true)
+        mexs = ReviseCore.parse_source(file, mod)
+        ReviseCore.instantiate_sigs!(mexs; always_rethrow=true)
     end
     failed, extras, nmethods = signature_diffs(Base, CodeTracking.method_info; filepredicate = fn->filepredicate(fn, basefiles))
     # In some cases, the above doesn't really select the file-of-origin. For example, anything

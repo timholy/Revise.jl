@@ -4,43 +4,9 @@ using FileWatching, REPL, UUIDs
 using LibGit2: LibGit2
 using Base: PkgId
 using Base.Meta: isexpr
-using Core: CodeInfo, MethodTable
+using Base.CoreLogging
 
 export revise, includet, entr, MethodSummary
-
-## BEGIN abstract Distributed API
-
-# Abstract type to represent a single worker
-abstract type AbstractWorker end
-
-# Wrapper struct to indicate a worker belonging to the Distributed stdlib. Other
-# libraries should make their own type that subtypes AbstractWorker for Revise
-# to dispatch on.
-struct DistributedWorker <: AbstractWorker
-    id::Int
-end
-
-# This is a list of functions that will retrieve a list of workers
-const workers_functions = Base.Callable[]
-
-# A distributed worker library wanting to use Revise should register their
-# workers() function with this.
-function register_workers_function(f::Base.Callable)
-    push!(workers_functions, f)
-    nothing
-end
-
-# The library should implement this method such that it behaves like
-# Distributed.remotecall().
-function remotecall_impl end
-
-# The library should implement two methods for this function:
-# - is_master_worker(::typeof(my_workers_function)): check if the current
-#   process is the master.
-# - is_master_worker(w::MyWorkerType): check if `w` is the master.
-function is_master_worker end
-
-## END abstract Distributed API
 
 """
     Revise.active[]
@@ -95,16 +61,11 @@ environment variable to customize it.
 """
 const tracking_Main_includes = Ref(false)
 
-include("relocatable_exprs.jl")
-include("types.jl")
-include("utils.jl")
-include("parsing.jl")
-include("lowered.jl")
+include("revise_utils.jl")
 include("loading.jl")
 include("pkgs.jl")
 include("git.jl")
 include("recipes.jl")
-include("logging.jl")
 include("callbacks.jl")
 
 ### Globals to keep track of state
@@ -162,7 +123,7 @@ const NOPACKAGE = PkgId(nothing, "")
 `pkgdatas` is the core information that tracks the relationship between source code
 and julia objects, and allows re-evaluation of code in the proper module scope.
 It is a dictionary indexed by PkgId:
-`pkgdatas[id]` returns a value of type [`Revise.PkgData`](@ref).
+`pkgdatas[id]` returns a value of type [`ReviseCore.PkgData`](@ref).
 """
 const pkgdatas = Dict{PkgId,PkgData}(NOPACKAGE => PkgData(NOPACKAGE))
 const pkgdatas_lock = ReentrantLock()
@@ -176,80 +137,6 @@ It's used to track non-precompiled packages and, optionally, user scripts (see d
 """
 const included_files = Tuple{Module,String}[]  # (module, filename)
 const included_files_lock = ReentrantLock()    # issue #947
-
-"""
-    expected_juliadir()
-
-This is the path where we ordinarily expect to find a copy of the julia source files,
-as well as the source cache. For `juliadir` we additionally search some fallback
-locations to handle various corrupt and incomplete installations.
-"""
-expected_juliadir() = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
-
-"""
-    Revise.basesrccache
-
-Full path to the running Julia's cache of source code defining `Base`.
-"""
-const basesrccache = normpath(joinpath(expected_juliadir(), "base.cache"))
-
-"""
-    Revise.basebuilddir
-
-Julia's top-level directory when Julia was built, as recorded by the entries in
-`Base._included_files`.
-"""
-const basebuilddir = begin
-    sysimg = filter(x->endswith(x[2], "sysimg.jl"), Base._included_files)[1][2]
-    dirname(dirname(sysimg))
-end
-
-function fallback_juliadir(candidate = expected_juliadir())
-    if !isdir(joinpath(candidate, "base"))
-        while true
-            trydir = joinpath(candidate, "base")
-            isdir(trydir) && break
-            trydir = joinpath(candidate, "share", "julia", "base")
-            if isdir(trydir)
-                candidate = joinpath(candidate, "share", "julia")
-                break
-            end
-            next_candidate = dirname(candidate)
-            next_candidate == candidate && break
-            candidate = next_candidate
-        end
-    end
-    normpath(candidate)
-end
-
-function find_juliadir()
-    candidate = expected_juliadir()
-    isdir(candidate) && return normpath(candidate)
-    # Couldn't find julia dir in the expected place.
-    # Let's look in the source build also - it's possible that the Makefile didn't
-    # set up the symlinks.
-    # N.B.: We need to make sure here that the julia we're running is actually
-    # the one being built. It's very common on buildbots that the original build
-    # dir exists, but is a different julia that is currently being built.
-    if Sys.BINDIR == joinpath(basebuilddir, "usr", "bin")
-        return normpath(basebuilddir)
-    end
-
-    @warn "Unable to find julia source directory in the expected places.\n
-           Looking in fallback locations. If this happens on a non-development build, please file an issue."
-    return fallback_juliadir(candidate)
-end
-
-"""
-    Revise.juliadir
-
-Constant specifying full path to julia top-level source directory.
-This should be reliable even for local builds, cross-builds, and binary installs.
-"""
-global juliadir::String = find_juliadir()
-
-const cache_file_key = Dict{String,String}() # corrected=>uncorrected filenames
-const src_file_key   = Dict{String,String}() # uncorrected=>corrected filenames
 
 """
     Revise.dont_watch_pkgs
@@ -298,216 +185,6 @@ const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests d
 ## links back to the specific expression---might change this, but for
 ## now this is the right strategy.) From the standpoint of CodeTracking, we should
 ## link the signature to the actual method-defining expression (either :(f() = 1) or :(g() = 2)).
-
-function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new::ExprsSigs)
-    with_logger(_debug_logger) do
-        for (ex, siginfos) in exs_sigs_old
-            haskey(exs_sigs_new, ex) && continue
-            # ex was deleted
-            siginfos === nothing && continue
-            for siginfo in siginfos
-                mt, sig = siginfo
-                ret = Base._methods_by_ftype(sig, mt, -1, Base.get_world_counter())
-                success = false
-                if !isempty(ret)
-                    m = ret[end].method  # the last method returned is the least-specific that matches, and thus most likely to be type-equal
-                    methsig = m.sig
-                    if sig <: methsig && methsig <: sig
-                        locdefs = get(CodeTracking.method_info, MethodInfoKey(siginfo), nothing)
-                        if isa(locdefs, Vector{Tuple{LineNumberNode,Expr}})
-                            if length(locdefs) > 1
-                                # Just delete this reference but keep the method
-                                line = firstline(ex)
-                                ld = map(pr->linediff(line, pr[1]), locdefs)
-                                idx = argmin(ld)
-                                @assert ld[idx] < typemax(eltype(ld))
-                                deleteat!(locdefs, idx)
-                                continue
-                            else
-                                @assert length(locdefs) == 1
-                            end
-                        end
-                        @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
-                        # Delete the corresponding methods
-                        for get_workers in workers_functions
-                            for p in @invokelatest get_workers()
-                                try  # guard against serialization errors if the type isn't defined on the worker
-                                    @invokelatest remotecall_impl(Core.eval, p, Main, :(delete_method_by_sig($mt, $sig)))
-                                catch
-                                end
-                            end
-                        end
-                        Base.delete_method(m)
-                        # Remove the entries from CodeTracking data
-                        delete!(CodeTracking.method_info, MethodInfoKey(siginfo))
-                        # Remove frame from JuliaInterpreter, if applicable. Otherwise debuggers
-                        # may erroneously work with outdated code (265-like problems)
-                        if haskey(JuliaInterpreter.framedict, m)
-                            delete!(JuliaInterpreter.framedict, m)
-                        end
-                        if isdefined(m, :generator)
-                            # defensively delete all generated functions
-                            empty!(JuliaInterpreter.genframedict)
-                        end
-                        success = true
-                    end
-                end
-                if !success
-                    @debug "FailedDeletion" _group="Action" time=time() deltainfo=(sig,)
-                end
-            end
-        end
-    end
-    return exs_sigs_old
-end
-
-const empty_exs_sigs = ExprsSigs()
-function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new::ModuleExprsSigs)
-    for (mod, exs_sigs_old) in mod_exs_sigs_old
-        exs_sigs_new = get(mod_exs_sigs_new, mod, empty_exs_sigs)
-        delete_missing!(exs_sigs_old, exs_sigs_new)
-    end
-    return mod_exs_sigs_old
-end
-
-function eval_rex(rex_new::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
-    return with_logger(_debug_logger) do
-        siginfos, includes = nothing, nothing
-        rex_old = getkey(exs_sigs_old, rex_new, nothing)
-        # extract the signatures and update the line info
-        if rex_old === nothing
-            ex = rex_new.ex
-            # ex is not present in old
-            @debug titlecase(String(mode)) _group="Action" time=time() deltainfo=(mod, ex, mode)
-            siginfos, includes, thunk = eval_with_signatures(mod, ex; mode)  # All signatures defined by `ex`
-            if !isexpr(thunk, :thunk)
-                thunk = ex
-            end
-            for get_workers in workers_functions
-                if @invokelatest is_master_worker(get_workers)
-                    for p in @invokelatest get_workers()
-                        @invokelatest(is_master_worker(p)) && continue
-                        try   # don't error if `mod` isn't defined on the worker
-                            @invokelatest remotecall_impl(Core.eval, p, mod, thunk)
-                        catch
-                        end
-                    end
-                end
-            end
-        else
-            siginfos = exs_sigs_old[rex_old]
-            # Update location info
-            ln, lno = firstline(unwrap(rex_new)), firstline(unwrap(rex_old))
-            if siginfos !== nothing && !isempty(siginfos) && ln != lno
-                ln, lno = ln::LineNumberNode, lno::LineNumberNode
-                @debug "LineOffset" _group="Action" time=time() deltainfo=(siginfos, lno=>ln)
-                for siginfo in siginfos
-                    locdefs = CodeTracking.method_info[MethodInfoKey(siginfo)]::AbstractVector
-                    ld = let lno=lno
-                        map(pr->linediff(lno, pr[1]), locdefs)
-                    end
-                    idx = argmin(ld)
-                    if ld[idx] === typemax(eltype(ld))
-                        # println("Missing linediff for $lno and $(first.(locdefs)) with ", rex.ex)
-                        idx = length(locdefs)
-                    end
-                    _, methdef = locdefs[idx]
-                    locdefs[idx] = (fixpath(ln), methdef)
-                end
-            end
-        end
-        return siginfos, includes
-    end
-end
-
-# These are typically bypassed in favor of expression-by-expression evaluation to
-# allow handling of new `include` statements.
-function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
-    includes = Vector{Pair{Module,String}}()
-    for rex in keys(exs_sigs_new)
-        siginfos, _includes = eval_rex(rex, exs_sigs_old, mod; mode)
-        if siginfos !== nothing
-            exs_sigs_new[rex] = siginfos
-        end
-        if _includes !== nothing
-            append!(includes, _includes)
-        end
-    end
-    return exs_sigs_new, includes
-end
-
-function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old::ModuleExprsSigs; mode::Symbol=:eval)
-    includes = Vector{Pair{Module,String}}()
-    for (mod, exs_sigs_new) in mod_exs_sigs_new
-        # Allow packages to override the supplied mode
-        if isdefined(mod, :__revise_mode__)
-            mode = getfield(mod, :__revise_mode__)::Symbol
-        end
-        exs_sigs_old = get(mod_exs_sigs_old, mod, empty_exs_sigs)
-        _, _includes = eval_new!(exs_sigs_new, exs_sigs_old, mod; mode)
-        append!(includes, _includes)
-    end
-    return mod_exs_sigs_new, includes
-end
-
-"""
-    CodeTrackingMethodInfo(ex::Expr)
-
-Create a cache for storing information about method definitions.
-Adding signatures to such an object inserts them into `CodeTracking.method_info`,
-which maps signature Tuple-types to `(lnn::LineNumberNode, ex::Expr)` pairs.
-Because method signatures are unique within a module, this is the foundation for
-identifying methods in a manner independent of source-code location.
-
-It also has the following fields:
-
-- `exprstack`: used when descending into `@eval` statements (via `push_expr` and `pop_expr!`)
-  `ex` (used in creating the `CodeTrackingMethodInfo` object) is the first entry in the stack.
-- `allsigs`: a list of all method signatures defined by a given expression
-- `includes`: a list of `module=>filename` for any `include` statements encountered while the
-  expression was parsed.
-"""
-struct CodeTrackingMethodInfo
-    exprstack::Vector{Expr}
-    allsigs::Vector{SigInfo}
-    includes::Vector{Pair{Module,String}}
-end
-CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], SigInfo[], Pair{Module,String}[])
-
-function add_signature!(methodinfo::CodeTrackingMethodInfo, mt_sig::MethodInfoKey, ln::LineNumberNode)
-    locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, mt_sig)
-    newdef = unwrap(methodinfo.exprstack[end])
-    if newdef !== nothing
-        if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
-            push!(locdefs, (fixpath(ln), newdef))
-        end
-        push!(methodinfo.allsigs, SigInfo(mt_sig))
-    end
-    return methodinfo
-end
-push_expr!(methodinfo::CodeTrackingMethodInfo, ex::Expr) = (push!(methodinfo.exprstack, ex); methodinfo)
-pop_expr!(methodinfo::CodeTrackingMethodInfo) = (pop!(methodinfo.exprstack); methodinfo)
-function add_includes!(methodinfo::CodeTrackingMethodInfo, mod::Module, filename)
-    push!(methodinfo.includes, mod=>filename)
-    return methodinfo
-end
-
-# Eval and insert into CodeTracking data
-function eval_with_signatures(mod::Module, ex::Expr; mode::Symbol=:eval, kwargs...)
-    methodinfo = CodeTrackingMethodInfo(ex)
-    _, thk = methods_by_execution!(methodinfo, mod, ex; mode, kwargs...)
-    return methodinfo.allsigs, methodinfo.includes, thk
-end
-
-function instantiate_sigs!(mod_exs_sigs::ModuleExprsSigs; mode::Symbol=:sigs, kwargs...)
-    for (mod, exsigs) in mod_exs_sigs
-        for rex in keys(exsigs)
-            is_doc_expr(rex.ex) && continue
-            exsigs[rex], _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
-        end
-    end
-    return mod_exs_sigs
-end
 
 # This is intended for testing purposes, but not general use. The key problem is
 # that it doesn't properly handle methods that move from one file to another; there is the
@@ -660,38 +337,6 @@ function revise_file_queued(pkgdata::PkgData, file)
     return
 end
 
-# Because we delete first, we have to make sure we've parsed the file
-function handle_deletions(pkgdata, file)
-    fi = maybe_parse_from_cache!(pkgdata, file)
-    maybe_extract_sigs!(fi)
-    mod_exs_sigs_old = fi.modexsigs
-    idx = fileindex(pkgdata, file)
-    filep = pkgdata.info.files[idx]
-    if isa(filep, AbstractString)
-        if file ≠ "."
-            filep = normpath(basedir(pkgdata), file)
-        else
-            filep = normpath(basedir(pkgdata))
-        end
-    end
-    topmod = first(keys(mod_exs_sigs_old))
-    fileok = file_exists(String(filep)::String)
-    mod_exs_sigs_new = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
-    if mod_exs_sigs_new !== nothing && mod_exs_sigs_new !== DoNotParse()
-        delete_missing!(mod_exs_sigs_old, mod_exs_sigs_new)
-    end
-    if !fileok
-        @warn("$filep no longer exists, deleted all methods")
-        deleteat!(pkgdata.fileinfos, idx)
-        deleteat!(pkgdata.info.files, idx)
-        wl = get(watched_files, basedir(pkgdata), nothing)
-        if isa(wl, WatchList)
-            delete!(wl.trackedfiles, file)
-        end
-    end
-    return mod_exs_sigs_new, mod_exs_sigs_old
-end
-
 """
     Revise.revise_file_now(pkgdata::PkgData, file)
 
@@ -711,7 +356,12 @@ function revise_file_now(pkgdata::PkgData, file)
         println("Revise is currently tracking the following files in $(PkgId(pkgdata)): ", srcfiles(pkgdata))
         error(file, " is not currently being tracked.")
     end
-    mexsnew, mexsold = handle_deletions(pkgdata, file)
+    mexsnew, mexsold = handle_deletions(pkgdata, file) do _::Int
+        wl = get(watched_files, basedir(pkgdata), nothing)
+        if isa(wl, WatchList)
+            delete!(wl.trackedfiles, file)
+        end
+    end
     if mexsnew != nothing
         _, includes = eval_new!(mexsnew, mexsold)
         fi = fileinfo(pkgdata, i)
@@ -739,7 +389,7 @@ function errors(revision_errors=keys(queue_errors))
         if err isa ReviseEvalException
             @error "Failed to revise $fullpath" exception=err
         else
-            @error "Failed to revise $fullpath" exception=(err, trim_toplevel!(bt))
+            @error "Failed to revise $fullpath" exception=(err, trim_toplevel!(bt, @__MODULE__))
         end
     end
 end
@@ -756,6 +406,13 @@ function retry()
         end
     end
     revise()
+end
+
+function pkgfileless((pkgdata1,file1)::Tuple{PkgData,String}, (pkgdata2,file2)::Tuple{PkgData,String})
+    # implements a partial order
+    PkgId(pkgdata1) ∈ pkgdata2.requirements && return true
+    PkgId(pkgdata1) == PkgId(pkgdata2) && return fileindex(pkgdata1, file1) < fileindex(pkgdata2, file2)
+    return false
 end
 
 """
@@ -780,7 +437,12 @@ function revise(; throw::Bool=false)
         interrupt = false
         for (pkgdata, file) in queue
             try
-                mexsnew, _ = handle_deletions(pkgdata, file)
+                mexsnew, _ = handle_deletions(pkgdata, file) do _::Int
+                    wl = get(watched_files, basedir(pkgdata), nothing)
+                    if isa(wl, WatchList)
+                        delete!(wl.trackedfiles, file)
+                    end
+                end
                 mexsnew === DoNotParse() && continue
                 push!(mexsnews, mexsnew)
                 push!(finished, (pkgdata, file))
@@ -1151,7 +813,7 @@ function get_def(method::Method; modified_files=revision_queue)
     return false
 end
 
-function get_def(method, pkgdata, filename)
+function get_def(method::Method, pkgdata::PkgData, filename::AbstractString)
     maybe_extract_sigs!(maybe_parse_from_cache!(pkgdata, filename))
     return get(CodeTracking.method_info, MethodInfoKey(method), nothing)
 end
@@ -1291,7 +953,7 @@ function revise_first(ex)
                 lhs, _ = lhsrhs
                 if isexpr(lhs, :ref) && length(lhs.args) == 1
                     arg1 = lhs.args[1]
-                    isexpr(arg1, :(.), 2) && arg1.args[1] === :Revise && is_quotenode_egal(arg1.args[2], :active) && return ex
+                    isexpr(arg1, :(.), 2) && arg1.args[1] === :Revise && JuliaInterpreter.is_quotenode_egal(arg1.args[2], :active) && return ex
                 end
             end
         end
@@ -1476,5 +1138,6 @@ function add_revise_deps()
     return nothing
 end
 
-include("precompile.jl")
-_precompile_()
+# Precompile disabled temporarily during refactoring
+# include("precompile.jl")
+# _precompile_()

@@ -24,22 +24,26 @@ Functions in Revise.jl that may come handy in special circumstances:
 """
 module Revise
 
-# We use a code structure where all `using` and `import`
-# statements in the package that load anything other than
-# a Julia base or stdlib package are located in this file here.
-# Nothing else should appear in this file here, apart from
-# the `include("packagedef.jl")` statement, which loads what
-# we would normally consider the bulk of the package code.
-# This somewhat unusual structure is in place to support
-# the VS Code extension integration.
+using ReviseCore: OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
+using .CodeTracking: MethodInfoKey, PkgFiles
+using .JuliaInterpreter: Compiled, Frame
 
-using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
+using ReviseCore
 
-using CodeTracking: PkgFiles, basedir, srcfiles, basepath, MethodInfoKey
-using JuliaInterpreter: Compiled, Frame, Interpreter, LineTypes, RecursiveInterpreter
-using JuliaInterpreter: codelocs, get_return, is_doc_expr, isassign, is_quotenode_egal,
-                        linetable, lookup, moduleof, pc_expr, step_expr!
-using LoweredCodeUtils: next_or_nothing!, callee_matches
+using ReviseCore:
+    CodeTrackingMethodInfo, DoNotParse, ExprsSigs, FileInfo, LoweringException, MethodSummary,
+    ModuleExprsSigs, PkgData, RelocatableExpr, ReviseEvalException, TaskThunk,
+    _debug_logger, _methods_by_execution!, add_modexs!, basebuilddir, basedir, basesrccache,
+    bodymethod, cache_file_key, delete_missing!, empty_exs_sigs, eval_new!, eval_rex,
+    fallback_juliadir, file_exists, fileindex, fileinfo, fixpath, handle_deletions, hasfile,
+    instantiate_sigs!, is_some_include, juliadir, maybe_extract_sigs!,
+    maybe_parse_from_cache!, methods_by_execution!, minimal_evaluation!, parse_source,
+    parse_source!, read_from_cache, src_file_key, srcfiles, trim_toplevel!, unwrap
+
+# Abstract Distributed API
+using ReviseCore:
+    AbstractWorker, DistributedWorker, register_workers_function, remotecall_impl,
+    is_master_worker
 
 include("packagedef.jl")
 

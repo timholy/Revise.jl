@@ -20,29 +20,12 @@ function Base.relpath(filename::AbstractString, pkgdata::PkgData)
     return filename
 end
 
-function iswritable(file::AbstractString)  # note this trashes the Base definition, but we don't need it
-    return uperm(stat(file)) & 0x02 != 0x00
-end
-
-function unique_dirs(iter)
-    udirs = Set{String}()
-    for file in iter
-        dir, basename = splitdir(file)
-        push!(udirs, dir)
-    end
-    return udirs
-end
-
 function file_exists(filename::AbstractString)
     filename = normpath(filename)
     isfile(filename) && return true
     alt = get(cache_file_key, filename, nothing)
     alt === nothing && return false
     return isfile(alt)
-end
-
-function use_compiled_modules()
-    return Base.JLOptions().use_compiled_modules != 0
 end
 
 function firstline(ex::Expr)
@@ -60,6 +43,30 @@ firstline(rex::RelocatableExpr) = firstline(rex.ex)
 location_string((file, line)::Tuple{AbstractString, Any},) = abspath(file)*':'*string(line)
 location_string((file, line)::Tuple{Symbol, Any},) = location_string((string(file), line))
 location_string(::Nothing) = "unknown location"
+
+# Path correction for Julia Base/stdlib files
+function fixpath(filename::AbstractString; badpath=basebuilddir, goodpath=juliadir)
+    startswith(filename, badpath) || return normpath(filename)
+    relfilename = relpath(filename, badpath)
+    relfilename0 = relfilename
+    for strippath in (#joinpath("usr", "share", "julia", "stdlib", "v$(VERSION.major).$(VERSION.minor)"),
+                      joinpath("usr", "share", "julia"),)
+        if startswith(relfilename, strippath)
+            relfilename = relpath(relfilename, strippath)
+            if occursin("stdlib", relfilename0) && !occursin("stdlib", relfilename)
+                relfilename = joinpath("stdlib", relfilename)
+            end
+        end
+    end
+    ffilename = normpath(joinpath(goodpath, relfilename))
+    if (isfile(filename) & !isfile(ffilename))
+        ffilename = normpath(filename)
+    end
+    return ffilename
+end
+_fixpath(lnn; kwargs...) = LineNumberNode(lnn.line, Symbol(fixpath(String(lnn.file); kwargs...)))
+fixpath(lnn::LineNumberNode; kwargs...) = _fixpath(lnn; kwargs...)
+fixpath(lnn::Core.LineInfoNode; kwargs...) = _fixpath(lnn; kwargs...)
 
 function linediff(la::LineNumberNode, lb::LineNumberNode)
     (isa(la.file, Symbol) && isa(lb.file, Symbol) && (la.file::Symbol === lb.file::Symbol)) || return typemax(Int)
@@ -111,27 +118,6 @@ function pushex!(exsigs::ExprsSigs, ex::Expr)
     end
     exsigs[RelocatableExpr(ex)] = nothing
     return exsigs
-end
-
-## WatchList utilities
-function updatetime!(wl::WatchList)
-    wl.timestamp = time()
-end
-Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgId}) =
-    push!(wl.trackedfiles, filenameid)
-Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgFiles}) =
-    push!(wl, filenameid.first=>filenameid.second.id)
-Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgData}) =
-    push!(wl, filenameid.first=>filenameid.second.info)
-WatchList() = WatchList(time(), Dict{String,PkgId}())
-Base.in(file, wl::WatchList) = haskey(wl.trackedfiles, file)
-
-@static if Sys.isapple()
-    # HFS+ rounds time to seconds, see #22
-    # https://developer.apple.com/library/archive/technotes/tn/tn1150.html#HFSPlusDates
-    newer(mtime, timestamp) = ceil(mtime) >= floor(timestamp)
-else
-    newer(mtime, timestamp) = mtime >= timestamp
 end
 
 """
@@ -194,7 +180,7 @@ first entry corresponding to a method in Revise or its dependencies.
 This is used to make stacktraces obtained with Revise more similar to those obtained
 without Revise, while retaining one entry to reveal Revise's involvement.
 """
-function trim_toplevel!(bt)
+function trim_toplevel!(bt, Revise::Module)
     # return bt       # uncomment this line if you're debugging Revise itself
     n = itoplevel = length(bt)
     for (i, t) in enumerate(bt)
@@ -202,7 +188,7 @@ function trim_toplevel!(bt)
         for sf in sfs
             if sf.func === Symbol("top-level scope") || (let mi = sf.linfo
                 mi isa Core.MethodInstance && (let def = mi.def
-                    def isa Method && def.module ∈ (JuliaInterpreter, LoweredCodeUtils, Revise)
+                    def isa Method && def.module ∈ (JuliaInterpreter, LoweredCodeUtils, ReviseCore, Revise)
                 end) end)
                 itoplevel = i
                 break

@@ -14,8 +14,13 @@ REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
+ReviseCore = "c98ecb09-caa2-44e9-b6bc-86139c117a10"
 RoundingIntegers = "d5f540fe-1c90-5db3-b776-2e2f362d9394"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 Unicode = "4ec0a83e-493e-50e2-b9ac-8f72acf5a8f5"
 UnsafeArrays = "c4a57d5a-5b31-53a6-b365-19f8c011fbd6"
+
+[sources]
+Revise = {path = ".."}
+ReviseCore = {path = "../ReviseCore"}

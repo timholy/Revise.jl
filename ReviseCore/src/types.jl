@@ -1,21 +1,4 @@
 """
-    Revise.WatchList
-
-A struct for holding files that live inside a directory.
-Some platforms (OSX) have trouble watching too many files. So we
-watch parent directories, and keep track of which files in them
-should be tracked.
-
-Fields:
-- `timestamp`: mtime of last update
-- `trackedfiles`: Set of filenames, generally expressed as a relative path
-"""
-mutable struct WatchList
-    timestamp::Float64         # unix time of last revision
-    trackedfiles::Dict{String,PkgId}
-end
-
-"""
     ExtendedData
 
 Linked list structure for storing extension data from multiple tools.
@@ -330,13 +313,6 @@ function Base.show(io::IO, pkgdata::PkgData)
     end
 end
 
-function pkgfileless((pkgdata1,file1)::Tuple{PkgData,String}, (pkgdata2,file2)::Tuple{PkgData,String})
-    # implements a partial order
-    PkgId(pkgdata1) ∈ pkgdata2.requirements && return true
-    PkgId(pkgdata1) == PkgId(pkgdata2) && return fileindex(pkgdata1, file1) < fileindex(pkgdata2, file2)
-    return false
-end
-
 """
     ReviseEvalException(loc::String, exc::Exception, stacktrace=nothing)
 
@@ -365,14 +341,6 @@ function Base.showerror(io::IO, ex::ReviseEvalException; blame_revise::Bool=true
     if blame_revise
         println(io, "\nRevise evaluation error at ", ex.loc)
     end
-end
-
-struct GitRepoException <: Exception
-    filename::String
-end
-
-function Base.showerror(io::IO, ex::GitRepoException)
-    print(io, "no repository at ", ex.filename, " to track stdlibs you must build Julia from source")
 end
 
 struct LoweringException <: Exception

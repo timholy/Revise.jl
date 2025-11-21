@@ -1,12 +1,13 @@
-using Revise, InteractiveUtils, Test
+using ReviseCore, InteractiveUtils, Test
+using Revise.CodeTracking
 
-@eval Revise juliadir = ARGS[1]
+@eval ReviseCore juliadir = ARGS[1]
 
-@test Revise.juliadir != Revise.basebuilddir
-@test Revise.juliadir != Revise.fallback_juliadir()
+@test ReviseCore.juliadir != ReviseCore.basebuilddir
+@test ReviseCore.juliadir != ReviseCore.fallback_juliadir()
 
 # https://github.com/timholy/Revise.jl/issues/697
-let def = Revise.definition(@which(Float32(π)))
+let def = CodeTracking.definition(@which(Float32(π)))
     @test isa(def, Expr)
     @test Meta.isexpr(def, :macrocall)
 end

@@ -30,6 +30,10 @@ function pkg_fileinfo(id::PkgId)
     return nothing
 end
 
+function use_compiled_modules()
+    return Base.JLOptions().use_compiled_modules != 0
+end
+
 """
     parse_pkg_files(id::PkgId)
 

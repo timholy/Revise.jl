@@ -1,4 +1,4 @@
-# Test that one can overload `Revise.parse_source!` and several Base methods to allow revision of
+# Test that one can overload `ReviseCore.parse_source!` and several Base methods to allow revision of
 # non-Julia code.
 
 using Revise

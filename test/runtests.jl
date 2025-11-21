@@ -1,5 +1,6 @@
 # REVISE: DO NOT PARSE   # For people with JULIA_REVISE_INCLUDE=1
 using Revise
+using ReviseCore
 using Revise.CodeTracking
 using Revise.CodeTracking: MethodInfoKey
 using Revise.JuliaInterpreter
@@ -83,7 +84,7 @@ const issue639report = []
         # Related to #358
         id = Base.PkgId(Main)
         pd = Revise.PkgData(id)
-        @test isempty(Revise.basedir(pd))
+        @test isempty(ReviseCore.basedir(pd))
     end
 
     do_test("Package contents") && @testset "Package contents" begin
@@ -93,18 +94,18 @@ const issue639report = []
     end
 
     do_test("LineSkipping") && @testset "LineSkipping" begin
-        rex = Revise.RelocatableExpr(quote
-                                    f(x) = x^2
-                                    g(x) = sin(x)
-                                    end)
+        rex = ReviseCore.RelocatableExpr(quote
+            f(x) = x^2
+            g(x) = sin(x)
+        end)
         @test length(rex.ex.args) == 4  # including the line number expressions
         exs = collectexprs(rex)
         @test length(exs) == 2
-        @test isequal(exs[1], Revise.RelocatableExpr(:(f(x) = x^2)))
-        @test hash(exs[1]) == hash(Revise.RelocatableExpr(:(f(x) = x^2)))
-        @test !isequal(exs[2], Revise.RelocatableExpr(:(f(x) = x^2)))
-        @test isequal(exs[2], Revise.RelocatableExpr(:(g(x) = sin(x))))
-        @test !isequal(exs[1], Revise.RelocatableExpr(:(g(x) = sin(x))))
+        @test isequal(exs[1], ReviseCore.RelocatableExpr(:(f(x) = x^2)))
+        @test hash(exs[1]) == hash(ReviseCore.RelocatableExpr(:(f(x) = x^2)))
+        @test !isequal(exs[2], ReviseCore.RelocatableExpr(:(f(x) = x^2)))
+        @test isequal(exs[2], ReviseCore.RelocatableExpr(:(g(x) = sin(x))))
+        @test !isequal(exs[1], ReviseCore.RelocatableExpr(:(g(x) = sin(x))))
         @test string(rex) == """
             quote
                 f(x) = begin
@@ -118,17 +119,17 @@ const issue639report = []
 
     do_test("Equality and hashing") && @testset "Equality and hashing" begin
         # issue #233
-        @test  isequal(Revise.RelocatableExpr(:(x = 1)), Revise.RelocatableExpr(:(x = 1)))
-        @test !isequal(Revise.RelocatableExpr(:(x = 1)), Revise.RelocatableExpr(:(x = 1.0)))
-        @test hash(Revise.RelocatableExpr(:(x = 1))) == hash(Revise.RelocatableExpr(:(x = 1)))
-        @test hash(Revise.RelocatableExpr(:(x = 1))) != hash(Revise.RelocatableExpr(:(x = 1.0)))
-        @test hash(Revise.RelocatableExpr(:(x = 1))) != hash(Revise.RelocatableExpr(:(x = 2)))
+        @test  isequal(ReviseCore.RelocatableExpr(:(x = 1)), ReviseCore.RelocatableExpr(:(x = 1)))
+        @test !isequal(ReviseCore.RelocatableExpr(:(x = 1)), ReviseCore.RelocatableExpr(:(x = 1.0)))
+        @test hash(ReviseCore.RelocatableExpr(:(x = 1))) == hash(ReviseCore.RelocatableExpr(:(x = 1)))
+        @test hash(ReviseCore.RelocatableExpr(:(x = 1))) != hash(ReviseCore.RelocatableExpr(:(x = 1.0)))
+        @test hash(ReviseCore.RelocatableExpr(:(x = 1))) != hash(ReviseCore.RelocatableExpr(:(x = 2)))
     end
 
     do_test("Parse errors") && @testset "Parse errors" begin
         md = Revise.ModuleExprsSigs(Main)
         errtype = Base.VERSION < v"1.10" ? LoadError : Base.Meta.ParseError
-        @test_throws errtype Revise.parse_source!(md, """
+        @test_throws errtype ReviseCore.parse_source!(md, """
             begin # this block should parse correctly, cf. issue #109
 
             end
@@ -173,8 +174,8 @@ const issue639report = []
         scriptfile = joinpath(jidir, "test", "toplevel_script.jl")
         modex = :(module Toplevel include($scriptfile) end)
         mod = eval(modex)
-        mexs = Revise.parse_source(scriptfile, mod)
-        Revise.instantiate_sigs!(mexs)
+        mexs = ReviseCore.parse_source(scriptfile, mod)
+        ReviseCore.instantiate_sigs!(mexs)
         nms = names(mod; all=true)
         modeval, modinclude = getfield(mod, :eval), getfield(mod, :include)
         failed = []
@@ -211,9 +212,9 @@ const issue639report = []
             end
         end
         mexs = Revise.ModuleExprsSigs(ReviseTestPrivate)
-        mexs[ReviseTestPrivate][Revise.RelocatableExpr(ex)] = nothing
+        mexs[ReviseTestPrivate][ReviseCore.RelocatableExpr(ex)] = nothing
         logs, _ = Test.collect_test_logs() do
-            Revise.instantiate_sigs!(mexs; mode=:eval)
+            ReviseCore.instantiate_sigs!(mexs; mode=:eval)
         end
         @test isempty(logs)
         @test isdefined(ReviseTestPrivate, :nolineinfo)
@@ -221,7 +222,7 @@ const issue639report = []
 
     do_test("Comparison and line numbering") && @testset "Comparison and line numbering" begin
         # We'll also use these tests to try out the logging system
-        rlogger = Revise.debug_logger()
+        rlogger = ReviseCore.debug_logger()
 
         fl1 = joinpath(@__DIR__, "revisetest.jl")
         fl2 = joinpath(@__DIR__, "revisetest_revised.jl")
@@ -243,12 +244,12 @@ const issue639report = []
         delmeth = first(methods(ReviseTest.Internal.mult4))
         mmult3 = @which ReviseTest.Internal.mult3(2)
 
-        mexsold = Revise.parse_source(tmpfile, Main)
-        Revise.instantiate_sigs!(mexsold)
+        mexsold = ReviseCore.parse_source(tmpfile, Main)
+        ReviseCore.instantiate_sigs!(mexsold)
         mcube = @which ReviseTest.cube(2)
 
         cp(fl2, tmpfile; force=true)
-        mexsnew = Revise.parse_source(tmpfile, Main)
+        mexsnew = ReviseCore.parse_source(tmpfile, Main)
         mexsnew = Revise.eval_revised(mexsnew, mexsold)
         @latestworld
         @test ReviseTest.cube(2) == 8
@@ -260,45 +261,45 @@ const issue639report = []
         dvs = collect(mexsnew[ReviseTest])
         @test length(dvs) == 3
         (def, val) = dvs[1]
-        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(square(x) = x^2)))
-        @test val == [Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.square),Any})]
-        @test Revise.firstline(Revise.unwrap(def)).line == 5
+        @test isequal(ReviseCore.unwrap(def), ReviseCore.RelocatableExpr(:(square(x) = x^2)))
+        @test val == [ReviseCore.SigInfo(nothing, Tuple{typeof(ReviseTest.square),Any})]
+        @test ReviseCore.firstline(ReviseCore.unwrap(def)).line == 5
         m = @which ReviseTest.square(1)
         @test m.line == 5
         @test whereis(m) == (tmpfile, 5)
-        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
+        @test ReviseCore.RelocatableExpr(definition(m)) == ReviseCore.unwrap(def)
         (def, val) = dvs[2]
-        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(cube(x) = x^3)))
-        @test val == [Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.cube),Any})]
+        @test isequal(ReviseCore.unwrap(def), ReviseCore.RelocatableExpr(:(cube(x) = x^3)))
+        @test val == [ReviseCore.SigInfo(nothing, Tuple{typeof(ReviseTest.cube),Any})]
         m = @which ReviseTest.cube(1)
         @test m.line == 7
         @test whereis(m) == (tmpfile, 7)
-        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
+        @test ReviseCore.RelocatableExpr(definition(m)) == ReviseCore.unwrap(def)
         (def, val) = dvs[3]
-        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(fourth(x) = x^4)))
-        @test val == [Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.fourth),Any})]
+        @test isequal(ReviseCore.unwrap(def), ReviseCore.RelocatableExpr(:(fourth(x) = x^4)))
+        @test val == [ReviseCore.SigInfo(nothing, Tuple{typeof(ReviseTest.fourth),Any})]
         m = @which ReviseTest.fourth(1)
         @test m.line == 9
         @test whereis(m) == (tmpfile, 9)
-        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
+        @test ReviseCore.RelocatableExpr(definition(m)) == ReviseCore.unwrap(def)
 
         dvs = collect(mexsnew[ReviseTest.Internal])
         @test length(dvs) == 5
         (def, val) = dvs[1]
-        @test isequal(Revise.unwrap(def),  Revise.RelocatableExpr(:(mult2(x) = 2*x)))
-        @test val == [Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.mult2),Any})]
-        @test Revise.firstline(Revise.unwrap(def)).line == 13
+        @test isequal(ReviseCore.unwrap(def),  ReviseCore.RelocatableExpr(:(mult2(x) = 2*x)))
+        @test val == [ReviseCore.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.mult2),Any})]
+        @test ReviseCore.firstline(ReviseCore.unwrap(def)).line == 13
         m = @which ReviseTest.Internal.mult2(1)
         @test m.line == 11
         @test whereis(m) == (tmpfile, 13)
-        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
+        @test ReviseCore.RelocatableExpr(definition(m)) == ReviseCore.unwrap(def)
         (def, val) = dvs[2]
-        @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(mult3(x) = 3*x)))
-        @test val == [Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.mult3),Any})]
+        @test isequal(ReviseCore.unwrap(def), ReviseCore.RelocatableExpr(:(mult3(x) = 3*x)))
+        @test val == [ReviseCore.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.mult3),Any})]
         m = @which ReviseTest.Internal.mult3(1)
         @test m.line == 14
         @test whereis(m) == (tmpfile, 14)
-        @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
+        @test ReviseCore.RelocatableExpr(definition(m)) == ReviseCore.unwrap(def)
 
         @test_throws MethodError ReviseTest.Internal.mult4(2)
 
@@ -307,8 +308,8 @@ const issue639report = []
             for (kw, val) in kwargs
                 logval = record.kwargs[kw]
                 for (v, lv) in zip(val, logval)
-                    isa(v, Expr) && (v = Revise.RelocatableExpr(v))
-                    isa(lv, Expr) && (lv = Revise.RelocatableExpr(Revise.unwrap(lv)))
+                    isa(v, Expr) && (v = ReviseCore.RelocatableExpr(v))
+                    isa(lv, Expr) && (lv = ReviseCore.RelocatableExpr(ReviseCore.unwrap(lv)))
                     @test lv == v
                 end
             end
@@ -322,10 +323,10 @@ const issue639report = []
         cmpdiff(logs[4], "Eval"; deltainfo=(ReviseTest, :(cube(x) = x^3)))
         cmpdiff(logs[5], "Eval"; deltainfo=(ReviseTest, :(fourth(x) = x^4)))
         stmpfile = Symbol(tmpfile)
-        cmpdiff(logs[6], "LineOffset"; deltainfo=(Any[Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.mult2),Any})], LineNumberNode(11,stmpfile)=>LineNumberNode(13,stmpfile)))
+        cmpdiff(logs[6], "LineOffset"; deltainfo=(Any[ReviseCore.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.mult2),Any})], LineNumberNode(11,stmpfile)=>LineNumberNode(13,stmpfile)))
         cmpdiff(logs[7], "Eval"; deltainfo=(ReviseTest.Internal, :(mult3(x) = 3*x)))
-        cmpdiff(logs[8], "LineOffset"; deltainfo=(Any[Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.unchanged),Any})], LineNumberNode(18,stmpfile)=>LineNumberNode(19,stmpfile)))
-        cmpdiff(logs[9], "LineOffset"; deltainfo=(Any[Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.unchanged2),Any})], LineNumberNode(20,stmpfile)=>LineNumberNode(21,stmpfile)))
+        cmpdiff(logs[8], "LineOffset"; deltainfo=(Any[ReviseCore.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.unchanged),Any})], LineNumberNode(18,stmpfile)=>LineNumberNode(19,stmpfile)))
+        cmpdiff(logs[9], "LineOffset"; deltainfo=(Any[ReviseCore.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.unchanged2),Any})], LineNumberNode(20,stmpfile)=>LineNumberNode(21,stmpfile)))
         @test length(Revise.actions(rlogger)) == 6  # by default LineOffset is skipped
         @test length(Revise.actions(rlogger; line=true)) == 9
         @test_broken length(Revise.diffs(rlogger)) == 2
@@ -342,7 +343,7 @@ const issue639report = []
         # because both of these are revised definitions.
         cp(fl3, tmpfile; force=true)
         mexsold = mexsnew
-        mexsnew = Revise.parse_source(tmpfile, Main)
+        mexsnew = ReviseCore.parse_source(tmpfile, Main)
         mexsnew = Revise.eval_revised(mexsnew, mexsold)
         @latestworld
         try
@@ -368,42 +369,42 @@ const issue639report = []
         cmpdiff(logs[4], "Eval"; deltainfo=(ReviseTest.Internal, :(mult2(x) = error("mult2"))))
 
         # Turn off future logging
-        Revise.debug_logger(; min_level=Info)
+        ReviseCore.debug_logger(; min_level=Info)
 
         # Gensymmed symbols
-        rex1 = Revise.RelocatableExpr(macroexpand(Main, :(t = @elapsed(foo(x)))))
-        rex2 = Revise.RelocatableExpr(macroexpand(Main, :(t = @elapsed(foo(x)))))
+        rex1 = ReviseCore.RelocatableExpr(macroexpand(Main, :(t = @elapsed(foo(x)))))
+        rex2 = ReviseCore.RelocatableExpr(macroexpand(Main, :(t = @elapsed(foo(x)))))
         @test isequal(rex1, rex2)
         @test hash(rex1) == hash(rex2)
-        rex3 = Revise.RelocatableExpr(macroexpand(Main, :(t = @elapsed(bar(x)))))
+        rex3 = ReviseCore.RelocatableExpr(macroexpand(Main, :(t = @elapsed(bar(x)))))
         @test !isequal(rex1, rex3)
         @test hash(rex1) != hash(rex3)
         sym1, sym2 = gensym(:hello), gensym(:hello)
-        rex1 = Revise.RelocatableExpr(:(x = $sym1))
-        rex2 = Revise.RelocatableExpr(:(x = $sym2))
+        rex1 = ReviseCore.RelocatableExpr(:(x = $sym1))
+        rex2 = ReviseCore.RelocatableExpr(:(x = $sym2))
         @test isequal(rex1, rex2)
         @test hash(rex1) == hash(rex2)
         sym3 = gensym(:world)
-        rex3 = Revise.RelocatableExpr(:(x = $sym3))
+        rex3 = ReviseCore.RelocatableExpr(:(x = $sym3))
         @test isequal(rex1, rex3)
         @test hash(rex1) == hash(rex3)
 
         # coverage
-        rex = convert(Revise.RelocatableExpr, :(a = 1))
-        @test Revise.striplines!(rex) isa Revise.RelocatableExpr
+        rex = convert(ReviseCore.RelocatableExpr, :(a = 1))
+        @test Revise.striplines!(rex) isa ReviseCore.RelocatableExpr
         @test copy(rex) !== rex
     end
 
     do_test("Display") && @testset "Display" begin
         io = IOBuffer()
-        show(io, Revise.RelocatableExpr(:(@inbounds x[2])))
+        show(io, ReviseCore.RelocatableExpr(:(@inbounds x[2])))
         str = String(take!(io))
         @test str == ":(@inbounds x[2])"
         mod = private_module()
         file = joinpath(@__DIR__, "revisetest.jl")
         Base.include(mod, file)
-        mexs = Revise.parse_source(file, mod)
-        Revise.instantiate_sigs!(mexs)
+        mexs = ReviseCore.parse_source(file, mod)
+        ReviseCore.instantiate_sigs!(mexs)
         # io = IOBuffer()
         print(IOContext(io, :compact=>true), mexs)
         str = String(take!(io))
@@ -418,7 +419,7 @@ const issue639report = []
 
         sleep(0.1)  # wait for EponymTuples to hit the cache
         pkgdata = Revise.pkgdatas[Base.PkgId(EponymTuples)]
-        file = first(Revise.srcfiles(pkgdata))
+        file = first(ReviseCore.srcfiles(pkgdata))
         Revise.maybe_parse_from_cache!(pkgdata, file)
         print(io, pkgdata)
         str = String(take!(io))
@@ -490,19 +491,19 @@ const issue639report = []
                 @eval @test $(fn5)() == 5
                 @eval @test $(fn6)() == 6
                 m = @eval first(methods($fn1))
-                rex = Revise.RelocatableExpr(definition(m))
-                @test rex == Revise.RelocatableExpr(:( $fn1() = 1 ))
+                rex = ReviseCore.RelocatableExpr(definition(m))
+                @test rex == ReviseCore.RelocatableExpr(:( $fn1() = 1 ))
                 # Check that definition returns copies
                 rex2 = deepcopy(rex)
                 rex.ex.args[end].args[end] = 2
-                @test Revise.RelocatableExpr(definition(m)) == rex2
-                @test Revise.RelocatableExpr(definition(m)) != rex
+                @test ReviseCore.RelocatableExpr(definition(m)) == rex2
+                @test ReviseCore.RelocatableExpr(definition(m)) != rex
                 # CodeTracking methods
                 m3 = first(methods(eval(fn3)))
                 m3file = joinpath(dn, "subdir", "file3.jl")
                 @test whereis(m3) == (m3file, 1)
-                @test signatures_at(m3file, 1) == [Revise.SigInfo(nothing, m3.sig)]
-                @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [Revise.SigInfo(nothing, m3.sig)]
+                @test signatures_at(m3file, 1) == [ReviseCore.SigInfo(nothing, m3.sig)]
+                @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [ReviseCore.SigInfo(nothing, m3.sig)]
 
                 id = Base.PkgId(eval(Symbol(modname)))   # for testing #596
                 pkgdata = Revise.pkgdatas[id]
@@ -580,7 +581,7 @@ const issue639report = []
                             joinpath("src", "subdir", "file3.jl"),
                             joinpath("src", "subdir", "file4.jl"),
                             joinpath("src", "file5.jl")]
-                    @test Revise.hasfile(pkgdata, file)
+                    @test ReviseCore.hasfile(pkgdata, file)
                 end
             end
         end
@@ -736,7 +737,7 @@ const issue639report = []
 
     # issue #131
     do_test("Base & stdlib file paths") && @testset "Base & stdlib file paths" begin
-        @test isfile(Revise.basesrccache)
+        @test isfile(ReviseCore.basesrccache)
         targetfn = Base.Filesystem.path_separator * joinpath("good", "path", "mydir", "myfile.jl")
         @test Revise.fixpath("/some/bad/path/mydir/myfile.jl"; badpath="/some/bad/path", goodpath="/good/path") == targetfn
         @test Revise.fixpath("/some/bad/path/mydir/myfile.jl"; badpath="/some/bad/path/", goodpath="/good/path") == targetfn
@@ -1144,8 +1145,10 @@ const issue639report = []
         lwr = Meta.lower(ChangeDocstring, ex)
         frame = Frame(ChangeDocstring, lwr.args[1])
         methodinfo = Revise.MethodInfo()
-        ret = Revise._methods_by_execution!(JuliaInterpreter.RecursiveInterpreter(), methodinfo,
-                                            frame, trues(length(frame.framecode.src.code)); mode=:sigs)
+        ret = ReviseCore._methods_by_execution!(
+            JuliaInterpreter.RecursiveInterpreter(), methodinfo, frame,
+            trues(length(frame.framecode.src.code));
+            mode=:sigs)
         ds = @doc(ChangeDocstring.f)
         @test get_docstring(ds) == "g"
 
@@ -1183,7 +1186,7 @@ const issue639report = []
 
     do_test("doc expr signature") && @testset "Docstring attached to signatures" begin
         md = Revise.ModuleExprsSigs(Main)
-        Revise.parse_source!(md, """
+        ReviseCore.parse_source!(md, """
             module DocstringSigsOnly
             function f end
             "basecase" f(x)
@@ -1200,8 +1203,8 @@ const issue639report = []
 
     do_test("Undef in docstrings") && @testset "Undef in docstrings" begin
         fn = Base.find_source_file("abstractset.jl")   # has lots of examples of """str""" func1, func2
-        mexsold = Revise.parse_source(fn, Base)
-        mexsnew = Revise.parse_source(fn, Base)
+        mexsold = ReviseCore.parse_source(fn, Base)
+        mexsnew = ReviseCore.parse_source(fn, Base)
         odict = mexsold[Base]
         ndict = mexsnew[Base]
         for (k, v) in odict
@@ -1907,13 +1910,13 @@ const issue639report = []
         ex2 = :(methspecificity(x::Integer) = 2)
         Core.eval(ReviseTestPrivate, ex1)
         Core.eval(ReviseTestPrivate, ex2)
-        exsig1 = Revise.RelocatableExpr(ex1) => [Revise.SigInfo(nothing, Tuple{typeof(ReviseTestPrivate.methspecificity),Int})]
-        exsig2 = Revise.RelocatableExpr(ex2) => [Revise.SigInfo(nothing, Tuple{typeof(ReviseTestPrivate.methspecificity),Integer})]
+        exsig1 = ReviseCore.RelocatableExpr(ex1) => [ReviseCore.SigInfo(nothing, Tuple{typeof(ReviseTestPrivate.methspecificity),Int})]
+        exsig2 = ReviseCore.RelocatableExpr(ex2) => [ReviseCore.SigInfo(nothing, Tuple{typeof(ReviseTestPrivate.methspecificity),Integer})]
         f_old, f_new = Revise.ExprsSigs(exsig1, exsig2), Revise.ExprsSigs(exsig2)
-        Revise.delete_missing!(f_old, f_new)
+        ReviseCore.delete_missing!(f_old, f_new)
         m = @which ReviseTestPrivate.methspecificity(1)
         @test m.sig.parameters[2] === Integer
-        Revise.delete_missing!(f_old, f_new)
+        ReviseCore.delete_missing!(f_old, f_new)
         m = @which ReviseTestPrivate.methspecificity(1)
         @test m.sig.parameters[2] === Integer
     end
@@ -2462,15 +2465,15 @@ const issue639report = []
         @test GetDef.f([1.0]) == 2
         @test GetDef.f([1]) == 3
         m = @which GetDef.f([1])
-        ex = Revise.RelocatableExpr(definition(m))
-        @test ex isa Revise.RelocatableExpr
-        @test isequal(ex, Revise.RelocatableExpr(:(f(v::AbstractVector{<:Integer}) = 3)))
+        ex = ReviseCore.RelocatableExpr(definition(m))
+        @test ex isa ReviseCore.RelocatableExpr
+        @test isequal(ex, ReviseCore.RelocatableExpr(:(f(v::AbstractVector{<:Integer}) = 3)))
 
         st = try GetDef.bar(5.0) catch err stacktrace(catch_backtrace()) end
         linfo = st[2].linfo
         m = isa(linfo, Core.CodeInstance) ? linfo.def.def : linfo.def
-        def = Revise.RelocatableExpr(definition(m))
-        @test def == Revise.RelocatableExpr(:(foo(x::T, y::Integer=1; kw1="hello", kwargs...) where T<:Number = error("stop")))
+        def = ReviseCore.RelocatableExpr(definition(m))
+        @test def == ReviseCore.RelocatableExpr(:(foo(x::T, y::Integer=1; kw1="hello", kwargs...) where T<:Number = error("stop")))
 
         rm_precompile("GetDef")
 
@@ -2669,13 +2672,13 @@ const issue639report = []
         @yry()
         @test LikePlots.f() == 2
         pkgdata = Revise.pkgdatas[Base.PkgId(LikePlots)]
-        @test joinpath("src", "backends", "backend.jl") ∈ Revise.srcfiles(pkgdata)
+        @test joinpath("src", "backends", "backend.jl") ∈ ReviseCore.srcfiles(pkgdata)
         # No duplications from Revise.track with either relative or absolute paths
         Revise.track(LikePlots, joinpath(sd, "backend.jl"))
-        @test length(Revise.srcfiles(pkgdata)) == 2
+        @test length(ReviseCore.srcfiles(pkgdata)) == 2
         cd(dn) do
             Revise.track(LikePlots, joinpath("backends", "backend.jl"))
-            @test length(Revise.srcfiles(pkgdata)) == 2
+            @test length(ReviseCore.srcfiles(pkgdata)) == 2
         end
 
         rm_precompile("LikePlots")
@@ -2936,7 +2939,7 @@ const issue639report = []
                 Revise.track_subdir_from_git!(pkgdata, joinpath(randdir, "src"); commit="HEAD")
             end
             @yry()
-            @test Revise.hasfile(pkgdata, mainjl)
+            @test ReviseCore.hasfile(pkgdata, mainjl)
             @test startswith(logs[end].message, "skipping src/extra.jl") || startswith(logs[end-1].message, "skipping src/extra.jl")
             rm_precompile("ModuleWithNewFile")
             pop!(LOAD_PATH)
@@ -2950,12 +2953,12 @@ const issue639report = []
 
         # Tracking Base
         # issue #250
-        @test_throws ErrorException("use Revise.track(Base) or Revise.track(<stdlib module>)") Revise.track(joinpath(Revise.juliadir, "base", "intfuncs.jl"))
+        @test_throws ErrorException("use Revise.track(Base) or Revise.track(<stdlib module>)") Revise.track(joinpath(ReviseCore.juliadir, "base", "intfuncs.jl"))
 
         id = Base.PkgId(Base)
         pkgdata = Revise.pkgdatas[id]
-        @test any(k->endswith(k, "number.jl"), Revise.srcfiles(pkgdata))
-        @test length(filter(k->endswith(k, "file.jl"), Revise.srcfiles(pkgdata))) == 1
+        @test any(k->endswith(k, "number.jl"), ReviseCore.srcfiles(pkgdata))
+        @test length(filter(k->endswith(k, "file.jl"), ReviseCore.srcfiles(pkgdata))) == 1
         m = @which show([1,2,3])
         @test definition(m) isa Expr
         m = @which redirect_stdout()
@@ -2965,7 +2968,7 @@ const issue639report = []
         Revise.track(Unicode)
         id = Base.PkgId(Unicode)
         pkgdata = Revise.pkgdatas[id]
-        @test any(k->endswith(k, "Unicode.jl"), Revise.srcfiles(pkgdata))
+        @test any(k->endswith(k, "Unicode.jl"), ReviseCore.srcfiles(pkgdata))
         m = first(methods(Unicode.isassigned))
         @test definition(m) isa Expr
         @test isfile(whereis(m)[1])
@@ -2986,13 +2989,13 @@ const issue639report = []
 
         if !haskey(ENV, "BUILDKITE") # disable on buildkite, see discussion in https://github.com/JuliaCI/julia-buildkite/pull/372#issuecomment-2262840304
             # Determine whether a git repo is available. Travis & Appveyor do not have this.
-            repo, path = Revise.git_repo(Revise.juliadir)
+            repo, path = Revise.git_repo(ReviseCore.juliadir)
             if repo != nothing && isfile(joinpath(path, "VERSION")) && isdir(joinpath(path, "base"))
                 # Tracking Core.Compiler
                 Revise.track(Core.Compiler)
                 id = Base.PkgId(Core.Compiler)
                 pkgdata = Revise.pkgdatas[id]
-                @test any(k->endswith(k, "optimize.jl"), Revise.srcfiles(pkgdata))
+                @test any(k->endswith(k, "optimize.jl"), ReviseCore.srcfiles(pkgdata))
                 m = first(methods(Core.Compiler.typeinf_code))
                 @test definition(m) isa Expr
             else
@@ -3021,7 +3024,7 @@ const issue639report = []
             push!(hp.history, fstr)
             m = first(methods(f))
             @test !isempty(signatures_at(String(m.file), m.line))
-            @test isequal(Revise.RelocatableExpr(definition(m)), Revise.RelocatableExpr(ex))
+            @test isequal(ReviseCore.RelocatableExpr(definition(m)), ReviseCore.RelocatableExpr(ex))
             @test definition(String, m)[1] == fstr
 
             # Test that revisions work (https://github.com/timholy/CodeTracking.jl/issues/38)
@@ -3034,7 +3037,7 @@ const issue639report = []
             end
             push!(hp.history, fstr)
             m = first(methods(f))
-            @test isequal(Revise.RelocatableExpr(definition(m)), Revise.RelocatableExpr(ex))
+            @test isequal(ReviseCore.RelocatableExpr(definition(m)), ReviseCore.RelocatableExpr(ex))
             @test definition(String, m)[1] == fstr
             @test !isempty(signatures_at(String(m.file), m.line))
 
@@ -3419,7 +3422,7 @@ do_test("Non-jl include_dependency (issue #388)") && @testset "Non-jl include_de
     @eval using ExcludeFile
     sleep(0.01)
     pkgdata = Revise.pkgdatas[Base.PkgId(UUID("b915cca1-7962-4ffb-a1c7-2bbdb2d9c14c"), "ExcludeFile")]
-    files = Revise.srcfiles(pkgdata)
+    files = ReviseCore.srcfiles(pkgdata)
     @test length(files) == 2
     @test joinpath("src", "ExcludeFile.jl") ∈ files
     @test joinpath("src", "f.jl") ∈ files
@@ -3575,7 +3578,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
             @test TrackRequires.ftrack() == 1
             id = Base.PkgId(TrackRequires)
             pkgdata = Revise.pkgdatas[id]
-            sf = Revise.srcfiles(pkgdata)
+            sf = ReviseCore.srcfiles(pkgdata)
             @test count(name->occursin("@require", name), sf) == 1
             @test count(name->occursin("anotherfile", name), sf) == 1
             @test !any(isequal("."), sf)
@@ -3590,7 +3593,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         @test TrackRequires.fauto() == 1
         id = Base.PkgId(TrackRequires)
         pkgdata = Revise.pkgdatas[id]
-        sf = Revise.srcfiles(pkgdata)
+        sf = ReviseCore.srcfiles(pkgdata)
         @test count(name->occursin("@require", name), sf) == 1
         @test count(name->occursin("yetanotherfile", name), sf) == 1
         @test !any(isequal("."), sf)

@@ -42,10 +42,10 @@ macro yry()
     end)
 end
 
-function collectexprs(rex::Revise.RelocatableExpr)
+function collectexprs(rex::ReviseCore.RelocatableExpr)
     items = []
-    for item in Revise.LineSkippingIterator(rex.ex.args)
-        push!(items, isa(item, Expr) ? Revise.RelocatableExpr(item) : item)
+    for item in ReviseCore.LineSkippingIterator(rex.ex.args)
+        push!(items, isa(item, Expr) ? ReviseCore.RelocatableExpr(item) : item)
     end
     items
 end

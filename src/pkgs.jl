@@ -72,62 +72,9 @@ function remove_from_included_files(modsym::Symbol)
     end
 end
 
-function read_from_cache(pkgdata::PkgData, file::AbstractString)
-    fi = fileinfo(pkgdata, file)
-    filep = joinpath(basedir(pkgdata), file)
-    if fi.cachefile == basesrccache
-        # Get the original path
-        filec = get(cache_file_key, filep, filep)
-        return open(basesrccache) do io
-            Base._read_dependency_src(io, filec)
-        end
-    end
-    Base.read_dependency_src(fi.cachefile, filep)
-end
 
-function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
-    if startswith(file, "REPL[")
-        return add_definitions_from_repl(file)
-    end
-    fi = fileinfo(pkgdata, file)
-    if (isempty(fi.modexsigs) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
-        # Source was never parsed, get it from the precompile cache
-        src = read_from_cache(pkgdata, file)
-        filep = joinpath(basedir(pkgdata), file)
-        filec = get(cache_file_key, filep, filep)
-        topmod = first(keys(fi.modexsigs))
-        ret = parse_source!(fi.modexsigs, src, filec, topmod)
-        if ret === nothing
-            @error "failed to parse cache file source text for $file"
-        end
-        if ret !== DoNotParse()
-            add_modexs!(fi, fi.cacheexprs)
-            empty!(fi.cacheexprs)
-        end
-        fi.parsed[] = true
-    end
-    return fi
-end
 
-function add_modexs!(fi::FileInfo, modexs)
-    for (mod, rex) in modexs
-        exsigs = get(fi.modexsigs, mod, nothing)
-        if exsigs === nothing
-            fi.modexsigs[mod] = exsigs = ExprsSigs()
-        end
-        pushex!(exsigs, rex)
-    end
-    return fi
-end
 
-function maybe_extract_sigs!(fi::FileInfo)
-    if !fi.extracted[]
-        instantiate_sigs!(fi.modexsigs)
-        fi.extracted[] = true
-    end
-    return fi
-end
-maybe_extract_sigs!(pkgdata::PkgData, file::AbstractString) = maybe_extract_sigs!(fileinfo(pkgdata, file))
 
 function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, includes; eval_now::Bool=false)
     for (mod, inc) in includes
@@ -230,7 +177,7 @@ function deferrable_require!(includes, expr::Expr)
             else
                 return true
             end
-        elseif callee === :eval || (isa(callee, Expr) && callee.head === :. && is_quotenode_egal(callee.args[2], :eval))
+        elseif callee === :eval || (isa(callee, Expr) && callee.head === :. && JuliaInterpreter.is_quotenode_egal(callee.args[2], :eval))
             # Any eval statement is suspicious and requires immediate action
             return false
         end
@@ -340,6 +287,10 @@ function watch_package(id::PkgId)
     return pkgdata
 end
 
+function iswritable(file::AbstractString)  # note this trashes the Base definition, but we don't need it
+    return uperm(stat(file)) & 0x02 != 0x00
+end
+
 function has_writable_paths(pkgdata::PkgData)
     dir = basedir(pkgdata)
     isdir(dir) || return true
@@ -441,9 +392,18 @@ function watch_manifest(mfile::String)
                 end
             end
         catch err
-            @error "Error watching manifest" exception=(err, trim_toplevel!(catch_backtrace()))
+            @error "Error watching manifest" exception=(err, trim_toplevel!(catch_backtrace(), @__MODULE__))
         end
     end
+end
+
+function unique_dirs(iter)
+    udirs = Set{String}()
+    for file in iter
+        dir, _ = splitdir(file)
+        push!(udirs, dir)
+    end
+    return udirs
 end
 
 function switch_basepath(pkgdata::PkgData, newpath::String)

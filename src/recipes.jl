@@ -109,29 +109,13 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
     return nothing
 end
 
-# Fix paths to files that define Julia (base and stdlibs)
-function fixpath(filename::AbstractString; badpath=basebuilddir, goodpath=juliadir)
-    startswith(filename, badpath) || return normpath(filename)
-    relfilename = relpath(filename, badpath)
-    relfilename0 = relfilename
-    for strippath in (#joinpath("usr", "share", "julia", "stdlib", "v$(VERSION.major).$(VERSION.minor)"),
-                      joinpath("usr", "share", "julia"),)
-        if startswith(relfilename, strippath)
-            relfilename = relpath(relfilename, strippath)
-            if occursin("stdlib", relfilename0) && !occursin("stdlib", relfilename)
-                relfilename = joinpath("stdlib", relfilename)
-            end
-        end
-    end
-    ffilename = normpath(joinpath(goodpath, relfilename))
-    if (isfile(filename) & !isfile(ffilename))
-        ffilename = normpath(filename)
-    end
-    return ffilename
+struct GitRepoException <: Exception
+    filename::String
 end
-_fixpath(lnn; kwargs...) = LineNumberNode(lnn.line, Symbol(fixpath(String(lnn.file); kwargs...)))
-fixpath(lnn::LineNumberNode; kwargs...) = _fixpath(lnn; kwargs...)
-fixpath(lnn::Core.LineInfoNode; kwargs...) = _fixpath(lnn; kwargs...)
+
+function Base.showerror(io::IO, ex::GitRepoException)
+    print(io, "no repository at ", ex.filename, " to track stdlibs you must build Julia from source")
+end
 
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
 function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue)

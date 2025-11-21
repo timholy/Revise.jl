@@ -238,7 +238,7 @@ function methods_by_execution!(interp::Interpreter, methodinfo, mod::Module, ex:
             catch err
                 (always_rethrow || isa(err, InterruptException)) && rethrow(err)
                 loc = location_string(whereis(frame))
-                bt = trim_toplevel!(catch_backtrace())
+                bt = trim_toplevel!(catch_backtrace(), @__MODULE__)
                 throw(ReviseEvalException(loc, err, Any[(sf, 1) for sf in stacktrace(bt)]))
             end
         else
