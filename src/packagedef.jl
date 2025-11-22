@@ -191,7 +191,7 @@ expected_juliadir() = joinpath(Sys.BINDIR, Base.DATAROOTDIR, "julia")
 
 Full path to the running Julia's cache of source code defining `Base`.
 """
-const basesrccache = normpath(joinpath(expected_juliadir(), "base.cache"))
+global basesrccache::String
 
 """
     Revise.basebuilddir
@@ -246,7 +246,7 @@ end
 Constant specifying full path to julia top-level source directory.
 This should be reliable even for local builds, cross-builds, and binary installs.
 """
-global juliadir::String = find_juliadir()
+global juliadir::String
 
 const cache_file_key = Dict{String,String}() # corrected=>uncorrected filenames
 const src_file_key   = Dict{String,String}() # uncorrected=>corrected filenames
@@ -262,8 +262,8 @@ See also [`Revise.silence`](@ref).
 """
 const dont_watch_pkgs = Set{Symbol}()
 const silence_pkgs = Set{Symbol}()
-const depsdir = joinpath(dirname(@__DIR__), "deps")
-const silencefile = Ref(joinpath(depsdir, "silence.txt"))  # Ref so that tests don't clobber
+global depsdir::String
+const silencefile = Ref{String}()  # Ref so that tests don't clobber
 
 ##
 ## The inputs are sets of expressions found in each file.
@@ -1352,6 +1352,13 @@ function __init__()
     if !(isnothing(distributed_module) || distributed_module.myid() == 1 || run_on_worker == "1")
         return nothing
     end
+
+    # Setting up the paths relative to package module location
+
+    global juliadir = find_juliadir()
+    global basesrccache = normpath(joinpath(expected_juliadir(), "base.cache"))
+    global depsdir = joinpath(isnothing(pkgdir(@__MODULE__)) ? dirname(@__DIR__) : pkgdir(@__MODULE__), "deps")
+    silencefile[] = joinpath(depsdir, "silence.txt")
 
     # Check Julia paths (issue #601)
     if !isdir(juliadir)
