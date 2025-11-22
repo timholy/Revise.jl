@@ -6,6 +6,10 @@ using Base: PkgId
 using Base.Meta: isexpr
 using Core: CodeInfo, MethodTable
 
+if !isdefined(Core, :isdefinedglobal)
+    isdefinedglobal(m::Module, s::Symbol) = isdefined(m, s)
+end
+
 export revise, includet, entr, MethodSummary
 
 ## BEGIN abstract Distributed API
@@ -101,6 +105,7 @@ include("utils.jl")
 include("parsing.jl")
 include("lowered.jl")
 include("loading.jl")
+include("visit.jl")
 include("pkgs.jl")
 include("git.jl")
 include("recipes.jl")
@@ -146,6 +151,15 @@ Global variable, maps `(pkgdata, filename)` pairs that errored upon last revisio
 `(exception, backtrace)`.
 """
 const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}() # locking is covered by revision_queue_lock
+
+# Can we revise types?
+const __bpart__ = Base.VERSION >= v"1.12.0-DEV.2047"
+# Julia 1.12+: when bindings switch to a new type, we need to re-evaluate method
+# definitions using the new binding resolution.
+const reeval_methods = Set{Method}()
+# Track (signature, module, method) tuples for methods that failed to re-evaluate
+# due to type incompatibility and need retry when types become compatible again
+const pending_eval_sigs = Set{Tuple{MethodInfoKey, Module, Method}}()
 
 """
     Revise.NOPACKAGE
@@ -264,6 +278,37 @@ const dont_watch_pkgs = Set{Symbol}()
 const silence_pkgs = Set{Symbol}()
 global depsdir::String
 const silencefile = Ref{String}()  # Ref so that tests don't clobber
+
+function collect_mis(sigs)
+    mis = Core.MethodInstance[]
+    world = Base.get_world_counter()
+    for tt in sigs
+        matches = Base._methods_by_ftype(tt, 10, world)::Vector
+        for mm in matches
+            m = mm.method
+            for mi in Base.specializations(m)
+                if mi.specTypes <: tt
+                    push!(mis, mi)
+                end
+            end
+        end
+    end
+    return mis
+end
+
+# from Compiler/bootstrap.jl
+const compiler_mis = if __bpart__
+    collect_mis(Any[
+        Tuple{typeof(Core.Compiler.compact!), Vararg{Any}},
+        Tuple{typeof(Core.Compiler.ssa_inlining_pass!), Core.Compiler.IRCode, Core.Compiler.InliningState{Core.Compiler.NativeInterpreter}, Bool},
+        Tuple{typeof(Core.Compiler.optimize), Core.Compiler.NativeInterpreter, Core.Compiler.OptimizationState{Core.Compiler.NativeInterpreter}, Core.Compiler.InferenceResult},
+        Tuple{typeof(Core.Compiler.typeinf_ext), Core.Compiler.NativeInterpreter, Core.MethodInstance, UInt8},
+        Tuple{typeof(Core.Compiler.typeinf), Core.Compiler.NativeInterpreter, Core.Compiler.InferenceState},
+        Tuple{typeof(Core.Compiler.typeinf_edge), Core.Compiler.NativeInterpreter, Method, Any, Core.SimpleVector, Core.Compiler.InferenceState, Bool, Bool},
+    ])
+else
+    Core.MethodInstance[]
+end
 
 ##
 ## The inputs are sets of expressions found in each file.
@@ -472,7 +517,7 @@ struct CodeTrackingMethodInfo
     allsigs::Vector{SigInfo}
     includes::Vector{Pair{Module,String}}
 end
-CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo([ex], SigInfo[], Pair{Module,String}[])
+CodeTrackingMethodInfo(ex::Expr) = CodeTrackingMethodInfo(Expr[ex], SigInfo[], Pair{Module,String}[])
 
 function add_signature!(methodinfo::CodeTrackingMethodInfo, mt_sig::MethodInfoKey, ln::LineNumberNode)
     locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, mt_sig)
@@ -712,7 +757,7 @@ function revise_file_now(pkgdata::PkgData, file)
         error(file, " is not currently being tracked.")
     end
     mexsnew, mexsold = handle_deletions(pkgdata, file)
-    if mexsnew != nothing
+    if mexsnew !== nothing
         _, includes = eval_new!(mexsnew, mexsold)
         fi = fileinfo(pkgdata, i)
         pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
@@ -768,8 +813,16 @@ otherwise these are only logged.
 function revise(; throw::Bool=false)
     active[] || return nothing
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
+    # To ensure we don't just call `Core.Compiler.bootstrap!()` for reasons of invalidation rather than redefinition,
+    # record the pre-revision max world ages of the compiler methods.
+    # This means that if those methods get invalidated by loading packages, automatic revision of the compiler won't
+    # work anymore---Revise's changes won't lower the world age to anything less than it already is.
+    # But people testing the compiler often do so in a fresh & slim session, so there's still some value in
+    # automatic revision. One can always call `Compiler.bootstrap!()` manually to reinitialize the compiler.
+    cmaxworlds = Dict(mi => mi.cache.max_world for mi in compiler_mis)
     lock(revision_queue_lock) do
         have_queue_errors = !isempty(queue_errors)
+        empty!(reeval_methods)
 
         # Do all the deletion first. This ensures that a method that moved from one file to another
         # won't get redefined first and deleted second.
@@ -839,6 +892,82 @@ function revise(; throw::Bool=false)
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())
             end
         end
+        # Retry methods that previously failed to re-evaluate
+        if !isempty(pending_eval_sigs)
+            for (mt_sig, mod, m) in collect(pending_eval_sigs)
+                methinfo = get(CodeTracking.method_info, mt_sig, nothing)
+                if methinfo !== nothing && length(methinfo) == 1
+                    _, ex = methinfo[1]
+                    try
+                        invokelatest(eval_with_signatures, mod, ex; mode=:eval)
+                        # If successful, remove from both queues
+                        delete!(CodeTracking.method_info, mt_sig)
+                        delete!(pending_eval_sigs, (mt_sig, mod, m))
+                        with_logger(_debug_logger) do
+                            @debug "RetrySucceeded" _group="Action" time=time() deltainfo=(mod, ex)
+                        end
+                    catch
+                        # Keep in queue for later
+                    end
+                end
+            end
+        end
+        # Handle binding invalidations
+        if !isempty(reeval_methods)
+            handled = Base.IdSet{Type}()
+            while !isempty(reeval_methods)
+                list = collect(reeval_methods)
+                with_logger(_debug_logger) do
+                    @debug "OldTypeMethods" _group="Bindings" time=time() deltainfo=(MethodSummary.(list),)
+                end
+                empty!(reeval_methods)
+                for m in list
+                    mt_sig = MethodInfoKey(nothing, m.sig)
+                    methinfo = get(CodeTracking.method_info, mt_sig, missing)
+                    if methinfo === missing
+                        push!(handled, m.sig)
+                        continue
+                    end
+                    if length(methinfo) != 1 && Base.unwrap_unionall(m.sig).parameters[1] !== typeof(Core.kwcall)
+                        with_logger(_debug_logger) do
+                            @debug "FailedDeletion" _group="Action" time=time() deltainfo=(m.sig, methinfo)
+                        end
+                        continue
+                    end
+                    if isdefinedglobal(m.module, m.name)
+                        f = getglobal(m.module, m.name)
+                        if isa(f, DataType)
+                            newmeths = methods_with(f)
+                            filter!(m -> m.sig ∉ handled, newmeths)
+                            maybe_extract_sigs_for_meths(newmeths)
+                            union!(reeval_methods, newmeths)
+                        end
+                    end
+                    !iszero(m.dispatch_status) && with_logger(_debug_logger) do
+                        @debug "DeleteMethod" _group="Action" time=time() deltainfo=(m.sig, MethodSummary(m))
+                        Base.delete_method(m)  # ensure that "old data" doesn't get run with "old methods"
+                        _, ex = methinfo[1]
+                        @debug "Eval" _group="Action" time=time() deltainfo=(m.module, ex)
+                        try
+                            invokelatest(eval_with_signatures, m.module, ex; mode=:eval)
+                            delete!(CodeTracking.method_info, mt_sig)
+                        catch err
+                            # Re-evaluation failed, likely due to type incompatibility
+                            # Store in pending_eval_sigs for retry when types become compatible
+                            push!(pending_eval_sigs, (mt_sig, m.module, m))
+                            @debug "EvalFailed" _group="Action" time=time() deltainfo=(m.module, ex, err)
+                        end
+                    end
+                    push!(handled, m.sig)
+                end
+            end
+        end
+        # If needed, reinitialize the compiler
+        init_compiler = false
+        for mi in compiler_mis
+            init_compiler |= mi.cache.max_world < cmaxworlds[mi]
+        end
+        init_compiler && Core.Compiler.bootstrap!()
         if interrupt
             for pkgfile in finished
                 haskey(queue_errors, pkgfile) || delete!(revision_queue, pkgfile)
@@ -947,7 +1076,7 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
         if mode === :includet
             mode = :sigs   # we already handled evaluation in `parse_source`
         end
-        instantiate_sigs!(mod_exs_sigs; mode, kwargs...)
+        invokelatest(instantiate_sigs!, mod_exs_sigs; mode, kwargs...)
         if !haskey(pkgdatas, id)
             # Wait a bit to see if `mod` gets initialized
             sleep(0.1)
