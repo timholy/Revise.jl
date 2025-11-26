@@ -187,7 +187,7 @@ end)))
             x ^ 4
         end
 end)))
- Revise.LogRecord(Debug, LineOffset, Action, Revise_fcadbd44, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 369, (time=1.753703251787128e9, deltainfo=(Pair{Union{Nothing, Core.MethodTable}, Type}[nothing => Tuple{typeof(Main.ReviseTest.Internal.mult2), Any}], :(#= /tmp/revisetest.jl:11 =#) => :(#= /tmp/revisetest.jl:13 =#))))
+ Revise.LogRecord(Debug, LineOffset, Action, Revise_fcadbd44, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 369, (time=1.753703251787128e9, deltainfo=(CodeTracking.MethodInfoKey[CodeTracking.MethodInfoKey(nothing, Tuple{typeof(Main.ReviseTest.Internal.mult2), Any})], :(#= /tmp/revisetest.jl:11 =#) => :(#= /tmp/revisetest.jl:13 =#))))
  Revise.LogRecord(Debug, Eval, Action, Revise_9147188b, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 347, (time=1.753703251793889e9, deltainfo=(Main.ReviseTest.Internal, quote
     #= /tmp/revisetest.jl:14 =#
     mult3(x) = begin
@@ -195,8 +195,8 @@ end)))
             3x
         end
 end)))
- Revise.LogRecord(Debug, LineOffset, Action, Revise_fcadbd44, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 369, (time=1.753703251795383e9, deltainfo=(Pair{Union{Nothing, Core.MethodTable}, Type}[nothing => Tuple{typeof(Main.ReviseTest.Internal.unchanged), Any}], :(#= /tmp/revisetest.jl:18 =#) => :(#= /tmp/revisetest.jl:19 =#))))
- Revise.LogRecord(Debug, LineOffset, Action, Revise_fcadbd44, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 369, (time=1.753703251795399e9, deltainfo=(Pair{Union{Nothing, Core.MethodTable}, Type}[nothing => Tuple{typeof(Main.ReviseTest.Internal.unchanged2), Any}], :(#= /tmp/revisetest.jl:20 =#) => :(#= /tmp/revisetest.jl:21 =#))))
+ Revise.LogRecord(Debug, LineOffset, Action, Revise_fcadbd44, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 369, (time=1.753703251795383e9, deltainfo=(CodeTracking.MethodInfoKey[CodeTracking.MethodInfoKey(nothing, Tuple{typeof(Main.ReviseTest.Internal.unchanged), Any})], :(#= /tmp/revisetest.jl:18 =#) => :(#= /tmp/revisetest.jl:19 =#))))
+ Revise.LogRecord(Debug, LineOffset, Action, Revise_fcadbd44, "/home/tim/.julia/dev/Revise/src/packagedef.jl", 369, (time=1.753703251795399e9, deltainfo=(CodeTracking.MethodInfoKey[CodeTracking.MethodInfoKey(nothing, Tuple{typeof(Main.ReviseTest.Internal.unchanged2), Any})], :(#= /tmp/revisetest.jl:20 =#) => :(#= /tmp/revisetest.jl:21 =#))))
 ```
 
 Perhaps the most useful component of this is the timing information, as it gives clues to what you might have been doing to trigger revisions.

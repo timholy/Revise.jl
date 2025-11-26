@@ -24,10 +24,10 @@ Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 DistributedExt = "Distributed"
 
 [compat]
-CodeTracking = "2"
+CodeTracking = "3"
 Distributed = "1"
-JuliaInterpreter = "0.10"
-LoweredCodeUtils = "3.4.3"
+JuliaInterpreter = "0.10.8"
+LoweredCodeUtils = "3.5"
 OrderedCollections = "1"
 # Exclude Requires-1.1.0 - see https://github.com/JuliaPackaging/Requires.jl/issues/94
 Requires = "~1.0, ^1.1.1"
