@@ -228,7 +228,7 @@ Two "maps" are central to Revise's inner workings: `ExprsSigs` maps link
 definition=>signature-types (the forward workflow), while `CodeTracking` (specifically,
 its internal variable `method_info`) links from a
 method table/signature-type pair to the corresponding definition (the backward workflow).
-Concretely, `CodeTracking.method_info` is just an `IdDict` mapping `(mt => sigt) => (locationinfo, def)`.
+Concretely, `CodeTracking.method_info` is just an `IdDict` mapping `MethodInfoKey(mt, sigt) => (locationinfo, def)`.
 Of note, a stack frame typically contains a link to a method, which stores the equivalent
 of `sigt`; consequently, this information allows one to look up the corresponding
 `locationinfo` and `def`. (When methods move, the location information stored by CodeTracking
@@ -338,9 +338,9 @@ This is just a summary; to see the actual `def=>mt_sigts` map, do the following:
 
 ```julia-repl
 julia> pkgdata.fileinfos[2].modexsigs[Items]
-OrderedCollections.OrderedDict{Module, OrderedCollections.OrderedDict{Revise.RelocatableExpr, Union{Nothing, Vector{Pair{Union{Nothing, Core.MethodTable}, Type}}}}} with 2 entries:
-  :(indent(::UInt16) = begin…                       => Pair{Union{Nothing, MethodTable}, Type}[nothing => Tuple{typeof(indent),UInt16}]
-  :(indent(::UInt8) = begin…                        => Pair{Union{Nothing, MethodTable}, Type}[nothing => Tuple{typeof(indent),UInt8}]
+OrderedCollections.OrderedDict{Module, OrderedCollections.OrderedDict{Revise.RelocatableExpr, Union{Nothing, Vector{CodeTracking.MethodInfoKey}}}} with 2 entries:
+  :(indent(::UInt16) = begin…                       => CodeTracking.MethodInfoKey[CodeTracking.MethodInfoKey(nothing, Tuple{typeof(indent),UInt16})]
+  :(indent(::UInt8) = begin…                        => CodeTracking.MethodInfoKey[CodeTracking.MethodInfoKey(nothing, Tuple{typeof(indent),UInt8})]
 ```
 
 These are populated now because we specified `__precompile__(false)`, which forces
