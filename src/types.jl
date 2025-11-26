@@ -259,8 +259,8 @@ PkgData(id::PkgId, path) = PkgData(PkgFiles(id, path), FileInfo[], PkgId[])
 PkgData(id::PkgId, ::Nothing) = PkgData(id, "")
 function PkgData(id::PkgId)
     bp = basepath(id)
-    if !isempty(bp)
-        bp = normpath(bp)
+    if !isempty(bp) && ispath(bp)
+        bp = realpath(bp)
     end
     PkgData(id, bp)
 end
