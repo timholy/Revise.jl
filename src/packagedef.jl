@@ -928,7 +928,7 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
     id = Base.moduleroot(mod) == Main ? PkgId(mod, string(mod)) : PkgId(mod)  # see #689 for `Main`
     if haskey(pkgdatas, id)
         pkgdata = pkgdatas[id]
-        relfile = relpath(abspath(file), pkgdata)
+        relfile = relpath(abspath_no_normalize(file), pkgdata)
         hasfile(pkgdata, relfile) && return nothing
         # Use any "fixes" provided by relpath
         file = joinpath(basedir(pkgdata), relfile)
@@ -939,7 +939,7 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
             nameof(mod) === :Plots || Base.depwarn("Revise@2.4 or higher automatically handles `include` statements in `@require` expressions.\nPlease do not call `Revise.track` from such blocks.", :track)
             return nothing
         end
-        file = abspath(file)
+        file = abspath_no_normalize(file)
     end
     # Set up tracking
     mod_exs_sigs = parse_source(file, mod; mode)
@@ -1061,7 +1061,7 @@ function includet(mod::Module, file::AbstractString)
             invokelatest(showerror, stderr, err; blame_revise=false)
             println(stderr, "\nin expression starting at ", err.loc)
         else
-            throw(err)
+            rethrow()
         end
     end
     return nothing

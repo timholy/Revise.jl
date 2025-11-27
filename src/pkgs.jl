@@ -362,7 +362,7 @@ function has_writable_paths(pkgdata::PkgData)
 end
 
 function watch_includes(mod::Module, fn::AbstractString)
-    @lock included_files_lock push!(included_files, (mod, normpath(abspath(fn))))
+    @lock included_files_lock push!(included_files, (mod, abspath_no_normalize(fn)))
 end
 
 ## Working with Pkg and code-loading
@@ -423,7 +423,7 @@ function watch_manifest(mfile::String)
                 for (id, pkgdir) in pkgdirs
                     if haskey(pkgdatas, id)
                         pkgdata = pkgdatas[id]
-                        if pkgdir != basedir(pkgdata)
+                        if !samefile(pkgdir, basedir(pkgdata))
                             ## The package directory has changed
                             @debug "Pkg" _group="pathswitch" oldpath=basedir(pkgdata) newpath=pkgdir
                             push!(pathreplacements, basedir(pkgdata)=>pkgdir)
@@ -434,7 +434,7 @@ function watch_manifest(mfile::String)
                 # Update the paths in the watchlist
                 for (oldpath, newpath) in pathreplacements
                     for (_, pkgdata) in pkgdatas
-                        if basedir(pkgdata) == oldpath
+                        if samefile(basedir(pkgdata), oldpath)
                             switch_basepath(pkgdata, newpath)
                         end
                     end

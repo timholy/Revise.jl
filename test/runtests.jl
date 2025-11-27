@@ -500,7 +500,9 @@ const issue639report = []
                 # CodeTracking methods
                 m3 = first(methods(eval(fn3)))
                 m3file = joinpath(dn, "subdir", "file3.jl")
-                @test whereis(m3) == (m3file, 1)
+                w = whereis(m3)
+                @test samefile(w[1], m3file)
+                @test w[2] == 1
                 @test signatures_at(m3file, 1) == [Revise.SigInfo(nothing, m3.sig)]
                 @test signatures_at(eval(Symbol(modname)), joinpath("src", "subdir", "file3.jl"), 1) == [Revise.SigInfo(nothing, m3.sig)]
 
@@ -2990,7 +2992,7 @@ const issue639report = []
             if repo != nothing && isfile(joinpath(path, "VERSION")) && isdir(joinpath(path, "base"))
                 # Tracking Core.Compiler
                 Revise.track(Core.Compiler)
-                id = Base.PkgId(Core.Compiler)
+                id = Revise.pkgidid_for_mod(Core.Compiler)
                 pkgdata = Revise.pkgdatas[id]
                 @test any(k->endswith(k, "optimize.jl"), Revise.srcfiles(pkgdata))
                 m = first(methods(Core.Compiler.typeinf_code))
