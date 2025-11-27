@@ -1,4 +1,6 @@
-relpath_safe(path::AbstractString, startpath::AbstractString) = isempty(startpath) ? path : relpath(path, startpath)
+relpath_safe(path::AbstractString, startpath::AbstractString) = isempty(startpath) ? path :
+                                                                ispath(path)       ? relpath(realpath(path), startpath) :
+                                                                                     relpath(path, startpath)
 
 function Base.relpath(filename::AbstractString, pkgdata::PkgData)
     if isabspath(filename)
