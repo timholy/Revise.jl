@@ -362,7 +362,7 @@ function has_writable_paths(pkgdata::PkgData)
 end
 
 function watch_includes(mod::Module, fn::AbstractString)
-    @lock included_files_lock push!(included_files, (mod, realpath(fn)))
+    @lock included_files_lock push!(included_files, (mod, abspath_no_normalize(fn)))
 end
 
 ## Working with Pkg and code-loading
@@ -390,7 +390,6 @@ function manifest_paths!(pkgpaths::Dict, manifest_file::String)
         for entry in entries
             id = PkgId(UUID(entry["uuid"]::String), name)
             path = Base.explicit_manifest_entry_path(manifest_file, id, entry)
-            ispath(path) && (path = realpath(path))
             if path isa String
                 if isfile(path)
                     # Workaround for #802

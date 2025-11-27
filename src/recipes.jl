@@ -65,7 +65,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         # note any modified since Base was built
         pkgdata = get(pkgdatas, id, nothing)
         if pkgdata === nothing
-            pkgdata = PkgData(id, realpath(srcdir))
+            pkgdata = PkgData(id, srcdir)
         end
         lock(revision_queue_lock) do
             for (submod, filename) in Iterators.drop(Base._included_files, 1)  # stepping through sysimg.jl rebuilds Base, omit it
@@ -99,7 +99,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         isdir(compilerdir) || (compilerdir = compilerdir_pre_112)
         pkgdata = get(pkgdatas, id, nothing)
         if pkgdata === nothing
-            pkgdata = PkgData(id, realpath(compilerdir))
+            pkgdata = PkgData(id, compilerdir)
         end
         track_subdir_from_git!(pkgdata, compilerdir; modified_files=modified_files)
         # insertion into pkgdatas is done by track_subdir_from_git!

@@ -499,7 +499,7 @@ const issue639report = []
                 @test Revise.RelocatableExpr(definition(m)) != rex
                 # CodeTracking methods
                 m3 = first(methods(eval(fn3)))
-                m3file = realpath(joinpath(dn, "subdir", "file3.jl"))
+                m3file = joinpath(dn, "subdir", "file3.jl")
                 w = whereis(m3)
                 @test samefile(w[1], m3file)
                 @test w[2] == 1

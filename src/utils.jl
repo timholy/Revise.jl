@@ -1,6 +1,11 @@
-relpath_safe(path::AbstractString, startpath::AbstractString) = isempty(startpath) ? path :
-                                                                ispath(path)       ? relpath(realpath(path), startpath) :
-                                                                                     relpath(path, startpath)
+function relpath_safe(path::AbstractString, startpath::AbstractString)
+    isempty(startpath) && return path
+    if ispath(path)
+        path = relpath(realpath(path), realpath(startpath))
+        !isabspath(path) && return path
+    end
+    return relpath(path, startpath)
+end
 
 function Base.relpath(filename::AbstractString, pkgdata::PkgData)
     if isabspath(filename)
@@ -23,6 +28,20 @@ function unique_dirs(iter)
         push!(udirs, dir)
     end
     return udirs
+end
+
+function abspath_no_normalize(a)
+    if !isabspath(a)
+        cwd = pwd()
+        a_drive, a_nodrive = splitdrive(a)
+        if a_drive != "" && lowercase(splitdrive(cwd)[1]) != lowercase(a_drive)
+            cwd = a_drive * path_separator
+            a = joinpath(cwd, a_nodrive)
+        else
+            a = joinpath(cwd, a)
+        end
+    end
+    return a
 end
 
 function file_exists(filename::AbstractString)
