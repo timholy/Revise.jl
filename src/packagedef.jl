@@ -928,7 +928,7 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
     id = Base.moduleroot(mod) == Main ? PkgId(mod, string(mod)) : PkgId(mod)  # see #689 for `Main`
     if haskey(pkgdatas, id)
         pkgdata = pkgdatas[id]
-        relfile = relpath(realpath(file), pkgdata)
+        relfile = relpath(file, pkgdata)
         hasfile(pkgdata, relfile) && return nothing
         # Use any "fixes" provided by relpath
         file = joinpath(basedir(pkgdata), relfile)
@@ -954,7 +954,8 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
         end
         pkgdata = get(pkgdatas, id, nothing)
         if pkgdata === nothing
-            pkgdata = PkgData(id, realpath(pathof(mod)))
+            modpath = pathof(mod)
+            pkgdata = PkgData(id, modpath === nothing ? nothing : realpath(modpath))
         end
         if !haskey(CodeTracking._pkgfiles, id)
             CodeTracking._pkgfiles[id] = pkgdata.info
@@ -1061,7 +1062,7 @@ function includet(mod::Module, file::AbstractString)
             invokelatest(showerror, stderr, err; blame_revise=false)
             println(stderr, "\nin expression starting at ", err.loc)
         else
-            throw(err)
+            rethrow()
         end
     end
     return nothing
