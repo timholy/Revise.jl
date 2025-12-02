@@ -2,5 +2,8 @@
 Documenter = "e30172f5-a6a5-5a46-863b-614d45cd2de4"
 Revise = "295af30f-e4ad-537b-8983-00126c2a3abe"
 
+[sources]
+Revise = {path = ".."}
+
 [compat]
 Documenter = "1"
