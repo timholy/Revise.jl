@@ -254,9 +254,13 @@ const src_file_key   = Dict{String,String}() # uncorrected=>corrected filenames
 """
     Revise.dont_watch_pkgs
 
-Global variable, use `push!(Revise.dont_watch_pkgs, :MyPackage)` to prevent Revise
-from tracking changes to `MyPackage`. You can do this from the REPL or from your
-`.julia/config/startup.jl` file.
+Global variable containing the set of packages that Revise will not track.
+
+!!! warning "Deprecated as of Revise 3.13"
+    Direct modification of `dont_watch_pkgs` (e.g., `push!(Revise.dont_watch_pkgs, :PkgName)`)
+    is deprecated and may be removed in a future release.
+    Use [`Revise.dont_watch`](@ref) and [`Revise.allow_watch`](@ref) instead,
+    which also persist your settings across Julia sessions via Preferences.jl.
 
 See also [`Revise.silence`](@ref).
 """
@@ -1096,6 +1100,36 @@ function unsilence(pkg::AbstractString)
     nothing
 end
 
+"""
+    Revise.dont_watch(pkg)
+
+Prevent Revise from tracking changes to package `pkg`.
+
+The list of excluded packages is stored persistently using Preferences.jl.
+See also [`Revise.allow_watch`](@ref) and [`Revise.silence`](@ref).
+"""
+function dont_watch(pkg::Symbol)
+    push!(dont_watch_pkgs, pkg)
+    Preferences.@set_preferences!("dont_watch_packages" => String[string(p) for p in dont_watch_pkgs])
+    nothing
+end
+dont_watch(pkg::AbstractString) = dont_watch(Symbol(pkg))
+
+"""
+    Revise.allow_watch(pkg)
+
+Remove `pkg` from the list of excluded packages, allowing Revise to track
+changes to that package again.
+
+See also [`Revise.dont_watch`](@ref).
+"""
+function allow_watch(pkg::Symbol)
+    delete!(dont_watch_pkgs, pkg)
+    Preferences.@set_preferences!("dont_watch_packages" => String[string(p) for p in dont_watch_pkgs])
+    nothing
+end
+allow_watch(pkg::AbstractString) = allow_watch(Symbol(pkg))
+
 ## Utilities
 
 """
@@ -1374,6 +1408,10 @@ function __init__()
                  Certain functionality will be disabled.
                  To fix this, try deleting Revise's cache files in ~/.julia/compiled/v$major.$minor/Revise, then restart Julia and load Revise.
                  If this doesn't fix the problem, please report an issue at https://github.com/timholy/Revise.jl/issues."""
+    end
+    excluded = Preferences.@load_preference("dont_watch_packages", String[])
+    for pkg in excluded
+        push!(dont_watch_pkgs, Symbol(pkg))
     end
     silenced = Preferences.@load_preference("silenced_packages", String[])
     for pkg in silenced

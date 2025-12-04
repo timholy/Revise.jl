@@ -25,6 +25,8 @@ Revise.diffs
 ### Prevent Revise from watching specific packages
 
 ```@docs
+Revise.dont_watch
+Revise.allow_watch
 Revise.dont_watch_pkgs
 Revise.silence
 Revise.unsilence

@@ -2483,15 +2483,20 @@ const issue639report = []
     end
 
     do_test("Pkg exclusion") && @testset "Pkg exclusion" begin
-        push!(Revise.dont_watch_pkgs, :Example)
-        push!(Revise.silence_pkgs, "Example")
+        Revise.dont_watch(:Example)
+        Revise.silence(:Example)
         @eval import Example
         id = Base.PkgId(Example)
         @test !haskey(Revise.pkgdatas, id)
+        # Ensure that dont_watch/allow_watch works
+        Revise.dont_watch(:GSL)
+        @test :GSL in Revise.dont_watch_pkgs
+        Revise.allow_watch(:GSL)
+        @test !(:GSL in Revise.dont_watch_pkgs)
         # Ensure that silencing works
-        Revise.silence("GSL")
+        Revise.silence(:GSL)
         @test "GSL" in Revise.silence_pkgs
-        Revise.unsilence("GSL")
+        Revise.unsilence(:GSL)
         @test !("GSL" in Revise.silence_pkgs)
         pop!(LOAD_PATH)
     end

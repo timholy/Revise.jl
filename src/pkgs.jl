@@ -323,7 +323,7 @@ function watch_package(id::PkgId)
     try
         modsym = Symbol(id.name)
         if modsym ∈ dont_watch_pkgs
-            if modsym ∉ silence_pkgs
+            if id.name ∉ silence_pkgs
                 @warn "$modsym is excluded from watching by Revise. Use Revise.silence(\"$modsym\") to quiet this warning."
             end
             remove_from_included_files(modsym)
