@@ -34,6 +34,7 @@ module Revise
 # the VS Code extension integration.
 
 using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
+using Preferences: Preferences
 
 using CodeTracking: PkgFiles, basedir, srcfiles, basepath, MethodInfoKey
 using JuliaInterpreter: Compiled, Frame, Interpreter, LineTypes, RecursiveInterpreter

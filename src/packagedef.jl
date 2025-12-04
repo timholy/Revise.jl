@@ -261,9 +261,7 @@ from tracking changes to `MyPackage`. You can do this from the REPL or from your
 See also [`Revise.silence`](@ref).
 """
 const dont_watch_pkgs = Set{Symbol}()
-const silence_pkgs = Set{Symbol}()
-global depsdir::String
-const silencefile = Ref{String}()  # Ref so that tests don't clobber
+const silence_pkgs = Set{String}()
 
 ##
 ## The inputs are sets of expressions found in each file.
@@ -1072,20 +1070,31 @@ includet(file::AbstractString) = includet(Main, file)
     Revise.silence(pkg)
 
 Silence warnings about not tracking changes to package `pkg`.
+
+The list of silenced packages is stored persistently using Preferences.jl.
+See also [`Revise.unsilence`](@ref).
 """
-function silence(pkg::Symbol)
+silence(pkg::Symbol) = silence(String(pkg))
+function silence(pkg::AbstractString)
     push!(silence_pkgs, pkg)
-    if !isdir(depsdir)
-        mkpath(depsdir)
-    end
-    open(silencefile[], "w") do io
-        for p in silence_pkgs
-            println(io, p)
-        end
-    end
+    Preferences.@set_preferences!("silenced_packages" => collect(silence_pkgs))
     nothing
 end
-silence(pkg::AbstractString) = silence(Symbol(pkg))
+
+"""
+    Revise.unsilence(pkg)
+
+Remove `pkg` from the list of silenced packages, re-enabling warnings about
+not tracking changes to that package.
+
+See also [`Revise.silence`](@ref).
+"""
+unsilence(pkg::Symbol) = unsilence(String(pkg))
+function unsilence(pkg::AbstractString)
+    delete!(silence_pkgs, pkg)
+    Preferences.@set_preferences!("silenced_packages" => collect(silence_pkgs))
+    nothing
+end
 
 ## Utilities
 
@@ -1357,8 +1366,6 @@ function __init__()
 
     global juliadir = find_juliadir()
     global basesrccache = normpath(joinpath(expected_juliadir(), "base.cache"))
-    global depsdir = joinpath(isnothing(pkgdir(@__MODULE__)) ? dirname(@__DIR__) : pkgdir(@__MODULE__), "deps")
-    silencefile[] = joinpath(depsdir, "silence.txt")
 
     # Check Julia paths (issue #601)
     if !isdir(juliadir)
@@ -1368,11 +1375,9 @@ function __init__()
                  To fix this, try deleting Revise's cache files in ~/.julia/compiled/v$major.$minor/Revise, then restart Julia and load Revise.
                  If this doesn't fix the problem, please report an issue at https://github.com/timholy/Revise.jl/issues."""
     end
-    if isfile(silencefile[])
-        pkgs = readlines(silencefile[])
-        for pkg in pkgs
-            push!(silence_pkgs, Symbol(pkg))
-        end
+    silenced = Preferences.@load_preference("silenced_packages", String[])
+    for pkg in silenced
+        push!(silence_pkgs, pkg)
     end
     polling = get(ENV, "JULIA_REVISE_POLL", "0")
     if polling == "1"
