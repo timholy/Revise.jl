@@ -1,8 +1,6 @@
 *.jl.cov
 *.jl.*.cov
 *.jl.mem
-deps/silence.txt
-deps/build.log
 docs/build
 docs/site
 *.aux

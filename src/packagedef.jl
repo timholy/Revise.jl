@@ -254,16 +254,18 @@ const src_file_key   = Dict{String,String}() # uncorrected=>corrected filenames
 """
     Revise.dont_watch_pkgs
 
-Global variable, use `push!(Revise.dont_watch_pkgs, :MyPackage)` to prevent Revise
-from tracking changes to `MyPackage`. You can do this from the REPL or from your
-`.julia/config/startup.jl` file.
+Global variable containing the set of packages that Revise will not track.
+
+!!! warning "Deprecated as of Revise 3.13"
+    Direct modification of `dont_watch_pkgs` (e.g., `push!(Revise.dont_watch_pkgs, :PkgName)`)
+    is deprecated and may be removed in a future release.
+    Use [`Revise.dont_watch`](@ref) and [`Revise.allow_watch`](@ref) instead,
+    which also persist your settings across Julia sessions via Preferences.jl.
 
 See also [`Revise.silence`](@ref).
 """
 const dont_watch_pkgs = Set{Symbol}()
-const silence_pkgs = Set{Symbol}()
-global depsdir::String
-const silencefile = Ref{String}()  # Ref so that tests don't clobber
+const silence_pkgs = Set{String}()
 
 ##
 ## The inputs are sets of expressions found in each file.
@@ -1072,20 +1074,61 @@ includet(file::AbstractString) = includet(Main, file)
     Revise.silence(pkg)
 
 Silence warnings about not tracking changes to package `pkg`.
+
+The list of silenced packages is stored persistently using Preferences.jl.
+See also [`Revise.unsilence`](@ref).
 """
-function silence(pkg::Symbol)
+silence(pkg::Symbol) = silence(String(pkg))
+function silence(pkg::AbstractString)
     push!(silence_pkgs, pkg)
-    if !isdir(depsdir)
-        mkpath(depsdir)
-    end
-    open(silencefile[], "w") do io
-        for p in silence_pkgs
-            println(io, p)
-        end
-    end
+    Preferences.@set_preferences!("silenced_packages" => collect(silence_pkgs))
     nothing
 end
-silence(pkg::AbstractString) = silence(Symbol(pkg))
+
+"""
+    Revise.unsilence(pkg)
+
+Remove `pkg` from the list of silenced packages, re-enabling warnings about
+not tracking changes to that package.
+
+See also [`Revise.silence`](@ref).
+"""
+unsilence(pkg::Symbol) = unsilence(String(pkg))
+function unsilence(pkg::AbstractString)
+    delete!(silence_pkgs, pkg)
+    Preferences.@set_preferences!("silenced_packages" => collect(silence_pkgs))
+    nothing
+end
+
+"""
+    Revise.dont_watch(pkg)
+
+Prevent Revise from tracking changes to package `pkg`.
+
+The list of excluded packages is stored persistently using Preferences.jl.
+See also [`Revise.allow_watch`](@ref) and [`Revise.silence`](@ref).
+"""
+function dont_watch(pkg::Symbol)
+    push!(dont_watch_pkgs, pkg)
+    Preferences.@set_preferences!("dont_watch_packages" => String[string(p) for p in dont_watch_pkgs])
+    nothing
+end
+dont_watch(pkg::AbstractString) = dont_watch(Symbol(pkg))
+
+"""
+    Revise.allow_watch(pkg)
+
+Remove `pkg` from the list of excluded packages, allowing Revise to track
+changes to that package again.
+
+See also [`Revise.dont_watch`](@ref).
+"""
+function allow_watch(pkg::Symbol)
+    delete!(dont_watch_pkgs, pkg)
+    Preferences.@set_preferences!("dont_watch_packages" => String[string(p) for p in dont_watch_pkgs])
+    nothing
+end
+allow_watch(pkg::AbstractString) = allow_watch(Symbol(pkg))
 
 ## Utilities
 
@@ -1357,8 +1400,6 @@ function __init__()
 
     global juliadir = find_juliadir()
     global basesrccache = normpath(joinpath(expected_juliadir(), "base.cache"))
-    global depsdir = joinpath(isnothing(pkgdir(@__MODULE__)) ? dirname(@__DIR__) : pkgdir(@__MODULE__), "deps")
-    silencefile[] = joinpath(depsdir, "silence.txt")
 
     # Check Julia paths (issue #601)
     if !isdir(juliadir)
@@ -1368,11 +1409,13 @@ function __init__()
                  To fix this, try deleting Revise's cache files in ~/.julia/compiled/v$major.$minor/Revise, then restart Julia and load Revise.
                  If this doesn't fix the problem, please report an issue at https://github.com/timholy/Revise.jl/issues."""
     end
-    if isfile(silencefile[])
-        pkgs = readlines(silencefile[])
-        for pkg in pkgs
-            push!(silence_pkgs, Symbol(pkg))
-        end
+    excluded = Preferences.@load_preference("dont_watch_packages", String[])
+    for pkg in excluded
+        push!(dont_watch_pkgs, Symbol(pkg))
+    end
+    silenced = Preferences.@load_preference("silenced_packages", String[])
+    for pkg in silenced
+        push!(silence_pkgs, pkg)
     end
     polling = get(ENV, "JULIA_REVISE_POLL", "0")
     if polling == "1"
