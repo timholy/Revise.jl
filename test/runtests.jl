@@ -2445,272 +2445,253 @@ const issue639report = []
         pop!(LOAD_PATH)
     end
 
-    if Revise.__bpart__ && do_test("struct/const revision")   # can we revise types and constants?
-        @testset "struct/const revision" begin
+    if Revise.__bpart__ && do_test("struct/const revision (simple)")   # can we revise types and constants?
+        @testset "struct/const revision (simple)" begin
             testdir = newtestdir()
-            dn = joinpath(testdir, "StructConst", "src")
-            mkpath(dn)
-            write(joinpath(dn, "StructConst.jl"), """
-                module StructConst
-                const __hash__ = 0x71716e828e2d6093
-                struct Fixed
-                    x::Int
-                end
-                Base.hash(f::Fixed, h::UInt) = hash(__hash__, hash(f.x, h))
-                struct Point
-                    x::Float64
-                end
-                # Three methods that won't need to be explicitly redefined (but will need re-evaluation for new type)
-                firstval(p::Point) = p.x
-                firstvalP(p::P) where P<:Point = p.x
-                returnsconst(::Point) = 1
-                # Method that will need to be explicitly redefined
-                mynorm(p::Point) = sqrt(p.x^2)
-                # Method that uses `Point` without it being in the signature
-                hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
-                # Change of field that has no parameters (https://github.com/timholy/Revise.jl/pull/894#issuecomment-3271461024)
-                struct ChangePrimitiveType
-                    x::Int
-                end
-                useprimitivetype(::ChangePrimitiveType) = 1
-                # Additional constructors (https://github.com/timholy/Revise.jl/pull/894#issuecomment-3274102493)
-                abstract type AbstractMoreConstructors end
-                struct MoreConstructors
-                    x::Int
-                end
-                MoreConstructors() = MoreConstructors(1)
-                end
-                """)
-            # Also create another package that uses it
-            dn2 = joinpath(testdir, "StructConstUser", "src")
-            mkpath(dn2)
-            write(joinpath(dn2, "StructConstUser.jl"), """
-                module StructConstUser
-                using StructConst: StructConst, Point
-                struct PointWrapper
-                    p::Point
-                end
-                scuf(f::StructConst.Fixed) = 33 * f.x
-                scup(p::Point) = 44 * p.x
-                scup(pw::PointWrapper) = 55 * pw.p.x
-                end
-                """)
-            # ...and one that uses that. This is to check whether the propagation of
-            # signature extraction works correctly.
-            dn3 = joinpath(testdir, "StructConstUserUser", "src")
-            mkpath(dn3)
-            write(joinpath(dn3, "StructConstUserUser.jl"), """
-                module StructConstUserUser
-                using StructConstUser
-                struct PointWrapperWrapper
-                    pw::StructConstUser.PointWrapper
-                end
-                StructConstUser.scup(pw::PointWrapperWrapper) = 2 * StructConstUser.scup(pw.pw)
-                end
-                """)
-            sleep(mtimedelay)
-            @eval using StructConst
-            @eval using StructConstUser
-            @eval using StructConstUserUser
-            sleep(mtimedelay)
-            w1 = Base.get_world_counter()
-            f = StructConst.Fixed(5)
-            v1 = hash(f)
-            p = StructConst.Point(5.0)
-            hp = StructConst.hiddenconstructor(5)
-            @test isa(hp, StructConst.Point) && hp.x === 5.0
-            pw = StructConstUser.PointWrapper(p)
-            pww = StructConstUserUser.PointWrapperWrapper(pw)
-            @test StructConst.firstval(p) == StructConst.firstvalP(p) === 5.0
-            @test StructConst.returnsconst(p) === 1
-            @test StructConst.mynorm(p) == 5.0
-            @test StructConstUser.scuf(f) == 33 * 5.0
-            @test StructConstUser.scup(p) == 44 * 5.0
-            @test StructConstUser.scup(pw) == 55 * 5.0
-            @test StructConstUser.scup(pww) == 2 * 55 * 5.0
-            spt = StructConst.ChangePrimitiveType(3)
-            @test StructConst.useprimitivetype(spt) === 1
-            mc = StructConst.MoreConstructors()
-            @test mc.x == 1 && supertype(typeof(mc)) === Any
-            write(joinpath(dn, "StructConst.jl"), """
-                module StructConst
-                const __hash__ = 0xddaab158621d200c
-                struct Fixed
-                    x::Int
-                end
-                Base.hash(f::Fixed, h::UInt) = hash(__hash__, hash(f.x, h))
-                struct Point
-                    x::Float64
-                    y::Float64
-                end
-                firstval(p::Point) = p.x
-                firstvalP(p::P) where P<:Point = p.x
-                returnsconst(::Point) = 1
-                mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
-                hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
-                struct ChangePrimitiveType
-                    x::Float64
-                end
-                useprimitivetype(::ChangePrimitiveType) = 1
-                abstract type AbstractMoreConstructors end
-                struct MoreConstructors <: AbstractMoreConstructors
-                    x::Int
-                end
-                MoreConstructors() = MoreConstructors(1)
-                end
-                """)
-            @yry()
-            @test StructConst.__hash__ == 0xddaab158621d200c
-            v2 = hash(f)
-            @test v1 != v2
-            # Call with old objects---ensure we deleted all the outdated methods to reduce user confusion
-            @test_throws MethodError @invokelatest(StructConst.firstval(p))
-            @test_throws MethodError @invokelatest(StructConst.firstvalP(p))
-            @test_throws MethodError @invokelatest(StructConst.returnsconst(p))
-            @test_throws MethodError @invokelatest(StructConst.mynorm(p))
-            @test @invokelatest(StructConstUser.scuf(f)) == 33 * 5.0
-            @test_throws MethodError @invokelatest(StructConstUser.scup(p))
-            @test_throws MethodError @invokelatest(StructConstUser.scup(pw))
-            @test_throws MethodError @invokelatest(StructConstUser.scup(pww))
-            @test_throws MethodError StructConst.useprimitivetype(spt)
-            # Call with new objects
-            p2 = @invokelatest(StructConst.Point(3.0, 4.0))
-            hp = @invokelatest(StructConst.hiddenconstructor(5))
-            @test isa(hp, StructConst.Point) && hp.x === 5.0 && hp.y === 5.0
-            pw2 = @invokelatest(StructConstUser.PointWrapper(p2))
-            pww2 = @invokelatest(StructConstUserUser.PointWrapperWrapper(pw2))
-            @test @invokelatest(StructConst.firstval(p2)) == @invokelatest(StructConst.firstvalP(p2)) === 3.0
-            @test StructConst.returnsconst(p2) === 1
-            @test @invokelatest(StructConst.mynorm(p2)) == 5.0
-            @test @invokelatest(StructConstUser.scup(p2)) == 44 * 3.0
-            @test @invokelatest(StructConstUser.scup(pw2)) == 55 * 3.0
-            @test @invokelatest(StructConstUser.scup(pww2)) == 2 * 55 * 3.0
-            spt2 = StructConst.ChangePrimitiveType(3.0)
-            @test StructConst.useprimitivetype(spt2) === 1
-            mc = StructConst.MoreConstructors()
-            @test mc.x == 1 && supertype(typeof(mc)) === StructConst.AbstractMoreConstructors
-            write(joinpath(dn, "StructConst.jl"), """
-                module StructConst
-                const __hash__ = 0x71716e828e2d6093
-                struct Fixed
-                    x::Int
-                end
-                Base.hash(f::Fixed, h::UInt) = hash(__hash__, hash(f.x, h))
-                struct Point{T<:Real} <: AbstractVector{T}
-                    x::T
-                    y::T
-                end
-                firstval(p::Point) = p.x
-                firstvalP(p::P) where P<:Point = p.x
-                returnsconst(::Point) = 1
-                mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
-                hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
-                end
-                """)
-            @yry()
-            @test StructConst.__hash__ == 0x71716e828e2d6093
-            v3 = hash(f)
-            @test v1 == v3
-            p3 = @invokelatest(StructConst.Point(3.0, 4.0))
-            hp = @invokelatest(StructConst.hiddenconstructor(5))
-            @test isa(hp, StructConst.Point) && hp.x === 5 && hp.y === 5
-            pw3 = @invokelatest(StructConstUser.PointWrapper(p3))
-            pww3 = @invokelatest(StructConstUserUser.PointWrapperWrapper(pw3))
-            @test @invokelatest(StructConst.firstval(p3)) == @invokelatest(StructConst.firstvalP(p3)) === 3.0
-            @test @invokelatest(StructConst.mynorm(p3)) == 5.0
-            @test @invokelatest(StructConstUser.scup(p3)) == 44 * 3.0
-            @test @invokelatest(StructConstUser.scup(pw3)) == 55 * 3.0
-            @test @invokelatest(StructConstUser.scup(pww3)) == 2 * 55 * 3.0
-
-            rm_precompile("StructConst")
-            rm_precompile("StructConstUser")
-            rm_precompile("StructConstUserUser")
-
-            # Example from https://github.com/timholy/Revise.jl/pull/894#issuecomment-2824111764
-            dn = joinpath(testdir, "StructExample", "src")
-            mkpath(dn)
-            write(joinpath(dn, "StructExample.jl"),
-            """
-            module StructExample
-            export hello, Hello
-            struct Hello
-                who::String
+            try
+                # Example from https://github.com/timholy/Revise.jl/pull/894#issuecomment-2824111764
+                dn = joinpath(testdir, "StructExample", "src")
+                mkpath(dn)
+                pkg_code_v1 = """
+                    module StructExample
+                        export hello, Hello
+                        struct Hello; who::String; end
+                        hello(x::Hello) = hello(x.who)
+                        hello(who::String) = "Hello, \$who"
+                    end
+                    """
+                write(joinpath(dn, "StructExample.jl"), pkg_code_v1)
+                sleep(mtimedelay)
+                @eval using StructExample
+                sleep(mtimedelay)
+                @test StructExample.hello(StructExample.Hello("World")) == "Hello, World"
+                # Revision 2: rename field and update method
+                pkg_code_v2 = replace(pkg_code_v1,
+                    "struct Hello; who::String; end" =>
+                    "struct Hello; who2::String; end")
+                pkg_code_v2 = replace(pkg_code_v2, "hello(x.who)" => "hello(x.who2 * \" (changed)\")")
+                write(joinpath(dn, "StructExample.jl"), pkg_code_v2)
+                @yry()
+                @test StructExample.hello(StructExample.Hello("World")) == "Hello, World (changed)"
+            finally
+                rm_precompile("StructExample")
+                pop!(LOAD_PATH)
             end
-            hello(x::Hello) = hello(x.who)
-            hello(who::String) = "Hello, \$who"
+        end
+    end
+
+    if Revise.__bpart__ && do_test("struct/const revision (parametric)")   # can we revise types and constants?
+        @testset "struct/const revision (parametric)" begin
+            testdir = newtestdir()
+            try
+                # Full-circle parametric removal and restoration
+                # Start with a parametric struct and a method depending on its type parameter.
+                # Switch the struct to non-parametric (with its own method), then switch back
+                # to the original parametric definition and ensure calls work again.
+                dn4 = joinpath(testdir, "StructParamFullCircle", "src")
+                mkpath(dn4)
+                fn4 = joinpath(dn4, "StructParamFullCircle.jl")
+                pkg_code_v1 = """
+                    module StructParamFullCircle
+                        export Foo, bar
+                        struct Foo{T}; x::T; end
+                        bar(::Foo{T}) where {T} = "parametric with \$T"
+                    end
+                """
+                write(fn4, pkg_code_v1)
+                sleep(mtimedelay)
+                @eval using StructParamFullCircle
+                sleep(mtimedelay)
+                foo1 = StructParamFullCircle.Foo(1)
+                @test StructParamFullCircle.bar(foo1) == "parametric with $Int"
+
+                # Revision 2: change Foo to be non-parametric
+                pkg_code_v2 = replace(pkg_code_v1,
+                    "struct Foo{T}; x::T; end" =>
+                    "struct Foo; x::Int; end")
+                write(fn4, pkg_code_v2)
+                @yry()
+                foo2 = @invokelatest(StructParamFullCircle.Foo(1))
+                @test_throws MethodError @invokelatest(StructParamFullCircle.bar(foo2))
+
+                # Revision 3: change Foo back to its original parametric definition
+                pkg_code_v3 = replace(pkg_code_v2,
+                    "struct Foo; x::Int; end" =>
+                    "struct Foo{T}; x::T; end")
+                write(fn4, pkg_code_v3)
+                @yry()
+                foo3 = @invokelatest(StructParamFullCircle.Foo(1))
+                @test @invokelatest(StructParamFullCircle.bar(foo3)) == "parametric with $Int"
+            finally
+                rm_precompile("StructParamFullCircle")
+                pop!(LOAD_PATH)
             end
-            """)
-            sleep(mtimedelay)
-            @eval using StructExample
-            sleep(mtimedelay)
-            @test StructExample.hello(StructExample.Hello("World")) == "Hello, World"
-            write(joinpath(dn, "StructExample.jl"),
-            """
-            module StructExample
-            export hello, Hello
-            struct Hello
-                who2::String
+        end
+    end
+
+    if Revise.__bpart__ && do_test("struct/const revision (dependency)")   # can we revise types and constants?
+        @testset "struct/const revision (dependency)" begin
+            testdir = newtestdir()
+            try
+                dn = joinpath(testdir, "StructConst", "src")
+                mkpath(dn)
+                pkg_code_v1 = """
+                    module StructConst
+                    const __hash__ = 0x71716e828e2d6093
+                    struct Fixed; x::Int; end
+                    Base.hash(f::Fixed, h::UInt) = hash(__hash__, hash(f.x, h))
+                    struct Point; x::Float64; end
+                    # Three methods that won't need to be explicitly redefined (but will need re-evaluation for new type)
+                    firstval(p::Point) = p.x
+                    firstvalP(p::P) where P<:Point = p.x
+                    returnsconst(::Point) = 1
+                    # Method that will need to be explicitly redefined
+                    mynorm(p::Point) = sqrt(p.x^2)
+                    # Method that uses `Point` without it being in the signature
+                    hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
+                    # Change of field that has no parameters (https://github.com/timholy/Revise.jl/pull/894#issuecomment-3271461024)
+                    struct ChangePrimitiveType; x::Int; end
+                    useprimitivetype(::ChangePrimitiveType) = 1
+                    # Additional constructors (https://github.com/timholy/Revise.jl/pull/894#issuecomment-3274102493)
+                    abstract type AbstractMoreConstructors end
+                    struct MoreConstructors; x::Int; end
+                    MoreConstructors() = MoreConstructors(1)
+                    end
+                    """
+                write(joinpath(dn, "StructConst.jl"), pkg_code_v1)
+                # Also create another package that uses it
+                dn2 = joinpath(testdir, "StructConstUser", "src")
+                mkpath(dn2)
+                write(joinpath(dn2, "StructConstUser.jl"), """
+                    module StructConstUser
+                    using StructConst: StructConst, Point
+                    struct PointWrapper; p::Point; end
+                    scuf(f::StructConst.Fixed) = 33 * f.x
+                    scup(p::Point) = 44 * p.x
+                    scup(pw::PointWrapper) = 55 * pw.p.x
+                    end
+                    """)
+                # ...and one that uses that. This is to check whether the propagation of
+                # signature extraction works correctly.
+                dn3 = joinpath(testdir, "StructConstUserUser", "src")
+                mkpath(dn3)
+                write(joinpath(dn3, "StructConstUserUser.jl"), """
+                    module StructConstUserUser
+                    using StructConstUser
+                    struct PointWrapperWrapper; pw::StructConstUser.PointWrapper; end
+                    StructConstUser.scup(pw::PointWrapperWrapper) = 2 * StructConstUser.scup(pw.pw)
+                    end
+                    """)
+                sleep(mtimedelay)
+                @eval using StructConst
+                @eval using StructConstUser
+                @eval using StructConstUserUser
+                sleep(mtimedelay)
+                w1 = Base.get_world_counter()
+                f = StructConst.Fixed(5)
+                v1 = hash(f)
+                p = StructConst.Point(5.0)
+                hp = StructConst.hiddenconstructor(5)
+                @test isa(hp, StructConst.Point) && hp.x === 5.0
+                pw = StructConstUser.PointWrapper(p)
+                pww = StructConstUserUser.PointWrapperWrapper(pw)
+                @test StructConst.firstval(p) == StructConst.firstvalP(p) === 5.0
+                @test StructConst.returnsconst(p) === 1
+                @test StructConst.mynorm(p) == 5.0
+                @test StructConstUser.scuf(f) == 33 * 5.0
+                @test StructConstUser.scup(p) == 44 * 5.0
+                @test StructConstUser.scup(pw) == 55 * 5.0
+                @test StructConstUser.scup(pww) == 2 * 55 * 5.0
+                spt = StructConst.ChangePrimitiveType(3)
+                @test StructConst.useprimitivetype(spt) === 1
+                mc = StructConst.MoreConstructors()
+                @test mc.x == 1 && supertype(typeof(mc)) === Any
+
+                # Revision 2: change const, add field to Point, change field type, add supertype
+                pkg_code_v2 = replace(pkg_code_v1,
+                    "const __hash__ = 0x71716e828e2d6093" =>
+                    "const __hash__ = 0xddaab158621d200c")
+                pkg_code_v2 = replace(pkg_code_v2,
+                    "struct Point; x::Float64; end" =>
+                    "struct Point; x::Float64; y::Float64; end")
+                pkg_code_v2 = replace(pkg_code_v2,
+                    "mynorm(p::Point) = sqrt(p.x^2)" =>
+                    "mynorm(p::Point) = sqrt(p.x^2 + p.y^2)")
+                pkg_code_v2 = replace(pkg_code_v2,
+                    "struct ChangePrimitiveType; x::Int; end" =>
+                    "struct ChangePrimitiveType; x::Float64; end")
+                pkg_code_v2 = replace(pkg_code_v2,
+                    "struct MoreConstructors; x::Int; end" =>
+                    "struct MoreConstructors <: AbstractMoreConstructors; x::Int; end")
+                write(joinpath(dn, "StructConst.jl"), pkg_code_v2)
+                @yry()
+                @test StructConst.__hash__ == 0xddaab158621d200c
+                v2 = hash(f)
+                @test v1 != v2
+                # Call with old objects---ensure we deleted all the outdated methods to reduce user confusion
+                @test_throws MethodError @invokelatest(StructConst.firstval(p))
+                @test_throws MethodError @invokelatest(StructConst.firstvalP(p))
+                @test_throws MethodError @invokelatest(StructConst.returnsconst(p))
+                @test_throws MethodError @invokelatest(StructConst.mynorm(p))
+                @test @invokelatest(StructConstUser.scuf(f)) == 33 * 5.0
+                @test_throws MethodError @invokelatest(StructConstUser.scup(p))
+                @test_throws MethodError @invokelatest(StructConstUser.scup(pw))
+                @test_throws MethodError @invokelatest(StructConstUser.scup(pww))
+                @test_throws MethodError StructConst.useprimitivetype(spt)
+                # Call with new objects
+                p2 = @invokelatest(StructConst.Point(3.0, 4.0))
+                hp = @invokelatest(StructConst.hiddenconstructor(5))
+                @test isa(hp, StructConst.Point) && hp.x === 5.0 && hp.y === 5.0
+                pw2 = @invokelatest(StructConstUser.PointWrapper(p2))
+                pww2 = @invokelatest(StructConstUserUser.PointWrapperWrapper(pw2))
+                @test @invokelatest(StructConst.firstval(p2)) == @invokelatest(StructConst.firstvalP(p2)) === 3.0
+                @test StructConst.returnsconst(p2) === 1
+                @test @invokelatest(StructConst.mynorm(p2)) == 5.0
+                @test @invokelatest(StructConstUser.scup(p2)) == 44 * 3.0
+                @test @invokelatest(StructConstUser.scup(pw2)) == 55 * 3.0
+                @test @invokelatest(StructConstUser.scup(pww2)) == 2 * 55 * 3.0
+                spt2 = StructConst.ChangePrimitiveType(3.0)
+                @test StructConst.useprimitivetype(spt2) === 1
+                mc = StructConst.MoreConstructors()
+                @test mc.x == 1 && supertype(typeof(mc)) === StructConst.AbstractMoreConstructors
+
+                # Revision 3: revert const, make Point parametric with supertype, remove ChangePrimitiveType and MoreConstructors
+                pkg_code_v3 = replace(pkg_code_v2,
+                    "const __hash__ = 0xddaab158621d200c" =>
+                    "const __hash__ = 0x71716e828e2d6093")
+                pkg_code_v3 = replace(pkg_code_v3,
+                    "struct Point; x::Float64; y::Float64; end" =>
+                    "struct Point{T<:Real} <: AbstractVector{T}; x::T; y::T; end")
+                pkg_code_v3 = replace(pkg_code_v3,
+                    "# Change of field that has no parameters (https://github.com/timholy/Revise.jl/pull/894#issuecomment-3271461024)\n" => "",
+                    "struct ChangePrimitiveType; x::Float64; end\n" => "",
+                    "useprimitivetype(::ChangePrimitiveType) = 1\n" => "",
+                    "# Additional constructors (https://github.com/timholy/Revise.jl/pull/894#issuecomment-3274102493)\n" => "",
+                    "abstract type AbstractMoreConstructors end\n" => "",
+                    "struct MoreConstructors <: AbstractMoreConstructors; x::Int; end\n" => "",
+                    "MoreConstructors() = MoreConstructors(1)\n" => "")
+                write(joinpath(dn, "StructConst.jl"), pkg_code_v3)
+                @yry()
+                @test StructConst.__hash__ == 0x71716e828e2d6093
+                v3 = hash(f)
+                @test v1 == v3
+                p3 = @invokelatest(StructConst.Point(3.0, 4.0))
+                hp = @invokelatest(StructConst.hiddenconstructor(5))
+                @test isa(hp, StructConst.Point) && hp.x === 5 && hp.y === 5
+                pw3 = @invokelatest(StructConstUser.PointWrapper(p3))
+                pww3 = @invokelatest(StructConstUserUser.PointWrapperWrapper(pw3))
+                @test @invokelatest(StructConst.firstval(p3)) == @invokelatest(StructConst.firstvalP(p3)) === 3.0
+                @test @invokelatest(StructConst.mynorm(p3)) == 5.0
+                @test @invokelatest(StructConstUser.scup(p3)) == 44 * 3.0
+                @test @invokelatest(StructConstUser.scup(pw3)) == 55 * 3.0
+                @test @invokelatest(StructConstUser.scup(pww3)) == 2 * 55 * 3.0
+
+            finally
+                rm_precompile("StructConst")
+                rm_precompile("StructConstUser")
+                rm_precompile("StructConstUserUser")
+                pop!(LOAD_PATH)
             end
-            hello(x::Hello) = hello(x.who2 * " (changed)")
-            hello(who::String) = "Hello, \$who"
-            end
-            """)
-            @yry()
-            @test StructExample.hello(StructExample.Hello("World")) == "Hello, World (changed)"
-
-            # Full-circle parametric removal and restoration
-            # Start with a parametric struct and a method depending on its type parameter.
-            # Switch the struct to non-parametric (with its own method), then switch back
-            # to the original parametric definition and ensure calls work again.
-            dn4 = joinpath(testdir, "StructParamFullCircle", "src")
-            mkpath(dn4)
-            fn4 = joinpath(dn4, "StructParamFullCircle.jl")
-            write(fn4, raw"""
-                module StructParamFullCircle
-                export Foo, bar
-                struct Foo{T}
-                    x::T
-                end
-                bar(::Foo{T}) where {T} = "parametric with $T"
-                end
-                """)
-            sleep(mtimedelay)
-            @eval using StructParamFullCircle
-            sleep(mtimedelay)
-            foo1 = StructParamFullCircle.Foo(1)
-            @test StructParamFullCircle.bar(foo1) == "parametric with $Int"
-
-            # Change Foo to be non-parametric
-            write(fn4, raw"""
-                module StructParamFullCircle
-                export Foo, bar
-                struct Foo
-                    x::Int
-                end
-                bar(::Foo{T}) where {T} = "parametric with $T"
-                end
-                """)
-            @yry()
-            foo2 = @invokelatest(StructParamFullCircle.Foo(1))
-            @test_throws MethodError @invokelatest(StructParamFullCircle.bar(foo2))
-
-            # Now change Foo back to its original parametric definition
-            write(fn4, raw"""
-                module StructParamFullCircle
-                export Foo, bar
-                struct Foo{T}
-                    x::T
-                end
-                bar(::Foo{T}) where {T} = "parametric with $T"
-                end
-                """)
-            @yry()
-            foo3 = @invokelatest(StructParamFullCircle.Foo(1))
-            @test @invokelatest(StructParamFullCircle.bar(foo3)) == "parametric with $Int"
-
-            rm_precompile("StructParamFullCircle")
-
-            pop!(LOAD_PATH)
         end
     end
 
