@@ -137,9 +137,9 @@ function maybe_extract_sigs_for_meths(meths)
             pkgdata === nothing && continue
             for file in srcfiles(pkgdata)
                 fi = fileinfo(pkgdata, file)
-                if (isempty(fi.modexsigs) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
+                if (isempty(fi.mod_exs_sigs) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
                     fi = maybe_parse_from_cache!(pkgdata, file)
-                    instantiate_sigs!(fi.modexsigs)
+                    instantiate_sigs!(fi.mod_exs_sigs)
                 end
             end
         end
