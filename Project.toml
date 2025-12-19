@@ -14,14 +14,15 @@ LibGit2 = "76f85450-5226-5b5a-8eaa-529ad045b433"
 LoweredCodeUtils = "6f1432cf-f94c-5a45-995e-cdbf5db27b0b"
 OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 Preferences = "21216c6a-2e73-6563-6e65-726566657250"
-REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 
 [weakdeps]
 Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
+REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 
 [extensions]
 ReviseDistributedExt = "Distributed"
+ReviseREPLExt = "REPL"
 
 [compat]
 CodeTracking = "3"
@@ -31,6 +32,7 @@ JuliaInterpreter = "0.10.8"
 LoweredCodeUtils = "3.5"
 OrderedCollections = "1"
 Preferences = "1.5.0"
+REPL = "1"
 # Exclude Requires-1.1.0 - see https://github.com/JuliaPackaging/Requires.jl/issues/94
 Requires = "~1.0, ^1.1.1"
 julia = "1.10"
@@ -50,10 +52,11 @@ MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 MappedArrays = "dbb5928d-eab1-5f90-85c2-b9b0edb7c900"
 Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
 Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
+REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
 Requires = "ae029012-a4dd-5104-9daa-d747884805df"
 RoundingIntegers = "d5f540fe-1c90-5db3-b776-2e2f362d9394"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
 UnsafeArrays = "c4a57d5a-5b31-53a6-b365-19f8c011fbd6"
 
 [targets]
-test = ["CatIndices", "Distributed", "EndpointRanges", "EponymTuples", "Example", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Pkg", "Random", "Requires", "RoundingIntegers", "Test", "UnsafeArrays"]
+test = ["CatIndices", "Distributed", "EndpointRanges", "EponymTuples", "Example", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Pkg", "Random", "REPL", "Requires", "RoundingIntegers", "Test", "UnsafeArrays"]

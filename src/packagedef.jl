@@ -1,6 +1,6 @@
 Base.Experimental.@optlevel 1
 
-using FileWatching, REPL, UUIDs
+using FileWatching, UUIDs
 using LibGit2: LibGit2
 using Base: PkgId, IdSet
 using Base.Meta: isexpr
@@ -46,6 +46,13 @@ function remotecall_impl end
 function is_master_worker end
 
 ## END abstract Distributed API
+
+# These functions will be set/defined by the REPL extension if it's loaded
+maybe_set_prompt_color::Function = Returns(nothing)
+add_definitions_from_repl::Function = Returns(nothing)
+# Unlike the above variables we declare this function in Revise for convenience
+# because it's used in the tests.
+function revise_first end
 
 """
     Revise.active[]
@@ -1044,7 +1051,6 @@ function revise(; throw::Bool=false)
 
     nothing
 end
-revise(::REPL.REPLBackend) = revise()
 
 """
     revise(mod::Module; force::Bool=true)
@@ -1321,7 +1327,11 @@ function get_def(method::Method; modified_files=revision_queue)
     filename = fixpath(String(method.file))
     if startswith(filename, "REPL[")
         isdefined(Base, :active_repl) || return false
-        fi = add_definitions_from_repl(filename)
+        fi = add_definitions_from_repl(filename)::Union{Nothing, FileInfo}
+        if isnothing(fi)
+            return false
+        end
+
         hassig = false
         for (_, exs_infos) in fi.mod_exs_infos
             for exinfos in values(exs_infos)
@@ -1395,21 +1405,6 @@ function get_expressions(id::PkgId, filename)
     return fi.mod_exs_infos
 end
 
-function add_definitions_from_repl(filename::String)
-    hist_idx = parse(Int, filename[6:end-1])
-    hp = (Base.active_repl::REPL.LineEditREPL).interface.modes[1].hist::REPL.REPLHistoryProvider
-    src = hp.history[hp.start_idx+hist_idx]
-    id = PkgId(nothing, "@REPL")
-    pkgdata = pkgdatas[id]
-    mod_exs_infos = ModuleExprsInfos(Main::Module)
-    parse_source!(mod_exs_infos, src, filename, Main::Module)
-    instantiate_sigs!(mod_exs_infos)
-    fi = FileInfo(mod_exs_infos)
-    push!(pkgdata, filename=>fi)
-    return fi
-end
-add_definitions_from_repl(filename::AbstractString) = add_definitions_from_repl(convert(String, filename)::String)
-
 function update_stacktrace_lineno!(trace)
     local nrep
     for i = 1:length(trace)
@@ -1460,60 +1455,6 @@ function method_location(method::Method)
     return method.file, method.line
 end
 
-# Set the prompt color to indicate the presence of unhandled revision errors
-const original_repl_prefix = Ref{Union{String,Function,Nothing}}(nothing)
-function maybe_set_prompt_color(color)
-    if isdefined(Base, :active_repl)
-        repl = Base.active_repl
-        if isa(repl, REPL.LineEditREPL)
-            if color === :warn
-                # First save the original setting
-                if original_repl_prefix[] === nothing
-                    original_repl_prefix[] = repl.mistate.current_mode.prompt_prefix
-                end
-                repl.mistate.current_mode.prompt_prefix = "\e[33m"  # yellow
-            else
-                color = original_repl_prefix[]
-                color === nothing && return nothing
-                repl.mistate.current_mode.prompt_prefix = color
-                original_repl_prefix[] = nothing
-            end
-        end
-    end
-    return nothing
-end
-
-# `revise_first` gets called by the REPL prior to executing the next command (by having been pushed
-# onto the `ast_transform` list).
-# This uses invokelatest not for reasons of world age but to ensure that the call is made at runtime.
-# This allows `revise_first` to be compiled without compiling `revise` itself, and greatly
-# reduces the overhead of using Revise.
-function revise_first(ex)
-    # Special-case `exit()` (issue #562)
-    if isa(ex, Expr)
-        exu = unwrap(ex)
-        if isexpr(exu, :block, 2)
-            arg1 = exu.args[1]
-            if isexpr(arg1, :softscope)
-                exu = exu.args[2]
-            end
-        end
-        if isa(exu, Expr)
-            exu.head === :call && length(exu.args) == 1 && exu.args[1] === :exit && return ex
-            lhsrhs = LoweredCodeUtils.get_lhs_rhs(exu)
-            if lhsrhs !== nothing
-                lhs, _ = lhsrhs
-                if isexpr(lhs, :ref) && length(lhs.args) == 1
-                    arg1 = lhs.args[1]
-                    isexpr(arg1, :(.), 2) && arg1.args[1] === :Revise && is_quotenode_egal(arg1.args[2], :active) && return ex
-                end
-            end
-        end
-    end
-    # Check for queued revisions, and if so call `revise` first before executing the expression
-    return Expr(:toplevel, :($isempty($revision_queue) || $(Base.invokelatest)($revise)), ex)
-end
-
 steal_repl_backend(_...) = @warn """
     `steal_repl_backend` has been removed from Revise, please update your `~/.julia/config/startup.jl`.
     See https://timholy.github.io/Revise.jl/stable/config/
@@ -1546,7 +1487,7 @@ end
 
 init_worker(p::Int) = init_worker(DistributedWorker(p))
 
-active_repl_backend_available() = isdefined(Base, :active_repl_backend) && Base.active_repl_backend !== nothing
+should_enable_revise() = get(ENV, "JULIA_REVISE", "auto") == "auto"
 
 function __init__()
     ccall(:jl_generating_output, Cint, ()) == 1 && return nothing
@@ -1623,33 +1564,10 @@ function __init__()
     push!(Base.include_callbacks, watch_includes)
     push!(Base.package_callbacks, watch_package_callback)
 
-    mode = get(ENV, "JULIA_REVISE", "auto")
-    if mode == "auto"
-        pushfirst!(REPL.repl_ast_transforms, revise_first)
-        # #664: once a REPL is started, it no longer interacts with REPL.repl_ast_transforms
-        if active_repl_backend_available()
-            push!(Base.active_repl_backend.ast_transforms, revise_first)
-        else
-            # wait for active_repl_backend to exist
-            # #719: do this async in case Revise is being loaded from startup.jl
-            t = @async begin
-                iter = 0
-                while !active_repl_backend_available() && iter < 20
-                    sleep(0.05)
-                    iter += 1
-                end
-                if active_repl_backend_available()
-                    push!(Base.active_repl_backend.ast_transforms, revise_first)
-                end
-            end
-            isdefined(Base, :errormonitor) && Base.errormonitor(t)
-        end
-
-        if isdefined(Main, :Atom)
-            Atom = getfield(Main, :Atom)
-            if Atom isa Module && isdefined(Atom, :handlers)
-                setup_atom(Atom)
-            end
+    if should_enable_revise() && isdefined(Main, :Atom)
+        Atom = getfield(Main, :Atom)
+        if Atom isa Module && isdefined(Atom, :handlers)
+            setup_atom(Atom)
         end
     end
 
