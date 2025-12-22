@@ -4,17 +4,6 @@ function assign_this!(frame, value)
     frame.framedata.ssavalues[frame.pc] = value
 end
 
-# TODO Define abstract type MethodInfo end
-
-# This defines the API needed to store signatures using methods_by_execution!
-# This default version is simple and only used for testing purposes.
-# The "real" one is CodeTrackingMethodInfo in Revise.jl.
-const MethodInfo = IdDict{MethodInfoKey,LineNumberNode}
-add_signature!(methodinfo::MethodInfo, sig::MethodInfoKey, ln::LineNumberNode) = push!(methodinfo, sig=>ln)
-push_expr!(methodinfo::MethodInfo, ::Expr) = methodinfo
-pop_expr!(methodinfo::MethodInfo) = methodinfo
-add_includes!(methodinfo::MethodInfo, ::Module, _) = methodinfo
-
 function is_some_include(@nospecialize(f))
     @assert !isa(f, Core.SSAValue) && !isa(f, JuliaInterpreter.SSAValue)
     if isa(f, GlobalRef)
@@ -165,7 +154,7 @@ function minimal_evaluation!(frame::Frame, mode::Symbol)
 end
 
 function methods_by_execution(mod::Module, ex::Expr; kwargs...)
-    methodinfo = MethodInfo()
+    methodinfo = MethodInfo(ex)
     _, thk = methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, mod, ex; kwargs...)
     return methodinfo, thk
 end
@@ -179,7 +168,7 @@ Depending on the setting of `mode` (see the Extended help), it supports full eva
 evaluation needed to extract method signatures.
 `interp` controls JuliaInterpreter's evaluation of any non-intercepted statement;
 likely choices are `JuliaInterpreter.Compiled()` or `JuliaInterpreter.RecursiveInterpreter()`.
-`methodinfo` is a cache for storing information about any method definitions (see [`CodeTrackingMethodInfo`](@ref)).
+`methodinfo` is a cache for storing information about any method definitions (see [`MethodInfo`](@ref)).
 
 # Extended help
 
