@@ -337,7 +337,7 @@ FileInfo(Items=>ExprsSigs with the following expressions:
 This is just a summary; to see the actual `def=>mt_sigts` map, do the following:
 
 ```julia-repl
-julia> pkgdata.fileinfos[2].modexsigs[Items]
+julia> pkgdata.fileinfos[2].mod_exs_sigs[Items]
 OrderedCollections.OrderedDict{Module, OrderedCollections.OrderedDict{Revise.RelocatableExpr, Union{Nothing, Vector{CodeTracking.MethodInfoKey}}}} with 2 entries:
   :(indent(::UInt16) = begin…                       => CodeTracking.MethodInfoKey[CodeTracking.MethodInfoKey(nothing, Tuple{typeof(indent),UInt16})]
   :(indent(::UInt8) = begin…                        => CodeTracking.MethodInfoKey[CodeTracking.MethodInfoKey(nothing, Tuple{typeof(indent),UInt8})]
@@ -361,21 +361,21 @@ and other expressions that are `eval`ed in `Items`.
 
 When the file system notifies Revise that a file has been modified, Revise re-parses
 the file and assigns the expressions to the appropriate modules, creating a
-[`Revise.ModuleExprsSigs`](@ref) `mexsnew`.
-It then compares `mexsnew` against `mexsref`, the reference object that is synchronized to
-code as it was `eval`ed.
+[`Revise.ModuleExprsSigs`](@ref) `mod_exs_sigs_new`.
+It then compares `mod_exs_sigs_new` against `mod_exs_sigs_ref`, 
+the reference object that is synchronized to code as it was `eval`ed.
+
 The following actions are taken:
-
-- if a `def` entry in `mexsref` is equal to one in `mexsnew`, the expression is "unchanged"
+- if a `def` entry in `mod_exs_sigs_ref` is equal to one in `mod_exs_sigs_new`, the expression is "unchanged"
   except possibly for line number. The `locationinfo` in `CodeTracking` is updated as needed.
-- if a `def` entry in `mexsref` is not present in `mexsnew`, that entry is deleted and
+- if a `def` entry in `mod_exs_sigs_ref` is not present in `mod_exs_sigs_new`, that entry is deleted and
   any corresponding methods are also deleted.
-- if a `def` entry in `mexsnew` is not present in `mexsref`, it is `eval`ed and then added to
-  `mexsref`.
+- if a `def` entry in `mod_exs_sigs_new` is not present in `mod_exs_sigs_ref`, it is `eval`ed and then added to
+  `mod_exs_sigs_ref`.
 
-Technically, a new `mexsref` is generated every time to ensure that the expressions are
-ordered as in `mexsnew`; however, conceptually this is better thought of as an updating of
-`mexsref`, after which `mexsnew` is discarded.
+Technically, a new `mod_exs_sigs_ref` is generated every time to ensure that the expressions are
+ordered as in `mod_exs_sigs_new`; however, conceptually this is better thought of as an updating of
+`mod_exs_sigs_ref`, after which `mod_exs_sigs_new` is discarded.
 
 Note that one consequence is that modifying a method causes two actions, the deletion of
 the original followed by `eval`ing a new version.

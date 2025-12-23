@@ -502,10 +502,10 @@ function eval_with_signatures(mod::Module, ex::Expr; mode::Symbol=:eval, kwargs.
 end
 
 function instantiate_sigs!(mod_exs_sigs::ModuleExprsSigs; mode::Symbol=:sigs, kwargs...)
-    for (mod, exsigs) in mod_exs_sigs
-        for rex in keys(exsigs)
+    for (mod, exs_sigs) in mod_exs_sigs
+        for rex in keys(exs_sigs)
             is_doc_expr(rex.ex) && continue
-            exsigs[rex], _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
+            exs_sigs[rex], _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
         end
     end
     return mod_exs_sigs
@@ -666,7 +666,7 @@ end
 function handle_deletions(pkgdata, file)
     fi = maybe_parse_from_cache!(pkgdata, file)
     maybe_extract_sigs!(fi)
-    mod_exs_sigs_old = fi.modexsigs
+    mod_exs_sigs_old = fi.mod_exs_sigs
     idx = fileindex(pkgdata, file)
     filep = pkgdata.info.files[idx]
     if isa(filep, AbstractString)
@@ -713,11 +713,11 @@ function revise_file_now(pkgdata::PkgData, file)
         println("Revise is currently tracking the following files in $(PkgId(pkgdata)): ", srcfiles(pkgdata))
         error(file, " is not currently being tracked.")
     end
-    mexsnew, mexsold = handle_deletions(pkgdata, file)
-    if mexsnew != nothing
-        _, includes = eval_new!(mexsnew, mexsold)
+    mod_exs_sigs_new, mod_exs_sigs_old = handle_deletions(pkgdata, file)
+    if mod_exs_sigs_new != nothing
+        _, includes = eval_new!(mod_exs_sigs_new, mod_exs_sigs_old)
         fi = fileinfo(pkgdata, i)
-        pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+        pkgdata.fileinfos[i] = FileInfo(mod_exs_sigs_new, fi)
         maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
     end
     nothing
@@ -778,13 +778,13 @@ function revise(; throw::Bool=false)
         revision_errors = Tuple{PkgData,String}[]
         queue = sort!(collect(revision_queue); lt=pkgfileless)
         finished = eltype(revision_queue)[]
-        mexsnews = ModuleExprsSigs[]
+        mod_exs_sigs_new_list = ModuleExprsSigs[]
         interrupt = false
         for (pkgdata, file) in queue
             try
-                mexsnew, _ = handle_deletions(pkgdata, file)
-                mexsnew === DoNotParse() && continue
-                push!(mexsnews, mexsnew)
+                mod_exs_sigs_new, _ = handle_deletions(pkgdata, file)
+                mod_exs_sigs_new === DoNotParse() && continue
+                push!(mod_exs_sigs_new_list, mod_exs_sigs_new)
                 push!(finished, (pkgdata, file))
             catch err
                 throw && Base.throw(err)
@@ -794,16 +794,16 @@ function revise(; throw::Bool=false)
             end
         end
         # Do the evaluation
-        for ((pkgdata, file), mexsnew) in zip(finished, mexsnews)
+        for ((pkgdata, file), mod_exs_sigs_new) in zip(finished, mod_exs_sigs_new_list)
             defaultmode = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
             i = fileindex(pkgdata, file)
             i === nothing && continue   # file was deleted by `handle_deletions`
             fi = fileinfo(pkgdata, i)
-            modsremaining = Set(keys(mexsnew))
+            modsremaining = Set(keys(mod_exs_sigs_new))
             changed, err = true, nothing
             while changed
                 changed = false
-                for (mod, exsnew) in mexsnew
+                for (mod, exs_sigs_new) in mod_exs_sigs_new
                     mod ∈ modsremaining || continue
                     try
                         mode = defaultmode
@@ -812,11 +812,11 @@ function revise(; throw::Bool=false)
                             mode = getfield(mod, :__revise_mode__)::Symbol
                         end
                         mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
-                        exsold = get(fi.modexsigs, mod, empty_exs_sigs)
-                        for rex in keys(exsnew)
-                            siginfos, includes = eval_rex(rex, exsold, mod; mode)
+                        exs_sigs_old = get(fi.mod_exs_sigs, mod, empty_exs_sigs)
+                        for rex in keys(exs_sigs_new)
+                            siginfos, includes = eval_rex(rex, exs_sigs_old, mod; mode)
                             if siginfos !== nothing
-                                exsnew[rex] = siginfos
+                                exs_sigs_new[rex] = siginfos
                             end
                             if includes !== nothing
                                 maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
@@ -830,7 +830,7 @@ function revise(; throw::Bool=false)
                 end
             end
             if isempty(modsremaining) || isa(err, LoweringException)   # fix #877
-                pkgdata.fileinfos[i] = FileInfo(mexsnew, fi)
+                pkgdata.fileinfos[i] = FileInfo(mod_exs_sigs_new, fi)
             end
             if isempty(modsremaining)
                 delete!(queue_errors, (pkgdata, file))
@@ -896,9 +896,9 @@ function revise(mod::Module; force::Bool=true)
     force || return true
     for i = 1:length(srcfiles(pkgdata))
         fi = fileinfo(pkgdata, i)
-        for (mod, exsigs) in fi.modexsigs
-            for def in keys(exsigs)
-                ex = def.ex
+        for (mod, exs_sigs) in fi.mod_exs_sigs
+            for def_rex in keys(exs_sigs)
+                ex = def_rex.ex
                 exuw = unwrap(ex)
                 isexpr(exuw, :call) && is_some_include(exuw.args[1]) && continue
                 try
@@ -1152,8 +1152,8 @@ function get_def(method::Method; modified_files=revision_queue)
         isdefined(Base, :active_repl) || return false
         fi = add_definitions_from_repl(filename)
         hassig = false
-        for (_, exs) in fi.modexsigs
-            for siginfos in values(exs)
+        for (_, exs_sigs) in fi.mod_exs_sigs
+            for siginfos in values(exs_sigs)
                 hassig |= !isempty(siginfos)
             end
         end
@@ -1221,7 +1221,7 @@ function get_expressions(id::PkgId, filename)
     pkgdata = pkgdatas[id]
     fi = maybe_parse_from_cache!(pkgdata, filename)
     maybe_extract_sigs!(fi)
-    return fi.modexsigs
+    return fi.mod_exs_sigs
 end
 
 function add_definitions_from_repl(filename::String)

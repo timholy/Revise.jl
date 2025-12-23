@@ -105,14 +105,14 @@ function unwrap_where(ex::Expr)
     return ex::Expr
 end
 
-function pushex!(exsigs::ExprsSigs, ex::Expr)
+function pushex!(exs_sigs::ExprsSigs, ex::Expr)
     uex = unwrap(ex)
     if is_doc_expr(uex)
         body = uex.args[4]
         # Don't trigger for exprs where the documented expression is just a signature
         # (e.g. `"docstr" f(x::Int)`, `"docstr" f(x::T) where T` etc.)
         if isa(body, Expr) && unwrap_where(body).head !== :call
-            exsigs[RelocatableExpr(body)] = nothing
+            exs_sigs[RelocatableExpr(body)] = nothing
         end
         if length(uex.args) < 5
             push!(uex.args, false)
@@ -120,8 +120,8 @@ function pushex!(exsigs::ExprsSigs, ex::Expr)
             uex.args[5] = false
         end
     end
-    exsigs[RelocatableExpr(ex)] = nothing
-    return exsigs
+    exs_sigs[RelocatableExpr(ex)] = nothing
+    return exs_sigs
 end
 
 ## WatchList utilities

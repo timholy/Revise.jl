@@ -142,20 +142,20 @@ const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{SigInfo}}}
 const DepDictVals = Tuple{Module,RelocatableExpr}
 const DepDict = Dict{Symbol,Set{DepDictVals}}
 
-function Base.show(io::IO, exsigs::ExprsSigs)
+function Base.show(io::IO, exs_sigs::ExprsSigs)
     compact = get(io, :compact, false)
     if compact
         n = 0
-        for (_, mt_sigs) in exsigs
-            mt_sigs === nothing && continue
-            n += length(mt_sigs)
+        for (_, siginfos) in exs_sigs
+            siginfos === nothing && continue
+            n += length(siginfos)
         end
-        print(io, "ExprsSigs(<$(length(exsigs)) expressions>, <$n signatures>)")
+        print(io, "ExprsSigs(<$(length(exs_sigs)) expressions>, <$n signatures>)")
     else
         print(io, "ExprsSigs with the following expressions: ")
-        for def in keys(exsigs)
+        for def_rex in keys(exs_sigs)
             print(io, "\n  ")
-            Base.show_unquoted(io, RelocatableExpr(unwrap(def)), 2)
+            Base.show_unquoted(io, RelocatableExpr(unwrap(def_rex)), 2)
         end
     end
 end
@@ -208,11 +208,11 @@ the original source code gets parsed only when a revision needs to be made.
 Source cache files greatly reduce the overhead of using Revise.
 """
 struct FileInfo
-    modexsigs::ModuleExprsSigs
+    mod_exs_sigs::ModuleExprsSigs
     cachefile::String
     cacheexprs::Vector{Tuple{Module,Expr}}             # "unprocessed" exprs, used to support @require
-    extracted::Base.RefValue{Bool}                     # true if signatures have been processed from modexsigs
-    parsed::Base.RefValue{Bool}                        # true if modexsigs have been parsed from cachefile
+    extracted::Base.RefValue{Bool}                     # true if signatures have been processed from mod_exs_sigs
+    parsed::Base.RefValue{Bool}                        # true if mod_exs_sigs have been parsed from cachefile
 end
 FileInfo(fm::ModuleExprsSigs, cachefile="") = FileInfo(fm, cachefile, Tuple{Module,Expr}[], Ref(false), Ref(false))
 
@@ -227,10 +227,10 @@ FileInfo(fm::ModuleExprsSigs, fi::FileInfo) = FileInfo(fm, fi.cachefile, copy(fi
 
 function Base.show(io::IO, fi::FileInfo)
     print(io, "FileInfo(")
-    for (mod, exsigs) in fi.modexsigs
+    for (mod, exs_sigs) in fi.mod_exs_sigs
         show(io, mod)
         print(io, "=>")
-        show(io, exsigs)
+        show(io, exs_sigs)
         print(io, ", ")
     end
     if !isempty(fi.cachefile)
@@ -305,11 +305,11 @@ function Base.show(io::IO, pkgdata::PkgData)
         nexs, nsigs, nparsed = 0, 0, 0
         for fi in pkgdata.fileinfos
             thisnexs, thisnsigs = 0, 0
-            for (_, exsigs) in fi.modexsigs
-                for (_, mt_sigs) in exsigs
+            for (_, exs_sigs) in fi.mod_exs_sigs
+                for (_, siginfos) in exs_sigs
                     thisnexs += 1
-                    mt_sigs === nothing && continue
-                    thisnsigs += length(mt_sigs)
+                    siginfos === nothing && continue
+                    thisnsigs += length(siginfos)
                 end
             end
             nexs += thisnexs
