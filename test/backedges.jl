@@ -81,5 +81,4 @@ do_test("Backedges") && @testset "Backedges" begin
     """
     ex = Meta.parse(src)
     @test Revise.methods_by_execution(BackEdgesTest, ex) isa Tuple
-
 end

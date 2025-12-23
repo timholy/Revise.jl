@@ -1104,7 +1104,7 @@ const issue639report = []
         pop!(LOAD_PATH)
     end
 
-    do_test("Changing docstrings") && @testset "Changing docstring" begin
+    do_test("Changing docstring") && @testset "Changing docstring" begin
         # Compiled mode covers most docstring changes, so we have to go to
         # special effort to test the older interpreter-based solution.
         testdir = newtestdir()
@@ -1145,7 +1145,7 @@ const issue639report = []
         ex = quote "g" f() = 1 end
         lwr = Meta.lower(ChangeDocstring, ex)
         frame = Frame(ChangeDocstring, lwr.args[1])
-        methodinfo = Revise.MethodInfo()
+        methodinfo = Revise.MethodInfo(ex)
         ret = Revise._methods_by_execution!(JuliaInterpreter.RecursiveInterpreter(), methodinfo,
                                             frame, trues(length(frame.framecode.src.code)); mode=:sigs)
         ds = @doc(ChangeDocstring.f)

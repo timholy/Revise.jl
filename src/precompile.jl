@@ -38,7 +38,7 @@ function _precompile_()
     @warnpcfail precompile(Tuple{Type{WatchList}})
     @warnpcfail precompile(Tuple{typeof(setindex!), Dict{String,WatchList}, WatchList, String})
 
-    MI = CodeTrackingMethodInfo
+    MI = MethodInfo
     @warnpcfail precompile(Tuple{typeof(minimal_evaluation!), Any, Module, Core.CodeInfo, Symbol})
     @warnpcfail precompile(Tuple{typeof(methods_by_execution!), Compiled, MI, Module, Expr})
     @warnpcfail precompile(Tuple{typeof(_methods_by_execution!), Compiled, MI, Frame, Vector{Bool}})

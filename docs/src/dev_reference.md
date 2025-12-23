@@ -118,7 +118,7 @@ This part of the package is not as well documented.
 ```@docs
 Revise.minimal_evaluation!
 Revise.methods_by_execution!
-Revise.CodeTrackingMethodInfo
+Revise.MethodInfo
 ```
 
 ### Modules and paths
