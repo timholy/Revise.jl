@@ -1,6 +1,6 @@
 ## Analyzing lowered code
 
-function assign_this!(frame, value)
+function assign_this!(frame::Frame, @nospecialize value)
     frame.framedata.ssavalues[frame.pc] = value
 end
 
@@ -138,7 +138,7 @@ function minimal_evaluation!(@nospecialize(predicate), mod::Module, src::Core.Co
     # All tracked expressions are marked. Now add their dependencies.
     # LoweredCodeUtils.print_with_code(stdout, src, isrequired)
     lines_required!(isrequired, src, edges;)
-                    # norequire=mode===:sigs ? LoweredCodeUtils.exclude_named_typedefs(src, edges) : ())
+                    # norequire = mode === :sigs ? LoweredCodeUtils.exclude_named_typedefs(src, edges) : ())
     # LoweredCodeUtils.print_with_code(stdout, src, isrequired)
     return isrequired, evalassign
 end
@@ -160,8 +160,10 @@ function methods_by_execution(mod::Module, ex::Expr; kwargs...)
 end
 
 """
-    methods_by_execution!([interp::Interpreter=JuliaInterpreter.Compiled(),] methodinfo, mod::Module, ex::Expr;
-                          mode=:eval, disablebp=true, skip_include=mode!==:eval, always_rethrow=false)
+    methods_by_execution!(
+        [interp::Interpreter=JuliaInterpreter.Compiled(),] methodinfo::MethodInfo, mod::Module, ex::Expr;
+        mode::Symbol=:eval, disablebp::Bool=true, skip_include::Bool=mode!==:eval, always_rethrow::Bool=false
+    )
 
 Evaluate or analyze `ex` in the context of `mod`.
 Depending on the setting of `mode` (see the Extended help), it supports full evaluation or just the minimal
@@ -202,8 +204,10 @@ The other keyword arguments are more straightforward:
   If false, the error is logged with `@error`. `InterruptException`s are always rethrown.
   This is primarily useful for debugging.
 """
-function methods_by_execution!(interp::Interpreter, methodinfo, mod::Module, ex::Expr;
-                               mode::Symbol=:eval, disablebp::Bool=true, always_rethrow::Bool=false, kwargs...)
+function methods_by_execution!(
+        interp::Interpreter, methodinfo::MethodInfo, mod::Module, ex::Expr;
+        mode::Symbol = :eval, disablebp::Bool=true, always_rethrow::Bool=false, kwargs...
+    )
     mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
     lwr = Meta.lower(mod, ex)
     isa(lwr, Expr) || return Pair{Any,Union{Nothing,Expr}}(nothing, nothing)
@@ -219,9 +223,9 @@ function methods_by_execution!(interp::Interpreter, methodinfo, mod::Module, ex:
     # Determine whether we need interpreted mode
     isrequired, evalassign = minimal_evaluation!(frame, mode)
     # LoweredCodeUtils.print_with_code(stdout, frame.framecode.src, isrequired)
-    if !any(isrequired) && (mode===:eval || !evalassign)
+    if !any(isrequired) && (mode === :eval || !evalassign)
         # We can evaluate the entire expression in compiled mode
-        if mode===:eval
+        if mode === :eval
             ret = try
                 Core.eval(mod, ex)
             catch err
@@ -264,16 +268,18 @@ function methods_by_execution!(interp::Interpreter, methodinfo, mod::Module, ex:
     end
     return Pair{Any,Union{Nothing,Expr}}(ret, lwr)
 end
-methods_by_execution!(methodinfo, mod::Module, ex::Expr; kwargs...) =
+methods_by_execution!(methodinfo::MethodInfo, mod::Module, ex::Expr; kwargs...) =
     methods_by_execution!(Compiled(), methodinfo, mod, ex; kwargs...)
 
-function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, isrequired::AbstractVector{Bool};
-                                mode::Symbol=:eval, skip_include::Bool=true)
+function _methods_by_execution!(
+        interp::Interpreter, methodinfo::MethodInfo, frame::Frame, isrequired::AbstractVector{Bool};
+        mode::Symbol = :eval, skip_include::Bool = true
+    )
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
 
     mod = moduleof(frame)
     # Hoist this lookup for performance. Don't throw even when `mod` is a baremodule:
-    modinclude = isdefined(mod, :include) ? getfield(mod, :include) : nothing
+    modinclude = isdefined(mod, :include) ? getglobal(mod, :include) : nothing
     signatures = MethodInfoKey[]  # temporary for method signature storage
     pc = frame.pc
     while true
@@ -433,7 +439,7 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                             add_signature!(methodinfo, sig, lnn)
                         end
                     end
-                    if mode===:sigs
+                    if mode === :sigs
                         pc = next_or_nothing!(frame)
                     else # also execute this call
                         pc = step_expr!(interp, frame, stmt, true)
@@ -448,35 +454,16 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
                             newex = newex.args[4]
                         end
                         newex = unwrap(newex)
-                        push_expr!(methodinfo, newex)
+                        push!(methodinfo.exprstack, newex)
                         value, _ = methods_by_execution!(interp, methodinfo, newmod, newex; mode, skip_include, disablebp=false)
-                        pop_expr!(methodinfo)
+                        pop!(methodinfo.exprstack)
                     end
                     assign_this!(frame, value)
                     pc = next_or_nothing!(frame)
-                elseif skip_include && (f === modinclude || f === Core.include)
+                elseif skip_include && (f === modinclude || f === Core.include || f === Base.include)
                     # include calls need to be managed carefully from several standpoints, including
                     # path management and parsing new expressions
-                    if length(stmt.args) == 2
-                        add_includes!(methodinfo, mod, lookup(interp, frame, stmt.args[2]))
-                    elseif length(stmt.args) == 3
-                        add_includes!(methodinfo, lookup(interp, frame, stmt.args[2]), lookup(interp, frame, stmt.args[3]))
-                    else
-                        error("Bad call to Core.include")
-                    end
-                    assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
-                    pc = next_or_nothing!(frame)
-                elseif skip_include && f === Base.include
-                    if length(stmt.args) == 2
-                        add_includes!(methodinfo, mod, lookup(interp, frame, stmt.args[2]))
-                    else # either include(module, path) or include(mapexpr, path)
-                        mod_or_mapexpr = lookup(interp, frame, stmt.args[2])
-                        if isa(mod_or_mapexpr, Module)
-                            add_includes!(methodinfo, mod_or_mapexpr, lookup(interp, frame, stmt.args[3]))
-                        else
-                            error("include(mapexpr, path) is not supported") # TODO (issue #634)
-                        end
-                    end
+                    handle_include!(methodinfo, interp, frame, stmt)
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
                 elseif f === Base.Docs.doc! # && mode !== :eval
@@ -526,4 +513,36 @@ function _methods_by_execution!(interp::Interpreter, methodinfo, frame::Frame, i
         pc === nothing && break
     end
     return isrequired[frame.pc] ? get_return(frame) : nothing
+end
+
+function add_signature!(methodinfo::MethodInfo, mt_sig::MethodInfoKey, ln::LineNumberNode)
+    locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, mt_sig)
+    newdef = unwrap(methodinfo.exprstack[end])
+    if newdef !== nothing
+        if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
+            push!(locdefs, (fixpath(ln), newdef))
+        end
+        push!(methodinfo.allsigs, SigInfo(mt_sig))
+    end
+    return methodinfo
+end
+
+function handle_include!(methodinfo::MethodInfo, interp::Interpreter, frame::Frame, stmt::Expr)
+    if length(stmt.args) == 2
+        local arg2 = lookup(interp, frame, stmt.args[2])
+        if arg2 isa AbstractString
+            push!(methodinfo.includes, moduleof(frame)=>arg2)
+            return methodinfo
+        end
+        error("Bad include call")
+    elseif length(stmt.args) == 3
+        local arg2 = lookup(interp, frame, stmt.args[2])
+        local arg3 = lookup(interp, frame, stmt.args[3])
+        if arg2 isa Module && arg3 isa AbstractString
+            push!(methodinfo.includes, arg2=>arg3)
+            return methodinfo
+        end
+        error("Bad include call")
+    end
+    error("include(mapexpr::Function, mod::Module, path::AbstractString) is not supported") # TODO (issue #634)
 end

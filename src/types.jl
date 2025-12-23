@@ -79,6 +79,30 @@ end
 CodeTracking.MethodInfoKey(si::SigInfo) = MethodInfoKey(si.mt, si.sig)
 
 """
+    MethodInfo(ex::Expr)
+
+Create a cache for storing information about method definitions.
+Adding signatures to such an object inserts them into `CodeTracking.method_info`,
+which maps signature Tuple-types to `(lnn::LineNumberNode, ex::Expr)` pairs.
+Because method signatures are unique within a module, this is the foundation for
+identifying methods in a manner independent of source-code location.
+
+It also has the following fields:
+
+- `exprstack`: used when descending into `@eval` statements (via `push_expr` and `pop_expr!`)
+  `ex` (used in creating the `MethodInfo` object) is the first entry in the stack.
+- `allsigs`: a list of all method signatures defined by a given expression
+- `includes`: a list of `module=>filename` for any `include` statements encountered while the
+  expression was parsed.
+"""
+struct MethodInfo
+    exprstack::Vector{Expr}
+    allsigs::Vector{SigInfo}
+    includes::Vector{Pair{Module,String}}
+end
+MethodInfo(ex::Expr) = MethodInfo(Expr[ex], SigInfo[], Pair{Module,String}[])
+
+"""
     get_extended_data(ext::ExtendedData, owner::Symbol) -> ext::Union{ExtendedData,Nothing}
 
 Retrieve extension data for a specific owner from the linked list.
