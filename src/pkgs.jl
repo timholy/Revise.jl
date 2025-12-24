@@ -319,8 +319,7 @@ function watch_package(id::PkgId)
 
     pkgdata = get(pkgdatas, id, nothing)
     pkgdata !== nothing && return pkgdata
-    lock(wplock)
-    try
+    @lock wplock begin
         modsym = Symbol(id.name)
         if modsym ∈ dont_watch_pkgs
             if id.name ∉ silence_pkgs
@@ -334,8 +333,6 @@ function watch_package(id::PkgId)
             init_watching(pkgdata, srcfiles(pkgdata))
         end
         @lock pkgdatas_lock pkgdatas[id] = pkgdata
-    finally
-        unlock(wplock)
     end
     return pkgdata
 end

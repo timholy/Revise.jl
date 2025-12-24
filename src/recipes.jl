@@ -67,7 +67,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         if pkgdata === nothing
             pkgdata = PkgData(id, srcdir)
         end
-        lock(revision_queue_lock) do
+        @lock revision_queue_lock begin
             for (submod, filename) in Iterators.drop(Base._included_files, 1)  # stepping through sysimg.jl rebuilds Base, omit it
                 ffilename = fixpath(filename)
                 inpath(ffilename, dirs) || continue
@@ -144,7 +144,7 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
     tree = git_tree(repo, commit)
     files = Iterators.filter(file->startswith(file, prefix) && endswith(file, ".jl"), keys(tree))
     ccall((:giterr_clear, :libgit2), Cvoid, ())  # necessary to avoid errors like "the global/xdg file 'attributes' doesn't exist: No such file or directory"
-    lock(revision_queue_lock) do
+    @lock revision_queue_lock begin
         for file in files
             fullpath = joinpath(repo_path, file)
             rpath = relpath(fullpath, pkgdata)  # this might undo the above, except for Core.Compiler
