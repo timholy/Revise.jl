@@ -452,48 +452,6 @@ function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old::ModuleEx
     return mod_exs_sigs_new, includes
 end
 
-"""
-    MethodInfo(ex::Expr)
-
-Create a cache for storing information about method definitions.
-Adding signatures to such an object inserts them into `CodeTracking.method_info`,
-which maps signature Tuple-types to `(lnn::LineNumberNode, ex::Expr)` pairs.
-Because method signatures are unique within a module, this is the foundation for
-identifying methods in a manner independent of source-code location.
-
-It also has the following fields:
-
-- `exprstack`: used when descending into `@eval` statements (via `push_expr` and `pop_expr!`)
-  `ex` (used in creating the `MethodInfo` object) is the first entry in the stack.
-- `allsigs`: a list of all method signatures defined by a given expression
-- `includes`: a list of `module=>filename` for any `include` statements encountered while the
-  expression was parsed.
-"""
-struct MethodInfo
-    exprstack::Vector{Expr}
-    allsigs::Vector{SigInfo}
-    includes::Vector{Pair{Module,String}}
-end
-MethodInfo(ex::Expr) = MethodInfo([ex], SigInfo[], Pair{Module,String}[])
-
-function add_signature!(methodinfo::MethodInfo, mt_sig::MethodInfoKey, ln::LineNumberNode)
-    locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, mt_sig)
-    newdef = unwrap(methodinfo.exprstack[end])
-    if newdef !== nothing
-        if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
-            push!(locdefs, (fixpath(ln), newdef))
-        end
-        push!(methodinfo.allsigs, SigInfo(mt_sig))
-    end
-    return methodinfo
-end
-push_expr!(methodinfo::MethodInfo, ex::Expr) = (push!(methodinfo.exprstack, ex); methodinfo)
-pop_expr!(methodinfo::MethodInfo) = (pop!(methodinfo.exprstack); methodinfo)
-function add_includes!(methodinfo::MethodInfo, mod::Module, filename)
-    push!(methodinfo.includes, mod=>filename)
-    return methodinfo
-end
-
 # Eval and insert into CodeTracking data
 function eval_with_signatures(mod::Module, ex::Expr; mode::Symbol=:eval, kwargs...)
     methodinfo = MethodInfo(ex)
