@@ -556,7 +556,7 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
             end
             if id != NOPACKAGE
                 pkgdata = pkgdatas[id]
-                lock(revision_queue_lock) do
+                @lock revision_queue_lock begin
                     if hasfile(pkgdata, key)  # issue #228
                         push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
                         notify(revision_event)
@@ -612,7 +612,7 @@ function revise_file_queued(pkgdata::PkgData, file)
         # Check to see if we're still watching this file
         stillwatching = haskey(watched_files, dirfull)
         if PkgId(pkgdata) != NOPACKAGE
-            lock(revision_queue_lock) do
+            @lock revision_queue_lock begin
                 push!(revision_queue, (pkgdata, relpath(file, pkgdata)))
             end
         end
@@ -710,7 +710,7 @@ end
 Attempt to perform previously-failed revisions. This can be useful in cases of order-dependent errors.
 """
 function retry()
-    lock(revision_queue_lock) do
+    @lock revision_queue_lock begin
         for k in keys(queue_errors)
             push!(revision_queue, k)
         end
@@ -728,7 +728,7 @@ otherwise these are only logged.
 function revise(; throw::Bool=false)
     active[] || return nothing
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
-    lock(revision_queue_lock) do
+    @lock revision_queue_lock begin
         have_queue_errors = !isempty(queue_errors)
 
         # Do all the deletion first. This ensures that a method that moved from one file to another
