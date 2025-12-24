@@ -243,21 +243,21 @@ const issue639report = []
         delmeth = first(methods(ReviseTest.Internal.mult4))
         mmult3 = @which ReviseTest.Internal.mult3(2)
 
-        mexsold = Revise.parse_source(tmpfile, Main)
-        Revise.instantiate_sigs!(mexsold)
+        mod_exs_sigs_old = Revise.parse_source(tmpfile, Main)
+        Revise.instantiate_sigs!(mod_exs_sigs_old)
         mcube = @which ReviseTest.cube(2)
 
         cp(fl2, tmpfile; force=true)
-        mexsnew = Revise.parse_source(tmpfile, Main)
-        mexsnew = Revise.eval_revised(mexsnew, mexsold)
+        mod_exs_sigs_new = Revise.parse_source(tmpfile, Main)
+        mod_exs_sigs_new = Revise.eval_revised(mod_exs_sigs_new, mod_exs_sigs_old)
         @latestworld
         @test ReviseTest.cube(2) == 8
         @test ReviseTest.Internal.mult3(2) == 6
 
-        @test length(mexsnew) == 3
-        @test haskey(mexsnew, ReviseTest) && haskey(mexsnew, ReviseTest.Internal)
+        @test length(mod_exs_sigs_new) == 3
+        @test haskey(mod_exs_sigs_new, ReviseTest) && haskey(mod_exs_sigs_new, ReviseTest.Internal)
 
-        dvs = collect(mexsnew[ReviseTest])
+        dvs = collect(mod_exs_sigs_new[ReviseTest])
         @test length(dvs) == 3
         (def, val) = dvs[1]
         @test isequal(Revise.unwrap(def), Revise.RelocatableExpr(:(square(x) = x^2)))
@@ -282,7 +282,7 @@ const issue639report = []
         @test whereis(m) == (tmpfile, 9)
         @test Revise.RelocatableExpr(definition(m)) == Revise.unwrap(def)
 
-        dvs = collect(mexsnew[ReviseTest.Internal])
+        dvs = collect(mod_exs_sigs_new[ReviseTest.Internal])
         @test length(dvs) == 5
         (def, val) = dvs[1]
         @test isequal(Revise.unwrap(def),  Revise.RelocatableExpr(:(mult2(x) = 2*x)))
@@ -341,9 +341,9 @@ const issue639report = []
         # Backtraces. Note this doesn't test the line-number correction
         # because both of these are revised definitions.
         cp(fl3, tmpfile; force=true)
-        mexsold = mexsnew
-        mexsnew = Revise.parse_source(tmpfile, Main)
-        mexsnew = Revise.eval_revised(mexsnew, mexsold)
+        mod_exs_sigs_old = mod_exs_sigs_new
+        mod_exs_sigs_new = Revise.parse_source(tmpfile, Main)
+        mod_exs_sigs_new = Revise.eval_revised(mod_exs_sigs_new, mod_exs_sigs_old)
         @latestworld
         try
             ReviseTest.cube(2)
@@ -1202,10 +1202,10 @@ const issue639report = []
 
     do_test("Undef in docstrings") && @testset "Undef in docstrings" begin
         fn = Base.find_source_file("abstractset.jl")   # has lots of examples of """str""" func1, func2
-        mexsold = Revise.parse_source(fn, Base)
-        mexsnew = Revise.parse_source(fn, Base)
-        odict = mexsold[Base]
-        ndict = mexsnew[Base]
+        mod_exs_sigs_old = Revise.parse_source(fn, Base)
+        mod_exs_sigs_new = Revise.parse_source(fn, Base)
+        odict = mod_exs_sigs_old[Base]
+        ndict = mod_exs_sigs_new[Base]
         for (k, v) in odict
             @test haskey(ndict, k)
         end
