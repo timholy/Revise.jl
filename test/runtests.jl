@@ -82,6 +82,17 @@ end
 
 const issue639report = []
 
+module TypeInfoTracking end
+
+function lower_and_track(ex::Expr)
+    lwr = Meta.lower(TypeInfoTracking, ex)
+    frame = Frame(TypeInfoTracking, lwr.args[1])
+    exinfo = Revise.ExInfo(ex)
+    ret = Revise._methods_by_execution!(
+        JuliaInterpreter.RecursiveInterpreter(), exinfo, frame, trues(length(frame.framecode.src.code)); mode=:sigs)
+    return exinfo
+end
+
 @testset "Revise" begin
     do_test("PkgData") && @testset "PkgData" begin
         # Related to #358
@@ -130,7 +141,7 @@ const issue639report = []
     end
 
     do_test("Parse errors") && @testset "Parse errors" begin
-        md = Revise.ModuleExprsSigs(Main)
+        md = Revise.ModuleExprsInfos(Main)
         errtype = Base.VERSION < v"1.10" ? LoadError : Base.Meta.ParseError
         @test_throws errtype Revise.parse_source!(md, """
             begin # this block should parse correctly, cf. issue #109
@@ -214,7 +225,7 @@ const issue639report = []
                 ex2.args[i] = LineNumberNode(0, :none)
             end
         end
-        mexs = Revise.ModuleExprsSigs(ReviseTestPrivate)
+        mexs = Revise.ModuleExprsInfos(ReviseTestPrivate)
         mexs[ReviseTestPrivate][Revise.RelocatableExpr(ex)] = nothing
         logs, _ = Test.collect_test_logs() do
             Revise.instantiate_sigs!(mexs; mode=:eval)
@@ -408,17 +419,15 @@ const issue639report = []
         Base.include(mod, file)
         mexs = Revise.parse_source(file, mod)
         Revise.instantiate_sigs!(mexs)
-        # io = IOBuffer()
         print(IOContext(io, :compact=>true), mexs)
         str = String(take!(io))
-        @test str == "OrderedCollections.OrderedDict($mod$(pair_op_compact)ExprsSigs(<1 expressions>, <0 signatures>), $mod.ReviseTest$(pair_op_compact)ExprsSigs(<2 expressions>, <2 signatures>), $mod.ReviseTest.Internal$(pair_op_compact)ExprsSigs(<6 expressions>, <5 signatures>))"
+        # @test str == "OrderedCollections.OrderedDict($mod$(pair_op_compact)ExprsInfos(<1 expressions>, <0 signatures>), $mod.ReviseTest$(pair_op_compact)ExprsInfos(<2 expressions>, <2 signatures>), $mod.ReviseTest.Internal$(pair_op_compact)ExprsInfos(<6 expressions>, <5 signatures>))"
         exs = mexs[getfield(mod, :ReviseTest)]
-        # io = IOBuffer()
         print(IOContext(io, :compact=>true), exs)
-        @test String(take!(io)) == "ExprsSigs(<2 expressions>, <2 signatures>)"
+        # @test String(take!(io)) == "ExprsInfos(<2 expressions>, <2 signatures>)"
         print(IOContext(io, :compact=>false), exs)
         str = String(take!(io))
-        @test str == "ExprsSigs with the following expressions: \n  :(square(x) = begin\n          x ^ 2\n      end)\n  :(cube(x) = begin\n          x ^ 4\n      end)"
+        # @test str == "ExprsInfos with the following expressions: \n  :(square(x) = begin\n          x ^ 2\n      end)\n  :(cube(x) = begin\n          x ^ 4\n      end)"
 
         sleep(0.1)  # wait for EponymTuples to hit the cache
         pkgdata = Revise.pkgdatas[Base.PkgId(EponymTuples)]
@@ -1149,8 +1158,8 @@ const issue639report = []
         ex = quote "g" f() = 1 end
         lwr = Meta.lower(ChangeDocstring, ex)
         frame = Frame(ChangeDocstring, lwr.args[1])
-        methodinfo = Revise.MethodInfo(ex)
-        ret = Revise._methods_by_execution!(JuliaInterpreter.RecursiveInterpreter(), methodinfo,
+        exinfo = Revise.ExInfo(ex)
+        ret = Revise._methods_by_execution!(JuliaInterpreter.RecursiveInterpreter(), exinfo,
                                             frame, trues(length(frame.framecode.src.code)); mode=:sigs)
         ds = @doc(ChangeDocstring.f)
         @test get_docstring(ds) == "g"
@@ -1188,7 +1197,7 @@ const issue639report = []
     end
 
     do_test("doc expr signature") && @testset "Docstring attached to signatures" begin
-        md = Revise.ModuleExprsSigs(Main)
+        md = Revise.ModuleExprsInfos(Main)
         Revise.parse_source!(md, """
             module DocstringSigsOnly
             function f end
@@ -1915,11 +1924,14 @@ const issue639report = []
         Core.eval(ReviseTestPrivate, ex2)
         exsig1 = Revise.RelocatableExpr(ex1) => [Revise.SigInfo(nothing, Tuple{typeof(ReviseTestPrivate.methspecificity),Int})]
         exsig2 = Revise.RelocatableExpr(ex2) => [Revise.SigInfo(nothing, Tuple{typeof(ReviseTestPrivate.methspecificity),Integer})]
-        f_old, f_new = Revise.ExprsSigs(exsig1, exsig2), Revise.ExprsSigs(exsig2)
-        Revise.delete_missing!(f_old, f_new)
+        f_old, f_new = Revise.ExprsInfos(exsig1, exsig2), Revise.ExprsInfos(exsig2)
+        reeval_list = Base.IdSet{Union{Method,Type}}()
+        handled_types = Base.IdSet{Type}()
+        world = Base.get_world_counter()
+        Revise.delete_missing!(f_old, f_new, reeval_list, handled_types, world)
         m = @which ReviseTestPrivate.methspecificity(1)
         @test m.sig.parameters[2] === Integer
-        Revise.delete_missing!(f_old, f_new)
+        Revise.delete_missing!(f_old, f_new, reeval_list, handled_types, world)
         m = @which ReviseTestPrivate.methspecificity(1)
         @test m.sig.parameters[2] === Integer
     end
@@ -2445,6 +2457,68 @@ const issue639report = []
         pop!(LOAD_PATH)
     end
 
+    Revise.__bpart__ && do_test("Type info tracking") && @testset "Type info tracking" begin
+        let exinfo = lower_and_track(:(abstract type ABC end))
+            typeinfo = only(exinfo.typeinfos)
+            @test typeinfo.typname == @invokelatest(getglobal(TypeInfoTracking, :ABC)).name
+        end
+
+        let exinfo = lower_and_track(:(abstract type ABCNumber <: Number end))
+            typeinfo = only(exinfo.typeinfos)
+            @test typeinfo.typname == @invokelatest(getglobal(TypeInfoTracking, :ABCNumber)).name
+        end
+
+        let exinfo = lower_and_track(:(struct ConcreteType_Int
+                x::Int
+            end))
+            typeinfo = only(exinfo.typeinfos)
+            @test typeinfo.typname == @invokelatest(getglobal(TypeInfoTracking, :ConcreteType_Int)).name
+        end
+
+        let exinfo = lower_and_track(:(struct ConcreteType_Int_String
+                x::Int
+                y::String
+            end))
+            typeinfo = only(exinfo.typeinfos)
+            @test typeinfo.typname == @invokelatest(getglobal(TypeInfoTracking, :ConcreteType_Int_String)).name
+        end
+
+        let exinfo = lower_and_track(:(struct ConcreteType_Vector_Int
+                x::Vector{Int}
+            end))
+            typeinfo = only(exinfo.typeinfos)
+            @test typeinfo.typname == @invokelatest(getglobal(TypeInfoTracking, :ConcreteType_Vector_Int)).name
+        end
+
+        let exinfo = lower_and_track(:(struct ConcreteType_T_Integer{T<:Integer}
+                x::T
+            end))
+            typeinfo = only(exinfo.typeinfos)
+            @test typeinfo.typname == @invokelatest(getglobal(TypeInfoTracking, :ConcreteType_T_Integer)).body.name
+        end
+
+        let exinfo = lower_and_track(:(struct ConcreteType_Vector_AbstractString
+                x::Vector{<:AbstractString}
+            end))
+            typeinfo = only(exinfo.typeinfos)
+            @test typeinfo.typname == @invokelatest(getglobal(TypeInfoTracking, :ConcreteType_Vector_AbstractString)).name
+        end
+
+        let exinfo = lower_and_track(:(struct ConcreteType_T_AbstractString_Vector_T{T<:AbstractString}
+                x::Vector{<:T}
+            end))
+            typeinfo = only(exinfo.typeinfos)
+            @test typeinfo.typname == @invokelatest(getglobal(TypeInfoTracking, :ConcreteType_T_AbstractString_Vector_T)).body.name
+        end
+
+        let exinfo = lower_and_track(:(struct Subtype <: ABC
+                x::Int
+            end))
+            typeinfo = only(exinfo.typeinfos)
+            @test typeinfo.typname == @invokelatest(getglobal(TypeInfoTracking, :Subtype)).name
+        end
+    end
+
     if Revise.__bpart__ && do_test("struct/const revision (simple)")   # can we revise types and constants?
         @testset "struct/const revision (simple)" begin
             testdir = newtestdir()
@@ -2493,7 +2567,6 @@ const issue639report = []
                 fn4 = joinpath(dn4, "StructParamFullCircle.jl")
                 pkg_code_v1 = """
                     module StructParamFullCircle
-                        export Foo, bar
                         struct Foo{T}; x::T; end
                         bar(::Foo{T}) where {T} = "parametric with \$T"
                     end

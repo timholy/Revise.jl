@@ -73,7 +73,7 @@ function Base.show(io::IO, l::LogRecord; kwargs...)
             elseif kw === :deltainfo
                 keepitem = nothing
                 for item in val
-                    if isa(item, DataType) || isa(item, Union{MethodSummary,Vector{MethodSummary}}) || (keepitem === nothing && isa(item, Union{RelocatableExpr,Expr}))
+                    if isa(item, Type) || isa(item, Union{MethodSummary,Vector{MethodSummary}}) || (keepitem === nothing && isa(item, Union{RelocatableExpr,Expr}))
                         keepitem = item
                     end
                 end
@@ -81,7 +81,7 @@ function Base.show(io::IO, l::LogRecord; kwargs...)
                     print(io, ": ", keepitem)
                 elseif isa(keepitem, Union{RelocatableExpr,Expr})
                     print(io, ": ", firstline(keepitem))
-                elseif isa(keepitem, DataType)
+                elseif isa(keepitem, Type)
                     print(io, ": ", keepitem)
                 end
             end
