@@ -434,7 +434,8 @@ function handle_type_deletion!(
     with_logger(_debug_logger) do
         old_list = copy(reeval_list)
         oldtype = Base.invoke_in_world(world, getglobal, oldtypename.module, oldtypename.name)::Type
-        record_invalidations_for_type_deletion!(oldtype, reeval_list, handled_types)
+        alltypes = collect_all_subtypes(Any) # reuse cache for recursive searches performance (freezed at this world)
+        record_invalidations_for_type_deletion!(oldtype, reeval_list, handled_types, alltypes)
         diff = setdiff(reeval_list, old_list)
         @debug "DeleteType" _group="Action" time=time() deltainfo=(oldtype,diff)
     end
@@ -442,7 +443,8 @@ function handle_type_deletion!(
 end
 
 function record_invalidations_for_type_deletion!(
-        @nospecialize(oldtype::Type), reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}
+        @nospecialize(oldtype::Type), reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type},
+        alltypes::Base.IdSet{Type}
     )
     push!(handled_types, oldtype)
 
@@ -451,24 +453,24 @@ function record_invalidations_for_type_deletion!(
 
     # Find all methods restricted to `oldtype`
     meths = old_methods_with(oldtypename)
-    union!(reeval_list, meths)
+    meths !== nothing && union!(reeval_list, meths)
 
     # Find all types using `oldtype`
-    related_types = old_types_with(oldtypename)
-    union!(reeval_list, related_types)
+    related_types = old_types_with(oldtypename, alltypes)
+    related_types !== nothing && union!(reeval_list, related_types)
 
     # For any modules that have not yet been parsed and had their signatures extracted,
     # we need to do this now, before the binding changes to the new type
-    maybe_extract_sigs_for_meths(meths)
-    maybe_extract_sigs_for_types(related_types)
+    meths !== nothing && maybe_extract_sigs_for_meths(meths)
+    related_types !== nothing && maybe_extract_sigs_for_types(related_types)
 
     for oldsubtype in collect_all_subtypes(oldtype)
         oldsubtype in handled_types && continue
-        record_invalidations_for_type_deletion!(oldsubtype, reeval_list, handled_types)
+        record_invalidations_for_type_deletion!(oldsubtype, reeval_list, handled_types, alltypes)
     end
-    for related_type in related_types
+    related_types !== nothing && for related_type in related_types
         related_type in handled_types && continue
-        record_invalidations_for_type_deletion!(related_type, reeval_list, handled_types)
+        record_invalidations_for_type_deletion!(related_type, reeval_list, handled_types, alltypes)
     end
 end
 
@@ -1664,11 +1666,16 @@ function __init__()
         end
     end
 
-    # Populate type map cache
-    __bpart__ && Threads.@spawn :default for type in collect_all_subtypes(Any)
-        nflds = Base.Compiler.fieldcount_noerror(type)
-        if nflds !== nothing && nflds > 0
-            fieldtypes(type)
+    # Populate field types map cache
+    if __bpart__
+        Threads.@spawn :default @lock types_cache_lock for type in collect_all_subtypes(Any)
+            nflds = Base.Compiler.fieldcount_noerror(type)
+            if nflds !== nothing && nflds > 0
+                types = collect(Any, fieldtypes(type))
+            else
+                types = nothing
+            end
+            types_cache[type] = types
         end
     end
     return nothing
