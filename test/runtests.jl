@@ -23,6 +23,10 @@ Pkg.precompile()
 # *.ji files for the package.
 using EponymTuples
 
+# # Also ensure packages that we'll `@require` are precompiled, as otherwise Pkg `@info`
+# # may contaminate the log and cause test failures.
+# Pkg.precompile(["EndpointRanges", "CatIndices", "IndirectArrays", "RoundingIntegers", "UnsafeArrays"])
+
 include("common.jl")
 
 throwing_function(bt) = bt[2]
@@ -2441,6 +2445,223 @@ const issue639report = []
         pop!(LOAD_PATH)
     end
 
+    if Revise.__bpart__ && do_test("struct/const revision")   # can we revise types and constants?
+        @testset "struct/const revision" begin
+            testdir = newtestdir()
+            dn = joinpath(testdir, "StructConst", "src")
+            mkpath(dn)
+            write(joinpath(dn, "StructConst.jl"), """
+                module StructConst
+                const __hash__ = 0x71716e828e2d6093
+                struct Fixed
+                    x::Int
+                end
+                Base.hash(f::Fixed, h::UInt) = hash(__hash__, hash(f.x, h))
+                struct Point
+                    x::Float64
+                end
+                # Three methods that won't need to be explicitly redefined (but will need re-evaluation for new type)
+                firstval(p::Point) = p.x
+                firstvalP(p::P) where P<:Point = p.x
+                returnsconst(::Point) = 1
+                # Method that will need to be explicitly redefined
+                mynorm(p::Point) = sqrt(p.x^2)
+                # Method that uses `Point` without it being in the signature
+                hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
+                # Change of field that has no parameters (https://github.com/timholy/Revise.jl/pull/894#issuecomment-3271461024)
+                struct ChangePrimitiveType
+                    x::Int
+                end
+                useprimitivetype(::ChangePrimitiveType) = 1
+                # Additional constructors (https://github.com/timholy/Revise.jl/pull/894#issuecomment-3274102493)
+                abstract type AbstractMoreConstructors end
+                struct MoreConstructors
+                    x::Int
+                end
+                MoreConstructors() = MoreConstructors(1)
+                end
+                """)
+            # Also create another package that uses it
+            dn2 = joinpath(testdir, "StructConstUser", "src")
+            mkpath(dn2)
+            write(joinpath(dn2, "StructConstUser.jl"), """
+                module StructConstUser
+                using StructConst: StructConst, Point
+                struct PointWrapper
+                    p::Point
+                end
+                scuf(f::StructConst.Fixed) = 33 * f.x
+                scup(p::Point) = 44 * p.x
+                scup(pw::PointWrapper) = 55 * pw.p.x
+                end
+                """)
+            # ...and one that uses that. This is to check whether the propagation of
+            # signature extraction works correctly.
+            dn3 = joinpath(testdir, "StructConstUserUser", "src")
+            mkpath(dn3)
+            write(joinpath(dn3, "StructConstUserUser.jl"), """
+                module StructConstUserUser
+                using StructConstUser
+                struct PointWrapperWrapper
+                    pw::StructConstUser.PointWrapper
+                end
+                StructConstUser.scup(pw::PointWrapperWrapper) = 2 * StructConstUser.scup(pw.pw)
+                end
+                """)
+            sleep(mtimedelay)
+            @eval using StructConst
+            @eval using StructConstUser
+            @eval using StructConstUserUser
+            sleep(mtimedelay)
+            w1 = Base.get_world_counter()
+            f = StructConst.Fixed(5)
+            v1 = hash(f)
+            p = StructConst.Point(5.0)
+            hp = StructConst.hiddenconstructor(5)
+            @test isa(hp, StructConst.Point) && hp.x === 5.0
+            pw = StructConstUser.PointWrapper(p)
+            pww = StructConstUserUser.PointWrapperWrapper(pw)
+            @test StructConst.firstval(p) == StructConst.firstvalP(p) === 5.0
+            @test StructConst.returnsconst(p) === 1
+            @test StructConst.mynorm(p) == 5.0
+            @test StructConstUser.scuf(f) == 33 * 5.0
+            @test StructConstUser.scup(p) == 44 * 5.0
+            @test StructConstUser.scup(pw) == 55 * 5.0
+            @test StructConstUser.scup(pww) == 2 * 55 * 5.0
+            spt = StructConst.ChangePrimitiveType(3)
+            @test StructConst.useprimitivetype(spt) === 1
+            mc = StructConst.MoreConstructors()
+            @test mc.x == 1 && supertype(typeof(mc)) === Any
+            write(joinpath(dn, "StructConst.jl"), """
+                module StructConst
+                const __hash__ = 0xddaab158621d200c
+                struct Fixed
+                    x::Int
+                end
+                Base.hash(f::Fixed, h::UInt) = hash(__hash__, hash(f.x, h))
+                struct Point
+                    x::Float64
+                    y::Float64
+                end
+                firstval(p::Point) = p.x
+                firstvalP(p::P) where P<:Point = p.x
+                returnsconst(::Point) = 1
+                mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
+                hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
+                struct ChangePrimitiveType
+                    x::Float64
+                end
+                useprimitivetype(::ChangePrimitiveType) = 1
+                abstract type AbstractMoreConstructors end
+                struct MoreConstructors <: AbstractMoreConstructors
+                    x::Int
+                end
+                MoreConstructors() = MoreConstructors(1)
+                end
+                """)
+            @yry()
+            @test StructConst.__hash__ == 0xddaab158621d200c
+            v2 = hash(f)
+            @test v1 != v2
+            # Call with old objects---ensure we deleted all the outdated methods to reduce user confusion
+            @test_throws MethodError @invokelatest(StructConst.firstval(p))
+            @test_throws MethodError @invokelatest(StructConst.firstvalP(p))
+            @test_throws MethodError @invokelatest(StructConst.returnsconst(p))
+            @test_throws MethodError @invokelatest(StructConst.mynorm(p))
+            @test @invokelatest(StructConstUser.scuf(f)) == 33 * 5.0
+            @test_throws MethodError @invokelatest(StructConstUser.scup(p))
+            @test_throws MethodError @invokelatest(StructConstUser.scup(pw))
+            @test_throws MethodError @invokelatest(StructConstUser.scup(pww))
+            @test_throws MethodError StructConst.useprimitivetype(spt)
+            # Call with new objects
+            p2 = @invokelatest(StructConst.Point(3.0, 4.0))
+            hp = @invokelatest(StructConst.hiddenconstructor(5))
+            @test isa(hp, StructConst.Point) && hp.x === 5.0 && hp.y === 5.0
+            pw2 = @invokelatest(StructConstUser.PointWrapper(p2))
+            pww2 = @invokelatest(StructConstUserUser.PointWrapperWrapper(pw2))
+            @test @invokelatest(StructConst.firstval(p2)) == @invokelatest(StructConst.firstvalP(p2)) === 3.0
+            @test StructConst.returnsconst(p2) === 1
+            @test @invokelatest(StructConst.mynorm(p2)) == 5.0
+            @test @invokelatest(StructConstUser.scup(p2)) == 44 * 3.0
+            @test @invokelatest(StructConstUser.scup(pw2)) == 55 * 3.0
+            @test @invokelatest(StructConstUser.scup(pww2)) == 2 * 55 * 3.0
+            spt2 = StructConst.ChangePrimitiveType(3.0)
+            @test StructConst.useprimitivetype(spt2) === 1
+            mc = StructConst.MoreConstructors()
+            @test mc.x == 1 && supertype(typeof(mc)) === StructConst.AbstractMoreConstructors
+            write(joinpath(dn, "StructConst.jl"), """
+                module StructConst
+                const __hash__ = 0x71716e828e2d6093
+                struct Fixed
+                    x::Int
+                end
+                Base.hash(f::Fixed, h::UInt) = hash(__hash__, hash(f.x, h))
+                struct Point{T<:Real} <: AbstractVector{T}
+                    x::T
+                    y::T
+                end
+                firstval(p::Point) = p.x
+                firstvalP(p::P) where P<:Point = p.x
+                returnsconst(::Point) = 1
+                mynorm(p::Point) = sqrt(p.x^2 + p.y^2)
+                hiddenconstructor(x) = Point(ntuple(_ -> x, length(fieldnames(Point)))...)
+                end
+                """)
+            @yry()
+            @test StructConst.__hash__ == 0x71716e828e2d6093
+            v3 = hash(f)
+            @test v1 == v3
+            p3 = @invokelatest(StructConst.Point(3.0, 4.0))
+            hp = @invokelatest(StructConst.hiddenconstructor(5))
+            @test isa(hp, StructConst.Point) && hp.x === 5 && hp.y === 5
+            pw3 = @invokelatest(StructConstUser.PointWrapper(p3))
+            pww3 = @invokelatest(StructConstUserUser.PointWrapperWrapper(pw3))
+            @test @invokelatest(StructConst.firstval(p3)) == @invokelatest(StructConst.firstvalP(p3)) === 3.0
+            @test @invokelatest(StructConst.mynorm(p3)) == 5.0
+            @test @invokelatest(StructConstUser.scup(p3)) == 44 * 3.0
+            @test @invokelatest(StructConstUser.scup(pw3)) == 55 * 3.0
+            @test @invokelatest(StructConstUser.scup(pww3)) == 2 * 55 * 3.0
+
+            rm_precompile("StructConst")
+            rm_precompile("StructConstUser")
+            rm_precompile("StructConstUserUser")
+
+            # Example from https://github.com/timholy/Revise.jl/pull/894#issuecomment-2824111764
+            dn = joinpath(testdir, "StructExample", "src")
+            mkpath(dn)
+            write(joinpath(dn, "StructExample.jl"),
+            """
+            module StructExample
+            export hello, Hello
+            struct Hello
+                who::String
+            end
+            hello(x::Hello) = hello(x.who)
+            hello(who::String) = "Hello, \$who"
+            end
+            """)
+            sleep(mtimedelay)
+            @eval using StructExample
+            sleep(mtimedelay)
+            @test StructExample.hello(StructExample.Hello("World")) == "Hello, World"
+            write(joinpath(dn, "StructExample.jl"),
+            """
+            module StructExample
+            export hello, Hello
+            struct Hello
+                who2::String
+            end
+            hello(x::Hello) = hello(x.who2 * " (changed)")
+            hello(who::String) = "Hello, \$who"
+            end
+            """)
+            @yry()
+            @test StructExample.hello(StructExample.Hello("World")) == "Hello, World (changed)"
+
+            pop!(LOAD_PATH)
+        end
+    end
+
     do_test("get_def") && @testset "get_def" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "GetDef", "src")
@@ -2943,6 +3164,8 @@ const issue639report = []
     end
 
     do_test("Recipes") && @testset "Recipes" begin
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
+
         # https://github.com/JunoLab/Juno.jl/issues/257#issuecomment-473856452
         meth = @which gcd(10, 20)
         signatures_at(Base.find_source_file(String(meth.file)), meth.line)  # this should track Base
@@ -2960,6 +3183,8 @@ const issue639report = []
         m = @which redirect_stdout()
         @test definition(m).head ∈ (:function, :(=))
 
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
+
         # Tracking stdlibs
         Revise.track(Unicode)
         id = Base.PkgId(Unicode)
@@ -2969,11 +3194,15 @@ const issue639report = []
         @test definition(m) isa Expr
         @test isfile(whereis(m)[1])
 
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
+
         # Submodule of Pkg (note that package is developed outside the
         # Julia repo, this tests new cases)
         id = Revise.get_tracked_id(Pkg.Types)
         pkgdata = Revise.pkgdatas[id]
         @test definition(first(methods(Pkg.API.add))) isa Expr
+
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
 
         # Test that we skip over files that don't end in ".jl"
         logs, _ = Test.collect_test_logs() do
@@ -2981,7 +3210,11 @@ const issue639report = []
         end
         @test isempty(logs)
 
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
+
         Revise.get_tracked_id(Core)   # just test that this doesn't error
+
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
 
         if !haskey(ENV, "BUILDKITE") # disable on buildkite, see discussion in https://github.com/JuliaCI/julia-buildkite/pull/372#issuecomment-2262840304
             # Determine whether a git repo is available. Travis & Appveyor do not have this.
@@ -2999,6 +3232,8 @@ const issue639report = []
                 @warn "skipping Core.Compiler tests due to lack of git repo"
             end
         end
+
+        @test !isempty(methods(Core.Compiler.NativeInterpreter))
     end
 
     do_test("CodeTracking #48") && @testset "CodeTracking #48" begin
@@ -4008,9 +4243,9 @@ do_test("includet with mod arg (issue #689)") && @testset "includet with mod arg
     @test Driver.Codes.Common.foo == 2
 end
 
-do_test("misc - coverage") && @testset "misc - coverage" begin
+do_test("misc - coverage") && !isinteractive() && @testset "misc - coverage" begin
     @test Revise.ReviseEvalException("undef", UndefVarError(:foo)).loc isa String
-    @test !Revise.throwto_repl(UndefVarError(:foo))
+    @test !Revise.throwto_repl(UndefVarError(:foo))   # this causes an error in interactive
 
     @test endswith(Revise.fallback_juliadir(), "julia")
 
