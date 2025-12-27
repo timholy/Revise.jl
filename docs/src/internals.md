@@ -224,7 +224,7 @@ Most of Revise's magic comes down to just three internal variables:
 - [`Revise.pkgdatas`](@ref): the central repository of parsed code, used to "diff" for changes
   and then "patch" the running session.
 
-Two "maps" are central to Revise's inner workings: `ExprsSigs` maps link
+Two "maps" are central to Revise's inner workings: `ExprsInfos` maps link
 definition=>signature-types (the forward workflow), while `CodeTracking` (specifically,
 its internal variable `method_info`) links from a
 method table/signature-type pair to the corresponding definition (the backward workflow).
@@ -234,7 +234,7 @@ of `sigt`; consequently, this information allows one to look up the correspondin
 `locationinfo` and `def`. (When methods move, the location information stored by CodeTracking
 gets updated by Revise.)
 
-Some additional notes about Revise's `ExprsSigs` maps:
+Some additional notes about Revise's `ExprsInfos` maps:
 
 - For expressions that do not define a method, it is just `def=>nothing`
 - For expressions that do define a method, it is `def=>[mt_sigt1, ...]`.
@@ -254,10 +254,10 @@ Some additional notes about Revise's `ExprsSigs` maps:
   Any discrepancy with the current line numbers in the file is handled through updates to
   the location information stored by `CodeTracking`.
 
-`ExprsSigs` are organized by module and then file, so that one can map
+`ExprsInfos` are organized by module and then file, so that one can map
 `filename`=>`module`=>`def`=>`mt_sigts`.
 Importantly, single-file modules can be "reconstructed" from the keys of the corresponding
-`ExprsSigs` (and multi-file modules from a collection of such items), since they hold
+`ExprsInfos` (and multi-file modules from a collection of such items), since they hold
 the complete ordered set of expressions that would be `eval`ed to define the module.
 
 The global variable that holds all this information is [`Revise.pkgdatas`](@ref), organized
@@ -303,8 +303,8 @@ Items [b24a5932-55ed-11e9-2a88-e52f99e65a0d]
 
 julia> pkgdata = Revise.pkgdatas[id]
 PkgData(Items [b24a5932-55ed-11e9-2a88-e52f99e65a0d]:
-  "src/Items.jl": FileInfo(Main=>ExprsSigs(<1 expressions>, <0 signatures>), Items=>ExprsSigs(<2 expressions>, <3 signatures>), )
-  "src/indents.jl": FileInfo(Items=>ExprsSigs(<2 expressions>, <2 signatures>), )
+  "src/Items.jl": FileInfo(Main=>ExprsInfos(<1 expressions>, <0 signatures>), Items=>ExprsInfos(<2 expressions>, <3 signatures>), )
+  "src/indents.jl": FileInfo(Items=>ExprsInfos(<2 expressions>, <2 signatures>), )
 ```
 
 (Your specific UUID may differ.)
@@ -325,7 +325,7 @@ package manager.
 
 ```julia-repl
 julia> pkgdata.fileinfos[2]
-FileInfo(Items=>ExprsSigs with the following expressions:
+FileInfo(Items=>ExprsInfos with the following expressions:
   :(indent(::UInt16) = begin
           2
       end)
@@ -361,7 +361,7 @@ and other expressions that are `eval`ed in `Items`.
 
 When the file system notifies Revise that a file has been modified, Revise re-parses
 the file and assigns the expressions to the appropriate modules, creating a
-[`Revise.ModuleExprsSigs`](@ref) `mod_exs_sigs_new`.
+[`Revise.ModuleExprsInfos`](@ref) `mod_exs_sigs_new`.
 It then compares `mod_exs_sigs_new` against `mod_exs_sigs_ref`, 
 the reference object that is synchronized to code as it was `eval`ed.
 

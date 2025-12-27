@@ -3,17 +3,17 @@ struct DoNotParse end
 """
     mexs = parse_source(filename::AbstractString, mod::Module)
 
-Parse the source `filename`, returning a [`ModuleExprsSigs`](@ref) `mexs`.
+Parse the source `filename`, returning a [`ModuleExprsInfos`](@ref) `mexs`.
 `mod` is the "parent" module for the file (i.e., the one that `include`d the file);
 if `filename` defines more module(s) then these will all have separate entries in `mexs`.
 
 If parsing `filename` fails, `nothing` is returned.
 """
 parse_source(filename::AbstractString, mod::Module; kwargs...) =
-    parse_source!(ModuleExprsSigs(mod), filename, mod; kwargs...)
+    parse_source!(ModuleExprsInfos(mod), filename, mod; kwargs...)
 
 """
-    parse_source!(mexs::ModuleExprsSigs, filename, mod::Module)
+    parse_source!(mexs::ModuleExprsInfos, filename, mod::Module)
 
 Top-level parsing of `filename` as included into module
 `mod`. Successfully-parsed expressions will be added to `mexs`. Returns
@@ -21,7 +21,7 @@ Top-level parsing of `filename` as included into module
 
 See also [`Revise.parse_source`](@ref).
 """
-function parse_source!(mod_exprs_sigs::ModuleExprsSigs, filename::AbstractString, mod::Module; kwargs...)
+function parse_source!(mod_exprs_sigs::ModuleExprsInfos, filename::AbstractString, mod::Module; kwargs...)
     if !isfile(filename)
         @warn "$filename is not a file, omitting from revision tracking"
         return nothing
@@ -29,7 +29,7 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, filename::AbstractString
     return parse_source!(mod_exprs_sigs, read(filename, String), filename, mod; kwargs...)
 end
 
-function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, filename::AbstractString, mod::Module; kwargs...)
+function parse_source!(mod_exprs_sigs::ModuleExprsInfos, src::AbstractString, filename::AbstractString, mod::Module; kwargs...)
     if startswith(src, "# REVISE: DO NOT PARSE")
         return DoNotParse()
     end
@@ -43,7 +43,7 @@ function parse_source!(mod_exprs_sigs::ModuleExprsSigs, src::AbstractString, fil
     end
 end
 
-function process_ex!(mod_exprs_sigs::ModuleExprsSigs, ex::Expr, filename::AbstractString, mod::Module; mode::Symbol=:sigs)
+function process_ex!(mod_exprs_sigs::ModuleExprsInfos, ex::Expr, filename::AbstractString, mod::Module; mode::Symbol=:sigs)
     if isexpr(ex, :error) || isexpr(ex, :incomplete)
         return eval(ex)
     end
@@ -58,7 +58,7 @@ function process_ex!(mod_exprs_sigs::ModuleExprsSigs, ex::Expr, filename::Abstra
                 throw(ReviseEvalException(loc, err, Any[(sf, 1) for sf in stacktrace(bt)]))
             end
         end
-        exprs_sigs = get!(ExprsSigs, mod_exprs_sigs, mod)
+        exprs_sigs = get!(ExprsInfos, mod_exprs_sigs, mod)
         if ex.head === :toplevel
             lnn = nothing
             for a in ex.args

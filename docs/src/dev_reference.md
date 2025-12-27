@@ -48,7 +48,7 @@ Revise.user_callbacks_by_key
 
 ```@docs
 Revise.RelocatableExpr
-Revise.ModuleExprsSigs
+Revise.ModuleExprsInfos
 Revise.FileInfo
 Revise.PkgData
 Revise.WatchList
@@ -118,7 +118,7 @@ This part of the package is not as well documented.
 ```@docs
 Revise.minimal_evaluation!
 Revise.methods_by_execution!
-Revise.MethodInfo
+Revise.ExInfo
 ```
 
 ### Modules and paths
