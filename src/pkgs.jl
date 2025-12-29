@@ -25,10 +25,10 @@ function queue_includes!(pkgdata::PkgData, id::PkgId)
             end
             modname = String(Symbol(mod))
             if startswith(modname, modstring) || endswith(fname, modstring*".jl")
-                mod_exs_sigs = parse_source(fname, mod)
-                if mod_exs_sigs !== nothing
+                mod_exs_infos = parse_source(fname, mod)
+                if mod_exs_infos !== nothing
                     fname = relpath(fname, pkgdata)
-                    push!(pkgdata, fname=>FileInfo(mod_exs_sigs))
+                    push!(pkgdata, fname=>FileInfo(mod_exs_infos))
                 end
                 push!(delids, i)
             end
@@ -90,13 +90,13 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
         return add_definitions_from_repl(file)
     end
     fi = fileinfo(pkgdata, file)
-    if (isempty(fi.mod_exs_sigs) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
+    if (isempty(fi.mod_exs_infos) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
         # Source was never parsed, get it from the precompile cache
         src = read_from_cache(pkgdata, file)
         filep = joinpath(basedir(pkgdata), file)
         filec = get(cache_file_key, filep, filep)
-        topmod = first(keys(fi.mod_exs_sigs))
-        ret = parse_source!(fi.mod_exs_sigs, src, filec, topmod)
+        topmod = first(keys(fi.mod_exs_infos))
+        ret = parse_source!(fi.mod_exs_infos, src, filec, topmod)
         if ret === nothing
             @error "failed to parse cache file source text for $file"
         end
@@ -111,36 +111,54 @@ end
 
 function add_modexs!(fi::FileInfo, modexs::Vector{Tuple{Module,Expr}})
     for (mod, rex) in modexs
-        exs_sigs = get(fi.mod_exs_sigs, mod, nothing)
-        if exs_sigs === nothing
-            fi.mod_exs_sigs[mod] = exs_sigs = ExprsSigs()
+        exs_infos = get(fi.mod_exs_infos, mod, nothing)
+        if exs_infos === nothing
+            fi.mod_exs_infos[mod] = exs_infos = ExprsInfos()
         end
-        pushex!(exs_sigs, rex)
+        pushex!(exs_infos, rex)
     end
     return fi
 end
 
 function maybe_extract_sigs!(fi::FileInfo)
     if !fi.extracted[]
-        instantiate_sigs!(fi.mod_exs_sigs)
+        instantiate_sigs!(fi.mod_exs_infos)
         fi.extracted[] = true
     end
     return fi
 end
 maybe_extract_sigs!(pkgdata::PkgData, file::AbstractString) = maybe_extract_sigs!(fileinfo(pkgdata, file))
 
+is_not_populated(fi::FileInfo) =
+    (isempty(fi.mod_exs_infos) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
+
 function maybe_extract_sigs_for_meths(meths)
     for m in meths
-        methinfo = get(CodeTracking.method_info, m.sig, false)
+        methinfo = get(CodeTracking.method_info, MethodInfoKey(m), false)
         if methinfo === false
             pkgdata = get(pkgdatas, PkgId(m.module), nothing)
             pkgdata === nothing && continue
             for file in srcfiles(pkgdata)
                 fi = fileinfo(pkgdata, file)
-                if (isempty(fi.modexsigs) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
+                if is_not_populated(fi)
                     fi = maybe_parse_from_cache!(pkgdata, file)
-                    instantiate_sigs!(fi.modexsigs)
+                    instantiate_sigs!(fi.mod_exs_infos)
                 end
+            end
+        end
+    end
+end
+
+function maybe_extract_sigs_for_types(types)
+    for ty in types
+        m = parentmodule(ty)
+        pkgdata = get(pkgdatas, PkgId(m), nothing)
+        pkgdata === nothing && continue
+        for file in srcfiles(pkgdata)
+            fi = fileinfo(pkgdata, file)
+            if is_not_populated(fi)
+                fi = maybe_parse_from_cache!(pkgdata, file)
+                instantiate_sigs!(fi.mod_exs_infos)
             end
         end
     end
@@ -165,10 +183,10 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
             # Parse the source of the new file
             fullfile = joinpath(basedir(pkgdata), incrp)
             if isfile(fullfile)
-                parse_source!(fi.mod_exs_sigs, fullfile, mod)
+                parse_source!(fi.mod_exs_infos, fullfile, mod)
                 if eval_now
                     # Use runtime dispatch to reduce latency
-                    Base.invokelatest(instantiate_sigs!, fi.mod_exs_sigs; mode=:eval)
+                    Base.invokelatest(instantiate_sigs!, fi.mod_exs_infos; mode=:eval)
                 end
             end
             # Add to watchlist
@@ -219,7 +237,7 @@ function add_require(sourcefile::String, modcaller::Module, idmod::String, ::Str
                     push!(modincludes, (modcaller, inc))
                 end
                 maybe_add_includes_to_pkgdata!(pkgdata, filekey, modincludes)
-                if isempty(fi.mod_exs_sigs)
+                if isempty(fi.mod_exs_infos)
                     # Source has not even been parsed
                     push!(fi.cacheexprs, (modcaller, expr))
                 else
@@ -262,16 +280,16 @@ end
 
 function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourcefile::String, modcaller::Module, expr::Expr)
     fi = pkgdata.fileinfos[fileidx]
-    exs_sigs_new = ExprsSigs()
-    exs_sigs_new[RelocatableExpr(expr)] = nothing
-    mod_exs_sigs_new = ModuleExprsSigs(modcaller=>exs_sigs_new)
+    exs_infos_new = ExprsInfos()
+    exs_infos_new[RelocatableExpr(expr)] = nothing
+    mod_exs_infos_new = ModuleExprsInfos(modcaller=>exs_infos_new)
     # Before executing the expression we need to set the load path appropriately
     prev = Base.source_path(nothing)
     tls = task_local_storage()
     tls[:SOURCE_PATH] = sourcefile
     # Now execute the expression
-    mod_exs_sigs_new, includes = try
-        eval_new!(mod_exs_sigs_new, fi.mod_exs_sigs)
+    mod_exs_infos_new, includes = try
+        eval_new!(mod_exs_infos_new, fi.mod_exs_infos)
     finally
         if prev === nothing
             delete!(tls, :SOURCE_PATH)
@@ -280,7 +298,7 @@ function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourc
         end
     end
     # Add any new methods or `include`d files to tracked objects
-    pkgdata.fileinfos[fileidx] = FileInfo(mod_exs_sigs_new, fi)
+    pkgdata.fileinfos[fileidx] = FileInfo(mod_exs_infos_new, fi)
     ret = maybe_add_includes_to_pkgdata!(pkgdata, filekey, includes; eval_now=true)
     return ret
 end
@@ -479,11 +497,11 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
             # https://github.com/JuliaLang/julia/issues/42404
             # Get the source-text from the package source instead
             fi = fileinfo(pkgdata, file)
-            if isempty(fi.mod_exs_sigs) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
+            if isempty(fi.mod_exs_infos) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
                 filep = joinpath(basedir(pkgdata), file)
                 src = read(filep, String)
-                topmod = first(keys(fi.mod_exs_sigs))
-                if parse_source!(fi.mod_exs_sigs, src, filep, topmod) === nothing
+                topmod = first(keys(fi.mod_exs_infos))
+                if parse_source!(fi.mod_exs_infos, src, filep, topmod) === nothing
                     @error "failed to parse source text for $filep"
                 end
                 add_modexs!(fi, fi.cacheexprs)

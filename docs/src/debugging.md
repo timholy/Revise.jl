@@ -25,7 +25,7 @@ Currently, the best way to turn on logging is within a running Julia session:
 
 ```jldoctest; setup=(using Revise)
 julia> rlogger = Revise.debug_logger()
-Revise.ReviseLogger(Revise.LogRecord[], Debug)
+ReviseLogger with min_level=Debug
 ```
 You'll use `rlogger` at the end to retrieve the logs.
 
