@@ -1,14 +1,77 @@
 # Limitations
 
-There are some kinds of changes that Revise (or often, Julia itself) cannot incorporate into a running Julia session:
+There are some kinds of changes that Revise (or often, Julia itself) cannot automatically incorporate into a running Julia session:
 
-- changes to type definitions or `const`s
+- changes to global bindings (but see below for struct definitions on Julia 1.12+)
 - conflicts between variables and functions sharing the same name
 - removal of `export`s
 
 These kinds of changes require that you restart your Julia session.
 
-During early stages of development, it's quite common to want to change type definitions. You can work around Julia's/Revise's limitations by temporary renaming. We'll illustrate this below, using `write` to be explicit about when updates to the file happen. But in ordinary usage, these are changes you'd likely make with your editor.
+## Struct revision (Julia 1.12+)
+
+Starting with Julia 1.12, Revise can handle changes to struct definitions. When you modify
+a struct, Revise will automatically re-evaluate the struct definition and any methods or
+types that depend on it.
+
+For example, this now works:
+
+```julia
+struct MyStruct
+    x::Int
+end
+
+struct UseMyStruct
+    x::MyStruct
+end
+
+func(ums::UseMyStruct) = println(ums.x.x)
+```
+
+If you change it to:
+
+```julia
+struct MyStruct
+    x::Float64
+    y::String
+end
+```
+
+Revise will redefine `MyStruct`, and also re-evaluate `UseMyStruct` (which uses `MyStruct`
+as a field type) and `func` (which references `UseMyStruct` in its signature).
+
+## Binding revision is not yet supported
+
+While struct revision is supported, more general "binding revision" is not yet implemented.
+Specifically, Revise does not track implicit dependencies between top-level bindings.
+
+For example:
+
+```julia
+MyVecType{T} = Vector{T}  # changing this to AbstractVector{T} won't update A
+struct A{T}
+    v::MyVecType{T}
+end
+```
+
+If you change `MyVecType{T}` from `Vector{T}` to `AbstractVector{T}`, the struct `A` will
+**not** be automatically re-evaluated because Revise does not track the dependency edge
+from `MyVecType` to `A`. The same applies to `const` bindings and other global bindings
+that are referenced in type definitions.
+
+Supporting this would require tracking implicit binding edges across all top-level code,
+which involves significant interpreter enhancements and is deferred to future work.
+This limitation also underlies [the issues with macros and generated functions](@ref other-limitations/macros-and-generated-functions) described below.
+
+As a workaround, you can manually call [`revise`](@ref) to force re-evaluation of all definitions in `MyModule`, which will pick up the new bindings.
+
+## Workaround for the struct revision issue before Julia 1.12
+
+On Julia versions prior to 1.12, struct definitions cannot be revised. During early stages of development, 
+it's quite common to want to change type definitions. 
+You can work around Julia's/Revise's limitations by temporary renaming. 
+We'll illustrate this below, using `write` to be explicit about when updates to the file happen. 
+But in ordinary usage, these are changes you'd likely make with your editor.
 
 ```julia-repl
 julia> using Pkg, Revise
@@ -58,7 +121,7 @@ julia> write("src/MyPkg.jl","""
        export FooStruct, processFoo
 
        abstract type AbstractFooStruct end
-       struct FooStruct2 <: AbstractFooStruct # change version nuumber
+       struct FooStruct2 <: AbstractFooStruct # change version number
            bar::Float64 # change type of the field
        end
        FooStruct = FooStruct2 # update alias reference
@@ -67,8 +130,7 @@ julia> write("src/MyPkg.jl","""
        end
 
        end
-       """)
-234
+       """);
 
 julia> FooStruct # make sure FooStruct refers to FooStruct2
 MyPkg.FooStruct2
@@ -102,7 +164,7 @@ julia> write("src/MyPkg.jl","""
        end
 
        end
-       """)
+       """);
 
 julia> run(Base.julia_cmd()) # start a new Julia session, alternatively exit() and restart julia
 
@@ -118,12 +180,13 @@ Precompiling MyPkg
 
 julia> isconst(MyPkg, :FooStruct)
 true
-
 ```
+
+## Other limitations
 
 In addition, some situations may require special handling:
 
-### Macros and generated functions
+### [Macros and generated functions](@id other-limitations/macros-and-generated-functions)
 
 If you change a macro definition or methods that get called by `@generated` functions
 outside their `quote` block, these changes will not be propagated to functions that have
