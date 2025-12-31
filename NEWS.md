@@ -1,7 +1,56 @@
-# News
+# NEWS
 
 This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
+
+<!-- links start -->
+[Unreleased]: https://github.com/timholy/Revise.jl/compare/v3.12.3...HEAD
+<!-- links end -->
+
+## [Unreleased]
+
+- **Struct revision support** (Julia 1.12+): Revise can now handle changes to struct
+  definitions. When you modify a struct, Revise automatically re-evaluates the struct
+  definition along with any methods or types that depend on it.
+  (https://github.com/timholy/Revise.jl/pull/894)
+
+  For example, if you have:
+  ```julia
+  struct MyStruct
+      x::Int
+  end
+
+  struct UseMyStruct
+      x::MyStruct
+  end
+
+  func(ums::UseMyStruct) = println(ums.x.x)
+  ```
+
+  And change `MyStruct` to:
+  ```julia
+  struct MyStruct
+      x::Float64
+      y::String
+  end
+  ```
+
+  Revise will redefine `MyStruct`, and also re-evaluate `UseMyStruct` (which uses
+  `MyStruct` as a field type) and `func` (which references `UseMyStruct` in its signature).
+
+  **Note**: This feature requires Julia 1.12+. However, Revise does not track implicit
+  dependencies from type aliases or global bindings to struct definitions. For example,
+  if you change `MyVecType{T} = Vector{T}` to `AbstractVector{T}`, a struct
+  `struct A{T}; v::MyVecType{T}; end` will **not** be automatically re-evaluated.
+  As a workaround, you can manually call `revise(MyModule)` to force re-evaluation 
+  of all  definitions in `MyModule`, which will pick up the new bindings.
+
+- `Revise.dont_watch(pkg)` and `Revise.allow_watch(pkg)` functions with Preferences.jl
+  persistence. Direct modification of `Revise.dont_watch_pkgs` set is deprecated
+  and will be removed in a future major version. (https://github.com/timholy/Revise.jl/pull/976)
+
+- `Revise.silence()` now uses Preferences.jl for persistent storage instead of file-based
+  persistence. (https://github.com/timholy/Revise.jl/pull/976)
 
 ## Revise 3.9
 
