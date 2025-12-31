@@ -2,9 +2,14 @@ Base.Experimental.@optlevel 1
 
 using FileWatching, REPL, UUIDs
 using LibGit2: LibGit2
-using Base: PkgId
+using Base: PkgId, IdSet
 using Base.Meta: isexpr
+using InteractiveUtils: InteractiveUtils
 using Core: CodeInfo, MethodTable
+
+if !isdefined(Core, :isdefinedglobal)
+    isdefinedglobal(m::Module, s::Symbol) = isdefined(m, s)
+end
 
 export revise, includet, entr, MethodSummary
 
@@ -101,6 +106,7 @@ include("utils.jl")
 include("parsing.jl")
 include("lowered.jl")
 include("loading.jl")
+include("visit.jl")
 include("pkgs.jl")
 include("git.jl")
 include("recipes.jl")
@@ -146,6 +152,9 @@ Global variable, maps `(pkgdata, filename)` pairs that errored upon last revisio
 `(exception, backtrace)`.
 """
 const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}() # locking is covered by revision_queue_lock
+
+# Can we revise types?
+const __bpart__ = Base.VERSION >= v"1.12.0-DEV.2047"
 
 """
     Revise.NOPACKAGE
@@ -267,6 +276,23 @@ See also [`Revise.silence`](@ref).
 const dont_watch_pkgs = Set{Symbol}()
 const silence_pkgs = Set{String}()
 
+function collect_mis(sigs)
+    mis = Core.MethodInstance[]
+    world = Base.get_world_counter()
+    for tt in sigs
+        matches = Base._methods_by_ftype(tt, 10, world)::Vector
+        for mm in matches
+            m = mm.method
+            for mi in Base.specializations(m)
+                if mi.specTypes <: tt
+                    push!(mis, mi)
+                end
+            end
+        end
+    end
+    return mis
+end
+
 ##
 ## The inputs are sets of expressions found in each file.
 ## Some of those expressions will generate methods which are identified via their signatures.
@@ -276,7 +302,7 @@ const silence_pkgs = Set{String}()
 ## Strategy:
 ## - For every old expr not found in the new ones,
 ##     + delete the corresponding methods (using the signatures we've previously computed)
-##     + remove the sig entries from CodeTracking.method_info  (")
+##     + remove the sig entries from CodeTracking.method_info
 ##   Best to do all the deletion first (across all files and modules) in case a method is
 ##   simply being moved from one file to another.
 ## - For every new expr found among the old ones,
@@ -284,7 +310,7 @@ const silence_pkgs = Set{String}()
 ## - For every new expr not found in the old ones,
 ##     + eval the expr
 ##     + extract signatures
-##     + add to the ModuleExprsSigs
+##     + add to the ModuleExprsInfos
 ##     + add to CodeTracking.method_info
 ##
 ## Interestingly, the ex=>mt_sigs link may not be the same as the mt_sigs=>ex link.
@@ -301,87 +327,155 @@ const silence_pkgs = Set{String}()
 ## now this is the right strategy.) From the standpoint of CodeTracking, we should
 ## link the signature to the actual method-defining expression (either :(f() = 1) or :(g() = 2)).
 
-function delete_missing!(exs_sigs_old::ExprsSigs, exs_sigs_new::ExprsSigs)
+# TODO
+# - Correct evaluation order (type & method rewrite at the same time)
+# - Simplify type matching algorithm
+
+function delete_missing!(
+        exs_infos_old::ExprsInfos, exs_infos_new::ExprsInfos,
+        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt
+    )
     with_logger(_debug_logger) do
-        for (ex, siginfos) in exs_sigs_old
-            haskey(exs_sigs_new, ex) && continue
+        for (rex, exinfos) in exs_infos_old
+            haskey(exs_infos_new, rex) && continue
             # ex was deleted
-            siginfos === nothing && continue
-            for siginfo in siginfos
-                mt, sig = siginfo
-                ret = Base._methods_by_ftype(sig, mt, -1, Base.get_world_counter())
-                success = false
-                if !isempty(ret)
-                    m = ret[end].method  # the last method returned is the least-specific that matches, and thus most likely to be type-equal
-                    methsig = m.sig
-                    if sig <: methsig && methsig <: sig
-                        locdefs = get(CodeTracking.method_info, MethodInfoKey(siginfo), nothing)
-                        if isa(locdefs, Vector{Tuple{LineNumberNode,Expr}})
-                            if length(locdefs) > 1
-                                # Just delete this reference but keep the method
-                                line = firstline(ex)
-                                ld = map(pr->linediff(line, pr[1]), locdefs)
-                                idx = argmin(ld)
-                                @assert ld[idx] < typemax(eltype(ld))
-                                deleteat!(locdefs, idx)
-                                continue
-                            else
-                                @assert length(locdefs) == 1
-                            end
-                        end
-                        @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
-                        # Delete the corresponding methods
-                        for get_workers in workers_functions
-                            for p in @invokelatest get_workers()
-                                try  # guard against serialization errors if the type isn't defined on the worker
-                                    @invokelatest remotecall_impl(Core.eval, p, Main, :(delete_method_by_sig($mt, $sig)))
-                                catch
-                                end
-                            end
-                        end
-                        Base.delete_method(m)
-                        # Remove the entries from CodeTracking data
-                        delete!(CodeTracking.method_info, MethodInfoKey(siginfo))
-                        # Remove frame from JuliaInterpreter, if applicable. Otherwise debuggers
-                        # may erroneously work with outdated code (265-like problems)
-                        if haskey(JuliaInterpreter.framedict, m)
-                            delete!(JuliaInterpreter.framedict, m)
-                        end
-                        if isdefined(m, :generator)
-                            # defensively delete all generated functions
-                            empty!(JuliaInterpreter.genframedict)
-                        end
-                        success = true
-                    end
-                end
-                if !success
-                    @debug "FailedDeletion" _group="Action" time=time() deltainfo=(sig,)
+            exinfos === nothing && continue
+            for exinfo in exinfos
+                if exinfo isa SigInfo
+                    handle_method_deletion!(exinfo, rex, world)
+                elseif __bpart__
+                    handle_type_deletion!(exinfo::TypeInfo, reeval_list, handled_types, world)
                 end
             end
         end
     end
-    return exs_sigs_old
+    return exs_infos_old
 end
 
-const empty_exs_sigs = ExprsSigs()
-function delete_missing!(mod_exs_sigs_old::ModuleExprsSigs, mod_exs_sigs_new::ModuleExprsSigs)
-    for (mod, exs_sigs_old) in mod_exs_sigs_old
-        exs_sigs_new = get(mod_exs_sigs_new, mod, empty_exs_sigs)
-        delete_missing!(exs_sigs_old, exs_sigs_new)
+const empty_exs_infos = ExprsInfos()
+function delete_missing!(
+        mod_exs_infos_old::ModuleExprsInfos, mod_exs_infos_new::ModuleExprsInfos,
+        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt
+    )
+    for (mod, exs_infos_old) in mod_exs_infos_old
+        exs_infos_new = get(mod_exs_infos_new, mod, empty_exs_infos)
+        delete_missing!(exs_infos_old, exs_infos_new, reeval_list, handled_types, world)
     end
-    return mod_exs_sigs_old
+    return mod_exs_infos_old
 end
 
-function eval_rex(rex_new::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
+function handle_method_deletion!(siginfo::SigInfo, rex::RelocatableExpr, world::UInt)
+    mt, sig = siginfo
+    ret = Base._methods_by_ftype(sig, mt, -1, world)
+    isempty(ret) && return nothing
+    m = ret[end].method  # the last method returned is the least-specific that matches, and thus most likely to be type-equal
+    methsig = m.sig
+    if sig <: methsig && methsig <: sig
+        locdefs = get(CodeTracking.method_info, MethodInfoKey(siginfo), nothing)
+        if isa(locdefs, Vector{Tuple{LineNumberNode,Expr}})
+            if length(locdefs) > 1
+                # Just delete this reference but keep the method
+                line = firstline(rex)
+                ld = map(pr->linediff(line, pr[1]), locdefs)
+                idx = argmin(ld)
+                @assert ld[idx] < typemax(eltype(ld))
+                deleteat!(locdefs, idx)
+                return nothing
+            else
+                @assert length(locdefs) == 1
+            end
+        end
+        @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
+        # Delete the corresponding methods
+        for get_workers in workers_functions
+            for p in @invokelatest get_workers()
+                try  # guard against serialization errors if the type isn't defined on the worker
+                    @invokelatest remotecall_impl(Core.eval, p, Main, :(delete_method_by_sig($mt, $sig)))
+                catch
+                end
+            end
+        end
+        Base.delete_method(m)
+        # Remove the entries from CodeTracking data
+        delete!(CodeTracking.method_info, MethodInfoKey(siginfo))
+        # Remove frame from JuliaInterpreter, if applicable. Otherwise debuggers
+        # may erroneously work with outdated code (265-like problems)
+        if haskey(JuliaInterpreter.framedict, m)
+            delete!(JuliaInterpreter.framedict, m)
+        end
+        if isdefined(m, :generator)
+            # defensively delete all generated functions
+            empty!(JuliaInterpreter.genframedict)
+        end
+    else
+        @debug "FailedSigDeletion" _group="Action" time=time() deltainfo=(siginfo,world)
+    end
+    nothing
+end
+
+function handle_type_deletion!(
+        typeinfo::TypeInfo, reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt
+    )
+    oldtypename = typeinfo.typname
+    with_logger(_debug_logger) do
+        old_list = copy(reeval_list)
+        oldtype = Base.invoke_in_world(world, getglobal, oldtypename.module, oldtypename.name)::Type
+        alltypes = collect_all_subtypes(Any) # reuse cache for recursive searches performance (freezed at this world)
+        record_invalidations_for_type_deletion!(oldtype, reeval_list, handled_types, alltypes)
+        diff = setdiff(reeval_list, old_list)
+        @debug "DeleteType" _group="Action" time=time() deltainfo=(oldtype,diff)
+    end
+    return reeval_list
+end
+
+function record_invalidations_for_type_deletion!(
+        @nospecialize(oldtype::Type), reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type},
+        alltypes::Base.IdSet{Type}
+    )
+    push!(handled_types, oldtype)
+
+    olddatatype = Base.unwrap_unionall(oldtype)::DataType
+    oldtypename = olddatatype.name
+
+    # Find all methods restricted to `oldtype`
+    meths = old_methods_with(oldtypename)
+    meths !== nothing && union!(reeval_list, meths)
+
+    # Find all types using `oldtype`
+    related_types = old_types_with(oldtypename, alltypes)
+    related_types !== nothing && union!(reeval_list, related_types)
+
+    # For any modules that have not yet been parsed and had their signatures extracted,
+    # we need to do this now, before the binding changes to the new type
+    meths !== nothing && maybe_extract_sigs_for_meths(meths)
+    related_types !== nothing && maybe_extract_sigs_for_types(related_types)
+
+    # If `oldtype` is an abstract type, we need to traverse its subtypes and invalidate them
+    oldsubtypes = collect_all_subtypes(oldtype)
+    maybe_extract_sigs_for_types(oldsubtypes)
+    for oldsubtype in oldsubtypes
+        oldsubtype in handled_types && continue
+        push!(reeval_list, oldsubtype)
+        record_invalidations_for_type_deletion!(oldsubtype, reeval_list, handled_types, alltypes)
+    end
+
+    # `related_types` will also be recursively redefined, so we need to invalidate methods/types related to them as well
+    related_types !== nothing && for related_type in related_types
+        related_type in handled_types && continue
+        record_invalidations_for_type_deletion!(related_type, reeval_list, handled_types, alltypes)
+    end
+end
+
+function eval_rex(rex_new::RelocatableExpr, exs_infos_old::ExprsInfos, mod::Module; mode::Symbol=:eval)
     return with_logger(_debug_logger) do
-        siginfos, includes = nothing, nothing
-        rex_old = getkey(exs_sigs_old, rex_new, nothing)
+        exinfos, includes = nothing, nothing
+        rex_old = getkey(exs_infos_old, rex_new, nothing)
         # extract the signatures and update the line info
         if rex_old === nothing
             ex = rex_new.ex
             # ex is not present in old
             @debug titlecase(String(mode)) _group="Action" time=time() deltainfo=(mod, ex, mode)
-            siginfos, includes, thunk = eval_with_signatures(mod, ex; mode)  # All signatures defined by `ex`
+            exinfos, includes, thunk = eval_with_signatures(mod, ex; mode)  # All signatures defined by `ex`
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end
@@ -397,76 +491,80 @@ function eval_rex(rex_new::RelocatableExpr, exs_sigs_old::ExprsSigs, mod::Module
                 end
             end
         else
-            siginfos = exs_sigs_old[rex_old]
+            exinfos = exs_infos_old[rex_old]
             # Update location info
             ln, lno = firstline(unwrap(rex_new)), firstline(unwrap(rex_old))
-            if siginfos !== nothing && !isempty(siginfos) && ln != lno
+            if exinfos !== nothing && !isempty(exinfos) && ln != lno
                 ln, lno = ln::LineNumberNode, lno::LineNumberNode
-                @debug "LineOffset" _group="Action" time=time() deltainfo=(siginfos, lno=>ln)
-                for siginfo in siginfos
-                    locdefs = CodeTracking.method_info[MethodInfoKey(siginfo)]::AbstractVector
-                    ld = let lno=lno
-                        map(pr->linediff(lno, pr[1]), locdefs)
+                @debug "LineOffset" _group="Action" time=time() deltainfo=(exinfos, lno=>ln)
+                for exinfo in exinfos
+                    if exinfo isa SigInfo
+                        locdefs = CodeTracking.method_info[MethodInfoKey(exinfo)]::AbstractVector
+                        ld = let lno=lno
+                            map(pr->linediff(lno, pr[1]), locdefs)
+                        end
+                        idx = argmin(ld)
+                        if ld[idx] === typemax(eltype(ld))
+                            # println("Missing linediff for $lno and $(first.(locdefs)) with ", rex.ex)
+                            idx = length(locdefs)
+                        end
+                        _, methdef = locdefs[idx]
+                        locdefs[idx] = (fixpath(ln), methdef)
                     end
-                    idx = argmin(ld)
-                    if ld[idx] === typemax(eltype(ld))
-                        # println("Missing linediff for $lno and $(first.(locdefs)) with ", rex.ex)
-                        idx = length(locdefs)
-                    end
-                    _, methdef = locdefs[idx]
-                    locdefs[idx] = (fixpath(ln), methdef)
                 end
             end
         end
-        return siginfos, includes
+        return exinfos, includes
     end
 end
 
 # These are typically bypassed in favor of expression-by-expression evaluation to
 # allow handling of new `include` statements.
-function eval_new!(exs_sigs_new::ExprsSigs, exs_sigs_old::ExprsSigs, mod::Module; mode::Symbol=:eval)
+function eval_new!(exs_infos_new::ExprsInfos, exs_infos_old::ExprsInfos, mod::Module; mode::Symbol=:eval)
     includes = Vector{Pair{Module,String}}()
-    for rex in keys(exs_sigs_new)
-        siginfos, _includes = eval_rex(rex, exs_sigs_old, mod; mode)
-        if siginfos !== nothing
-            exs_sigs_new[rex] = siginfos
+    for rex in keys(exs_infos_new)
+        exinfos, includes′ = eval_rex(rex, exs_infos_old, mod; mode)
+        if exinfos !== nothing
+            exs_infos_new[rex] = exinfos
         end
-        if _includes !== nothing
-            append!(includes, _includes)
+        if includes′ !== nothing
+            append!(includes, includes′)
         end
     end
-    return exs_sigs_new, includes
+    return exs_infos_new, includes
 end
 
-function eval_new!(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old::ModuleExprsSigs; mode::Symbol=:eval)
+function eval_new!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos; mode::Symbol=:eval)
     includes = Vector{Pair{Module,String}}()
-    for (mod, exs_sigs_new) in mod_exs_sigs_new
+    for (mod, exs_infos_new) in mod_exs_infos_new
         # Allow packages to override the supplied mode
         if isdefined(mod, :__revise_mode__)
             mode = getfield(mod, :__revise_mode__)::Symbol
         end
-        exs_sigs_old = get(mod_exs_sigs_old, mod, empty_exs_sigs)
-        _, _includes = eval_new!(exs_sigs_new, exs_sigs_old, mod; mode)
+        exs_infos_old = get(mod_exs_infos_old, mod, empty_exs_infos)
+        _, _includes = eval_new!(exs_infos_new, exs_infos_old, mod; mode)
         append!(includes, _includes)
     end
-    return mod_exs_sigs_new, includes
+    return mod_exs_infos_new, includes
 end
 
 # Eval and insert into CodeTracking data
 function eval_with_signatures(mod::Module, ex::Expr; mode::Symbol=:eval, kwargs...)
-    methodinfo = MethodInfo(ex)
-    _, thk = methods_by_execution!(methodinfo, mod, ex; mode, kwargs...)
-    return methodinfo.allsigs, methodinfo.includes, thk
+    exinfo = ExInfo(ex)
+    _, thk = methods_by_execution!(exinfo, mod, ex; mode, kwargs...)
+    exinfos = Union{SigInfo,TypeInfo}[]
+    append!(exinfos, exinfo.allsigs, exinfo.typeinfos)
+    return exinfos, exinfo.includes, thk
 end
 
-function instantiate_sigs!(mod_exs_sigs::ModuleExprsSigs; mode::Symbol=:sigs, kwargs...)
-    for (mod, exs_sigs) in mod_exs_sigs
-        for rex in keys(exs_sigs)
+function instantiate_sigs!(mod_exs_infos::ModuleExprsInfos; mode::Symbol=:sigs, kwargs...)
+    for (mod, exs_infos) in mod_exs_infos
+        for rex in keys(exs_infos)
             is_doc_expr(rex.ex) && continue
-            exs_sigs[rex], _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
+            exs_infos[rex], _, _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
         end
     end
-    return mod_exs_sigs
+    return mod_exs_infos
 end
 
 # This is intended for testing purposes, but not general use. The key problem is
@@ -474,10 +572,13 @@ end
 # risk you could end up deleting the method altogether depending on the order in which you
 # process these.
 # See `revise` for the proper approach.
-function eval_revised(mod_exs_sigs_new::ModuleExprsSigs, mod_exs_sigs_old::ModuleExprsSigs)
-    delete_missing!(mod_exs_sigs_old, mod_exs_sigs_new)
-    eval_new!(mod_exs_sigs_new, mod_exs_sigs_old)  # note: drops `includes`
-    instantiate_sigs!(mod_exs_sigs_new)
+function eval_revised(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos)
+    reeval_list = IdSet{Union{Method,Type}}()
+    handled_types = IdSet{Type}()
+    world = Base.get_world_counter()
+    delete_missing!(mod_exs_infos_old, mod_exs_infos_new, reeval_list, handled_types, world)
+    eval_new!(mod_exs_infos_new, mod_exs_infos_old)  # note: drops `includes`
+    instantiate_sigs!(mod_exs_infos_new)
 end
 
 """
@@ -621,10 +722,13 @@ function revise_file_queued(pkgdata::PkgData, file)
 end
 
 # Because we delete first, we have to make sure we've parsed the file
-function handle_deletions(pkgdata, file)
+function handle_deletions(
+        pkgdata::PkgData, file::AbstractString,
+        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt
+    )
     fi = maybe_parse_from_cache!(pkgdata, file)
     maybe_extract_sigs!(fi)
-    mod_exs_sigs_old = fi.mod_exs_sigs
+    mod_exs_infos_old = fi.mod_exs_infos
     idx = fileindex(pkgdata, file)
     filep = pkgdata.info.files[idx]
     if isa(filep, AbstractString)
@@ -634,11 +738,11 @@ function handle_deletions(pkgdata, file)
             filep = normpath(basedir(pkgdata))
         end
     end
-    topmod = first(keys(mod_exs_sigs_old))
+    topmod = first(keys(mod_exs_infos_old))
     fileok = file_exists(String(filep)::String)
-    mod_exs_sigs_new = fileok ? parse_source(filep, topmod) : ModuleExprsSigs(topmod)
-    if mod_exs_sigs_new !== nothing && mod_exs_sigs_new !== DoNotParse()
-        delete_missing!(mod_exs_sigs_old, mod_exs_sigs_new)
+    mod_exs_infos_new = fileok ? parse_source(filep, topmod) : ModuleExprsInfos(topmod)
+    if mod_exs_infos_new !== nothing && mod_exs_infos_new !== DoNotParse()
+        delete_missing!(mod_exs_infos_old, mod_exs_infos_new, reeval_list, handled_types, world)
     end
     if !fileok
         @warn("$filep no longer exists, deleted all methods")
@@ -649,7 +753,98 @@ function handle_deletions(pkgdata, file)
             delete!(wl.trackedfiles, file)
         end
     end
-    return mod_exs_sigs_new, mod_exs_sigs_old
+    return mod_exs_infos_new, mod_exs_infos_old
+end
+
+struct ReevalInfo
+    reeval::Union{Method,Type}
+    mod::Module
+    exs_infos::ExprsInfos
+    rex::RelocatableExpr
+    pkgdata::PkgData
+    file::String
+    ReevalInfo(
+        @nospecialize(reeval::Union{Method,Type}), mod::Module, exs_infos::ExprsInfos, rex::RelocatableExpr,
+        pkgdata::PkgData, file::String
+    ) = new(reeval, mod, exs_infos, rex, pkgdata, file)
+end
+
+function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reeval_list::IdSet{Union{Method,Type}}, world::UInt)
+    reeval_infos = ReevalInfo[]
+
+    # N.B. This traverse could become expensive when Revise tracked code becomes large
+    # We could optimize this part by preparing a `CodeTracking.ex_info` cache that incorporates
+    # type information as well as index information to `pkgdatas` into the `CodeTracking.method_info` cache,
+    # and updating `CodeTracking.ex_info` in sync with `pkgdatas` updates,
+    # then performing lookups to `CodeTracking.ex_info` instead
+    for (_, pkgdata) in pkgdatas
+        for (file, fileinfo) in zip(srcfiles(pkgdata), pkgdata.fileinfos)
+            for (mod, exs_infos) in fileinfo.mod_exs_infos
+                for (rex, exinfos) in exs_infos
+                    exinfos === nothing && continue
+                    for exinfo in exinfos
+                        if exinfo isa SigInfo
+                            mt, sig = exinfo
+                            ret = Base._methods_by_ftype(sig, mt, -1, world)
+                            isempty(ret) && continue
+                            for match in ret
+                                if match.method in reeval_list
+                                    push!(reeval_infos, ReevalInfo(match.method, mod, exs_infos, rex, pkgdata, file))
+                                    break
+                                end
+                            end
+                        else exinfo::TypeInfo
+                            typeinfo = exinfo
+                            if Base.invoke_in_world(world, isdefinedglobal, typeinfo.typname.module, typeinfo.typname.name)
+                                typ = Base.invoke_in_world(world, getglobal, typeinfo.typname.module, typeinfo.typname.name)
+                                if typ isa Type && typ in reeval_list
+                                    push!(reeval_infos, ReevalInfo(typ, mod, exs_infos, rex, pkgdata, file))
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+    for (; reeval, mod, exs_infos, rex, pkgdata, file) in reeval_infos
+        reeval isa Type || continue
+        with_logger(_debug_logger) do
+            @debug "ReevalType" _group="Action" time=time() deltainfo=(reeval,mod,rex)
+            try
+                newexinfos, _, _ = eval_with_signatures(mod, rex.ex; mode=:eval)
+                exs_infos[rex] = newexinfos
+            catch err
+                # Re-evaluation failed, likely due to type incompatibility
+                # Clear exs_infos cache for this `rex` so that we will retry evaluation when methods become compatible
+                delete!(exs_infos, rex)
+                @debug "ReevalTypeFailed" _group="Action" time=time() deltainfo=(reeval,mod,rex,err)
+                push!(revision_errors, (pkgdata, file))
+                queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+            end
+        end
+    end
+    for (; reeval, mod, exs_infos, rex, pkgdata, file) in reeval_infos
+        reeval isa Method || continue
+        with_logger(_debug_logger) do
+            @debug "ReevalDeleteMethod" _group="Action" time=time() deltainfo=(reeval.sig, MethodSummary(reeval))
+            # ensure that "old data" doesn't get run with "old methods"
+            try Base.delete_method(reeval) catch end
+            @debug "ReevalMethod" _group="Action" time=time() deltainfo=(reeval, reeval.module, rex)
+            try
+                newexinfos, _, _ = eval_with_signatures(mod, rex.ex; mode=:eval)
+                exs_infos[rex] = newexinfos
+            catch err
+                # Re-evaluation failed, likely due to type incompatibility
+                # Clear exs_infos cache for this `rex` so that we will retry evaluation when methods become compatible
+                delete!(exs_infos, rex)
+                @debug "ReevalMethodFailed" _group="Action" time=time() deltainfo=(reeval,mod,rex,err)
+                push!(revision_errors, (pkgdata, file))
+                queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+            end
+        end
+    end
+    return revision_errors
 end
 
 """
@@ -671,11 +866,14 @@ function revise_file_now(pkgdata::PkgData, file)
         println("Revise is currently tracking the following files in $(PkgId(pkgdata)): ", srcfiles(pkgdata))
         error(file, " is not currently being tracked.")
     end
-    mod_exs_sigs_new, mod_exs_sigs_old = handle_deletions(pkgdata, file)
-    if mod_exs_sigs_new != nothing
-        _, includes = eval_new!(mod_exs_sigs_new, mod_exs_sigs_old)
+    reeval_list = IdSet{Union{Method,Type}}()
+    handled_types = IdSet{Type}()
+    world = Base.get_world_counter()
+    mod_exs_infos_new, mod_exs_infos_old = handle_deletions(pkgdata, file, reeval_list, handled_types, world)
+    if mod_exs_infos_new != nothing
+        _, includes = eval_new!(mod_exs_infos_new, mod_exs_infos_old)
         fi = fileinfo(pkgdata, i)
-        pkgdata.fileinfos[i] = FileInfo(mod_exs_sigs_new, fi)
+        pkgdata.fileinfos[i] = FileInfo(mod_exs_infos_new, fi)
         maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
     end
     nothing
@@ -728,21 +926,28 @@ otherwise these are only logged.
 function revise(; throw::Bool=false)
     active[] || return nothing
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
+
     @lock revision_queue_lock begin
         have_queue_errors = !isempty(queue_errors)
+
+        # Julia 1.12+: when bindings switch to a new type, we need to re-evaluate method
+        # definitions using the new binding resolution.
+        reeval_list = IdSet{Union{Method,Type}}()
+        handled_types = IdSet{Type}()
+        world = Base.get_world_counter()
 
         # Do all the deletion first. This ensures that a method that moved from one file to another
         # won't get redefined first and deleted second.
         revision_errors = Tuple{PkgData,String}[]
         queue = sort!(collect(revision_queue); lt=pkgfileless)
         finished = eltype(revision_queue)[]
-        mod_exs_sigs_new_list = ModuleExprsSigs[]
+        mod_exs_infos = ModuleExprsInfos[]
         interrupt = false
         for (pkgdata, file) in queue
             try
-                mod_exs_sigs_new, _ = handle_deletions(pkgdata, file)
-                mod_exs_sigs_new === DoNotParse() && continue
-                push!(mod_exs_sigs_new_list, mod_exs_sigs_new)
+                mod_exs_infos_new, _ = handle_deletions(pkgdata, file, reeval_list, handled_types, world)
+                mod_exs_infos_new === DoNotParse() && continue
+                push!(mod_exs_infos, mod_exs_infos_new)
                 push!(finished, (pkgdata, file))
             catch err
                 throw && Base.throw(err)
@@ -751,30 +956,31 @@ function revise(; throw::Bool=false)
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())
             end
         end
+
         # Do the evaluation
-        for ((pkgdata, file), mod_exs_sigs_new) in zip(finished, mod_exs_sigs_new_list)
+        for ((pkgdata, file), mod_exs_infos_new) in zip(finished, mod_exs_infos)
             defaultmode = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
             i = fileindex(pkgdata, file)
             i === nothing && continue   # file was deleted by `handle_deletions`
             fi = fileinfo(pkgdata, i)
-            modsremaining = Set(keys(mod_exs_sigs_new))
+            modsremaining = Set(keys(mod_exs_infos_new))
             changed, err = true, nothing
             while changed
                 changed = false
-                for (mod, exs_sigs_new) in mod_exs_sigs_new
+                for (mod, exs_infos_new) in mod_exs_infos_new
                     mod ∈ modsremaining || continue
                     try
                         mode = defaultmode
                         # Allow packages to override the supplied mode
-                        if isdefined(mod, :__revise_mode__)
-                            mode = getfield(mod, :__revise_mode__)::Symbol
+                        if isdefinedglobal(mod, :__revise_mode__)
+                            mode = getglobal(mod, :__revise_mode__)::Symbol
                         end
                         mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
-                        exs_sigs_old = get(fi.mod_exs_sigs, mod, empty_exs_sigs)
-                        for rex in keys(exs_sigs_new)
-                            siginfos, includes = eval_rex(rex, exs_sigs_old, mod; mode)
-                            if siginfos !== nothing
-                                exs_sigs_new[rex] = siginfos
+                        exs_infos_old = get(fi.mod_exs_infos, mod, empty_exs_infos)
+                        for rex in keys(exs_infos_new)
+                            exinfos, includes = eval_rex(rex, exs_infos_old, mod; mode)
+                            if exinfos !== nothing
+                                exs_infos_new[rex] = exinfos
                             end
                             if includes !== nothing
                                 maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
@@ -788,7 +994,7 @@ function revise(; throw::Bool=false)
                 end
             end
             if isempty(modsremaining) || isa(err, LoweringException)   # fix #877
-                pkgdata.fileinfos[i] = FileInfo(mod_exs_sigs_new, fi)
+                pkgdata.fileinfos[i] = FileInfo(mod_exs_infos_new, fi)
             end
             if isempty(modsremaining)
                 delete!(queue_errors, (pkgdata, file))
@@ -799,6 +1005,13 @@ function revise(; throw::Bool=false)
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())
             end
         end
+
+        # Do binding redefinitions
+        if __bpart__
+            redefine_bindings!(revision_errors, reeval_list, world)
+        end
+
+        # Error handling
         if interrupt
             for pkgfile in finished
                 haskey(queue_errors, pkgfile) || delete!(revision_queue, pkgfile)
@@ -854,8 +1067,8 @@ function revise(mod::Module; force::Bool=true)
     force || return true
     for i = 1:length(srcfiles(pkgdata))
         fi = fileinfo(pkgdata, i)
-        for (mod, exs_sigs) in fi.mod_exs_sigs
-            for def_rex in keys(exs_sigs)
+        for (mod, exs_infos) in fi.mod_exs_infos
+            for def_rex in keys(exs_infos)
                 ex = def_rex.ex
                 exuw = unwrap(ex)
                 isexpr(exuw, :call) && is_some_include(exuw.args[1]) && continue
@@ -902,12 +1115,12 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
         file = abspath_no_normalize(file)
     end
     # Set up tracking
-    mod_exs_sigs = parse_source(file, mod; mode)
-    if mod_exs_sigs !== nothing
+    mod_exs_infos = parse_source(file, mod; mode)
+    if mod_exs_infos !== nothing
         if mode === :includet
             mode = :sigs   # we already handled evaluation in `parse_source`
         end
-        instantiate_sigs!(mod_exs_sigs; mode, kwargs...)
+        invokelatest(instantiate_sigs!, mod_exs_infos; mode, kwargs...)
         if !haskey(pkgdatas, id)
             # Wait a bit to see if `mod` gets initialized
             sleep(0.1)
@@ -920,7 +1133,7 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
             CodeTracking._pkgfiles[id] = pkgdata.info
         end
         @lock pkgdatas_lock begin
-            push!(pkgdata, relpath(file, pkgdata)=>FileInfo(mod_exs_sigs))
+            push!(pkgdata, relpath(file, pkgdata)=>FileInfo(mod_exs_infos))
             init_watching(pkgdata, (String(file)::String,))
             pkgdatas[id] = pkgdata
         end
@@ -1110,9 +1323,9 @@ function get_def(method::Method; modified_files=revision_queue)
         isdefined(Base, :active_repl) || return false
         fi = add_definitions_from_repl(filename)
         hassig = false
-        for (_, exs_sigs) in fi.mod_exs_sigs
-            for siginfos in values(exs_sigs)
-                hassig |= !isempty(siginfos)
+        for (_, exs_infos) in fi.mod_exs_infos
+            for exinfos in values(exs_infos)
+                hassig |= !isempty(exinfos)
             end
         end
         return hassig
@@ -1179,7 +1392,7 @@ function get_expressions(id::PkgId, filename)
     pkgdata = pkgdatas[id]
     fi = maybe_parse_from_cache!(pkgdata, filename)
     maybe_extract_sigs!(fi)
-    return fi.mod_exs_sigs
+    return fi.mod_exs_infos
 end
 
 function add_definitions_from_repl(filename::String)
@@ -1188,10 +1401,10 @@ function add_definitions_from_repl(filename::String)
     src = hp.history[hp.start_idx+hist_idx]
     id = PkgId(nothing, "@REPL")
     pkgdata = pkgdatas[id]
-    mod_exs_sigs = ModuleExprsSigs(Main::Module)
-    parse_source!(mod_exs_sigs, src, filename, Main::Module)
-    instantiate_sigs!(mod_exs_sigs)
-    fi = FileInfo(mod_exs_sigs)
+    mod_exs_infos = ModuleExprsInfos(Main::Module)
+    parse_source!(mod_exs_infos, src, filename, Main::Module)
+    instantiate_sigs!(mod_exs_infos)
+    fi = FileInfo(mod_exs_infos)
     push!(pkgdata, filename=>fi)
     return fi
 end
@@ -1437,6 +1650,19 @@ function __init__()
             if Atom isa Module && isdefined(Atom, :handlers)
                 setup_atom(Atom)
             end
+        end
+    end
+
+    # Populate field types map cache (only on main process, not on workers)
+    if __bpart__ && (isnothing(distributed_module) || distributed_module.myid() == 1)
+        Threads.@spawn :default @lock types_cache_lock for type in collect_all_subtypes(Any)
+            nflds = Base.Compiler.fieldcount_noerror(type)
+            if nflds !== nothing && nflds > 0
+                types = collect(Any, fieldtypes(type))
+            else
+                types = nothing
+            end
+            types_cache[type] = types
         end
     end
     return nothing

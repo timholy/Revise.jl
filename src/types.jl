@@ -61,7 +61,7 @@ struct SigInfo
     SigInfo(mt::Union{Nothing,MethodTable}, @nospecialize(sig::Type), ext::ExtendedData) = new(mt, sig, ext)
 end
 
-SigInfo(mt::Union{Nothing,MethodTable}, sig::Type) = SigInfo(mt, sig, no_extended_data)
+SigInfo(mt::Union{Nothing,MethodTable}, @nospecialize(sig::Type)) = SigInfo(mt, sig, no_extended_data)
 SigInfo((mt, sig)::MethodInfoKey) = SigInfo(mt, sig, no_extended_data)
 
 function Base.iterate(e::SigInfo, st::Int=0)
@@ -78,29 +78,40 @@ end
 
 CodeTracking.MethodInfoKey(si::SigInfo) = MethodInfoKey(si.mt, si.sig)
 
-"""
-    MethodInfo(ex::Expr)
+struct TypeInfo
+    typname::Core.TypeName
+    ext::ExtendedData
+    TypeInfo(typname::Core.TypeName, ext::ExtendedData = no_extended_data) = new(typname, ext)
+end
 
-Create a cache for storing information about method definitions.
+"""
+    ExInfo(ex::Expr)
+
+Create a cache for storing information about method and type definitions.
+
 Adding signatures to such an object inserts them into `CodeTracking.method_info`,
 which maps signature Tuple-types to `(lnn::LineNumberNode, ex::Expr)` pairs.
 Because method signatures are unique within a module, this is the foundation for
 identifying methods in a manner independent of source-code location.
 
+Type definitions are also tracked to support struct revision, but unlike method
+signatures, they are not currently cached in CodeTracking.
+
 It also has the following fields:
 
-- `exprstack`: used when descending into `@eval` statements (via `push_expr` and `pop_expr!`)
-  `ex` (used in creating the `MethodInfo` object) is the first entry in the stack.
-- `allsigs`: a list of all method signatures defined by a given expression
+- `exprstack`: used when descending into `@eval` statements: `ex` (used in creating the `ExInfo` object) is the first entry in the stack
+- `allsigs`: a list of all method signatures defined by a given expression (cached in `CodeTracking.method_info`)
+- `typeinfos`: a list of all type definitions defined by a given expression (not cached in CodeTracking)
 - `includes`: a list of `module=>filename` for any `include` statements encountered while the
   expression was parsed.
 """
-struct MethodInfo
+struct ExInfo
     exprstack::Vector{Expr}
     allsigs::Vector{SigInfo}
+    typeinfos::Vector{TypeInfo}
     includes::Vector{Pair{Module,String}}
 end
-MethodInfo(ex::Expr) = MethodInfo(Expr[ex], SigInfo[], Pair{Module,String}[])
+ExInfo(ex::Expr) = ExInfo(Expr[ex], SigInfo[], TypeInfo[], Pair{Module,String}[])
 
 """
     get_extended_data(ext::ExtendedData, owner::Symbol) -> ext::Union{ExtendedData,Nothing}
@@ -162,22 +173,28 @@ function replace_extended_data(siginfo::SigInfo, owner::Symbol, @nospecialize(da
     return SigInfo(siginfo.mt, siginfo.sig, new_ext)
 end
 
-const ExprsSigs = OrderedDict{RelocatableExpr,Union{Nothing,Vector{SigInfo}}}
+const ExprsInfos = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Union{SigInfo,TypeInfo}}}}
 const DepDictVals = Tuple{Module,RelocatableExpr}
 const DepDict = Dict{Symbol,Set{DepDictVals}}
 
-function Base.show(io::IO, exs_sigs::ExprsSigs)
+function Base.show(io::IO, exs_infos::ExprsInfos)
     compact = get(io, :compact, false)
     if compact
-        n = 0
-        for (_, siginfos) in exs_sigs
-            siginfos === nothing && continue
-            n += length(siginfos)
+        n_sigs = n_types = 0
+        for (_, exinfos) in exs_infos
+            exinfos === nothing && continue
+            for exinfo in exinfos
+                if exinfo isa SigInfo
+                    n_sigs += 1
+                else
+                    n_types += 1
+                end
+            end
         end
-        print(io, "ExprsSigs(<$(length(exs_sigs)) expressions>, <$n signatures>)")
+        print(io, "ExprsInfos(<$(length(exs_infos)) expressions>, <$n_sigs signatures>, <$n_types types>)")
     else
-        print(io, "ExprsSigs with the following expressions: ")
-        for def_rex in keys(exs_sigs)
+        print(io, "ExprsInfos with the following expressions: ")
+        for def_rex in keys(exs_infos)
             print(io, "\n  ")
             Base.show_unquoted(io, RelocatableExpr(unwrap(def_rex)), 2)
         end
@@ -185,76 +202,77 @@ function Base.show(io::IO, exs_sigs::ExprsSigs)
 end
 
 """
-    ModuleExprsSigs
+    ModuleExprsInfos
 
-For a particular source file, the corresponding `ModuleExprsSigs` is a mapping
+For a particular source file, the corresponding `ModuleExprsInfos` is a mapping
 `mod=>exprs=>mt_sigs` of the expressions `exprs` found in `mod` and the method table/signature pairs `mt_sigs`
-that arise from them. Specifically, if `mes` is a `ModuleExprsSigs`, then `mes[mod][ex]`
+that arise from them. Specifically, if `mes` is a `ModuleExprsInfos`, then `mes[mod][ex]`
 is a list of method table/signature pairs that result from evaluating `ex` in `mod`. It is possible that
 this returns `nothing`, which can mean either that `ex` does not define any methods
 or that the method table/signature pairs have not yet been cached.
 
 The first `mod` key is guaranteed to be the module into which this file was `include`d.
 
-To create a `ModuleExprsSigs` from a source file, see [`Revise.parse_source`](@ref).
+To create a `ModuleExprsInfos` from a source file, see [`Revise.parse_source`](@ref).
 """
-const ModuleExprsSigs = OrderedDict{Module,ExprsSigs}
+const ModuleExprsInfos = OrderedDict{Module,ExprsInfos}
 
-function Base.typeinfo_prefix(::IO, mexs::ModuleExprsSigs)
-    tn = typeof(mexs).name
+function Base.typeinfo_prefix(::IO, mod_exs_infos::ModuleExprsInfos)
+    tn = typeof(mod_exs_infos).name
     return string(tn.module, '.', tn.name), true
 end
 
 """
-    fm = ModuleExprsSigs(mod::Module)
+    fm = ModuleExprsInfos(mod::Module)
 
-Initialize an empty `ModuleExprsSigs` for a file that is `include`d into `mod`.
+Initialize an empty `ModuleExprsInfos` for a file that is `include`d into `mod`.
 """
-ModuleExprsSigs(mod::Module) = ModuleExprsSigs(mod=>ExprsSigs())
+ModuleExprsInfos(mod::Module) = ModuleExprsInfos(mod=>ExprsInfos())
 
-Base.isempty(fm::ModuleExprsSigs) = length(fm) == 1 && isempty(first(values(fm)))
+Base.isempty(fm::ModuleExprsInfos) = length(fm) == 1 && isempty(first(values(fm)))
 
 """
-    FileInfo(mexs::ModuleExprsSigs, cachefile="")
+    FileInfo(mod_exs_infos::ModuleExprsInfos, cachefile="")
 
 Structure to hold the per-module expressions found when parsing a
 single file.
-`mexs` holds the [`Revise.ModuleExprsSigs`](@ref) for the file.
+`mod_exs_infos` holds the [`Revise.ModuleExprsInfos`](@ref) for the file.
 
 Optionally, a `FileInfo` can also record the path to a cache file holding the original source code.
 This is applicable only for precompiled modules and `Base`.
 (This cache file is distinct from the original source file that might be edited by the
 developer, and it will always hold the state
 of the code when the package was precompiled or Julia's `Base` was built.)
-When a cache is available, `mexs` will be empty until the file gets edited:
+When a cache is available, `mod_exs_infos` will be empty until the file gets edited:
 the original source code gets parsed only when a revision needs to be made.
 
 Source cache files greatly reduce the overhead of using Revise.
 """
 struct FileInfo
-    mod_exs_sigs::ModuleExprsSigs
+    mod_exs_infos::ModuleExprsInfos
     cachefile::String
     cacheexprs::Vector{Tuple{Module,Expr}}             # "unprocessed" exprs, used to support @require
-    extracted::Base.RefValue{Bool}                     # true if signatures have been processed from mod_exs_sigs
-    parsed::Base.RefValue{Bool}                        # true if mod_exs_sigs have been parsed from cachefile
+    extracted::Base.RefValue{Bool}                     # true if signatures have been processed from mod_exs_infos
+    parsed::Base.RefValue{Bool}                        # true if mod_exs_infos have been parsed from cachefile
 end
-FileInfo(fm::ModuleExprsSigs, cachefile="") = FileInfo(fm, cachefile, Tuple{Module,Expr}[], Ref(false), Ref(false))
+FileInfo(mod_exs_infos::ModuleExprsInfos, cachefile="") =
+    FileInfo(mod_exs_infos, cachefile, Tuple{Module,Expr}[], Ref(false), Ref(false))
 
 """
     FileInfo(mod::Module, cachefile="")
 
 Initialize an empty FileInfo for a file that is `include`d into `mod`.
 """
-FileInfo(mod::Module, cachefile::AbstractString="") = FileInfo(ModuleExprsSigs(mod), cachefile)
+FileInfo(mod::Module, cachefile::AbstractString="") = FileInfo(ModuleExprsInfos(mod), cachefile)
 
-FileInfo(fm::ModuleExprsSigs, fi::FileInfo) = FileInfo(fm, fi.cachefile, copy(fi.cacheexprs), Ref(fi.extracted[]), Ref(fi.parsed[]))
+FileInfo(fm::ModuleExprsInfos, fi::FileInfo) = FileInfo(fm, fi.cachefile, copy(fi.cacheexprs), Ref(fi.extracted[]), Ref(fi.parsed[]))
 
 function Base.show(io::IO, fi::FileInfo)
     print(io, "FileInfo(")
-    for (mod, exs_sigs) in fi.mod_exs_sigs
+    for (mod, exs_infos) in fi.mod_exs_infos
         show(io, mod)
         print(io, "=>")
-        show(io, exs_sigs)
+        show(io, exs_infos)
         print(io, ", ")
     end
     if !isempty(fi.cachefile)
@@ -329,11 +347,11 @@ function Base.show(io::IO, pkgdata::PkgData)
         nexs, nsigs, nparsed = 0, 0, 0
         for fi in pkgdata.fileinfos
             thisnexs, thisnsigs = 0, 0
-            for (_, exs_sigs) in fi.mod_exs_sigs
-                for (_, siginfos) in exs_sigs
+            for (_, exs_infos) in fi.mod_exs_infos
+                for (_, exinfos) in exs_infos
                     thisnexs += 1
-                    siginfos === nothing && continue
-                    thisnsigs += length(siginfos)
+                    exinfos === nothing && continue
+                    thisnsigs += length(exinfos)
                 end
             end
             nexs += thisnexs

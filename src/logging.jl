@@ -44,6 +44,7 @@ CoreLogging.catch_exceptions(::ReviseLogger) = false
 
 function Base.show(io::IO, l::LogRecord; kwargs...)
     verbose = get(io, :verbose, false)::Bool
+    tmin = get(io, :time_min, nothing)::Union{Float64, Nothing}
     if !isempty(kwargs)
         Base.depwarn("Supplying keyword arguments to `show(io, l::Revise.LogRecord; verbose)` is deprecated, use `IOContext` instead.", :show)
         for (kw, val) in kwargs
@@ -57,6 +58,9 @@ function Base.show(io::IO, l::LogRecord; kwargs...)
         print(io, '(', l.level, ", ", l.message, ", ", l.group, ", ", l.id, ", \"", l.file, "\", ", l.line)
     else
         print(io, "Revise ", l.message)
+        if tmin !== nothing
+            print(io, ", time=", l.kwargs[:time] - tmin)
+        end
     end
     exc = nothing
     if !isempty(l.kwargs)
@@ -69,15 +73,15 @@ function Base.show(io::IO, l::LogRecord; kwargs...)
             elseif kw === :deltainfo
                 keepitem = nothing
                 for item in val
-                    if isa(item, DataType) || isa(item, MethodSummary) || (keepitem === nothing && isa(item, Union{RelocatableExpr,Expr}))
+                    if isa(item, Type) || isa(item, Union{MethodSummary,Vector{MethodSummary}}) || (keepitem === nothing && isa(item, Union{RelocatableExpr,Expr}))
                         keepitem = item
                     end
                 end
-                if isa(keepitem, MethodSummary)
+                if isa(keepitem, Union{MethodSummary,Vector{MethodSummary}})
                     print(io, ": ", keepitem)
                 elseif isa(keepitem, Union{RelocatableExpr,Expr})
                     print(io, ": ", firstline(keepitem))
-                elseif isa(keepitem, DataType)
+                elseif isa(keepitem, Type)
                     print(io, ": ", keepitem)
                 end
             end
@@ -92,6 +96,15 @@ function Base.show(io::IO, l::LogRecord; kwargs...)
     end
     if verbose
         print(io, ')')
+    end
+end
+
+function Base.show(io::IO, ::MIME"text/plain", rlogger::ReviseLogger)
+    print(io, "ReviseLogger with min_level=", rlogger.min_level)
+    if !isempty(rlogger.logs)
+        println(io, ":")
+        ioctx = IOContext(io, :time_min => first(rlogger.logs).kwargs[:time], :compact => true)
+        show(ioctx, MIME("text/plain"), rlogger.logs)
     end
 end
 
@@ -113,6 +126,8 @@ with the following relevant fields:
     examined for possible code changes. This is typically done on the basis of `mtime`,
     the modification time of the file, and does not necessarily indicate that there were
     any changes.
+  + "Bindings": "propagating" consequences of rebinding event(s), where dependent types
+    or methods need to be re-evaluated.
 - `message`: a string containing more information. Some examples:
   + For entries in the "Action" group, `message` can be `"Eval"` when modifying
     old methods or defining new ones, "DeleteMethod" when deleting a method,

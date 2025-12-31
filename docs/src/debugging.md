@@ -25,7 +25,7 @@ Currently, the best way to turn on logging is within a running Julia session:
 
 ```jldoctest; setup=(using Revise)
 julia> rlogger = Revise.debug_logger()
-Revise.ReviseLogger(Revise.LogRecord[], Debug)
+ReviseLogger with min_level=Debug
 ```
 You'll use `rlogger` at the end to retrieve the logs.
 
@@ -104,7 +104,7 @@ on to `rlogger`.)
 ### The structure of the logs
 
 For those who want to do a little investigating on their own, it may be helpful to
-know that Revise's core decisions are captured in the group called "Action," and they come in three
+know that Revise's core changes are captured in the group called "Action," and they come in three
 flavors:
 
 - log entries with message `"Eval"` signify a call to `eval`; for these events,

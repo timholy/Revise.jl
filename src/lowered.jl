@@ -154,15 +154,15 @@ function minimal_evaluation!(frame::Frame, mode::Symbol)
 end
 
 function methods_by_execution(mod::Module, ex::Expr; kwargs...)
-    methodinfo = MethodInfo(ex)
-    _, thk = methods_by_execution!(JuliaInterpreter.Compiled(), methodinfo, mod, ex; kwargs...)
-    return methodinfo, thk
+    exinfo = ExInfo(ex)
+    _, thk = methods_by_execution!(JuliaInterpreter.Compiled(), exinfo, mod, ex; kwargs...)
+    return exinfo, thk
 end
 
 """
     methods_by_execution!(
-        [interp::Interpreter=JuliaInterpreter.Compiled(),] methodinfo::MethodInfo, mod::Module, ex::Expr;
-        mode::Symbol=:eval, disablebp::Bool=true, skip_include::Bool=mode!==:eval, always_rethrow::Bool=false
+        [interp::Interpreter=JuliaInterpreter.Compiled(),] exinfo::ExInfo, mod::Module, ex::Expr;
+        mode::Symbol = :eval, disablebp::Bool = true, skip_include::Bool = mode!==:eval, always_rethrow::Bool = false
     )
 
 Evaluate or analyze `ex` in the context of `mod`.
@@ -170,13 +170,13 @@ Depending on the setting of `mode` (see the Extended help), it supports full eva
 evaluation needed to extract method signatures.
 `interp` controls JuliaInterpreter's evaluation of any non-intercepted statement;
 likely choices are `JuliaInterpreter.Compiled()` or `JuliaInterpreter.RecursiveInterpreter()`.
-`methodinfo` is a cache for storing information about any method definitions (see [`MethodInfo`](@ref)).
+`exinfo` is a cache for storing information about any method definitions (see [`ExInfo`](@ref)).
 
 # Extended help
 
 The action depends on `mode`:
 
-- `:eval` evaluates the expression in `mod`, similar to `Core.eval(mod, ex)` except that `methodinfo`
+- `:eval` evaluates the expression in `mod`, similar to `Core.eval(mod, ex)` except that `exinfo`
   will be populated with information about any signatures. This mode is used to implement `includet`.
 - `:sigs` analyzes `ex` and extracts signatures of methods (specifically, statements flagged by
   [`Revise.minimal_evaluation!`](@ref)), but does not evaluate `ex` in the traditional sense.
@@ -198,15 +198,15 @@ The other keyword arguments are more straightforward:
 
 - `disablebp` controls whether JuliaInterpreter's breakpoints are disabled before stepping through the code.
   They are restored on exit.
-- `skip_include` prevents execution of `include` statements, instead inserting them into `methodinfo`'s
+- `skip_include` prevents execution of `include` statements, instead inserting them into `exinfo`'s
   cache. This defaults to `true` unless `mode` is `:eval`.
 - `always_rethrow`, if true, causes an error to be thrown if evaluating `ex` triggered an error.
   If false, the error is logged with `@error`. `InterruptException`s are always rethrown.
   This is primarily useful for debugging.
 """
 function methods_by_execution!(
-        interp::Interpreter, methodinfo::MethodInfo, mod::Module, ex::Expr;
-        mode::Symbol = :eval, disablebp::Bool=true, always_rethrow::Bool=false, kwargs...
+        interp::Interpreter, exinfo::ExInfo, mod::Module, ex::Expr;
+        mode::Symbol = :eval, disablebp::Bool = true, always_rethrow::Bool = false, kwargs...
     )
     mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
     lwr = Meta.lower(mod, ex)
@@ -250,7 +250,7 @@ function methods_by_execution!(
             foreach(disable, active_bp_refs)
         end
         ret = try
-            _methods_by_execution!(interp, methodinfo, frame, isrequired; mode, kwargs...)
+            _methods_by_execution!(interp, exinfo, frame, isrequired; mode, kwargs...)
         catch err
             (always_rethrow || isa(err, InterruptException)) && (@isdefined(active_bp_refs) && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame))
@@ -268,11 +268,11 @@ function methods_by_execution!(
     end
     return Pair{Any,Union{Nothing,Expr}}(ret, lwr)
 end
-methods_by_execution!(methodinfo::MethodInfo, mod::Module, ex::Expr; kwargs...) =
-    methods_by_execution!(Compiled(), methodinfo, mod, ex; kwargs...)
+methods_by_execution!(exinfo::ExInfo, mod::Module, ex::Expr; kwargs...) =
+    methods_by_execution!(Compiled(), exinfo, mod, ex; kwargs...)
 
 function _methods_by_execution!(
-        interp::Interpreter, methodinfo::MethodInfo, frame::Frame, isrequired::AbstractVector{Bool};
+        interp::Interpreter, exinfo::ExInfo, frame::Frame, isrequired::AbstractVector{Bool};
         mode::Symbol = :eval, skip_include::Bool = true
     )
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
@@ -296,7 +296,7 @@ function _methods_by_execution!(
                 local value
                 for ex in stmt.args
                     ex isa Expr || continue
-                    value, _ = methods_by_execution!(interp, methodinfo, mod, ex; mode, disablebp=false, skip_include)
+                    value, _ = methods_by_execution!(interp, exinfo, mod, ex; mode, disablebp=false, skip_include)
                 end
                 isassign(frame, pc) && @isdefined(value) && assign_this!(frame, value)
                 pc = next_or_nothing!(frame)
@@ -322,7 +322,7 @@ function _methods_by_execution!(
                             file, line = loc
                             lnn = LineNumberNode(Int(line), Symbol(file))
                             for sig in signatures
-                                add_signature!(methodinfo, sig, lnn)
+                                add_signature!(exinfo, sig, lnn)
                             end
                         end
                     end
@@ -407,7 +407,7 @@ function _methods_by_execution!(
                     end
                     if lnn !== nothing && isok(lnn)
                         for sig in signatures
-                            add_signature!(methodinfo, sig, lnn)
+                            add_signature!(exinfo, sig, lnn)
                         end
                     end
                 end
@@ -419,10 +419,14 @@ function _methods_by_execution!(
                     pc = step_expr!(interp, frame, stmt, true)
                 end
             elseif head === :call
-                f = lookup(interp, frame, stmt.args[1])
-                if isdefined(Core, :_defaultctors) && f === Core._defaultctors && length(stmt.args) == 3
-                    T = lookup(interp, frame, stmt.args[2])
-                    lnn = lookup(interp, frame, stmt.args[3])
+                f = lookup(frame, stmt.args[1])
+                if __bpart__ && f === Core._typebody!
+                    analyze_typebody!(exinfo, interp, frame, stmt)
+                    pc = step_expr!(interp, frame, stmt, true)
+                elseif @static(isdefined(Core, :_defaultctors) && true) && f === Core._defaultctors && length(stmt.args) == 3
+                    # Create the constructors for a type (i.e., a method definition)
+                    T = lookup(frame, stmt.args[2])
+                    lnn = lookup(frame, stmt.args[3])
                     if T isa Type && lnn isa LineNumberNode
                         empty!(signatures)
                         uT = Base.unwrap_unionall(T)::DataType
@@ -436,7 +440,7 @@ function _methods_by_execution!(
                         end
                         sig1 == sig2 || push!(signatures, MethodInfoKey(nothing, sig2))
                         for sig in signatures
-                            add_signature!(methodinfo, sig, lnn)
+                            add_signature!(exinfo, sig, lnn)
                         end
                     end
                     if mode === :sigs
@@ -454,16 +458,16 @@ function _methods_by_execution!(
                             newex = newex.args[4]
                         end
                         newex = unwrap(newex)
-                        push!(methodinfo.exprstack, newex)
-                        value, _ = methods_by_execution!(interp, methodinfo, newmod, newex; mode, skip_include, disablebp=false)
-                        pop!(methodinfo.exprstack)
+                        push!(exinfo.exprstack, newex)
+                        value, _ = methods_by_execution!(interp, exinfo, newmod, newex; mode, skip_include, disablebp=false)
+                        pop!(exinfo.exprstack)
                     end
                     assign_this!(frame, value)
                     pc = next_or_nothing!(frame)
                 elseif skip_include && (f === modinclude || f === Core.include || f === Base.include)
                     # include calls need to be managed carefully from several standpoints, including
                     # path management and parsing new expressions
-                    handle_include!(methodinfo, interp, frame, stmt)
+                    handle_include!(exinfo, interp, frame, stmt)
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
                 elseif f === Base.Docs.doc! # && mode !== :eval
@@ -515,34 +519,47 @@ function _methods_by_execution!(
     return isrequired[frame.pc] ? get_return(frame) : nothing
 end
 
-function add_signature!(methodinfo::MethodInfo, mt_sig::MethodInfoKey, ln::LineNumberNode)
+function add_signature!(exinfo::ExInfo, mt_sig::MethodInfoKey, ln::LineNumberNode)
     locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, mt_sig)
-    newdef = unwrap(methodinfo.exprstack[end])
+    newdef = unwrap(exinfo.exprstack[end])
     if newdef !== nothing
         if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
             push!(locdefs, (fixpath(ln), newdef))
         end
-        push!(methodinfo.allsigs, SigInfo(mt_sig))
+        push!(exinfo.allsigs, SigInfo(mt_sig))
     end
-    return methodinfo
+    return exinfo
 end
 
-function handle_include!(methodinfo::MethodInfo, interp::Interpreter, frame::Frame, stmt::Expr)
+function handle_include!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt::Expr)
     if length(stmt.args) == 2
         local arg2 = lookup(interp, frame, stmt.args[2])
         if arg2 isa AbstractString
-            push!(methodinfo.includes, moduleof(frame)=>arg2)
-            return methodinfo
+            push!(exinfo.includes, moduleof(frame)=>arg2)
+            return exinfo
         end
         error("Bad include call")
     elseif length(stmt.args) == 3
         local arg2 = lookup(interp, frame, stmt.args[2])
         local arg3 = lookup(interp, frame, stmt.args[3])
         if arg2 isa Module && arg3 isa AbstractString
-            push!(methodinfo.includes, arg2=>arg3)
-            return methodinfo
+            push!(exinfo.includes, arg2=>arg3)
+            return exinfo
         end
         error("Bad include call")
     end
     error("include(mapexpr::Function, mod::Module, path::AbstractString) is not supported") # TODO (issue #634)
+end
+
+function analyze_typebody!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt::Expr)
+    if length(stmt.args) == 3 # abstract type definition
+        typ = lookup(interp, frame, stmt.args[3])::Type
+    elseif length(stmt.args) == 4 # general struct definition
+        typ = lookup(interp, frame, stmt.args[3])::Type
+    else
+        return nothing
+    end
+    datatype = Base.unwrap_unionall(typ)::DataType
+    push!(exinfo.typeinfos, TypeInfo(datatype.name))
+    return exinfo
 end
