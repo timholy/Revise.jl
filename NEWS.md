@@ -16,32 +16,32 @@ cleanups, or minor enhancements.
 
   For example, if you have:
   ```julia
-  struct MyStruct
-      x::Int
+  struct Inner
+      value::Int
   end
 
-  struct UseMyStruct
-      x::MyStruct
+  struct Outer
+      inner::Inner
   end
 
-  func(ums::UseMyStruct) = println(ums.x.x)
+  print_value(o::Outer) = println(o.inner.value)
   ```
 
-  And change `MyStruct` to:
+  And change `Inner` to:
   ```julia
-  struct MyStruct
-      x::Float64
-      y::String
+  struct Inner
+      value::Float64
+      name::String
   end
   ```
 
-  Revise will redefine `MyStruct`, and also re-evaluate `UseMyStruct` (which uses
-  `MyStruct` as a field type) and `func` (which references `UseMyStruct` in its signature).
+  Revise will redefine `Inner`, and also re-evaluate `Outer` (which uses
+  `Inner` as a field type) and `print_value` (which references `Outer` in its signature).
 
   **Note**: This feature requires Julia 1.12+. However, Revise does not track implicit
   dependencies from type aliases or global bindings to struct definitions. For example,
   if you change `MyVecType{T} = Vector{T}` to `AbstractVector{T}`, a struct
-  `struct A{T}; v::MyVecType{T}; end` will **not** be automatically re-evaluated.
+  `struct MyVec{T}; v::MyVecType{T}; end` will **not** be automatically re-evaluated.
   As a workaround, you can manually call `revise(MyModule)` to force re-evaluation 
   of all  definitions in `MyModule`, which will pick up the new bindings.
 

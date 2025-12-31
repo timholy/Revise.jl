@@ -17,28 +17,28 @@ types that depend on it.
 For example, this now works:
 
 ```julia
-struct MyStruct
-    x::Int
+struct Inner
+    value::Int
 end
 
-struct UseMyStruct
-    x::MyStruct
+struct Outer
+    inner::Inner
 end
 
-func(ums::UseMyStruct) = println(ums.x.x)
+print_value(o::Outer) = println(o.inner.value)
 ```
 
 If you change it to:
 
 ```julia
-struct MyStruct
-    x::Float64
-    y::String
+struct Inner
+    value::Float64
+    name::String
 end
 ```
 
-Revise will redefine `MyStruct`, and also re-evaluate `UseMyStruct` (which uses `MyStruct`
-as a field type) and `func` (which references `UseMyStruct` in its signature).
+Revise will redefine `Inner`, and also re-evaluate `Outer` (which uses `Inner`
+as a field type) and `print_value` (which references `Outer` in its signature).
 
 ## Binding revision is not yet supported
 
@@ -49,14 +49,14 @@ For example:
 
 ```julia
 MyVecType{T} = Vector{T}  # changing this to AbstractVector{T} won't update A
-struct A{T}
+struct MyVec{T}
     v::MyVecType{T}
 end
 ```
 
 If you change `MyVecType{T}` from `Vector{T}` to `AbstractVector{T}`, the struct `A` will
 **not** be automatically re-evaluated because Revise does not track the dependency edge
-from `MyVecType` to `A`. The same applies to `const` bindings and other global bindings
+from `MyVecType` to `MyVec`. The same applies to `const` bindings and other global bindings
 that are referenced in type definitions.
 
 Supporting this would require tracking implicit binding edges across all top-level code,
