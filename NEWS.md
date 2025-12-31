@@ -4,10 +4,10 @@ This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
 <!-- links start -->
-[Unreleased]: https://github.com/timholy/Revise.jl/compare/v3.12.3...HEAD
+[Revise 3.13]: https://github.com/timholy/Revise.jl/compare/v3.12.3...v3.13.0
 <!-- links end -->
 
-## [Unreleased]
+## [Revise 3.13]
 
 - **Struct revision support** (Julia 1.12+): Revise can now handle changes to struct
   definitions. When you modify a struct, Revise automatically re-evaluates the struct
