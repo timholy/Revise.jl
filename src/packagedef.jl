@@ -1655,7 +1655,11 @@ function __init__()
 
     # Populate field types map cache (only on main process, not on workers)
     if __bpart__ && (isnothing(distributed_module) || distributed_module.myid() == 1)
-        Threads.@spawn :default @lock types_cache_lock for type in collect_all_subtypes(Any)
+        Threads.@spawn :default @lock types_cache_lock foreach_subtype(Any) do type
+            # Populating this cache can be time consuming (eg, 30s on an
+            # i7-7700HQ) so do this incrementally and yield() to the scheduler
+            # so the Julia process can exit quickly.
+            yield()
             nflds = Base.Compiler.fieldcount_noerror(type)
             if nflds !== nothing && nflds > 0
                 types = collect(Any, fieldtypes(type))

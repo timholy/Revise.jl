@@ -30,15 +30,23 @@ function old_methods_with(oldtypename::Core.TypeName)
     return meths
 end
 
-collect_all_subtypes(@nospecialize(parent_typ::Type)) = _collect_all_subtypes!(parent_typ, Base.IdSet{Type}())
+function collect_all_subtypes(@nospecialize(parent_typ::Type))
+    return _foreach_subtype!(ty->nothing, parent_typ, Base.IdSet{Type}())
+end
 
-function _collect_all_subtypes!(@nospecialize(parent_typ::Type), types::Base.IdSet{Type})
+function foreach_subtype(f::Function, @nospecialize(parent_typ::Type))
+    _foreach_subtype!(f, parent_typ, Base.IdSet{Type}())
+    return nothing
+end
+
+function _foreach_subtype!(f::Function, @nospecialize(parent_typ::Type), types::Base.IdSet{Type})
     for Ty in InteractiveUtils.subtypes(parent_typ)
         if Ty in types
             continue
         else
+            f(Ty)
             push!(types, Ty)
-            _collect_all_subtypes!(Ty, types)
+            _foreach_subtype!(f, Ty, types)
         end
     end
     return types
