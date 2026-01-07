@@ -31,7 +31,7 @@ function old_methods_with(oldtypename::Core.TypeName)
 end
 
 function collect_all_subtypes(@nospecialize(parent_typ::Type))
-    return _foreach_subtype!(ty->nothing, parent_typ, Base.IdSet{Type}())
+    return _foreach_subtype!(Returns(nothing), parent_typ, Base.IdSet{Type}())
 end
 
 function foreach_subtype(f::Function, @nospecialize(parent_typ::Type))
