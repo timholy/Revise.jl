@@ -30,15 +30,23 @@ function old_methods_with(oldtypename::Core.TypeName)
     return meths
 end
 
-collect_all_subtypes(@nospecialize(parent_typ::Type)) = _collect_all_subtypes!(parent_typ, Base.IdSet{Type}())
+function collect_all_subtypes(@nospecialize(parent_typ::Type))
+    return _foreach_subtype!(Returns(nothing), parent_typ, Base.IdSet{Type}())
+end
 
-function _collect_all_subtypes!(@nospecialize(parent_typ::Type), types::Base.IdSet{Type})
+function foreach_subtype(f::Function, @nospecialize(parent_typ::Type))
+    _foreach_subtype!(f, parent_typ, Base.IdSet{Type}())
+    return nothing
+end
+
+function _foreach_subtype!(f::Function, @nospecialize(parent_typ::Type), types::Base.IdSet{Type})
     for Ty in InteractiveUtils.subtypes(parent_typ)
         if Ty in types
             continue
         else
+            f(Ty)
             push!(types, Ty)
-            _collect_all_subtypes!(Ty, types)
+            _foreach_subtype!(f, Ty, types)
         end
     end
     return types
@@ -47,6 +55,21 @@ end
 # TODO Use fixed sized FIFO cache?
 const types_cache = IdDict{Type,Union{Nothing,Vector{Any}}}()
 const types_cache_lock = ReentrantLock()
+
+function fieldtypes_cached(@nospecialize(type))
+    # This function is called from the cache thread during __init__ so we need the lock here
+    @lock types_cache_lock begin
+        return get!(types_cache, type) do
+            nflds = Base.Compiler.fieldcount_noerror(type)
+            if nflds !== nothing && nflds > 0
+                ftypes = collect(Any, fieldtypes(type))
+            else
+                ftypes = nothing
+            end
+            ftypes
+        end
+    end
+end
 
 #     old_types_with(oldtypename::Core.TypeName, alltypes::Base.IdSet{Type}) -> Union{Nothing, Base.IdSet{Type}}
 #
@@ -62,19 +85,8 @@ const types_cache_lock = ReentrantLock()
 # See also [`old_methods_with`](@ref).
 function old_types_with(oldtypename::Core.TypeName, alltypes::Base.IdSet{Type})
     related_types = nothing
-    # types_cache is populated during __init__, so we need the lock here
-    @lock types_cache_lock for type in alltypes
-        if haskey(types_cache, type)
-            types = types_cache[type]
-        else
-            nflds = Base.Compiler.fieldcount_noerror(type)
-            if nflds !== nothing && nflds > 0
-                types = collect(Any, fieldtypes(type))
-            else
-                types = nothing
-            end
-            types_cache[type] = types
-        end
+    for type in alltypes
+        types = fieldtypes_cached(type)
         if types !== nothing
             for ft in types
                 if is_with_oldtypename(ft, oldtypename)
