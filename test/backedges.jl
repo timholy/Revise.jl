@@ -20,7 +20,8 @@ do_test("Backedges") && @testset "Backedges" begin
     @assert isa(laststmt, Core.ReturnNode)
     to_skip = isa(laststmt.val, Revise.JuliaInterpreter.SSAValue) ? 2 : 1
     # Revise.LoweredCodeUtils.print_with_code(stdout, src, isrequired)
-    @test sum(isrequired) == length(src.code)-count(e->isexpr(e, :latestworld), src.code)-to_skip  # skips the `return` at the end (and its argument)
+    extra_skip = hasfield(Method, :is_kwcall_stub) ? 1 : 0
+    @test sum(isrequired) == length(src.code)-count(e->isexpr(e, :latestworld), src.code)-to_skip-extra_skip  # skips the `return` at the end (and its argument)
 
     src = """
     # issue #249
