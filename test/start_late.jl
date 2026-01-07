@@ -12,7 +12,7 @@ while !isdefined(Base, :active_repl_backend) || isnothing(Base.active_repl_backe
     sleep(0.5)
 end
 
-using Revise
+using Revise, REPL
 @test Revise.revise_first ∈ Base.active_repl_backend.ast_transforms
 
 exit()
