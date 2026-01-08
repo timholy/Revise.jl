@@ -1653,8 +1653,9 @@ function __init__()
         end
     end
 
+    precache = Preferences.@load_preference("precache_fieldtypes", true)
     # Populate field types map cache (only on main process, not on workers)
-    if __bpart__ && (isnothing(distributed_module) || distributed_module.myid() == 1)
+    if precache && __bpart__ && (isnothing(distributed_module) || distributed_module.myid() == 1)
         Threads.@spawn :default foreach_subtype(Any) do @nospecialize type
             # Populating this cache can be time consuming (eg, 30s on an
             # i7-7700HQ) so do this incrementally and yield() to the scheduler
