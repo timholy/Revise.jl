@@ -185,3 +185,15 @@ string `"1"` (e.g., `JULIA_REVISE_POLL=1` in a bash script).
     NFS stands for [Network File System](https://en.wikipedia.org/wiki/Network_File_System) and is typically only used to mount shared network drives on *Unix* file systems.
     Despite similarities in the acronym, NTFS, the standard [filesystem on Windows](https://en.wikipedia.org/wiki/NTFS), is completely different from NFS; Revise's default configuration should work fine on Windows without polling.
     However, WSL2 users currently need polling due to [this bug](https://github.com/JuliaLang/julia/issues/37029).
+
+
+### Disabling Automatic Fieldtype Caching
+
+When Revise is loaded, it spawns a background task to cache all fieldtypes. This process ensures faster code reloading later but can introduce several seconds of initial startup overhead.
+
+You can disable this behaviour using [Preferences.jl](https://github.com/JuliaPackaging/Preferences.jl) by creating a `LocalPreferences.toml` file with the following contents:
+
+```toml
+[Revise]
+precache_fieldtypes = false
+```
