@@ -1,20 +1,12 @@
 # Limitations
 
-There are some kinds of changes that Revise (or often, Julia itself) cannot automatically incorporate into a running Julia session:
+## Struct revision
 
-- changes to global bindings (but see below for struct definitions on Julia 1.12+)
-- conflicts between variables and functions sharing the same name
-- removal of `export`s
-
-These kinds of changes require that you restart your Julia session.
-
-## Struct revision (Julia 1.12+)
+### Struct revision  is supported on Julia 1.12+
 
 Starting with Julia 1.12, Revise can handle changes to struct definitions. When you modify
 a struct, Revise will automatically re-evaluate the struct definition and any methods or
-types that depend on it.
-
-For example, this now works:
+types that depend on it. For example:
 
 ```julia
 struct Inner
@@ -40,32 +32,10 @@ end
 Revise will redefine `Inner`, and also re-evaluate `Outer` (which uses `Inner`
 as a field type) and `print_value` (which references `Outer` in its signature).
 
-## Binding revision is not yet supported
+On versions of Julia older than 1.12, Revise does not support changes to
+`struct` definitions. These require you to restart your session.
 
-While struct revision is supported, more general "binding revision" is not yet implemented.
-Specifically, Revise does not track implicit dependencies between top-level bindings.
-
-For example:
-
-```julia
-MyVecType{T} = Vector{T}  # changing this to AbstractVector{T} won't update A
-struct MyVec{T}
-    v::MyVecType{T}
-end
-```
-
-If you change `MyVecType{T}` from `Vector{T}` to `AbstractVector{T}`, the struct `A` will
-**not** be automatically re-evaluated because Revise does not track the dependency edge
-from `MyVecType` to `MyVec`. The same applies to `const` bindings and other global bindings
-that are referenced in type definitions.
-
-Supporting this would require tracking implicit binding edges across all top-level code,
-which involves significant interpreter enhancements and is deferred to future work.
-This limitation also underlies [the issues with macros and generated functions](@ref other-limitations/macros-and-generated-functions) described below.
-
-As a workaround, you can manually call [`revise`](@ref) to force re-evaluation of all definitions in `MyModule`, which will pick up the new bindings.
-
-## Workaround for the struct revision issue before Julia 1.12
+### Workaround for the struct revision issue before Julia 1.12
 
 On Julia versions prior to 1.12, struct definitions cannot be revised. During early stages of development, 
 it's quite common to want to change type definitions. 
@@ -182,6 +152,32 @@ julia> isconst(MyPkg, :FooStruct)
 true
 ```
 
+### Toplevel binding changes do not propagate
+
+While struct revision is supported, some forms of "binding revision" do not work.
+Specifically, Revise does not track implicit dependencies between top-level bindings.
+
+For example:
+
+```julia
+MyVecType{T} = Vector{T}  # changing this to AbstractVector{T} won't update A
+struct MyVec{T}
+    v::MyVecType{T}
+end
+```
+
+If you change `MyVecType{T}` from `Vector{T}` to `AbstractVector{T}`, the struct `A` will
+**not** be automatically re-evaluated because Revise does not track the dependency edge
+from `MyVecType` to `MyVec`. The same applies to `const` bindings and other global bindings
+that are referenced in type definitions.
+
+Supporting this would require tracking implicit binding edges across all
+top-level code, which involves significant interpreter enhancements and may
+never happen. See the related case of [code that depends on data](@ref data)
+below.
+
+As a workaround, you can manually call [`revise`](@ref) to force re-evaluation of all definitions in `MyModule`, which will pick up the new bindings.
+
 ## Other limitations
 
 In addition, some situations may require special handling:
@@ -195,6 +191,39 @@ already evaluated the macro or generated function.
 You may explicitly call `revise(MyModule)` to force reevaluating every definition in module
 `MyModule`.
 Note that when a macro changes, you have to revise all of the modules that *use* it.
+
+### [Code that depends on data](@id data)
+
+Revise does not track dependencies on "data." For example, if your source code
+looks like
+
+```julia
+tf = true
+if tf
+    f() = 1
+else
+    f() = 2
+end
+```
+
+and you change `tf` to `false`, Revise will not update the definition of `f`.
+This is because there is no record of the fact that `f` depends on the value of `tf`.
+
+This limitation does not affect code like this:
+
+```julia
+if true
+    f() = 1
+else
+    f() = 2
+end
+```
+
+In this case, changing `true` to `false` will redefine `f`, but only because
+it's part of the same expression and Revise will re-evaluate the expression.
+
+The maintainers have no intention of ever "fixing" this limitation, as it would
+require adding enormous bloat to every session for very little actual benefit.
 
 ### Distributed computing (multiple workers) and anonymous functions
 
@@ -237,3 +266,8 @@ end # module
 
 and the corresponding edit to the code would be to modify it to `greetcaller(x) = greet("Bar")`
 and `remotecall_fetch(greetcaller, p, 1)`.
+
+### `include(mapexpr, filename)` is not supported
+
+Julia supports the ability to modify source code after parsing and before evaluation.
+Supporting this is a TODO item but is not yet implemented.

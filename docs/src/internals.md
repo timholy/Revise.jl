@@ -162,7 +162,7 @@ end
     sizefloat(x::Float64) = 8
     ```
 
-If you replace the loop with `for T in (Float32, Float64)`, then Revise should delete the method for `Float16`. But this implies that Revise can deduce all the method-signatures created by this block, which essentially requires "simulating" the block that defines the methods. (In simple cases there are other approaches, but for [complex cases](https://github.com/JuliaLang/julia/blob/c7e4b9929b3b6ee89d47ce1320ef2de14c4ecf85/base/atomics.jl#L415-L430) stepping through the code seems to be the only viable answer.)
+If you replace the loop with `for T in (Float32, Float64)`, then Revise should delete the method for `Float16`. But this implies that Revise can deduce all the method-signatures created by this block, which essentially requires "simulating" the block that defines the methods. (In simple cases there are other approaches, but for complex cases stepping through the code seems to be the only viable answer.)
 
 Because lowered code is far simpler than ordinary Julia code, it is much easier to interpret. Let's look briefly at a method definition:
 
