@@ -25,7 +25,6 @@ function _precompile_()
     @warnpcfail precompile(Tuple{typeof(watch_package_callback), PkgId})
 
     @warnpcfail precompile(Tuple{typeof(revise)})
-    @warnpcfail precompile(Tuple{typeof(revise_first), Expr})
     @warnpcfail precompile(Tuple{typeof(includet), String})
     @warnpcfail precompile(Tuple{typeof(track), Module, String})
     # setindex! doesn't fully precompile, but it's still beneficial to do it
@@ -73,7 +72,6 @@ function _precompile_()
         @warnpcfail precompile(Tuple{typeof(filter_valid_cachefiles), String, Vector{String}})
     end
     @warnpcfail precompile(Tuple{typeof(Revise.iswritable), String})
-    @warnpcfail precompile(Tuple{typeof(Revise.active_repl_backend_available)})
     @warnpcfail precompile(Tuple{typeof(pkg_fileinfo), PkgId})
     @warnpcfail precompile(Tuple{typeof(push!), WatchList, Pair{String,PkgId}})
     @warnpcfail precompile(Tuple{typeof(pushex!), ExprsInfos, Expr})
