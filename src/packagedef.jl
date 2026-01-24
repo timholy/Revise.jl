@@ -1654,13 +1654,17 @@ function __init__()
     end
 
     # Populate field types map cache (only on main process, not on workers)
-    if __bpart__ && (isnothing(distributed_module) || distributed_module.myid() == 1)
-        Threads.@spawn :default foreach_subtype(Any) do @nospecialize type
-            # Populating this cache can be time consuming (eg, 30s on an
-            # i7-7700HQ) so do this incrementally and yield() to the scheduler
-            # regularly so this thread gets a chance to exit if the user quits early
-            yield()
-            fieldtypes_cached(type)
+    # This feature needs to be disabled on Apple Silicon for Julia v1.12 and earlier
+    # due to the Julia runtime side issue (https://github.com/JuliaLang/julia/issues/60721)
+    @static if !(VERSION < v"1.13-" && Sys.isapple())
+        if __bpart__ && (isnothing(distributed_module) || distributed_module.myid() == 1)
+            Threads.@spawn :default foreach_subtype(Any) do @nospecialize type
+                # Populating this cache can be time consuming (eg, 30s on an
+                # i7-7700HQ) so do this incrementally and yield() to the scheduler
+                # regularly so this thread gets a chance to exit if the user quits early
+                yield()
+                fieldtypes_cached(type)
+            end
         end
     end
     return nothing
