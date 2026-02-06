@@ -18,6 +18,10 @@ using Base.CoreLogging: Debug,Info
 # explicit `precompile()` call here to ensure this.
 Pkg.precompile()
 
+if isdefined(Test, :detect_closure_boxes)
+    @test isempty(Test.detect_closure_boxes(Revise))
+end
+
 # In addition to using this for the "More arg-modifying macros" test below,
 # this package is used on CI to test what happens when you have multiple
 # *.ji files for the package.

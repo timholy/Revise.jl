@@ -11,23 +11,23 @@
 #
 # See also [`old_types_with`](@ref).
 function old_methods_with(oldtypename::Core.TypeName)
-    meths = nothing
+    meths = Ref{Union{Nothing,Set{Method}}}(nothing)
     methodtable = @static isdefinedglobal(Core, :methodtable) ? Core.methodtable : Core.GlobalMethods
     Base.visit(methodtable) do method
         sigt = Base.unwrap_unionall(method.sig)
         if sigt isa DataType
             for i = 1:length(sigt.parameters)
                 if is_with_oldtypename(sigt.parameters[i], oldtypename)
-                    if meths === nothing
-                        meths = Set{Method}()
+                    if meths[] === nothing
+                        meths[] = Set{Method}()
                     end
-                    push!(meths, method)
+                    push!(meths[]::Set{Method}, method)
                     break
                 end
             end
         end
     end
-    return meths
+    return meths[]
 end
 
 function collect_all_subtypes(@nospecialize(parent_typ::Type))
