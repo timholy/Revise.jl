@@ -1,12 +1,24 @@
 # COV_EXCL_START
+
+const PRECOMPILE_ERRORS = Ref(false)
+
 macro warnpcfail(ex::Expr)
     modl = __module__
     file = __source__.file === nothing ? "?" : String(__source__.file)
     line = __source__.line
+
     quote
-        $(esc(ex)) || @warn """precompile directive
-     $($(Expr(:quote, ex)))
- failed. Please report an issue in $($modl) (after checking for duplicates) or remove this directive.""" _file=$file _line=$line
+
+        $(esc(ex)) || begin
+            @warn """precompile directive
+
+                $($(Expr(:quote, ex)))
+
+            failed. Please report an issue in $($modl) (after checking for duplicates) or remove this directive.
+            """ _file=$file _line=$line
+
+            $PRECOMPILE_ERRORS[] = true
+        end
     end
 end
 
@@ -62,7 +74,11 @@ function _precompile_()
     mbody = bodymethod(mex)
     # use `typeof(pairs(NamedTuple()))` here since it actually differs between Julia versions
     @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, typeof(pairs(NamedTuple())), typeof(methods_by_execution!), Compiled, MI, Module, Expr})
-    @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Iterators.Pairs{Symbol,Bool,Nothing,NamedTuple{(:skip_include,),Tuple{Bool}}}, typeof(methods_by_execution!), Compiled, MI, Module, Expr})
+    if VERSION >= v"1.12-"
+        @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Iterators.Pairs{Symbol,Bool,Nothing,NamedTuple{(:skip_include,),Tuple{Bool}}}, typeof(methods_by_execution!), Compiled, MI, Module, Expr})
+    else
+        @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Iterators.Pairs{Symbol,Bool,Tuple{Symbol},NamedTuple{(:skip_include,),Tuple{Bool}}}, typeof(methods_by_execution!), Compiled, MI, Module, Expr})
+    end
     mfr = which(_methods_by_execution!, (Compiled, MI, Frame, Vector{Bool}))
     mbody = bodymethod(mfr)
     @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, typeof(_methods_by_execution!), Compiled, MI, Frame, Vector{Bool}})
@@ -87,6 +103,11 @@ function _precompile_()
     for TT in (Tuple{Module,Expr}, Tuple{DataType,MethodSummary})
         @warnpcfail precompile(Tuple{Core.kwftype(typeof(Base.CoreLogging.handle_message)),NamedTuple{(:time, :deltainfo), Tuple{Float64, TT}},typeof(Base.CoreLogging.handle_message),ReviseLogger,LogLevel,String,Module,String,Symbol,String,Int})
     end
+
+    if get(ENV, "REVISE_PRECOMPILE_ERROR", "false") == "true" && PRECOMPILE_ERRORS[]
+        error("Precompile statements failed. See output above for details")
+    end
+
     return nothing
 end
 # COV_EXCL_STOP
