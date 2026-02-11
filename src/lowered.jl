@@ -436,7 +436,7 @@ function _methods_by_execution!(
                 callstmt = stmt
                 @label call_dispatch
                 f = lookup(frame, callstmt.args[1])
-                if __bpart__ && f === Core._typebody!
+                if __bpart__[] && f === Core._typebody!
                     analyze_typebody!(exinfo, interp, frame, callstmt)
                     pc = step_expr!(interp, frame, stmt, true)
                 elseif is_defaultctors(f) && length(callstmt.args) == 3
