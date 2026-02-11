@@ -158,7 +158,7 @@ $ sudo sysctl fs.inotify.max_user_instances=2048
 ```
 After changing these values, it is advised to run Revise's unit tests to see if they pass.
 
-This change can be made [permanent](https://www.suse.com/de-de/support/kb/doc/?id=000020048).
+This change can be made [permanent](https://support.scc.suse.com/s/kb/360054835111).
 
 For more information see issues [#26](https://github.com/timholy/Revise.jl/issues/26)
 and  [#778](https://github.com/timholy/Revise.jl/issues/778).
