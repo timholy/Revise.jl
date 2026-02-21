@@ -28,7 +28,16 @@ end
 function is_defaultctors(@nospecialize(f))
     @assert !isa(f, Core.SSAValue) && !isa(f, JuliaInterpreter.SSAValue)
     if isa(f, GlobalRef)
-        return f.mod === Core && f.name === :_defaultctors
+        return (f.mod === Core || f.mod === Base) && f.name === :_defaultctors
+    else
+        if isa(f, QuoteNode)
+            f = f.value
+        end
+        if isdefined(Core, :_defaultctors) && f === Core._defaultctors
+            return true
+        elseif isdefined(Base, :_defaultctors) && f === Base._defaultctors
+            return true
+        end
     end
     return false
 end
@@ -416,17 +425,24 @@ function _methods_by_execution!(
                     # avoid redefining types unless we have to
                     pc = next_or_nothing!(frame)
                 else
+                    # If the RHS is a call, unwrap it and dispatch to the call handler
+                    callstmt = LoweredCodeUtils.getrhs(stmt)
+                    if isa(callstmt, Expr) && callstmt.head === :call
+                        @goto call_dispatch
+                    end
                     pc = step_expr!(interp, frame, stmt, true)
                 end
             elseif head === :call
-                f = lookup(frame, stmt.args[1])
+                callstmt = stmt
+                @label call_dispatch
+                f = lookup(frame, callstmt.args[1])
                 if __bpart__ && f === Core._typebody!
-                    analyze_typebody!(exinfo, interp, frame, stmt)
+                    analyze_typebody!(exinfo, interp, frame, callstmt)
                     pc = step_expr!(interp, frame, stmt, true)
-                elseif @static(isdefined(Core, :_defaultctors) && true) && f === Core._defaultctors && length(stmt.args) == 3
+                elseif is_defaultctors(f) && length(callstmt.args) == 3
                     # Create the constructors for a type (i.e., a method definition)
-                    T = lookup(frame, stmt.args[2])
-                    lnn = lookup(frame, stmt.args[3])
+                    T = lookup(frame, callstmt.args[2])
+                    lnn = lookup(frame, callstmt.args[3])
                     if T isa Type && lnn isa LineNumberNode
                         empty!(signatures)
                         uT = Base.unwrap_unionall(T)::DataType
@@ -450,8 +466,8 @@ function _methods_by_execution!(
                     end
                 elseif f === Core.eval
                     # an @eval or eval block: this may contain method definitions, so intercept it.
-                    evalmod = lookup(interp, frame, stmt.args[2])::Module
-                    evalex = lookup(interp, frame, stmt.args[3])
+                    evalmod = lookup(interp, frame, callstmt.args[2])::Module
+                    evalex = lookup(interp, frame, callstmt.args[3])
                     local value = nothing
                     for (newmod, newex) in ExprSplitter(evalmod, evalex)
                         if is_doc_expr(newex)
@@ -467,11 +483,11 @@ function _methods_by_execution!(
                 elseif skip_include && (f === modinclude || f === Core.include || f === Base.include)
                     # include calls need to be managed carefully from several standpoints, including
                     # path management and parsing new expressions
-                    handle_include!(exinfo, interp, frame, stmt)
+                    handle_include!(exinfo, interp, frame, callstmt)
                     assign_this!(frame, nothing)  # FIXME: the file might return something different from `nothing`
                     pc = next_or_nothing!(frame)
                 elseif f === Base.Docs.doc! # && mode !== :eval
-                    fargs = JuliaInterpreter.collect_args(interp, frame, stmt)
+                    fargs = JuliaInterpreter.collect_args(interp, frame, callstmt)
                     popfirst!(fargs)
                     length(fargs) == 3 && push!(fargs, Union{})  # add the default sig
                     dmod::Module, b::Base.Docs.Binding, str::Base.Docs.DocStr, sig = fargs
