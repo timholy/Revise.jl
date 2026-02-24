@@ -153,8 +153,9 @@ Global variable, maps `(pkgdata, filename)` pairs that errored upon last revisio
 """
 const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}() # locking is covered by revision_queue_lock
 
-# Can we revise types?
-const __bpart__ = Base.VERSION >= v"1.12.0-DEV.2047"
+# Can we revise types? This is assigned in __init__() based on the Julia version
+# and preference.
+const __bpart__ = Ref(false)
 
 """
     Revise.NOPACKAGE
@@ -343,7 +344,7 @@ function delete_missing!(
             for exinfo in exinfos
                 if exinfo isa SigInfo
                     handle_method_deletion!(exinfo, rex, world)
-                elseif __bpart__
+                elseif __bpart__[]
                     handle_type_deletion!(exinfo::TypeInfo, reeval_list, handled_types, world)
                 end
             end
@@ -1006,7 +1007,7 @@ function revise(; throw::Bool=false)
         end
 
         # Do binding redefinitions
-        if __bpart__
+        if __bpart__[]
             redefine_bindings!(revision_errors, reeval_list, world)
         end
 
@@ -1594,6 +1595,7 @@ function __init__()
     for pkg in silenced
         push!(silence_pkgs, pkg)
     end
+    __bpart__[] = Base.VERSION >= v"1.12.0-DEV.2047" && Preferences.@load_preference("revise_structs", false)
     polling = get(ENV, "JULIA_REVISE_POLL", "0")
     if polling == "1"
         polling_files[] = watching_files[] = true
@@ -1663,7 +1665,7 @@ function __init__()
     # This feature needs to be disabled on Apple Silicon for Julia v1.12 and earlier
     # due to the Julia runtime side issue (https://github.com/JuliaLang/julia/issues/60721)
     @static if !(VERSION < v"1.13-" && Sys.isapple())
-        if __bpart__ && (isnothing(distributed_module) || distributed_module.myid() == 1)
+        if __bpart__[] && (isnothing(distributed_module) || distributed_module.myid() == 1)
             Threads.@spawn :default foreach_subtype(Any) do @nospecialize type
                 # Populating this cache can be time consuming (eg, 30s on an
                 # i7-7700HQ) so do this incrementally and yield() to the scheduler

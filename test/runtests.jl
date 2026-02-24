@@ -2467,7 +2467,7 @@ end
         pop!(LOAD_PATH)
     end
 
-    Revise.__bpart__ && do_test("Type info tracking") && @testset "Type info tracking" begin
+    Revise.__bpart__[] && do_test("Type info tracking") && @testset "Type info tracking" begin
         let exinfo = lower_and_track(:(abstract type ABC end))
             typeinfo = only(exinfo.typeinfos)
             @test typeinfo.typname == @invokelatest(getglobal(TypeInfoTracking, :ABC)).name
@@ -2529,9 +2529,9 @@ end
         end
     end
 
-    Revise.__bpart__ && do_test("visit") && @testset "visit" include("test_visit.jl")
+    Revise.__bpart__[] && do_test("visit") && @testset "visit" include("test_visit.jl")
 
-    if Revise.__bpart__ && do_test("struct revision (simple)")   # can we revise types and constants?
+    if Revise.__bpart__[] && do_test("struct revision (simple)")   # can we revise types and constants?
         @testset "struct revision (simple)" begin
             testdir = newtestdir()
             try
@@ -2566,7 +2566,7 @@ end
         end
     end
 
-    if Revise.__bpart__ && do_test("struct revision (retry)")
+    if Revise.__bpart__[] && do_test("struct revision (retry)")
         @testset "struct revision (retry)" begin
             testdir = newtestdir()
             try
@@ -2617,7 +2617,7 @@ end
         end
     end
 
-    if Revise.__bpart__ && do_test("struct revision (dependency)")   # can we revise types and constants?
+    if Revise.__bpart__[] && do_test("struct revision (dependency)")   # can we revise types and constants?
         @testset "struct revision (dependency)" begin
             testdir = newtestdir()
             try

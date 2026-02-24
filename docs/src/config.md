@@ -122,6 +122,24 @@ string `"1"` (e.g., `JULIA_REVISE_INCLUDE=1` in a bash script).
     Most users should avoid setting `JULIA_REVISE_INCLUDE`.
     Try `includet` instead.
 
+### Enabling struct revision
+
+On Julia 1.12+, Revise can automatically revise `struct` definitions in a
+running session.  This feature requires scanning the global method table and
+type hierarchy at startup, which can be slow so it's disabled by default. If you
+would like to enable it you can set the `revise_structs` preference to `true`
+via [Preferences.jl](https://github.com/JuliaPackaging/Preferences.jl).
+
+Add the following to the `LocalPreferences.toml` file in your active project:
+
+```toml
+[Revise]
+revise_structs = true
+```
+
+!!! warning
+    The default for this preference may change in the future.
+
 ## Configurations for fixing errors
 
 ### No space left on device
@@ -158,7 +176,7 @@ $ sudo sysctl fs.inotify.max_user_instances=2048
 ```
 After changing these values, it is advised to run Revise's unit tests to see if they pass.
 
-This change can be made [permanent](https://www.suse.com/de-de/support/kb/doc/?id=000020048).
+This change can be made [permanent](https://support.scc.suse.com/s/kb/360054835111).
 
 For more information see issues [#26](https://github.com/timholy/Revise.jl/issues/26)
 and  [#778](https://github.com/timholy/Revise.jl/issues/778).

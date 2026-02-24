@@ -184,7 +184,7 @@ end
 
 To make it easier for other packages to benefit from Revise without needing to add it
 as a dependency or understand Revise's internals, Revise interfaces with
-[CodeTracking](https://github.com/timholy/CodeTracking.jl),
+[CodeTracking](https://github.com/JuliaDebug/CodeTracking.jl),
 which is a small package acting as Revise's "query" interface.
 
 ## What else do I need to know?
