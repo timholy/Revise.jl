@@ -40,6 +40,7 @@ function foreach_subtype(f::Function, @nospecialize(parent_typ::Type))
 end
 
 function _foreach_subtype!(f::Function, @nospecialize(parent_typ::Type), types::Base.IdSet{Type})
+    # TODO: for Ty in InteractiveUtils.subtypes(parent_typ; max_world=Base.tls_world_age())
     for Ty in InteractiveUtils.subtypes(parent_typ)
         if Ty in types
             continue
@@ -59,16 +60,25 @@ const types_cache_lock = ReentrantLock()
 function fieldtypes_cached(@nospecialize(type))
     # This function is called from the cache thread during __init__ so we need the lock here
     @lock types_cache_lock begin
-        return get!(types_cache, type) do
-            nflds = Base.Compiler.fieldcount_noerror(type)
-            if nflds !== nothing && nflds > 0
-                ftypes = collect(Any, fieldtypes(type))
-            else
-                ftypes = nothing
-            end
-            ftypes
-        end
+        # the equivalent `get!(types_cache, type) do ... end` form is not used because on 1.12 it triggers recompilation
+        cache = get(types_cache, type, missing)
+        cache !== missing && return
+        types_cache[type] = cache = fieldtypes_array(type)
+        return
     end
+end
+
+function fieldtypes_array(@nospecialize(type))
+    nflds = Base.Compiler.fieldcount_noerror(type)
+    if nflds !== nothing && nflds > 0
+        ftypes = Vector{Any}(undef, nflds)
+        for i in 1:nflds
+            ftypes[i] = fieldtype(type, i)
+        end
+    else
+        ftypes = nothing
+    end
+    return ftypes
 end
 
 #     old_types_with(oldtypename::Core.TypeName, alltypes::Base.IdSet{Type}) -> Union{Nothing, Base.IdSet{Type}}
