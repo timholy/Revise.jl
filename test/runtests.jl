@@ -2467,6 +2467,38 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("revise_structs preference") && if Base.VERSION >= v"1.12.0-DEV.2047"
+        @testset "revise_structs preference" begin
+            # The preference is read in __init__, so we have to test it via subprocesses.
+            test_proj_dir = dirname(Base.active_project())
+            prefs_file = joinpath(test_proj_dir, "LocalPreferences.toml")
+            backup = isfile(prefs_file) ? read(prefs_file, String) : nothing
+            julia = Base.julia_cmd()
+            check_bpart = "using Revise; print(Revise.__bpart__[])"
+            try
+                # Without the preference set, __bpart__ should be false
+                rm(prefs_file; force=true)
+                @test read(`$julia --project=$test_proj_dir -e $check_bpart`, String) == "false"
+                # With revise_structs = true, __bpart__ should be true
+                write(prefs_file, "[Revise]\nrevise_structs = true\n")
+                @test read(`$julia --project=$test_proj_dir -e $check_bpart`, String) == "true"
+            finally
+                if backup === nothing
+                    rm(prefs_file; force=true)
+                else
+                    write(prefs_file, backup)
+                end
+            end
+        end
+    end
+
+    # Struct revision tests require __bpart__[] = true. Enable it based on the Julia version
+    # alone: the LocalPreferences setting (which defaults to false for end users) should not
+    # suppress these tests on CI.
+    if Base.VERSION >= v"1.12.0-DEV.2047"
+        Revise.__bpart__[] = true
+    end
+
     Revise.__bpart__[] && do_test("Type info tracking") && @testset "Type info tracking" begin
         let exinfo = lower_and_track(:(abstract type ABC end))
             typeinfo = only(exinfo.typeinfos)
