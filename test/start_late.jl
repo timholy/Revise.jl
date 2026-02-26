@@ -13,6 +13,6 @@ while !isdefined(Base, :active_repl_backend) || isnothing(Base.active_repl_backe
 end
 
 using Revise
-@test Revise.revise_first ∈ Base.active_repl_backend.ast_transforms
+@test Revise.revise_first_scan_last ∈ Base.active_repl_backend.ast_transforms
 
 exit()
