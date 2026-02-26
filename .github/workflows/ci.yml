@@ -72,7 +72,7 @@ jobs:
                                            Base.run_main_repl(true, true, false, true, false))
           isdefined(Base, :errormonitor) && Base.errormonitor(t)
           while (!isdefined(Base, :active_repl_backend) || isnothing(Base.active_repl_backend)) sleep(0.1) end
-          pushfirst!(Base.active_repl_backend.ast_transforms, Revise.revise_first)
+          pushfirst!(Base.active_repl_backend.ast_transforms, Revise.revise_first_scan_last)
           include(joinpath("test", "runtests.jl"))
           if Base.VERSION.major == 1 && Base.VERSION.minor >= 9
               REPL.eval_user_input(:(exit()), Base.active_repl_backend, Main)
