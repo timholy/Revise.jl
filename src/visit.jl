@@ -62,9 +62,9 @@ function fieldtypes_cached(@nospecialize(type))
     @lock types_cache_lock begin
         # the equivalent `get!(types_cache, type) do ... end` form is not used because on 1.12 it triggers recompilation
         cache = get(types_cache, type, missing)
-        cache !== missing && return
-        types_cache[type] = fieldtypes_array(type)
-        return
+        cache !== missing && return cache
+        types_cache[type] = ftypes = fieldtypes_array(type)
+        return ftypes
     end
 end
 
