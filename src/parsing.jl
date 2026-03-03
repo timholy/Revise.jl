@@ -33,7 +33,11 @@ function parse_source!(mod_exprs_sigs::ModuleExprsInfos, src::AbstractString, fi
     if startswith(src, "# REVISE: DO NOT PARSE")
         return DoNotParse()
     end
-    ex = Base.parse_input_line(src; filename)
+    if VERSION ≥ v"1.14-DEV.1836"
+        ex = Base.parse_input_line(src; filename, mod)
+    else
+        ex = Base.parse_input_line(src; filename)
+    end
     if ex === nothing
         return mod_exprs_sigs
     elseif ex isa Expr
