@@ -23,6 +23,9 @@ Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 [extensions]
 DistributedExt = "Distributed"
 
+[sources]
+LoweredCodeUtils = {path = "/workspace/LoweredCodeUtils.jl"}
+
 [compat]
 CodeTracking = "3"
 Distributed = "1"
