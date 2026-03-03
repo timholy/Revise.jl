@@ -82,7 +82,7 @@ function categorize_stmt(@nospecialize(stmt), code::Vector{Any})
                 callee = code[callee.id]
             end
             isinclude = is_some_include(callee)
-            ismeth = is_defaultctors(callee)
+            ismeth = is_defaultctors(callee) || LoweredCodeUtils.is_define_method_ref(callee)
         end
     end
     return ismeth, haseval, isinclude, isnamespace, istoplevel
@@ -348,7 +348,7 @@ function _methods_by_execution!(
             #     # They may be needed to define later signatures.
             #     # Note that named inner methods don't require special treatment.
             #     pc = step_expr!(interp, frame, stmt, true)
-            elseif head === :method
+            elseif LoweredCodeUtils.ismethod(stmt)
                 empty!(signatures)
                 ret = methoddef!(interp, signatures, frame, stmt, pc; define=mode!==:sigs)
                 if ret === nothing
@@ -365,14 +365,19 @@ function _methods_by_execution!(
                             end
                         end
                     end
-                    @assert length(stmt.args) == 1
+                    @assert LoweredCodeUtils.ismethod1(stmt)
                     pc = mode !== :sigs ? step_expr!(interp, frame, stmt, true) :
                         next_or_nothing!(frame)
                 else
                     pc, pc3 = ret
                     # Get the line number from the body
                     stmt3 = pc_expr(frame, pc3)::Expr
-                    sigcode = lookup(interp, frame, stmt3.args[2])::Core.SimpleVector
+                    if LoweredCodeUtils.is_define_method_call_4arg(stmt3)
+                        # define_method(mod, name, sigdata, body): sigdata = svec(types, sparams, lnn)
+                        sigcode = lookup(interp, frame, stmt3.args[4])::Core.SimpleVector
+                    else
+                        sigcode = lookup(interp, frame, stmt3.args[2])::Core.SimpleVector
+                    end
                     lnn = sigcode[end]
                     if !isa(lnn, LineNumberNode)
                         lnn = nothing
