@@ -2471,7 +2471,7 @@ end
         @testset "revise_structs preference" begin
             # The preference is read in __init__, so we have to test it via subprocesses.
             test_proj_dir = dirname(Base.active_project())
-            prefs_file = joinpath(test_proj_dir, "LocalPreferences.toml")
+            prefs_file = joinpath(test_proj_dir, "JuliaLocalPreferences.toml")
             backup = isfile(prefs_file) ? read(prefs_file, String) : nothing
             julia = Base.julia_cmd()
             check_bpart = "using Revise; print(Revise.__bpart__[])"
