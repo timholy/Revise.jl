@@ -331,7 +331,8 @@ function watch_files_via_dir(dirname::AbstractString)
                     continue
                 end
             end
-            if newer(ctime(fullpath), timestamp)
+            fstat = stat(fullpath)
+            if newer(fstat.mtime, timestamp) || newer(fstat.ctime, timestamp)
                 push!(latestfiles, file=>id)
             end
         end
