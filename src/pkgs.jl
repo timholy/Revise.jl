@@ -315,7 +315,7 @@ function watch_files_via_dir(dirname::AbstractString)
     stillwatching = haskey(watched_files, dirname)
     if stillwatching
         wf = watched_files[dirname]
-        timestamp = updatetime!(wf)
+        timestamp = wf.timestamp
         for (file, id) in wf.trackedfiles
             fullpath = joinpath(dirname, file)
             if isdir(fullpath)
@@ -332,10 +332,11 @@ function watch_files_via_dir(dirname::AbstractString)
                 end
             end
             fstat = stat(fullpath)
-            if newer(fstat.mtime, timestamp) || newer(fstat.ctime, timestamp)
+            if newer(fstat.ctime, timestamp)
                 push!(latestfiles, file=>id)
             end
         end
+        updatetime!(wf)
     end
     return latestfiles, stillwatching
 end
