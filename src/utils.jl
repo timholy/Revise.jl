@@ -125,25 +125,14 @@ function pushex!(exs_infos::ExprsInfos, ex::Expr)
 end
 
 ## WatchList utilities
-function updatetime!(wl::WatchList)
-    return @atomicswap :not_atomic wl.timestamp = time()
-end
 Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgId}) =
     push!(wl.trackedfiles, filenameid)
 Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgFiles}) =
     push!(wl, filenameid.first=>filenameid.second.id)
 Base.push!(wl::WatchList, filenameid::Pair{<:AbstractString,PkgData}) =
     push!(wl, filenameid.first=>filenameid.second.info)
-WatchList() = WatchList(time(), Dict{String,PkgId}())
+WatchList() = WatchList(Dict{String,PkgId}(), Dict{String,Float64}())
 Base.in(file, wl::WatchList) = haskey(wl.trackedfiles, file)
-
-@static if Sys.isapple()
-    # HFS+ rounds time to seconds, see #22
-    # https://developer.apple.com/library/archive/technotes/tn/tn1150.html#HFSPlusDates
-    newer(mtime, timestamp) = ceil(mtime) >= floor(timestamp)
-else
-    newer(mtime, timestamp) = mtime >= timestamp
-end
 
 """
     success = throwto_repl(e::Exception)

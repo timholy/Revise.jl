@@ -7,12 +7,12 @@ watch parent directories, and keep track of which files in them
 should be tracked.
 
 Fields:
-- `timestamp`: mtime of last update
-- `trackedfiles`: Set of filenames, generally expressed as a relative path
+- `trackedfiles`: map from basename to `PkgId` for each watched file
+- `file_ctimes`: last-seen `ctime` for each tracked file, used to detect changes
 """
 mutable struct WatchList
-    timestamp::Float64         # unix time of last revision
     trackedfiles::Dict{String,PkgId}
+    file_ctimes::Dict{String,Float64}
 end
 
 """
