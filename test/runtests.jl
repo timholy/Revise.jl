@@ -4322,10 +4322,10 @@ do_test("callbacks") && @testset "callbacks" begin
             contents[] = read(path, String)
         end
 
-        sleep(mtimedelay)
+        sleep(2*mtimedelay)
 
         append(path, "abc")
-        sleep(mtimedelay)
+        sleep(2*mtimedelay)
         revise()
         @test contents[] == "abc"
 
@@ -4543,7 +4543,8 @@ include("backedges.jl")
 do_test("Base signatures") && @testset "Base signatures" begin
     println("beginning signatures tests")
     # Using the extensive repository of code in Base as a testbed
-    @test success(pipeline(`$(Base.julia_cmd()) sigtest.jl`, stderr=stderr))
+    sigfile = normpath(@__DIR__, "sigtest.jl")
+    @test success(pipeline(`$(Base.julia_cmd()) $sigfile`, stderr=stderr))
 end
 
 # Run this test in a separate julia process, since it messes with projects, and we don't want to have to
