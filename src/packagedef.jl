@@ -608,6 +608,8 @@ function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
         if new_id != NOPACKAGE || current_id === nothing
             # Allow the package id to be updated
             push!(watchlist, basename=>pkgdata)
+            # Record the current ctime as baseline so only future changes are detected
+            watchlist.file_ctimes[basename] = ctime(joinpath(dirfull, basename))
             if watching_files[]
                 fwatcher = TaskThunk(revise_file_queued, (pkgdata, file))
                 schedule(Task(fwatcher))
@@ -617,7 +619,6 @@ function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
         end
     end
     for dirfull in udirs
-        @lock watched_files_lock updatetime!(watched_files[dirfull])
         if !watching_files[]
             dwatcher = TaskThunk(revise_dir_queued, (dirfull,))
             schedule(Task(dwatcher))
@@ -751,6 +752,7 @@ function handle_deletions(
         wl = get(watched_files, basedir(pkgdata), nothing)
         if isa(wl, WatchList)
             delete!(wl.trackedfiles, file)
+            delete!(wl.file_ctimes, file)
         end
     end
     return mod_exs_infos_new, mod_exs_infos_old

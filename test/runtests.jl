@@ -1754,6 +1754,68 @@ end
         rm_precompile("Timing")
     end
 
+    # Regression test for issue #1025: PR #1003 (TOCTOU fix) broke the #341 fix.
+    # An editor save typically generates a burst of directory events: creating a temp file,
+    # renaming it over the tracked file, etc. With #1003, every spurious event advanced
+    # wl.timestamp so the tracked file's ctime could fall behind it and be missed.
+    #
+    # The fix was to track per-file ctimes instead of a directory timestamp.
+    # A file is detected when its ctime changes, not when it exceeds a watermark.
+    # Spurious events touch no tracked files, so no file_ctimes entry changes and
+    # nothing is falsely reported as changed.
+    do_test("Spurious events don't prevent detection (issue #1025)") &&
+    @testset "Spurious events don't prevent detection (issue #1025)" begin
+        testdir = mktempdir()
+        push!(to_remove, testdir)
+        tracked_file = joinpath(testdir, "tracked1025.jl")
+
+        write(tracked_file, "tracked1025_f() = 1")
+        sleep(0.1)  # let ctime settle before creating WatchList
+
+        # Set up a WatchList as init_watching would (baseline ctime recorded at push time)
+        pkgid = Base.PkgId(UUIDs.uuid4(), "tracked1025_test")
+        @lock Revise.watched_files_lock begin
+            wl = Revise.WatchList()
+            push!(wl, basename(tracked_file) => pkgid)
+            wl.file_ctimes[basename(tracked_file)] = stat(tracked_file).ctime
+            Revise.watched_files[testdir] = wl
+        end
+
+        try
+            # --- Phase 1: spurious event; no tracked file changed ---
+            # Start the watcher *before* any modification (naturalistic ordering).
+            t1 = @async Revise.watch_files_via_dir(testdir)
+            sleep(0.05)  # give t1 time to block on wait_changed
+            write(joinpath(testdir, "spurious1025a.tmp"), "")
+            wait(t1)
+            rm(joinpath(testdir, "spurious1025a.tmp"), force=true)
+
+            # Invariant check (deterministic on all platforms):
+            # a spurious event must not change any tracked file's recorded ctime.
+            @test Revise.watched_files[testdir].file_ctimes[basename(tracked_file)] == stat(tracked_file).ctime
+
+            # --- Phase 2: edit the tracked file ---
+            write(tracked_file, "tracked1025_f() = 2")
+
+            # --- Phase 3: detection event; tracked file must be found ---
+            detected = Ref{Vector{String}}(String[])
+            t2 = @async begin
+                latestfiles, _ = Revise.watch_files_via_dir(testdir)
+                detected[] = [first(p) for p in latestfiles]
+            end
+            sleep(0.05)
+            write(joinpath(testdir, "spurious1025b.tmp"), "")
+            wait(t2)
+            rm(joinpath(testdir, "spurious1025b.tmp"), force=true)
+
+            @test basename(tracked_file) ∈ detected[]
+        finally
+            @lock Revise.watched_files_lock begin
+                delete!(Revise.watched_files, testdir)
+            end
+        end
+    end
+
     do_test("DO NOT PARSE") && @testset "DO NOT PARSE" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "DoNotParse", "src")
@@ -4260,10 +4322,10 @@ do_test("callbacks") && @testset "callbacks" begin
             contents[] = read(path, String)
         end
 
-        sleep(mtimedelay)
+        sleep(2*mtimedelay)
 
         append(path, "abc")
-        sleep(mtimedelay)
+        sleep(2*mtimedelay)
         revise()
         @test contents[] == "abc"
 
@@ -4481,7 +4543,8 @@ include("backedges.jl")
 do_test("Base signatures") && @testset "Base signatures" begin
     println("beginning signatures tests")
     # Using the extensive repository of code in Base as a testbed
-    @test success(pipeline(`$(Base.julia_cmd()) sigtest.jl`, stderr=stderr))
+    sigfile = normpath(@__DIR__, "sigtest.jl")
+    @test success(pipeline(`$(Base.julia_cmd()) $sigfile`, stderr=stderr))
 end
 
 # Run this test in a separate julia process, since it messes with projects, and we don't want to have to
