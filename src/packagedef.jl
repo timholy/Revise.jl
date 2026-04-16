@@ -1485,12 +1485,9 @@ function maybe_set_prompt_color(color)
     return nothing
 end
 
-# `revise_first` gets called by the REPL prior to executing the next command (by having been pushed
+# `revise_first_scan_last` gets called by the REPL prior to executing the next command (by having been pushed
 # onto the `ast_transform` list).
-# This uses invokelatest not for reasons of world age but to ensure that the call is made at runtime.
-# This allows `revise_first` to be compiled without compiling `revise` itself, and greatly
-# reduces the overhead of using Revise.
-function revise_first(ex)
+function revise_first_scan_last(ex)
     # Special-case `exit()` (issue #562)
     if isa(ex, Expr)
         exu = unwrap(ex)
@@ -1519,8 +1516,28 @@ function revise_first(ex)
             end
         end
     end
-    # Check for queued revisions, and if so call `revise` first before executing the expression
-    return Expr(:toplevel, :($isempty($revision_queue) || $(Base.invokelatest)($revise)), ex)
+    return revise_first_scan_last_expr(ex)
+end
+
+function revise_first_scan_last_expr(ex)
+    # Modify the user-supplied expression `ex` to:
+    # 1. Check for queued revisions, and if any call `revise` first
+    # 2. Execute the user's expression and store the result in a temporary variable
+    # 3. Spawn a task to update the type cache after the expression has been executed
+    # 4. Return the result of the user's expression
+    result = gensym("result")
+    return Expr(:toplevel,
+        # This uses invokelatest not for reasons of world age but to ensure that the call is made at runtime.
+        # This allows `revise_first_scan_last` to be compiled without compiling `revise` itself, and greatly
+        # reduces the overhead of using Revise.
+        :($isempty($revision_queue) || $(Base.invokelatest)($revise)),
+        quote
+            let $result = $ex
+                Base.Threads.@spawn :default $(repopulate_typecache)()
+                $result
+            end
+        end
+    )
 end
 
 steal_repl_backend(_...) = @warn """
@@ -1635,10 +1652,10 @@ function __init__()
 
     mode = get(ENV, "JULIA_REVISE", "auto")
     if mode == "auto"
-        pushfirst!(REPL.repl_ast_transforms, revise_first)
+        pushfirst!(REPL.repl_ast_transforms, revise_first_scan_last)
         # #664: once a REPL is started, it no longer interacts with REPL.repl_ast_transforms
         if active_repl_backend_available()
-            push!(Base.active_repl_backend.ast_transforms, revise_first)
+            push!(Base.active_repl_backend.ast_transforms, revise_first_scan_last)
         else
             # wait for active_repl_backend to exist
             # #719: do this async in case Revise is being loaded from startup.jl
@@ -1649,7 +1666,7 @@ function __init__()
                     iter += 1
                 end
                 if active_repl_backend_available()
-                    push!(Base.active_repl_backend.ast_transforms, revise_first)
+                    push!(Base.active_repl_backend.ast_transforms, revise_first_scan_last)
                 end
             end
             isdefined(Base, :errormonitor) && Base.errormonitor(t)
@@ -1667,11 +1684,22 @@ function __init__()
     # This feature needs to be disabled on Apple Silicon for Julia v1.12 and earlier
     # due to the Julia runtime side issue (https://github.com/JuliaLang/julia/issues/60721)
     @static if !(VERSION < v"1.13-" && Sys.isapple())
-        if __bpart__[] && (isnothing(distributed_module) || distributed_module.myid() == 1)
-            Threads.@spawn :default foreach_subtype(Any) do @nospecialize type
-                # Populating this cache can be time consuming (eg, 30s on an
-                # i7-7700HQ) so do this incrementally and yield() to the scheduler
-                # regularly so this thread gets a chance to exit if the user quits early
+        if (isnothing(distributed_module) || distributed_module.myid() == 1)
+            Threads.@spawn :default repopulate_typecache()
+        end
+    end
+    return nothing
+end
+
+const _repopulating = ReentrantLock()
+function repopulate_typecache()
+    if __bpart__[]
+        @lock _repopulating begin
+            foreach_subtype(Any) do @nospecialize type
+                # Populating this cache can may take a few seconds on large
+                # codebases, so do this incrementally and yield() to the
+                # scheduler regularly so this thread gets a chance to exit if
+                # the user quits early
                 yield()
                 fieldtypes_cached(type)
             end

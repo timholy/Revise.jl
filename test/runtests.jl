@@ -182,9 +182,18 @@ end
 
     do_test("REPL input") && @testset "REPL input" begin
         # issue #573
-        retex = Revise.revise_first(nothing)
+        retex = Revise.revise_first_scan_last(nothing)
         @test retex.head === :toplevel
-        @test length(retex.args) == 2 && retex.args[end] === nothing
+        @test length(retex.args) == 2
+        retarg = retex.args[end]
+        if Meta.isexpr(retarg, :block)
+            retarg = retarg.args[end]
+        end
+        @test isexpr(retarg, :let)
+        ex1 = retarg.args[1]
+        @test Meta.isexpr(ex1, :(=))
+        @test ex1.args[2] === nothing
+        @test retarg.args[2].args[end] == ex1.args[1]
     end
 
     do_test("Signature extraction") && @testset "Signature extraction" begin
@@ -2623,7 +2632,11 @@ end
         end
     end
 
-    Revise.__bpart__[] && do_test("visit") && @testset "visit" include("test_visit.jl")
+    Revise.__bpart__[] && do_test("visit") && @testset "visit" begin
+        @lock Revise._repopulating begin
+            include("test_visit.jl")
+        end
+    end
 
     if Revise.__bpart__[] && do_test("struct revision (simple)")   # can we revise types and constants?
         @testset "struct revision (simple)" begin
