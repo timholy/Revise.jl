@@ -25,6 +25,12 @@ else
     const mtimedelay = 0.1
 end
 
+# Upper bound on how long `yry()` will wait for the file-watcher task to push
+# the expected change onto `revision_queue`. Only paid by yry() calls that
+# produce no revision (rare), so a generous value protects against slow
+# FSEvents delivery on macOS CI without significantly affecting wall time.
+const event_timeout = 10.0
+
 if isdefined(Core, :var"@latestworld")
     using Core: @latestworld
 else
@@ -36,7 +42,22 @@ else
     end
 end
 
-yry() = (sleep(mtimedelay); revise(); sleep(mtimedelay))
+# Replaces the historical `sleep(mtimedelay); revise(); sleep(mtimedelay)`:
+#   * pre-revise wait is event-driven (wait for the background watcher task to
+#     populate `Revise.revision_queue`), with `event_timeout` as a fall-through
+#     for tests that legitimately produce no revision.
+#   * a short settling pause lets a *burst* of writes that the watcher delivers
+#     across more than one wakeup land in the queue before we revise.
+#   * the trailing `sleep(mtimedelay)` is retained: it is the ctime-resolution
+#     guard so the *next* test write has a strictly larger ctime than the one
+#     `watch_files_via_dir` just cached. (When the dir watcher learns to use
+#     `watch_folder`, this trailing sleep can be removed.)
+function yry()
+    timedwait(() -> !isempty(Revise.revision_queue), event_timeout; pollint=0.02)
+    sleep(0.02)
+    revise()
+    sleep(mtimedelay)
+end
 macro yry()
     esc(quote
         yry()
