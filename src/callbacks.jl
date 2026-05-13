@@ -4,8 +4,10 @@
     Revise.revision_event::Base.Event
 
 This event is used to notify `entr` that one of the watched files has changed.
+It is created with `autoreset=true` so that a `notify` fired between a waiter's
+return from `wait` and its next call to `wait` is not lost — see issue #837.
 """
-const revision_event = Base.Event()
+const revision_event = Base.Event(true)
 
 """
     Revise.user_callbacks_queue
@@ -159,8 +161,7 @@ function entr(f::Function, files, modules=nothing; all=false, postpone=false, pa
     end
     try
         while true
-            wait(revision_event)
-            reset(revision_event)
+            wait(revision_event)  # autoreset; see issue #837
             revise(throw=true)
         end
     catch err
