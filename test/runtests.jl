@@ -4114,6 +4114,26 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     pop!(LOAD_PATH)
 end
 
+do_test("revision_event autoreset") && @testset "revision_event autoreset (issue #837)" begin
+    # `revision_event` must be an autoreset `Base.Event`, so that `wait`
+    # clears the bit. Without autoreset, a `notify` fired between the time
+    # `entr`'s loop returns from `wait` and the time it would call
+    # `reset(revision_event)` is silently dropped, and the corresponding
+    # file change is not serviced until another notify happens.
+    ev = Revise.revision_event
+    @test ev isa Base.Event
+    # Drain any stale state left by earlier testsets.
+    notify(ev); wait(ev)
+    # After `wait`, the bit must be cleared: a second wait with no
+    # intervening `notify` must block. Without autoreset it would return
+    # immediately because the bit set by the previous `notify` would still
+    # be latched.
+    t = @async wait(ev)
+    @test timedwait(() -> istaskdone(t), 0.2; pollint=0.02) === :timed_out
+    notify(ev)
+    wait(t)
+end
+
 do_test("entr") && @testset "entr" begin
     srcfile1 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile1)
     srcfile2 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile2)
