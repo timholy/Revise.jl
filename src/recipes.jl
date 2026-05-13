@@ -168,9 +168,14 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
                 rethrow(err)
             end
             fmod = get(juliaf2m, fullpath, Core.Compiler)  # Core.Compiler is not cached
+            # The top-level Compiler.jl file `include`s every other Compiler source file
+            # and defines the `Compiler` baremodule itself. We can't usefully parse/track
+            # it as a normal source file: in Julia 1.12+ its parent module is `Base` (via
+            # `Base._included_files`) rather than `Core.Compiler`, and re-executing its
+            # contents would attempt to redefine the `Compiler` baremodule.
+            endswith(fullpath, "compiler.jl") && continue              # v1.11-: defines the module
+            endswith(fullpath, "/Compiler/src/Compiler.jl") && continue  # v1.12+: defines the module
             if fmod === Core.Compiler
-                endswith(fullpath, "compiler.jl") && continue  # defines the module (v1.11-), skip
-                endswith(fullpath, "/Compiler/src/Compiler.jl") && continue  # defines the module (v1.12+), skip
                 @static if isdefined(Core.Compiler, :EscapeAnalysis)
                     # after https://github.com/JuliaLang/julia/pull/43800
                     if endswith(fullpath, "/compiler/ssair/EscapeAnalysis.jl") || contains(fullpath, "/Compiler/src/ssair/EscapeAnalysis.jl")

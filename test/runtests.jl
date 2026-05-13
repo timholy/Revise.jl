@@ -3433,6 +3433,12 @@ end
             # Determine whether a git repo is available. Travis & Appveyor do not have this.
             repo, path = Revise.git_repo(Revise.juliadir)
             if repo != nothing && isfile(joinpath(path, "VERSION")) && isdir(joinpath(path, "base"))
+                # Capture some Core.Compiler types/methods that have outer constructors
+                # alongside inner constructors so we can verify that tracking does not
+                # clobber them (https://github.com/JuliaLang/julia/issues/61308).
+                @static if VERSION >= v"1.12.0-DEV"
+                    pre_inf_methods = length(methods(Core.Compiler.InferenceResult))
+                end
                 # Tracking Core.Compiler
                 Revise.track(Core.Compiler)
                 id = Revise.pkgidid_for_mod(Core.Compiler)
@@ -3440,6 +3446,18 @@ end
                 @test any(k->endswith(k, "optimize.jl"), Revise.srcfiles(pkgdata))
                 m = first(methods(Core.Compiler.typeinf_code))
                 @test definition(m) isa Expr
+                @static if VERSION >= v"1.12.0-DEV"
+                    # tracking should not have redefined types and dropped methods
+                    @test length(methods(Core.Compiler.InferenceResult)) == pre_inf_methods
+                    @test hasmethod(Core.Compiler.InferenceResult,
+                                    Tuple{Core.MethodInstance, Core.Compiler.AbstractLattice})
+                    # An end-to-end check: InteractiveUtils.code_warntype invokes
+                    # Core.Compiler.InferenceResult(::MethodInstance, ::AbstractLattice).
+                    io = IOBuffer()
+                    InteractiveUtils.code_warntype(IOContext(io, :color=>false),
+                                                   sin, Tuple{Float64})
+                    @test !isempty(String(take!(io)))
+                end
             else
                 @test_throws Revise.GitRepoException Revise.track(Core.Compiler)
                 @warn "skipping Core.Compiler tests due to lack of git repo"
