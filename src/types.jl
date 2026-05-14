@@ -186,29 +186,27 @@ end
 
 const ExprsInfos = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Union{SigInfo,TypeInfo}}}}
 
-"""
-    PredictedChanges
-
-Best-effort prediction of what `revise()`'s Phase 2 evaluation will define,
-built up during Phase 1 by running each new/changed `RelocatableExpr` through
-`methods_by_execution!` with `predict_only=true`.
-
-Used by `delete_missing!` to skip the needless type-tree walk when the new
-code will redefine the same struct with structurally identical fields.
-
-Fields:
-- `typenames`: maps each `(module, name)` destination binding to a
-  `(partial::Type, fieldtypes::Core.SimpleVector)` pair captured from a
-  `Core._typebody!` call. The `partial` and `fieldtypes` together describe
-  the structure that the new `_typebody!` would install. Keying by
-  `(module, name)` rather than `Core.TypeName` is necessary because the
-  partial's `TypeName` is a fresh object distinct from the in-memory
-  binding's `TypeName`.
-- `sigs`: every `(MethodTable, sig::Type)` pair Phase 2 would (re)define.
-  Currently informational only — `delete_missing!` does NOT consult this for
-  skipping method deletion, because a textually-equal sig may dispatch on a
-  type that changed structurally and thus refer to a distinct method.
-"""
+# `PredictedChanges`
+#
+# Best-effort prediction of what `revise()`'s Phase 2 evaluation will define,
+# built up during Phase 1 by running each new/changed `RelocatableExpr` through
+# `methods_by_execution!` with `predict_only=true`.
+#
+# Used by `delete_missing!` to skip the needless type-tree walk when the new
+# code will redefine the same struct with structurally identical fields.
+#
+# Fields:
+# - `typenames`: maps each `(module, name)` destination binding to a
+#   `(partial::Type, fieldtypes::Core.SimpleVector)` pair captured from a
+#   `Core._typebody!` call. The `partial` and `fieldtypes` together describe
+#   the structure that the new `_typebody!` would install. Keying by
+#   `(module, name)` rather than `Core.TypeName` is necessary because the
+#   partial's `TypeName` is a fresh object distinct from the in-memory
+#   binding's `TypeName`.
+# - `sigs`: every `(MethodTable, sig::Type)` pair Phase 2 would (re)define.
+#   Currently informational only — `delete_missing!` does NOT consult this for
+#   skipping method deletion, because a textually-equal sig may dispatch on a
+#   type that changed structurally and thus refer to a distinct method.
 struct PredictedChanges
     typenames::Dict{Tuple{Module,Symbol}, Tuple{Type,Core.SimpleVector}}
     sigs::Set{Tuple{Union{Nothing,MethodTable}, Type}}

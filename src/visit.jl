@@ -144,23 +144,20 @@ function type_fingerprint(@nospecialize(T::Type), fieldtypes_arg::Union{Nothing,
     return (typepart, scalarpart)
 end
 
-"""
-    structurally_equivalent(T1::Type, T2::Type,
-                            fieldtypes_1=nothing, fieldtypes_2=nothing) -> Bool
-
-Return `true` if two types have the same structure: identical name + module,
-mutability, parameters, supertype, field names, and field types
-(modulo `TypeVar` renaming).
-
-Used by Revise to decide whether a struct revision would actually change the
-type. When the answer is `true`, the existing binding can be reused and the
-expensive subtype-tree walk in `handle_type_deletion!` can be skipped.
-
-`fieldtypes_1` / `fieldtypes_2` may be a `Core.SimpleVector` of field types
-to use in place of `T.types`. This is needed when comparing against the
-partial `DataType` produced by `Core._structtype` before `Core._typebody!`
-installs field types.
-"""
+# `structurally_equivalent(T1, T2, fieldtypes_1=nothing, fieldtypes_2=nothing) -> Bool`
+#
+# Return `true` if two types have the same structure: identical name + module,
+# mutability, parameters, supertype, field names, and field types (modulo
+# `TypeVar` renaming).
+#
+# Used by Revise to decide whether a struct revision would actually change the
+# type. When the answer is `true`, the existing binding can be reused and the
+# expensive subtype-tree walk in `handle_type_deletion!` can be skipped.
+#
+# `fieldtypes_1` / `fieldtypes_2` may be a `Core.SimpleVector` of field types
+# to use in place of `T.types`. This is needed when comparing against the
+# partial `DataType` produced by `Core._structtype` before `Core._typebody!`
+# installs field types.
 function structurally_equivalent(@nospecialize(T1::Type), @nospecialize(T2::Type),
                                  fieldtypes_1::Union{Nothing,Core.SimpleVector}=nothing,
                                  fieldtypes_2::Union{Nothing,Core.SimpleVector}=nothing)

@@ -332,19 +332,17 @@ end
 # - Correct evaluation order (type & method rewrite at the same time)
 # - Simplify type matching algorithm
 
-"""
-    predict_changes!(predicted::PredictedChanges, exs_infos_new::ExprsInfos,
-                     exs_infos_old::ExprsInfos, mod::Module)
-
-For each `RelocatableExpr` in `exs_infos_new` whose key is *not* present in
-`exs_infos_old` (i.e., the rexes Phase 2 will (re)evaluate), run a non-destructive
-"predict" pass to capture the candidate types and method signatures it would
-define, and merge them into `predicted`.
-
-Best-effort: if a rex fails to lower or any other error occurs, that rex is
-skipped — the corresponding deletions in [`delete_missing!`](@ref) will fall
-back to the pessimistic path (still correct, just no optimization).
-"""
+# `predict_changes!(predicted::PredictedChanges, exs_infos_new::ExprsInfos,
+#                  exs_infos_old::ExprsInfos, mod::Module)`
+#
+# For each `RelocatableExpr` in `exs_infos_new` whose key is *not* present in
+# `exs_infos_old` (i.e., the rexes Phase 2 will (re)evaluate), run a non-destructive
+# "predict" pass to capture the candidate types and method signatures it would
+# define, and merge them into `predicted`.
+#
+# Best-effort: if a rex fails to lower or any other error occurs, that rex is
+# skipped — the corresponding deletions in `delete_missing!` will fall back to
+# the pessimistic path (still correct, just no optimization).
 function predict_changes!(
         predicted::PredictedChanges, exs_infos_new::ExprsInfos,
         exs_infos_old::ExprsInfos, mod::Module,
