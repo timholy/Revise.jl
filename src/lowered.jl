@@ -215,9 +215,11 @@ The other keyword arguments are more straightforward:
 """
 function methods_by_execution!(
         interp::Interpreter, exinfo::ExInfo, mod::Module, ex::Expr;
-        mode::Symbol = :eval, disablebp::Bool = true, always_rethrow::Bool = false, kwargs...
+        mode::Symbol = :eval, disablebp::Bool = true, always_rethrow::Bool = false,
+        predict_only::Bool = false, kwargs...
     )
     mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
+    predict_only && mode === :eval && error("predict_only is incompatible with mode=:eval")
     lwr = Meta.lower(mod, ex)
     isa(lwr, Expr) || return Pair{Any,Union{Nothing,Expr}}(nothing, nothing)
     if lwr.head === :error || lwr.head === :incomplete
@@ -232,7 +234,7 @@ function methods_by_execution!(
     # Determine whether we need interpreted mode
     isrequired, evalassign = minimal_evaluation!(frame, mode)
     # LoweredCodeUtils.print_with_code(stdout, frame.framecode.src, isrequired)
-    if !any(isrequired) && (mode === :eval || !evalassign)
+    if !predict_only && !any(isrequired) && (mode === :eval || !evalassign)
         # We can evaluate the entire expression in compiled mode
         if mode === :eval
             ret = try
@@ -259,7 +261,7 @@ function methods_by_execution!(
             foreach(disable, active_bp_refs)
         end
         ret = try
-            _methods_by_execution!(interp, exinfo, frame, isrequired; mode, kwargs...)
+            _methods_by_execution!(interp, exinfo, frame, isrequired; mode, predict_only, kwargs...)
         catch err
             (always_rethrow || isa(err, InterruptException)) && (@isdefined(active_bp_refs) && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame))
@@ -282,7 +284,7 @@ methods_by_execution!(exinfo::ExInfo, mod::Module, ex::Expr; kwargs...) =
 
 function _methods_by_execution!(
         interp::Interpreter, exinfo::ExInfo, frame::Frame, isrequired::AbstractVector{Bool};
-        mode::Symbol = :eval, skip_include::Bool = true
+        mode::Symbol = :eval, skip_include::Bool = true, predict_only::Bool = false
     )
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
 
@@ -305,12 +307,12 @@ function _methods_by_execution!(
                 local value
                 for ex in stmt.args
                     ex isa Expr || continue
-                    value, _ = methods_by_execution!(interp, exinfo, mod, ex; mode, disablebp=false, skip_include)
+                    value, _ = methods_by_execution!(interp, exinfo, mod, ex; mode, disablebp=false, skip_include, predict_only)
                 end
                 isassign(frame, pc) && @isdefined(value) && assign_this!(frame, value)
                 pc = next_or_nothing!(frame)
             elseif head === :thunk && defines_function(only(stmt.args))
-                mode !== :sigs && Core.eval(mod, stmt)
+                (!predict_only && mode !== :sigs) && Core.eval(mod, stmt)
                 pc = next_or_nothing!(frame)
             # elseif head === :thunk && isanonymous_typedef(stmt.args[1])
             #     # Anonymous functions should just be defined anew, since there does not seem to be a practical
@@ -320,7 +322,7 @@ function _methods_by_execution!(
             #     pc = step_expr!(interp, frame, stmt, true)
             elseif head === :method
                 empty!(signatures)
-                ret = methoddef!(interp, signatures, frame, stmt, pc; define=mode!==:sigs)
+                ret = methoddef!(interp, signatures, frame, stmt, pc; define=(mode!==:sigs && !predict_only))
                 if ret === nothing
                     # This was just `function foo end` or similar.
                     # However, it might have been followed by a thunk that defined a
@@ -336,7 +338,7 @@ function _methods_by_execution!(
                         end
                     end
                     @assert length(stmt.args) == 1
-                    pc = mode !== :sigs ? step_expr!(interp, frame, stmt, true) :
+                    pc = (mode !== :sigs && !predict_only) ? step_expr!(interp, frame, stmt, true) :
                         next_or_nothing!(frame)
                 else
                     pc, pc3 = ret
@@ -421,8 +423,17 @@ function _methods_by_execution!(
                     end
                 end
             elseif LoweredCodeUtils.get_lhs_rhs(stmt) !== nothing
-                if mode === :sigs && stmt.head === :const && (a = stmt.args[1]) isa GlobalRef && @invokelatest(isdefined(mod, a.name))
+                if predict_only && stmt.head === :const
+                    # In :predict mode we never create new bindings; skip every `:const` declaration
+                    pc = next_or_nothing!(frame)
+                elseif mode === :sigs && stmt.head === :const && (a = stmt.args[1]) isa GlobalRef && @invokelatest(isdefined(mod, a.name))
                     # avoid redefining types unless we have to
+                    pc = next_or_nothing!(frame)
+                elseif mode !== :sigs && stmt.head === :const &&
+                       const_rhs_matches_existing(interp, frame, stmt, mod)
+                    # The RHS evaluates to the existing binding (e.g., because the paired
+                    # `_typebody!` was skipped via `reuse_existing_type_if_equivalent!`).
+                    # Re-asserting the const would create a new binding partition unnecessarily.
                     pc = next_or_nothing!(frame)
                 else
                     # If the RHS is a call, unwrap it and dispatch to the call handler
@@ -440,21 +451,33 @@ function _methods_by_execution!(
                     if __bpart__[]
                         analyze_typebody!(exinfo, interp, frame, callstmt)
                     end
-                    if mode === :sigs && length(callstmt.args) >= 4 && reuse_existing_type!(interp, frame, callstmt)
+                    if predict_only && length(callstmt.args) >= 4
+                        # In :predict mode, capture the candidate (partial, fieldtypes) for
+                        # structural comparison and never execute `_typebody!`.
+                        capture_predicted_type!(exinfo, interp, frame, callstmt)
+                        pc = next_or_nothing!(frame)
+                    elseif mode === :sigs && length(callstmt.args) >= 4 && reuse_existing_type!(interp, frame, callstmt)
                         # The type is already defined (e.g., by package loading).
                         # In :sigs mode we just want to extract signatures, so don't
                         # execute `_typebody!` — that would rebind the type and clear
                         # methods that aren't redefined here (e.g., outer constructors
                         # whose `:method` statements are skipped because `define=false`).
                         pc = next_or_nothing!(frame)
+                    elseif mode !== :sigs && length(callstmt.args) >= 4 &&
+                           reuse_existing_type_if_equivalent!(interp, frame, callstmt)
+                        # In :eval/:evalmeth mode, also skip `_typebody!` when the new
+                        # partial type is structurally identical to the existing in-memory
+                        # type. This preserves the binding partition and avoids subtype-cache
+                        # churn (issue #1022). The matching `:const` declaration below sees
+                        # `RHS === existing binding` and is skipped too.
+                        pc = next_or_nothing!(frame)
                     else
                         pc = step_expr!(interp, frame, stmt, true)
                     end
-                elseif mode === :sigs && @static(isdefined(Core, :declare_const) ? true : false) && f === Core.declare_const &&
-                       length(callstmt.args) >= 3 && skip_declare_const(interp, frame, callstmt)
+                elseif (mode === :sigs || predict_only) && @static(isdefined(Core, :declare_const) ? true : false) && f === Core.declare_const &&
+                       length(callstmt.args) >= 3 && (predict_only || skip_declare_const(interp, frame, callstmt))
                     # The corresponding `_typebody!` was skipped above; skip the matching
-                    # `declare_const` to avoid creating a new binding partition for an
-                    # already-defined type.
+                    # `declare_const` so no new binding partition is created.
                     pc = next_or_nothing!(frame)
                 elseif is_defaultctors(f) && length(callstmt.args) == 3
                     # Create the constructors for a type (i.e., a method definition)
@@ -476,7 +499,7 @@ function _methods_by_execution!(
                             add_signature!(exinfo, sig, lnn)
                         end
                     end
-                    if mode === :sigs
+                    if mode === :sigs || predict_only
                         pc = next_or_nothing!(frame)
                     else # also execute this call
                         pc = step_expr!(interp, frame, stmt, true)
@@ -492,7 +515,7 @@ function _methods_by_execution!(
                         end
                         newex = unwrap(newex)
                         push!(exinfo.exprstack, newex)
-                        value, _ = methods_by_execution!(interp, exinfo, newmod, newex; mode, skip_include, disablebp=false)
+                        value, _ = methods_by_execution!(interp, exinfo, newmod, newex; mode, skip_include, disablebp=false, predict_only)
                         pop!(exinfo.exprstack)
                     end
                     assign_this!(frame, value)
@@ -553,14 +576,21 @@ function _methods_by_execution!(
 end
 
 function add_signature!(exinfo::ExInfo, mt_sig::MethodInfoKey, ln::LineNumberNode)
-    locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, mt_sig)
     newdef = unwrap(exinfo.exprstack[end])
-    if newdef !== nothing
-        if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
-            push!(locdefs, (fixpath(ln), newdef))
-        end
+    newdef === nothing && return exinfo
+    if exinfo.predict_only
+        # Predict mode: record the sig in `allsigs` but do not pollute the persistent
+        # `CodeTracking.method_info` cache. Otherwise `handle_method_deletion!` may
+        # later see extra locdefs for the same sig and conclude the method has multiple
+        # definitions (and skip deletion of the genuinely-old method).
         push!(exinfo.allsigs, SigInfo(mt_sig))
+        return exinfo
     end
+    locdefs = CodeTracking.invoked_get!(Vector{Tuple{LineNumberNode,Expr}}, CodeTracking.method_info, mt_sig)
+    if !any(locdef->locdef[1] == ln && isequal(RelocatableExpr(locdef[2]), RelocatableExpr(newdef)), locdefs)
+        push!(locdefs, (fixpath(ln), newdef))
+    end
+    push!(exinfo.allsigs, SigInfo(mt_sig))
     return exinfo
 end
 
@@ -621,6 +651,84 @@ function reuse_existing_type!(interp::Interpreter, frame::Frame, stmt::Expr)
     existing = @invokelatest getfield(mod, name)
     existing isa Type || return false
     assign_this!(frame, existing)
+    return true
+end
+
+# In `:eval`/`:evalmeth` mode, skip `_typebody!` only when the new partial is
+# *structurally equivalent* to the existing in-memory type. This is the
+# Revise-side check intentionally complementing what `:sigs` mode does (which
+# trusts the binding without checking) — see issue #1022. Returns `true` iff
+# the call should be skipped (and assigns the existing type to the SSA).
+function reuse_existing_type_if_equivalent!(interp::Interpreter, frame::Frame, stmt::Expr)
+    new_partial = lookup(interp, frame, stmt.args[3])
+    new_partial isa Type || return false
+    inner = Base.unwrap_unionall(new_partial)
+    inner isa DataType || return false
+    fieldtypes_svec = lookup(interp, frame, stmt.args[4])
+    fieldtypes_svec isa Core.SimpleVector || return false
+    tn = inner.name
+    mod = tn.module
+    name = tn.name
+    @invokelatest(isdefined(mod, name)) || return false
+    existing = @invokelatest getfield(mod, name)
+    existing isa Type || return false
+    structurally_equivalent(existing, new_partial, nothing, fieldtypes_svec) || return false
+    assign_this!(frame, existing)
+    return true
+end
+
+# True when a top-level `Expr(:const, lhs, rhs)` would just rebind `lhs` to its
+# existing value (because the paired `_typebody!` was skipped). Skipping the
+# `:const` then avoids creating an unnecessary new binding partition.
+function const_rhs_matches_existing(interp::Interpreter, frame::Frame, stmt::Expr, mod::Module)
+    length(stmt.args) >= 2 || return false
+    lhs = stmt.args[1]
+    if lhs isa GlobalRef
+        bmod, bname = lhs.mod, lhs.name
+    elseif lhs isa Symbol
+        bmod, bname = mod, lhs
+    else
+        return false
+    end
+    @invokelatest(isdefined(bmod, bname)) || return false
+    existing = @invokelatest getfield(bmod, bname)
+    rhs_val = try
+        lookup(interp, frame, stmt.args[2])
+    catch
+        return false
+    end
+    return rhs_val === existing
+end
+
+# Used by `:predict` mode (`predict_only=true`). Capture `(typname, partial, fieldtypes)`
+# from a `Core._typebody!` call without executing it, so the caller can later compare
+# against the in-memory binding via `structurally_equivalent`.
+#
+# We unwrap `new_partial` (UnionAll for parametric types) to get the inner DataType
+# and its TypeName. The fieldtypes are taken from `stmt.args[4]` because the partial
+# itself does not have its `.types` populated until `_typebody!` runs.
+#
+# Assigns the existing in-memory type (if defined) or the partial to the SSA so
+# that subsequent statements (e.g., `_defaultctors`) have a usable Type to consume.
+function capture_predicted_type!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt::Expr)
+    new_partial = lookup(interp, frame, stmt.args[3])
+    new_partial isa Type || return false
+    inner = Base.unwrap_unionall(new_partial)
+    inner isa DataType || return false
+    fieldtypes_svec = lookup(interp, frame, stmt.args[4])
+    fieldtypes_svec isa Core.SimpleVector || return false
+    push!(exinfo.predicted_types, (inner.name, new_partial, fieldtypes_svec))
+    tn = inner.name
+    mod = tn.module
+    name = tn.name
+    if @invokelatest(isdefined(mod, name))
+        existing = @invokelatest getfield(mod, name)
+        if existing isa Type
+            assign_this!(frame, existing)
+            return true
+        end
+    end
+    assign_this!(frame, new_partial)
     return true
 end
 

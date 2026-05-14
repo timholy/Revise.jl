@@ -332,9 +332,67 @@ end
 # - Correct evaluation order (type & method rewrite at the same time)
 # - Simplify type matching algorithm
 
+"""
+    predict_changes!(predicted::PredictedChanges, exs_infos_new::ExprsInfos,
+                     exs_infos_old::ExprsInfos, mod::Module)
+
+For each `RelocatableExpr` in `exs_infos_new` whose key is *not* present in
+`exs_infos_old` (i.e., the rexes Phase 2 will (re)evaluate), run a non-destructive
+"predict" pass to capture the candidate types and method signatures it would
+define, and merge them into `predicted`.
+
+Best-effort: if a rex fails to lower or any other error occurs, that rex is
+skipped — the corresponding deletions in [`delete_missing!`](@ref) will fall
+back to the pessimistic path (still correct, just no optimization).
+"""
+function predict_changes!(
+        predicted::PredictedChanges, exs_infos_new::ExprsInfos,
+        exs_infos_old::ExprsInfos, mod::Module,
+    )
+    for rex in keys(exs_infos_new)
+        haskey(exs_infos_old, rex) && continue
+        ex = rex.ex
+        is_doc_expr(ex) && continue
+        try
+            exinfo = ExInfo(ex; predict_only=true)
+            methods_by_execution!(exinfo, mod, ex; mode=:sigs, predict_only=true)
+            for (tn, partial, ftypes) in exinfo.predicted_types
+                # Key by (module, name) — the partial DataType's `TypeName` is a fresh
+                # object, distinct from the existing binding's `TypeName`, so keying by
+                # `Core.TypeName` would never match in `delete_missing!`.
+                # Last writer wins if the same name appears multiple times in the new
+                # exprs (e.g., user writes two `struct Foo`s in the same file — the last
+                # one is what Phase 2 will leave in place).
+                predicted.typenames[(tn.module, tn.name)] = (partial, ftypes)
+            end
+            for siginfo in exinfo.allsigs
+                push!(predicted.sigs, (siginfo.mt, siginfo.sig))
+            end
+        catch err
+            (isa(err, InterruptException)) && rethrow(err)
+            # Best-effort: leave this rex out of `predicted` and let `delete_missing!` use
+            # the pessimistic path.
+            @debug "PredictFailed" _group="Action" time=time() deltainfo=(mod, ex, err)
+        end
+    end
+    return predicted
+end
+
+function predict_changes!(
+        predicted::PredictedChanges,
+        mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos,
+    )
+    for (mod, exs_infos_new) in mod_exs_infos_new
+        exs_infos_old = get(mod_exs_infos_old, mod, empty_exs_infos)
+        predict_changes!(predicted, exs_infos_new, exs_infos_old, mod)
+    end
+    return predicted
+end
+
 function delete_missing!(
         exs_infos_old::ExprsInfos, exs_infos_new::ExprsInfos,
-        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt
+        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
+        predicted::PredictedChanges = PredictedChanges(),
     )
     with_logger(_debug_logger) do
         for (rex, exinfos) in exs_infos_old
@@ -343,9 +401,22 @@ function delete_missing!(
             exinfos === nothing && continue
             for exinfo in exinfos
                 if exinfo isa SigInfo
+                    # Note: we deliberately do NOT skip method deletion when
+                    # `(mt, sig)` appears in `predicted.sigs`. The textual sig may match
+                    # while a *type inside it* (e.g., a struct argument) has changed
+                    # structurally — in that case the predicted method really IS distinct
+                    # from the old one and the old one must be deleted. See the
+                    # `mynorm(::Point)` case in the "struct revision (dependency)" test.
                     handle_method_deletion!(exinfo, rex, world)
                 elseif __bpart__[]
-                    handle_type_deletion!(exinfo::TypeInfo, reeval_list, handled_types, world)
+                    typeinfo = exinfo::TypeInfo
+                    # Skip the type-tree walk if the new code redefines this type with the
+                    # same structure (only constructors / defaults differ, e.g., a `@kwdef`
+                    # default-value edit). See issue #1022.
+                    if predicted_preserves_type(predicted, typeinfo, world)
+                        continue
+                    end
+                    handle_type_deletion!(typeinfo, reeval_list, handled_types, world)
                 end
             end
         end
@@ -353,14 +424,28 @@ function delete_missing!(
     return exs_infos_old
 end
 
+# Return `true` if `typeinfo` refers to a type that the new code will redefine
+# with structurally identical fields (and the binding still resolves to a Type).
+function predicted_preserves_type(predicted::PredictedChanges, typeinfo::TypeInfo, world::UInt)
+    tn = typeinfo.typname
+    pred = get(predicted.typenames, (tn.module, tn.name), nothing)
+    pred === nothing && return false
+    partial, ftypes = pred
+    Base.invoke_in_world(world, isdefinedglobal, tn.module, tn.name) || return false
+    existing = Base.invoke_in_world(world, getglobal, tn.module, tn.name)
+    existing isa Type || return false
+    return structurally_equivalent(existing, partial, nothing, ftypes)
+end
+
 const empty_exs_infos = ExprsInfos()
 function delete_missing!(
         mod_exs_infos_old::ModuleExprsInfos, mod_exs_infos_new::ModuleExprsInfos,
-        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt
+        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
+        predicted::PredictedChanges = PredictedChanges(),
     )
     for (mod, exs_infos_old) in mod_exs_infos_old
         exs_infos_new = get(mod_exs_infos_new, mod, empty_exs_infos)
-        delete_missing!(exs_infos_old, exs_infos_new, reeval_list, handled_types, world)
+        delete_missing!(exs_infos_old, exs_infos_new, reeval_list, handled_types, world, predicted)
     end
     return mod_exs_infos_old
 end
@@ -722,11 +807,10 @@ function revise_file_queued(pkgdata::PkgData, file)
     return
 end
 
-# Because we delete first, we have to make sure we've parsed the file
-function handle_deletions(
-        pkgdata::PkgData, file::AbstractString,
-        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt
-    )
+# Parse the file's current contents and look up its previously-tracked exprs.
+# Returns `(mod_exs_infos_new, mod_exs_infos_old, fileok)`. Has no side effects on
+# `pkgdatas` — safe to call from a pre-deletion pass that builds `PredictedChanges`.
+function parse_for_revision(pkgdata::PkgData, file::AbstractString)
     fi = maybe_parse_from_cache!(pkgdata, file)
     maybe_extract_sigs!(fi)
     mod_exs_infos_old = fi.mod_exs_infos
@@ -742,10 +826,31 @@ function handle_deletions(
     topmod = first(keys(mod_exs_infos_old))
     fileok = file_exists(String(filep)::String)
     mod_exs_infos_new = fileok ? parse_source(filep, topmod) : ModuleExprsInfos(topmod)
+    return mod_exs_infos_new, mod_exs_infos_old, fileok
+end
+
+# Apply deletions for `(pkgdata, file)` using `mod_exs_infos_new/_old` from
+# `parse_for_revision`. Mutates `reeval_list`, `handled_types`, and possibly
+# `pkgdata` (when the file no longer exists).
+function delete_for_revision(
+        pkgdata::PkgData, file::AbstractString,
+        mod_exs_infos_new, mod_exs_infos_old, fileok::Bool,
+        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
+        predicted::PredictedChanges,
+    )
     if mod_exs_infos_new !== nothing && mod_exs_infos_new !== DoNotParse()
-        delete_missing!(mod_exs_infos_old, mod_exs_infos_new, reeval_list, handled_types, world)
+        delete_missing!(mod_exs_infos_old, mod_exs_infos_new, reeval_list, handled_types, world, predicted)
     end
     if !fileok
+        idx = fileindex(pkgdata, file)
+        filep = pkgdata.info.files[idx]
+        if isa(filep, AbstractString)
+            if file ≠ "."
+                filep = normpath(basedir(pkgdata), file)
+            else
+                filep = normpath(basedir(pkgdata))
+            end
+        end
         @warn("$filep no longer exists, deleted all methods")
         deleteat!(pkgdata.fileinfos, idx)
         deleteat!(pkgdata.info.files, idx)
@@ -755,6 +860,18 @@ function handle_deletions(
             delete!(wl.file_ctimes, file)
         end
     end
+    return nothing
+end
+
+# Because we delete first, we have to make sure we've parsed the file
+function handle_deletions(
+        pkgdata::PkgData, file::AbstractString,
+        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
+        predicted::PredictedChanges = PredictedChanges(),
+    )
+    mod_exs_infos_new, mod_exs_infos_old, fileok = parse_for_revision(pkgdata, file)
+    delete_for_revision(pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok,
+                        reeval_list, handled_types, world, predicted)
     return mod_exs_infos_new, mod_exs_infos_old
 end
 
@@ -945,12 +1062,42 @@ function revise(; throw::Bool=false)
         finished = eltype(revision_queue)[]
         mod_exs_infos = ModuleExprsInfos[]
         interrupt = false
+        # Phase 1a: parse all files and predict what Phase 2 will (re)define.
+        # Building `predicted` *before* `delete_missing!` lets us skip needless
+        # type-tree walks and method deletions when the new code redefines the
+        # same struct/method (e.g., editing a `@kwdef` default — see issue #1022).
+        # The predict pass relies on `_typebody!` interception to avoid actually
+        # defining structs; that mechanism only exists on Julia 1.12+ (gated by
+        # `__bpart__[]`). On older Julia versions, running predict would
+        # inadvertently define structs in the predict pass itself, so skip it.
+        predicted = PredictedChanges()
+        parsed = Tuple{PkgData,String,Any,ModuleExprsInfos,Bool}[]
         for (pkgdata, file) in queue
             try
-                mod_exs_infos_new, _ = handle_deletions(pkgdata, file, reeval_list, handled_types, world)
-                mod_exs_infos_new === DoNotParse() && continue
-                push!(mod_exs_infos, mod_exs_infos_new)
-                push!(finished, (pkgdata, file))
+                mod_exs_infos_new, mod_exs_infos_old, fileok = parse_for_revision(pkgdata, file)
+                if mod_exs_infos_new === DoNotParse()
+                    continue
+                end
+                if __bpart__[] && mod_exs_infos_new !== nothing
+                    predict_changes!(predicted, mod_exs_infos_new, mod_exs_infos_old)
+                end
+                push!(parsed, (pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok))
+            catch err
+                throw && Base.throw(err)
+                interrupt |= isa(err, InterruptException)
+                push!(revision_errors, (pkgdata, file))
+                queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+            end
+        end
+        # Phase 1b: apply deletions per file, consulting `predicted` to skip needless work.
+        for (pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
+            try
+                delete_for_revision(pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok,
+                                    reeval_list, handled_types, world, predicted)
+                if mod_exs_infos_new !== nothing
+                    push!(mod_exs_infos, mod_exs_infos_new)
+                    push!(finished, (pkgdata, file))
+                end
             catch err
                 throw && Base.throw(err)
                 interrupt |= isa(err, InterruptException)

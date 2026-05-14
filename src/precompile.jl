@@ -72,16 +72,19 @@ function _precompile_()
 
     mex = which(methods_by_execution!, (Compiled, MI, Module, Expr))
     mbody = bodymethod(mex)
+    # The body-method signature carries the kwargs in declaration order:
+    # (mode::Symbol, disablebp::Bool, always_rethrow::Bool, predict_only::Bool).
     # use `typeof(pairs(NamedTuple()))` here since it actually differs between Julia versions
-    @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, typeof(pairs(NamedTuple())), typeof(methods_by_execution!), Compiled, MI, Module, Expr})
+    @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Bool, typeof(pairs(NamedTuple())), typeof(methods_by_execution!), Compiled, MI, Module, Expr})
     if VERSION >= v"1.12-"
-        @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Iterators.Pairs{Symbol,Bool,Nothing,NamedTuple{(:skip_include,),Tuple{Bool}}}, typeof(methods_by_execution!), Compiled, MI, Module, Expr})
+        @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Bool, Iterators.Pairs{Symbol,Bool,Nothing,NamedTuple{(:skip_include,),Tuple{Bool}}}, typeof(methods_by_execution!), Compiled, MI, Module, Expr})
     else
-        @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Iterators.Pairs{Symbol,Bool,Tuple{Symbol},NamedTuple{(:skip_include,),Tuple{Bool}}}, typeof(methods_by_execution!), Compiled, MI, Module, Expr})
+        @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, Bool, Iterators.Pairs{Symbol,Bool,Tuple{Symbol},NamedTuple{(:skip_include,),Tuple{Bool}}}, typeof(methods_by_execution!), Compiled, MI, Module, Expr})
     end
     mfr = which(_methods_by_execution!, (Compiled, MI, Frame, Vector{Bool}))
     mbody = bodymethod(mfr)
-    @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, typeof(_methods_by_execution!), Compiled, MI, Frame, Vector{Bool}})
+    # `_methods_by_execution!` body-method kwargs: (mode::Symbol, skip_include::Bool, predict_only::Bool).
+    @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, typeof(_methods_by_execution!), Compiled, MI, Frame, Vector{Bool}})
 
     @warnpcfail precompile(Tuple{typeof(get_def), Method})
     @warnpcfail precompile(Tuple{typeof(parse_pkg_files), PkgId})

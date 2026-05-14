@@ -104,14 +104,25 @@ It also has the following fields:
 - `typeinfos`: a list of all type definitions defined by a given expression (not cached in CodeTracking)
 - `includes`: a list of `module=>filename` for any `include` statements encountered while the
   expression was parsed.
+- `predicted_types`: populated only when `methods_by_execution!` is run with `predict_only=true`.
+  Each entry is `(typname, partial::Type, fieldtypes::Core.SimpleVector)` captured from a
+  `Core._typebody!` call that was *not* executed. Used by Phase 1 of `revise()` to decide
+  whether a struct revision can skip the expensive subtype-tree walk.
+- `predict_only`: when `true`, `add_signature!` records sigs in `allsigs` but does NOT
+  write to `CodeTracking.method_info`, so that the prediction pass leaves no trace
+  in the persistent location-tracking caches.
 """
 struct ExInfo
     exprstack::Vector{Expr}
     allsigs::Vector{SigInfo}
     typeinfos::Vector{TypeInfo}
     includes::Vector{Pair{Module,String}}
+    predicted_types::Vector{Tuple{Core.TypeName,Type,Core.SimpleVector}}
+    predict_only::Bool
 end
-ExInfo(ex::Expr) = ExInfo(Expr[ex], SigInfo[], TypeInfo[], Pair{Module,String}[])
+ExInfo(ex::Expr; predict_only::Bool=false) =
+    ExInfo(Expr[ex], SigInfo[], TypeInfo[], Pair{Module,String}[],
+           Tuple{Core.TypeName,Type,Core.SimpleVector}[], predict_only)
 
 """
     get_extended_data(ext::ExtendedData, owner::Symbol) -> ext::Union{ExtendedData,Nothing}
@@ -174,6 +185,38 @@ function replace_extended_data(siginfo::SigInfo, owner::Symbol, @nospecialize(da
 end
 
 const ExprsInfos = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Union{SigInfo,TypeInfo}}}}
+
+"""
+    PredictedChanges
+
+Best-effort prediction of what `revise()`'s Phase 2 evaluation will define,
+built up during Phase 1 by running each new/changed `RelocatableExpr` through
+`methods_by_execution!` with `predict_only=true`.
+
+Used by `delete_missing!` to skip the needless type-tree walk when the new
+code will redefine the same struct with structurally identical fields.
+
+Fields:
+- `typenames`: maps each `(module, name)` destination binding to a
+  `(partial::Type, fieldtypes::Core.SimpleVector)` pair captured from a
+  `Core._typebody!` call. The `partial` and `fieldtypes` together describe
+  the structure that the new `_typebody!` would install. Keying by
+  `(module, name)` rather than `Core.TypeName` is necessary because the
+  partial's `TypeName` is a fresh object distinct from the in-memory
+  binding's `TypeName`.
+- `sigs`: every `(MethodTable, sig::Type)` pair Phase 2 would (re)define.
+  Currently informational only — `delete_missing!` does NOT consult this for
+  skipping method deletion, because a textually-equal sig may dispatch on a
+  type that changed structurally and thus refer to a distinct method.
+"""
+struct PredictedChanges
+    typenames::Dict{Tuple{Module,Symbol}, Tuple{Type,Core.SimpleVector}}
+    sigs::Set{Tuple{Union{Nothing,MethodTable}, Type}}
+end
+PredictedChanges() = PredictedChanges(
+    Dict{Tuple{Module,Symbol}, Tuple{Type,Core.SimpleVector}}(),
+    Set{Tuple{Union{Nothing,MethodTable}, Type}}(),
+)
 const DepDictVals = Tuple{Module,RelocatableExpr}
 const DepDict = Dict{Symbol,Set{DepDictVals}}
 

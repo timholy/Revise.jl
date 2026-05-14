@@ -2877,6 +2877,89 @@ end
         end
     end
 
+    if Revise.__bpart__[] && do_test("struct revision (issue #1022)")
+        @testset "struct revision (issue #1022)" begin
+            # Editing only the default value of a `@kwdef` struct, or a wrapping macro
+            # that does not change the struct's fields, must NOT trigger the expensive
+            # struct-revision path: the binding partition is preserved and no
+            # `DeleteType` event is emitted. Genuine changes to fields, types, or
+            # mutability still trigger full revision.
+            testdir = newtestdir()
+            try
+                rlogger = Revise.debug_logger()
+                dn = joinpath(testdir, "Revise1022", "src")
+                mkpath(dn)
+                fn = joinpath(dn, "Revise1022.jl")
+                pkg_code_v1 = """
+                    module Revise1022
+                        Base.@kwdef struct Blah
+                            x = 4
+                        end
+                        # A method that takes Blah — guards against erroneous deletion
+                        # when only the kwdef default changes.
+                        useblah(b::Blah) = b.x + 1
+                    end
+                    """
+                write(fn, pkg_code_v1)
+                sleep(mtimedelay)
+                @eval using Revise1022
+                sleep(mtimedelay)
+                T_v1 = Revise1022.Blah
+                @test Revise1022.Blah().x == 4
+                @test Revise1022.useblah(Revise1022.Blah()) == 5
+
+                # Revision 1: change ONLY the kwdef default — binding must be preserved
+                empty!(rlogger.logs)
+                pkg_code_v2 = replace(pkg_code_v1, "x = 4" => "x = 5")
+                write(fn, pkg_code_v2)
+                @yry()
+                T_v2 = @invokelatest getfield(Revise1022, :Blah)
+                @test T_v1 === T_v2  # binding partition preserved
+                @test @invokelatest(Revise1022.Blah()).x == 5
+                # No DeleteType event for Blah
+                deletetype_logs = filter(r -> r.level == Debug && r.group == "Action" &&
+                                              r.message == "DeleteType", rlogger.logs)
+                @test isempty(deletetype_logs)
+                # The old-Blah method `useblah` still works (it dispatches on the same binding)
+                @test @invokelatest(Revise1022.useblah(Revise1022.Blah())) == 6
+
+                # Revision 2: add a field — full struct-revision path MUST run
+                empty!(rlogger.logs)
+                pkg_code_v3 = replace(pkg_code_v1,
+                    "Base.@kwdef struct Blah\n        x = 4\n    end" =>
+                    "Base.@kwdef struct Blah\n        x = 4\n        y::Int = 7\n    end")
+                pkg_code_v3 = replace(pkg_code_v3, "useblah(b::Blah) = b.x + 1" =>
+                                                  "useblah(b::Blah) = b.x + b.y")
+                write(fn, pkg_code_v3)
+                @yry()
+                T_v3 = @invokelatest getfield(Revise1022, :Blah)
+                @test T_v3 !== T_v1  # new binding partition
+                @test :y in fieldnames(T_v3)
+                @test @invokelatest(Revise1022.useblah(Revise1022.Blah())) == 11  # 4 + 7
+                # DeleteType WAS emitted for the old Blah binding
+                deletetype_logs = filter(r -> r.level == Debug && r.group == "Action" &&
+                                              r.message == "DeleteType", rlogger.logs)
+                @test !isempty(deletetype_logs)
+
+                # Revision 3: change a field type — full struct-revision path MUST run
+                empty!(rlogger.logs)
+                T_v3 = @invokelatest getfield(Revise1022, :Blah)
+                pkg_code_v4 = replace(pkg_code_v3, "y::Int = 7" => "y::Float64 = 7.0")
+                write(fn, pkg_code_v4)
+                @yry()
+                T_v4 = @invokelatest getfield(Revise1022, :Blah)
+                @test T_v4 !== T_v3
+                @test fieldtype(T_v4, :y) === Float64
+                deletetype_logs = filter(r -> r.level == Debug && r.group == "Action" &&
+                                              r.message == "DeleteType", rlogger.logs)
+                @test !isempty(deletetype_logs)
+            finally
+                rm_precompile("Revise1022")
+                pop!(LOAD_PATH)
+            end
+        end
+    end
+
     do_test("get_def") && @testset "get_def" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "GetDef", "src")

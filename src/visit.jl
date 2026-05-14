@@ -112,6 +112,65 @@ function old_types_with(oldtypename::Core.TypeName, alltypes::Base.IdSet{Type})
     return related_types
 end
 
+# Compute a structural fingerprint of a type for equality comparison ignoring
+# `Core.TypeName` identity (i.e., without distinguishing two binding partitions
+# of "the same" type definition). Returns `nothing` if the type cannot be
+# fingerprinted (e.g., a partially-constructed `DataType` with no `super` set).
+#
+# `fieldtypes_arg`, when supplied, is a `svec` of field types used in place of
+# `inner.types`. This handles the partial `DataType` produced by
+# `Core._structtype` before `Core._typebody!` installs field types: at that
+# point `inner.types` is undef, but the field-types `svec` is the third
+# argument to the `_typebody!` call.
+#
+# The fingerprint is a `(typepart, scalarpart)` pair. `typepart` is a
+# `Tuple`-type wrapped in the same `UnionAll` layers as the input, so type
+# equality (`==`) handles `TypeVar` renaming. `scalarpart` carries
+# mutability + name + module + field names, which `Tuple`-type equality
+# cannot represent.
+function type_fingerprint(@nospecialize(T::Type), fieldtypes_arg::Union{Nothing,Core.SimpleVector}=nothing)
+    Tw = T
+    inner = Base.unwrap_unionall(Tw)
+    inner isa DataType || return nothing
+    isdefined(inner, :super) || return nothing
+    ftypes = fieldtypes_arg === nothing ? (isdefined(inner, :types) ? inner.types : nothing) : fieldtypes_arg
+    ftypes === nothing && return nothing
+    typepart = Tuple{inner.parameters..., ftypes..., inner.super}
+    while Tw isa UnionAll
+        typepart = UnionAll(Tw.var, typepart)
+        Tw = Tw.body
+    end
+    scalarpart = (ismutabletype(inner), inner.name.module, inner.name.name, Tuple(inner.name.names))
+    return (typepart, scalarpart)
+end
+
+"""
+    structurally_equivalent(T1::Type, T2::Type,
+                            fieldtypes_1=nothing, fieldtypes_2=nothing) -> Bool
+
+Return `true` if two types have the same structure: identical name + module,
+mutability, parameters, supertype, field names, and field types
+(modulo `TypeVar` renaming).
+
+Used by Revise to decide whether a struct revision would actually change the
+type. When the answer is `true`, the existing binding can be reused and the
+expensive subtype-tree walk in `handle_type_deletion!` can be skipped.
+
+`fieldtypes_1` / `fieldtypes_2` may be a `Core.SimpleVector` of field types
+to use in place of `T.types`. This is needed when comparing against the
+partial `DataType` produced by `Core._structtype` before `Core._typebody!`
+installs field types.
+"""
+function structurally_equivalent(@nospecialize(T1::Type), @nospecialize(T2::Type),
+                                 fieldtypes_1::Union{Nothing,Core.SimpleVector}=nothing,
+                                 fieldtypes_2::Union{Nothing,Core.SimpleVector}=nothing)
+    f1 = type_fingerprint(T1, fieldtypes_1)
+    f1 === nothing && return false
+    f2 = type_fingerprint(T2, fieldtypes_2)
+    f2 === nothing && return false
+    return f1 == f2
+end
+
 function is_with_oldtypename(@nospecialize(typlike), oldtypename::Core.TypeName)
     if typlike isa DataType
         typlike.name == oldtypename && return true
