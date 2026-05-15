@@ -132,6 +132,12 @@ jobs:
             tests: '"struct revision (dependency)" "entr"'
           - label: switching-then-entr    # PkgChange v1↔v2 swap
             tests: '"Switching free/dev" "entr"'
+          - label: three-suspects-then-entr   # combine the 3 single-pair suspects
+            tests: '"struct revision (issue #1022)" "New files & Requires.jl" "struct revision (dependency)" "entr"'
+          - label: all-struct-revision-then-entr  # all struct-revision tests + entr
+            tests: '"Type info tracking" "struct revision (simple)" "struct revision (retry)" "struct revision (dependency)" "struct revision (issue #1022)" "entr"'
+          - label: pre-entr-most              # most pre-entr testsets in source order
+            tests: '"Comparison and line numbering" "Method deletion" "Revising macros" "More arg-modifying macros" "Manual track" "Cross-module extension" "Type info tracking" "struct revision (simple)" "struct revision (retry)" "struct revision (dependency)" "struct revision (issue #1022)" "Switching free/dev" "New files & Requires.jl" "entr"'
     env:
       REVISE_PRECOMPILE_ERROR: true
     steps:
