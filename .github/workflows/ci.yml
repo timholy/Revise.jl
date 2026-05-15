@@ -144,6 +144,10 @@ jobs:
     - uses: julia-actions/julia-buildpkg@latest
     - name: Run testsets - ${{ matrix.scenario.label }}
       shell: bash
+      env:
+        # Pass via env var so special characters like '(' and '&' survive YAML→shell
+        # substitution; eval then re-parses the embedded quoting.
+        SCENARIO_TESTS: ${{ matrix.scenario.tests }}
       run: |
-        eval "set -- ${{ matrix.scenario.tests }}"
+        eval "set -- $SCENARIO_TESTS"
         julia --project=test test/runtests.jl "$@"
