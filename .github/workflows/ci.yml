@@ -106,3 +106,39 @@ jobs:
         files: lcov.info
         token: ${{ secrets.CODECOV_TOKEN }}
         fail_ci_if_error: true
+
+  # Diagnostic job for the nightly-only Julia regression seen in #1038.
+  # Runs a chosen subset of testsets on nightly to bisect what the entr failure
+  # actually needs in terms of prior-test state. Each matrix entry is a label and
+  # a quoted, space-separated list of testset names passed as ARGS to runtests.jl.
+  # Add new entries to widen the search; results stand alone (no shared runner state).
+  # Each scenario is run 3× to check whether failures are deterministic.
+  diagnostic-nightly:
+    name: Diagnostic ${{ matrix.scenario.label }} - run ${{ matrix.run }}
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3]
+        scenario:
+          - label: entr-only
+            tests: '"entr" "entr with modules" "entr with all files"'
+          # Add additional scenarios here, e.g.:
+          # - label: structs-then-entr
+          #   tests: '"struct revision (simple)" "struct revision (dependency)" "entr"'
+    env:
+      REVISE_PRECOMPILE_ERROR: true
+    steps:
+    - uses: actions/checkout@v6
+    - uses: julia-actions/setup-julia@latest
+      with:
+        version: nightly
+        show-versioninfo: true
+    - uses: julia-actions/cache@v3
+    - uses: julia-actions/julia-buildpkg@latest
+    - name: Run testsets - ${{ matrix.scenario.label }}
+      shell: bash
+      run: |
+        eval "set -- ${{ matrix.scenario.tests }}"
+        julia --project=test test/runtests.jl "$@"
