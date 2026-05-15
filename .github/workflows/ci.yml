@@ -124,9 +124,14 @@ jobs:
         scenario:
           - label: entr-only
             tests: '"entr" "entr with modules" "entr with all files"'
-          # Add additional scenarios here, e.g.:
-          # - label: structs-then-entr
-          #   tests: '"struct revision (simple)" "struct revision (dependency)" "entr"'
+          - label: kwdef-then-entr        # the PR's new predict pass
+            tests: '"struct revision (issue #1022)" "entr"'
+          - label: requires-then-entr     # closest preceding testset (~53s, dynamic module loads)
+            tests: '"New files & Requires.jl" "entr"'
+          - label: structdep-then-entr    # dev'd test packages reloaded
+            tests: '"struct revision (dependency)" "entr"'
+          - label: switching-then-entr    # PkgChange v1↔v2 swap
+            tests: '"Switching free/dev" "entr"'
     env:
       REVISE_PRECOMPILE_ERROR: true
     steps:
