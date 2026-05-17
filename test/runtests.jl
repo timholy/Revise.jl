@@ -753,6 +753,41 @@ end
         pop!(LOAD_PATH)
     end
 
+    # https://github.com/timholy/Revise.jl/issues/1033
+    do_test("Source from cache") && @testset "Source from cache" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "CacheLookup1033", "src")
+        mkpath(dn)
+        write(joinpath(dn, "CacheLookup1033.jl"), """
+            module CacheLookup1033
+            include("sub.jl")
+            end
+            """)
+        write(joinpath(dn, "sub.jl"), "f1033() = 1")
+        sleep(mtimedelay)
+        @eval using CacheLookup1033
+        sleep(mtimedelay)
+        pkgdata = Revise.pkgdatas[Base.PkgId(CacheLookup1033)]
+        # Baseline: the source of a precompiled package is read back from its `.ji` cache.
+        for file in Revise.srcfiles(pkgdata)
+            @test occursin("1033", Revise.read_from_cache(pkgdata, file))
+        end
+        # The cache is indexed by the path recorded at precompile time. Reading it must
+        # not depend on reconstructing that path from `basedir`, which can take a
+        # different form than the cache's (e.g. across symlinks). Simulate the
+        # divergence by pointing `basedir` elsewhere; the source should still be found.
+        saved = pkgdata.info.basedir
+        pkgdata.info.basedir = joinpath(saved, "does", "not", "match")
+        try
+            for file in Revise.srcfiles(pkgdata)
+                @test occursin("1033", Revise.read_from_cache(pkgdata, file))
+            end
+        finally
+            pkgdata.info.basedir = saved
+        end
+        rm_precompile("CacheLookup1033")
+    end
+
     # issue #131
     do_test("Base & stdlib file paths") && @testset "Base & stdlib file paths" begin
         @test isfile(Revise.basesrccache)

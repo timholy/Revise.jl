@@ -251,21 +251,23 @@ Source cache files greatly reduce the overhead of using Revise.
 struct FileInfo
     mod_exs_infos::ModuleExprsInfos
     cachefile::String
+    cachefilename::String                              # the source path as recorded inside `cachefile`, used to read from the cache
     cacheexprs::Vector{Tuple{Module,Expr}}             # "unprocessed" exprs, used to support @require
     extracted::Base.RefValue{Bool}                     # true if signatures have been processed from mod_exs_infos
     parsed::Base.RefValue{Bool}                        # true if mod_exs_infos have been parsed from cachefile
 end
-FileInfo(mod_exs_infos::ModuleExprsInfos, cachefile="") =
-    FileInfo(mod_exs_infos, cachefile, Tuple{Module,Expr}[], Ref(false), Ref(false))
+FileInfo(mod_exs_infos::ModuleExprsInfos, cachefile="", cachefilename="") =
+    FileInfo(mod_exs_infos, cachefile, cachefilename, Tuple{Module,Expr}[], Ref(false), Ref(false))
 
 """
-    FileInfo(mod::Module, cachefile="")
+    FileInfo(mod::Module, cachefile="", cachefilename="")
 
 Initialize an empty FileInfo for a file that is `include`d into `mod`.
 """
-FileInfo(mod::Module, cachefile::AbstractString="") = FileInfo(ModuleExprsInfos(mod), cachefile)
+FileInfo(mod::Module, cachefile::AbstractString="", cachefilename::AbstractString="") =
+    FileInfo(ModuleExprsInfos(mod), cachefile, cachefilename)
 
-FileInfo(fm::ModuleExprsInfos, fi::FileInfo) = FileInfo(fm, fi.cachefile, copy(fi.cacheexprs), Ref(fi.extracted[]), Ref(fi.parsed[]))
+FileInfo(fm::ModuleExprsInfos, fi::FileInfo) = FileInfo(fm, fi.cachefile, fi.cachefilename, copy(fi.cacheexprs), Ref(fi.extracted[]), Ref(fi.parsed[]))
 
 function Base.show(io::IO, fi::FileInfo)
     print(io, "FileInfo(")

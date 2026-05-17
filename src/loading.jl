@@ -57,8 +57,10 @@ function parse_pkg_files(id::PkgId)
                 end
                 fname = relpath(chi.filename, pkgdata)
                 # For precompiled packages, we can read the source later (whenever we need it)
-                # from the *.ji cachefile.
-                push!(pkgdata, fname=>FileInfo(mod, cachefile))
+                # from the *.ji cachefile. Keep `chi.filename` itself: that is the exact key
+                # the cache is indexed by, and reconstructing it from `fname` is unreliable
+                # when path forms diverge (e.g. symlinks, see #1033).
+                push!(pkgdata, fname=>FileInfo(mod, cachefile, chi.filename))
             end
             CodeTracking._pkgfiles[id] = pkgdata.info
             return pkgdata
