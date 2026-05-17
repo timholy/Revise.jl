@@ -4214,16 +4214,21 @@ do_test("entr") && @testset "entr" begin
                     include(srcfile1)
                 end
             end
-            # `postpone=false` runs the callback synchronously *before* `entr` arms
-            # its watch, so don't `waitfor` the counter here — that would race ahead
-            # and modify the files before the watch exists. A fixed wait is fine: arming
-            # the watch is a bounded local operation, unlike awaiting a change event.
-            sleep(1)
+            # `postpone=false` runs the callback synchronously, *before* `entr` arms
+            # its watch. Wait for that, then probe: a fixed `sleep` here is unreliable
+            # — on a slow CI runner the watch may not be armed in time and the first
+            # change is missed (#1040, #1041). Rewriting the file until the change is
+            # actually detected makes setup robust regardless of arming latency.
+            waitfor(() -> Main.__entr__ >= 1)
             @test Main.__entr__ == 1  # callback should have been run (postpone=false)
 
-            # File modification
-            write(srcfile1, "Core.eval(Main, :(__entr__ = 2))")
-            waitfor(() -> Main.__entr__ >= 2)
+            # File modification — doubles as the probe that the watch is live
+            probed = timedwait(event_timeout; pollint=0.1) do
+                write(srcfile1, "Core.eval(Main, :(__entr__ = 2))")
+                Main.__entr__ >= 2
+            end
+            @test probed === :ok
+            sleep(2*pause)            # let any still-pending probe callbacks drain
             @test Main.__entr__ == 2  # callback should have been called
 
             # Two events in quick succession (w.r.t. the `pause` argument)
@@ -4272,33 +4277,38 @@ do_test("entr") && @testset "entr" begin
                     stop[] && error("stop watching directory")
                 end
             end
-            sleep(1)                           # let `entr` arm the watch (see above)
-            @test length(readdir(srcdir)) == 0 # directory should still be empty
+            waitfor(() -> counter[] >= 1)
             @test counter[] == 1               # postpone=false
+            @test length(readdir(srcdir)) == 0 # directory should still be empty
 
-            # File creation
-            touch(trigger)
-            waitfor(() -> counter[] >= 2)
-            @test counter[] == 2
+            # Probe that the watch is live before running the checks: touch a file
+            # until a change is actually detected (see the file-watching block above).
+            probed = timedwait(event_timeout; pollint=0.1) do
+                touch(trigger)
+                counter[] > 1
+            end
+            @test probed === :ok
+            sleep(2*pause)                     # let pending probe callbacks drain
+            counter[] = 0                      # watch is live now; count from a clean slate
 
             # File modification
             touch(trigger)
-            waitfor(() -> counter[] >= 3)
-            @test counter[] == 3
+            waitfor(() -> counter[] >= 1)
+            @test counter[] == 1
 
             # File deletion -> the directory should be empty again
             rm(trigger)
-            waitfor(() -> counter[] >= 4)
+            waitfor(() -> counter[] >= 2)
             @test length(readdir(srcdir)) == 0
-            @test counter[] == 4
+            @test counter[] == 2
 
             # Two events in quick succession (w.r.t. the `pause` argument)
             touch(trigger)       # creation
             sleep(0.1)
             touch(trigger)       # modification
-            waitfor(() -> counter[] >= 5)
+            waitfor(() -> counter[] >= 3)
             sleep(2*pause)       # settle: a non-coalesced extra callback would fire within ~pause of the first
-            @test counter[] == 5 # Callback should have been called only once
+            @test counter[] == 3 # Callback should have been called only once
 
             # Stop
             stop[] = true
