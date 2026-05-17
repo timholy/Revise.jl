@@ -4192,6 +4192,12 @@ do_test("entr") && @testset "entr" begin
     # — the latter flakes on a slow CI runner (issue #1039).
     waitfor(pred) = timedwait(pred, event_timeout; pollint=0.02)
 
+    # `entr` coalesces changes that occur within `pause` seconds into a single
+    # callback; the "quick succession" checks below depend on that. Use a generous
+    # `pause` so the two events reliably land in the same window despite variable
+    # filesystem-event detection latency — a tight value flaked on Windows CI (#1040).
+    pause = 2.0
+
     srcfile1 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile1)
     srcfile2 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile2)
     revise(throw=true)   # force compilation
@@ -4204,7 +4210,7 @@ do_test("entr") && @testset "entr" begin
             @test Main.__entr__ == 0
 
             @async begin
-                entr([srcfile1, srcfile2]; pause=0.5) do
+                entr([srcfile1, srcfile2]; pause) do
                     include(srcfile1)
                 end
             end
@@ -4225,7 +4231,7 @@ do_test("entr") && @testset "entr" begin
             sleep(0.1)
             touch(srcfile2)
             waitfor(() -> Main.__entr__ >= 3)
-            sleep(1)                  # settle: a non-coalesced extra callback would land within this window
+            sleep(2*pause)            # settle: a non-coalesced extra callback would fire within ~pause of the first
             @test Main.__entr__ == 3  # callback should have been called only once
 
             write(srcfile1, "error(\"stop\")")
@@ -4261,7 +4267,7 @@ do_test("entr") && @testset "entr" begin
             stop = Ref(false)
 
             @async begin
-                entr([srcdir]; pause=0.5) do
+                entr([srcdir]; pause) do
                     counter[] += 1
                     stop[] && error("stop watching directory")
                 end
@@ -4291,7 +4297,7 @@ do_test("entr") && @testset "entr" begin
             sleep(0.1)
             touch(trigger)       # modification
             waitfor(() -> counter[] >= 5)
-            sleep(1)             # settle: a non-coalesced extra callback would land within this window
+            sleep(2*pause)       # settle: a non-coalesced extra callback would fire within ~pause of the first
             @test counter[] == 5 # Callback should have been called only once
 
             # Stop
