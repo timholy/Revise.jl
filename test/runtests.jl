@@ -2954,21 +2954,37 @@ end
     end
 
     do_test("Pkg exclusion") && @testset "Pkg exclusion" begin
-        Revise.dont_watch(:Example)
-        Revise.silence(:Example)
-        @eval import Example
-        id = Base.PkgId(Example)
-        @test !haskey(Revise.pkgdatas, id)
-        # Ensure that dont_watch/allow_watch works
-        Revise.dont_watch(:GSL)
-        @test :GSL in Revise.dont_watch_pkgs
-        Revise.allow_watch(:GSL)
-        @test !(:GSL in Revise.dont_watch_pkgs)
-        # Ensure that silencing works
-        Revise.silence(:GSL)
-        @test "GSL" in Revise.silence_pkgs
-        Revise.unsilence(:GSL)
-        @test !("GSL" in Revise.silence_pkgs)
+        # `dont_watch`/`silence` mutate global state and persist to LocalPreferences.toml;
+        # snapshot both so the testset leaves nothing behind.
+        prefs_file = joinpath(dirname(Base.active_project()), "LocalPreferences.toml")
+        prefs_backup = isfile(prefs_file) ? read(prefs_file, String) : nothing
+        dont_watch_backup = copy(Revise.dont_watch_pkgs)
+        silence_backup = copy(Revise.silence_pkgs)
+        try
+            Revise.dont_watch(:Example)
+            Revise.silence(:Example)
+            @eval import Example
+            id = Base.PkgId(Example)
+            @test !haskey(Revise.pkgdatas, id)
+            # Ensure that dont_watch/allow_watch works
+            Revise.dont_watch(:GSL)
+            @test :GSL in Revise.dont_watch_pkgs
+            Revise.allow_watch(:GSL)
+            @test !(:GSL in Revise.dont_watch_pkgs)
+            # Ensure that silencing works
+            Revise.silence(:GSL)
+            @test "GSL" in Revise.silence_pkgs
+            Revise.unsilence(:GSL)
+            @test !("GSL" in Revise.silence_pkgs)
+        finally
+            empty!(Revise.dont_watch_pkgs); union!(Revise.dont_watch_pkgs, dont_watch_backup)
+            empty!(Revise.silence_pkgs); union!(Revise.silence_pkgs, silence_backup)
+            if prefs_backup === nothing
+                rm(prefs_file; force=true)
+            else
+                write(prefs_file, prefs_backup)
+            end
+        end
         pop!(LOAD_PATH)
     end
 

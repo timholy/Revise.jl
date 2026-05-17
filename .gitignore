@@ -11,3 +11,5 @@ Manifest-v*.toml
 src/aliasnewstruct.jl
 .vscode
 test/envs/use_exputils/Project.toml
+MAINTENANCE.md
+MWEs/*
