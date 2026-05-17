@@ -4170,6 +4170,12 @@ do_test("revision_event autoreset") && @testset "revision_event autoreset (issue
 end
 
 do_test("entr") && @testset "entr" begin
+    # `entr` runs its callback asynchronously: a background task detects the change,
+    # then `entr` waits `pause` seconds before calling `f`. Poll for the expected
+    # state with `timedwait` rather than assuming a fixed `sleep` outlasts that chain
+    # — the latter flakes on a slow CI runner (issue #1039).
+    waitfor(pred) = timedwait(pred, event_timeout; pollint=0.02)
+
     srcfile1 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile1)
     srcfile2 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile2)
     revise(throw=true)   # force compilation
@@ -4186,24 +4192,27 @@ do_test("entr") && @testset "entr" begin
                     include(srcfile1)
                 end
             end
+            # `postpone=false` runs the callback synchronously *before* `entr` arms
+            # its watch, so don't `waitfor` the counter here — that would race ahead
+            # and modify the files before the watch exists. A fixed wait is fine: arming
+            # the watch is a bounded local operation, unlike awaiting a change event.
             sleep(1)
             @test Main.__entr__ == 1  # callback should have been run (postpone=false)
 
             # File modification
             write(srcfile1, "Core.eval(Main, :(__entr__ = 2))")
-            sleep(1)
+            waitfor(() -> Main.__entr__ >= 2)
             @test Main.__entr__ == 2  # callback should have been called
 
             # Two events in quick succession (w.r.t. the `pause` argument)
             write(srcfile1, "Core.eval(Main, :(__entr__ += 1))")
             sleep(0.1)
             touch(srcfile2)
-            sleep(1)
+            waitfor(() -> Main.__entr__ >= 3)
+            sleep(1)                  # settle: a non-coalesced extra callback would land within this window
             @test Main.__entr__ == 3  # callback should have been called only once
 
-
             write(srcfile1, "error(\"stop\")")
-            sleep(mtimedelay)
         end
         @test false
     catch err
@@ -4241,23 +4250,23 @@ do_test("entr") && @testset "entr" begin
                     stop[] && error("stop watching directory")
                 end
             end
-            sleep(1)
+            sleep(1)                           # let `entr` arm the watch (see above)
             @test length(readdir(srcdir)) == 0 # directory should still be empty
             @test counter[] == 1               # postpone=false
 
             # File creation
             touch(trigger)
-            sleep(1)
+            waitfor(() -> counter[] >= 2)
             @test counter[] == 2
 
             # File modification
             touch(trigger)
-            sleep(1)
+            waitfor(() -> counter[] >= 3)
             @test counter[] == 3
 
             # File deletion -> the directory should be empty again
             rm(trigger)
-            sleep(1)
+            waitfor(() -> counter[] >= 4)
             @test length(readdir(srcdir)) == 0
             @test counter[] == 4
 
@@ -4265,7 +4274,8 @@ do_test("entr") && @testset "entr" begin
             touch(trigger)       # creation
             sleep(0.1)
             touch(trigger)       # modification
-            sleep(1)
+            waitfor(() -> counter[] >= 5)
+            sleep(1)             # settle: a non-coalesced extra callback would land within this window
             @test counter[] == 5 # Callback should have been called only once
 
             # Stop
