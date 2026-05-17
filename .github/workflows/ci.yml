@@ -96,10 +96,14 @@ jobs:
         curl -s -L https://github.com/JuliaLang/julia/archive/$path.tar.gz --output - | tar -xz -C $dn
         julia --project test/juliadir.jl "$dn/julia-$ver"
 
-    # # Running out of inotify storage (see #26)
+    # # Check that Revise degrades gracefully when the OS runs out of inotify
+    # # watches (see #26, #1010). `tee` (not `tee -a`) is required: a sysctl proc
+    # # file must be written at offset 0, otherwise the write is silently ignored.
+    # # Revise must not be pre-loaded here, so that inotify.jl can capture the
+    # # `using Revise` warning (which fires at most once, see `maxlog`).
     # - name: inotify
     #   if: ${{ matrix.os == 'ubuntu-latest' }}
-    #   run: echo 4 | sudo tee -a /proc/sys/fs/inotify/max_user_watches; julia --project --code-coverage=user -e 'using Pkg, Revise; cd(joinpath(dirname(pathof(Revise)), "..", "test")); include("inotify.jl")'
+    #   run: echo 4 | sudo tee /proc/sys/fs/inotify/max_user_watches; julia --project --code-coverage=user -e 'cd("test"); include("inotify.jl")'
     - uses: julia-actions/julia-processcoverage@latest
     - uses: codecov/codecov-action@v6
       with:
