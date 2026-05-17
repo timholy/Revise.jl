@@ -4192,7 +4192,11 @@ do_test("entr") && @testset "entr" begin
                     include(srcfile1)
                 end
             end
-            waitfor(() -> Main.__entr__ >= 1)
+            # `postpone=false` runs the callback synchronously *before* `entr` arms
+            # its watch, so don't `waitfor` the counter here — that would race ahead
+            # and modify the files before the watch exists. A fixed wait is fine: arming
+            # the watch is a bounded local operation, unlike awaiting a change event.
+            sleep(1)
             @test Main.__entr__ == 1  # callback should have been run (postpone=false)
 
             # File modification
@@ -4246,7 +4250,7 @@ do_test("entr") && @testset "entr" begin
                     stop[] && error("stop watching directory")
                 end
             end
-            waitfor(() -> counter[] >= 1)
+            sleep(1)                           # let `entr` arm the watch (see above)
             @test length(readdir(srcdir)) == 0 # directory should still be empty
             @test counter[] == 1               # postpone=false
 
