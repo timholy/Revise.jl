@@ -137,10 +137,10 @@ any module tracked by Revise.
 
 `entr` will process updates (and block your command line) until you press Ctrl-C.
 Unless `postpone` is `true`, `f()` will be executed also when calling `entr`,
-regardless of file changes. The `pause` is the period (in seconds) that `entr`
-will wait between being triggered and actually calling `f()`, to handle
-clusters of modifications, such as those produced by saving files in certain
-text editors.
+regardless of file changes. The `pause` is the quiet period (in seconds) that
+`entr` waits after the most recent change before calling `f()`; a cluster of
+modifications less than `pause` apart — such as those produced by saving files
+in certain text editors — therefore triggers only a single call.
 
 # Example
 
@@ -155,18 +155,62 @@ This will print "update" every time `"/tmp/watched.txt"` or any of the code defi
 function entr(f::Function, files, modules=nothing; all=false, postpone=false, pause=0.02)
     yield()
     postpone || f()
+    # `entr` runs `f` on a trailing-edge debounce: a change schedules `f` for
+    # `pause` seconds later, and any further change before then pushes the
+    # deadline out. A burst of changes no more than `pause` apart therefore
+    # collapses into a single `f()` call.
+    lk = ReentrantLock()
+    deadline = Ref(0.0)                          # `time()` at which `f` should next run; a past value means "nothing pending"
+    dtask = Ref{Union{Task,Nothing}}(nothing)    # the in-flight debounce task, or `nothing`
+    err = Ref{Any}(nothing)                      # an error from `f`, relayed to the loop below so it can rethrow
+    stopped = Ref(false)
+    function run_debounce()
+        while true
+            local remaining
+            @lock lk begin
+                remaining = deadline[] - time()
+                # Decide to exit and clear `dtask` atomically, so a change
+                # arriving now either extends this task or spawns a fresh one.
+                remaining <= 0 && (dtask[] = nothing)
+            end
+            remaining <= 0 && break
+            sleep(remaining)
+        end
+        stopped[] && return
+        try
+            Base.invokelatest(f)  # `f` typically calls code that `revise` just updated
+        catch e
+            err[] = e
+            notify(revision_event)  # wake the loop below so it can rethrow
+        end
+        return
+    end
+    # The watch callback fires once per detected change and must return
+    # promptly (it runs while `revise` holds `revision_queue_lock`), so it only
+    # records a new deadline; the wait and `f()` happen in `run_debounce`. A
+    # debounce task already counting down will see the bumped `deadline` and
+    # extend itself, so spawn one only when `dtask` is empty. Pairing this with
+    # the task clearing `dtask` as it commits to exit (both under `lk`) means a
+    # change racing an expiring task either extends it or spawns its successor.
     key = add_callback(files, modules; all=all) do
-        sleep(pause)
-        f()
+        @lock lk begin
+            deadline[] = time() + pause
+            if dtask[] === nothing
+                dtask[] = @async run_debounce()
+            end
+        end
     end
     try
         while true
             wait(revision_event)  # autoreset; see issue #837
+            err[] === nothing || throw(err[])
             revise(throw=true)
+            err[] === nothing || throw(err[])
         end
-    catch err
-        isa(err, InterruptException) || rethrow(err)
+    catch e
+        isa(e, InterruptException) || rethrow(e)
     finally
+        stopped[] = true
         remove_callback(key)
     end
     nothing

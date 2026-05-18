@@ -4186,16 +4186,15 @@ do_test("revision_event autoreset") && @testset "revision_event autoreset (issue
 end
 
 do_test("entr") && @testset "entr" begin
-    # `entr` runs its callback asynchronously: a background task detects the change,
-    # then `entr` waits `pause` seconds before calling `f`. Poll for the expected
-    # state with `timedwait` rather than assuming a fixed `sleep` outlasts that chain
-    # — the latter flakes on a slow CI runner (issue #1039).
+    # `entr` debounces file changes: a change schedules the callback to run
+    # `pause` seconds later, and any further change before then pushes that
+    # deadline out, so a burst of changes less than `pause` apart triggers the
+    # callback exactly once. Poll for the expected state with `timedwait`
+    # rather than fixed `sleep`s, which flake on slow CI runners (#1039-#1042).
     waitfor(pred) = timedwait(pred, event_timeout; pollint=0.02)
 
-    # `entr` coalesces changes that occur within `pause` seconds into a single
-    # callback; the "quick succession" checks below depend on that. Use a generous
-    # `pause` so the two events reliably land in the same window despite variable
-    # filesystem-event detection latency — a tight value flaked on Windows CI (#1040).
+    # A generous `pause` keeps a burst coalesced despite variable
+    # filesystem-event detection latency; a tight value flaked on Windows (#1040).
     pause = 2.0
 
     srcfile1 = joinpath(tempdir(), randtmp()*".jl"); push!(to_remove, srcfile1)
@@ -4214,30 +4213,34 @@ do_test("entr") && @testset "entr" begin
                     include(srcfile1)
                 end
             end
-            # `postpone=false` runs the callback synchronously, *before* `entr` arms
-            # its watch. Wait for that, then probe: a fixed `sleep` here is unreliable
-            # — on a slow CI runner the watch may not be armed in time and the first
-            # change is missed (#1040, #1041). Rewriting the file until the change is
-            # actually detected makes setup robust regardless of arming latency.
+            # `postpone=false` runs the callback synchronously, before `entr`
+            # arms its watch.
             waitfor(() -> Main.__entr__ >= 1)
             @test Main.__entr__ == 1  # callback should have been run (postpone=false)
 
-            # File modification — doubles as the probe that the watch is live
-            probed = timedwait(event_timeout; pollint=0.1) do
-                write(srcfile1, "Core.eval(Main, :(__entr__ = 2))")
-                Main.__entr__ >= 2
+            # Drive a single modification through the watch. The watch may not
+            # be armed the instant `entr` starts (#1040, #1041), so retry the
+            # write — but space the retries more than `pause` apart so each is
+            # its own burst and the debounce is allowed to fire between them.
+            probed = timedwait(event_timeout; pollint=pause+1) do
+                Main.__entr__ >= 2 || (write(srcfile1, "Core.eval(Main, :(__entr__ = 2))"); false)
             end
             @test probed === :ok
-            sleep(2*pause)            # let any still-pending probe callbacks drain
+            sleep(2*pause)            # let the debounce settle
             @test Main.__entr__ == 2  # callback should have been called
 
-            # Two events in quick succession (w.r.t. the `pause` argument)
+            # A burst of changes less than `pause` apart must coalesce into a
+            # single callback. Switch `srcfile1` to an increment so a surplus
+            # callback would be visible, hammer both files, then stop and let
+            # the debounce fire.
             write(srcfile1, "Core.eval(Main, :(__entr__ += 1))")
-            sleep(0.1)
-            touch(srcfile2)
+            for _ in 1:8
+                touch(srcfile2)
+                sleep(pause/4)
+            end
             waitfor(() -> Main.__entr__ >= 3)
-            sleep(2*pause)            # settle: a non-coalesced extra callback would fire within ~pause of the first
-            @test Main.__entr__ == 3  # callback should have been called only once
+            sleep(2*pause)            # a surplus callback would fire within ~pause
+            @test Main.__entr__ == 3  # the whole burst triggered the callback once
 
             write(srcfile1, "error(\"stop\")")
         end
@@ -4260,75 +4263,81 @@ do_test("entr") && @testset "entr" begin
     @test isempty(Revise.user_callbacks_by_file[srcfile1])
 
 
-    # Watch directories (#470)
-    try
-        @sync let
-            srcdir = joinpath(tempdir(), randtmp())
-            mkdir(srcdir)
+    # Watch directories (#470). Skipped under polling: poll mode watches a
+    # directory through its own `stat`, which does not change when a file
+    # inside it is modified in place, so the checks below cannot be detected.
+    if !Revise.polling_files[]
+        try
+            @sync let
+                srcdir = joinpath(tempdir(), randtmp())
+                mkdir(srcdir)
 
-            trigger = joinpath(srcdir, "trigger.txt")
+                trigger = joinpath(srcdir, "trigger.txt")
 
-            counter = Ref(0)
-            stop = Ref(false)
+                counter = Ref(0)
+                stop = Ref(false)
 
-            @async begin
-                entr([srcdir]; pause) do
-                    counter[] += 1
-                    stop[] && error("stop watching directory")
+                @async begin
+                    entr([srcdir]; pause) do
+                        counter[] += 1
+                        stop[] && error("stop watching directory")
+                    end
+                end
+                waitfor(() -> counter[] >= 1)
+                @test counter[] == 1               # postpone=false
+                @test length(readdir(srcdir)) == 0 # directory should still be empty
+
+                # Drive a detected change to confirm the watch is live, retrying
+                # more than `pause` apart so the debounce can fire between attempts.
+                probed = timedwait(event_timeout; pollint=pause+1) do
+                    counter[] >= 2 || (touch(trigger); false)
+                end
+                @test probed === :ok
+                sleep(2*pause)                     # let the debounce settle
+                counter[] = 0                      # watch is live now; count from a clean slate
+
+                # File modification
+                touch(trigger)
+                waitfor(() -> counter[] >= 1)
+                @test counter[] == 1
+
+                # File deletion -> the directory should be empty again
+                rm(trigger)
+                waitfor(() -> counter[] >= 2)
+                @test length(readdir(srcdir)) == 0
+                @test counter[] == 2
+
+                # A burst of changes less than `pause` apart must coalesce into a
+                # single callback.
+                for _ in 1:8
+                    touch(trigger)
+                    rm(trigger)
+                    sleep(pause/4)
+                end
+                waitfor(() -> counter[] >= 3)
+                sleep(2*pause)       # a surplus callback would fire within ~pause
+                @test counter[] == 3 # the whole burst triggered the callback once
+
+                # Stop
+                stop[] = true
+                touch(trigger)
+            end
+
+            # `entr` should have errored by now
+            @test false
+        catch err
+            while err isa CompositeException
+                err = err.exceptions[1]
+                if err isa TaskFailedException
+                    err = err.task.exception
+                end
+                if err isa CapturedException
+                    err = err.ex
                 end
             end
-            waitfor(() -> counter[] >= 1)
-            @test counter[] == 1               # postpone=false
-            @test length(readdir(srcdir)) == 0 # directory should still be empty
-
-            # Probe that the watch is live before running the checks: touch a file
-            # until a change is actually detected (see the file-watching block above).
-            probed = timedwait(event_timeout; pollint=0.1) do
-                touch(trigger)
-                counter[] > 1
-            end
-            @test probed === :ok
-            sleep(2*pause)                     # let pending probe callbacks drain
-            counter[] = 0                      # watch is live now; count from a clean slate
-
-            # File modification
-            touch(trigger)
-            waitfor(() -> counter[] >= 1)
-            @test counter[] == 1
-
-            # File deletion -> the directory should be empty again
-            rm(trigger)
-            waitfor(() -> counter[] >= 2)
-            @test length(readdir(srcdir)) == 0
-            @test counter[] == 2
-
-            # Two events in quick succession (w.r.t. the `pause` argument)
-            touch(trigger)       # creation
-            sleep(0.1)
-            touch(trigger)       # modification
-            waitfor(() -> counter[] >= 3)
-            sleep(2*pause)       # settle: a non-coalesced extra callback would fire within ~pause of the first
-            @test counter[] == 3 # Callback should have been called only once
-
-            # Stop
-            stop[] = true
-            touch(trigger)
+            @test isa(err, ErrorException)
+            @test err.msg == "stop watching directory"
         end
-
-        # `entr` should have errored by now
-        @test false
-    catch err
-        while err isa CompositeException
-            err = err.exceptions[1]
-            if err isa TaskFailedException
-                err = err.task.exception
-            end
-            if err isa CapturedException
-                err = err.ex
-            end
-        end
-        @test isa(err, ErrorException)
-        @test err.msg == "stop watching directory"
     end
 end
 
