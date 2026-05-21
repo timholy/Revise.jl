@@ -79,12 +79,21 @@ function wait_changed(file)
     try
         polling_files[] ? poll_file(file) : watch_file(file)
     catch err
-        if Sys.islinux() && err isa Base.IOError && err.code == -28  # ENOSPC
-            @warn """Your operating system has run out of inotify capacity.
-            Check the current value with `cat /proc/sys/fs/inotify/max_user_watches`.
-            Set it to a higher level with, e.g., `echo 65536 | sudo tee -a /proc/sys/fs/inotify/max_user_watches`.
-            This requires having administrative privileges on your machine (or talk to your sysadmin).
-            See https://github.com/timholy/Revise.jl/issues/26 for more information."""
+        if Sys.islinux() && err isa Base.IOError && err.code == -28  # ENOSPC; issue #1010
+            @warn """Revise was unable to watch files for changes via inotify (ENOSPC).
+            This can happen because:
+            - the filesystem does not support inotify (e.g., a WSL `/mnt/...` drive or
+              some network mounts);
+            - a per-user-namespace limit is in effect (common inside containers,
+              snaps, or Flatpaks), in which case `cat /proc/sys/fs/inotify/max_user_watches`
+              may report a large value that is not the limit actually enforced;
+            - the per-user `max_user_watches` limit is genuinely exhausted.
+            As a workaround, set the environment variable `JULIA_REVISE_POLL=1` before
+            `using Revise` to poll the filesystem instead of using inotify.
+            If `max_user_watches` is genuinely the cause, raise it with, e.g.,
+            `echo 65536 | sudo tee /proc/sys/fs/inotify/max_user_watches` (administrative
+            privileges required).
+            See https://github.com/timholy/Revise.jl/issues/26 for more information.""" maxlog=1
         end
         rethrow(err)
     end
