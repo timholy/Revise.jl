@@ -1409,7 +1409,8 @@ end
 function add_definitions_from_repl(filename::String)
     hist_idx = parse(Int, filename[6:end-1])
     hp = (Base.active_repl::REPL.LineEditREPL).interface.modes[1].hist::REPL.REPLHistoryProvider
-    src = hp.history[hp.start_idx+hist_idx]
+    entry = hp.history[hp.start_idx+hist_idx]
+    src = entry isa AbstractString ? entry : entry.content
     id = PkgId(nothing, "@REPL")
     pkgdata = pkgdatas[id]
     mod_exs_infos = ModuleExprsInfos(Main::Module)

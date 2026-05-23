@@ -7,7 +7,7 @@ using Test
 
 @test isempty(detect_ambiguities(Revise))
 
-using Pkg, Unicode, Distributed, InteractiveUtils, REPL, UUIDs
+using Pkg, Unicode, Distributed, InteractiveUtils, REPL, UUIDs, Dates
 import LibGit2
 using Revise.OrderedCollections: OrderedSet
 using Test: collect_test_logs
@@ -3527,6 +3527,14 @@ end
     do_test("Methods at REPL") && @testset "Methods at REPL" begin
         if isdefined(Base, :active_repl) && !isnothing(Base.active_repl)
             hp = Base.active_repl.interface.modes[1].hist
+            # The element type of `hp.history` changed from `String` to
+            # `REPL.History.HistEntry` in Julia 1.14; wrap accordingly.
+            push_hist! = if isdefined(REPL, :History) && isdefined(REPL.History, :HistEntry)
+                (h, s) -> push!(h.history, REPL.History.HistEntry(
+                    :julia, Dates.now(), s, UInt32(length(h.history) + 1)))
+            else
+                (h, s) -> push!(h.history, s)
+            end
             fstr = "__fREPL__(x::Int16) = 0"
             histidx = length(hp.history) + 1 - hp.start_idx
             ex = Base.parse_input_line(fstr; filename="REPL[$histidx]")
@@ -3534,7 +3542,7 @@ end
             if ex.head === :toplevel
                 ex = ex.args[end]
             end
-            push!(hp.history, fstr)
+            push_hist!(hp, fstr)
             m = first(methods(f))
             @test !isempty(signatures_at(String(m.file), m.line))
             @test isequal(Revise.RelocatableExpr(definition(m)), Revise.RelocatableExpr(ex))
@@ -3548,7 +3556,7 @@ end
             if ex.head === :toplevel
                 ex = ex.args[end]
             end
-            push!(hp.history, fstr)
+            push_hist!(hp, fstr)
             m = first(methods(f))
             @test isequal(Revise.RelocatableExpr(definition(m)), Revise.RelocatableExpr(ex))
             @test definition(String, m)[1] == fstr
