@@ -219,8 +219,9 @@ Julia's top-level directory when Julia was built, as recorded by the entries in
 `Base._included_files`.
 """
 const basebuilddir = begin
-    sysimg = filter(x->endswith(x[2], "sysimg.jl"), Base._included_files)[1][2]
-    dirname(dirname(sysimg))
+    # issue #1045: non-incremental PackageCompiler sysimages have no sysimg.jl entry
+    idx = findfirst(x -> endswith(x[2], "sysimg.jl"), Base._included_files)
+    idx === nothing ? expected_juliadir() : dirname(dirname(Base._included_files[idx][2]))
 end
 
 function fallback_juliadir(candidate = expected_juliadir())
