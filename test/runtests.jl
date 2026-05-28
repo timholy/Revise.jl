@@ -4668,6 +4668,73 @@ do_test("Import in empty environment (issue #532)") && @testset "Import in empty
     load_in_empty_project_test();
 end
 
+# Issue #961: when an indirect dep has no precompile cache and Julia is started
+# with `--compiled-modules=existing`, the dep is loaded via
+# `include(Base.__toplevel__, path)`. Revise's `queue_includes!` must not rewrite
+# `__toplevel__` to `Main`, or `ExprSplitter` synthesizes an empty `Main.<PkgName>`
+# stub instead of resolving to the real loaded module.
+function empty_main_stub_test_961()
+    foo_uuid = "11111111-2222-3333-4444-555555555555"
+    bar_uuid = "66666666-7777-8888-9999-aaaaaaaaaaaa"
+    sandbox = mktempdir()
+    push!(to_remove, sandbox)
+    foo = joinpath(sandbox, "Foo961")
+    bar = joinpath(sandbox, "Bar961")
+    proj = joinpath(sandbox, "active"); mkpath(proj)
+    mkpath(joinpath(foo, "src")); mkpath(joinpath(bar, "src"))
+    write(joinpath(foo, "Project.toml"),
+        "name = \"Foo961\"\nuuid = \"$foo_uuid\"\nversion = \"0.1.0\"\n")
+    write(joinpath(foo, "src", "Foo961.jl"),
+        "module Foo961\ngreet() = \"hi\"\nend\n")
+    write(joinpath(bar, "Project.toml"),
+        "name = \"Bar961\"\nuuid = \"$bar_uuid\"\nversion = \"0.1.0\"\n[deps]\nFoo961 = \"$foo_uuid\"\n")
+    write(joinpath(bar, "src", "Bar961.jl"),
+        "module Bar961\nusing Foo961\nend\n")
+
+    julia = Base.julia_cmd()
+    # The Revise being tested must be the one at this checkout, not whatever
+    # version `@v#.#` happens to have installed.
+    revise_dir = normpath(joinpath(dirname(pathof(Revise)), ".."))
+
+    # Set up `proj` with Bar961 as a *direct* dep and Foo961 only as a
+    # transitive dep (so Main's environment cannot see Foo961 by name).
+    # Loading Bar961 here precompiles both packages.
+    setup = """
+        import Pkg
+        Pkg.activate($(repr(proj)))
+        Pkg.develop([Pkg.PackageSpec(path=$(repr(bar))),
+                     Pkg.PackageSpec(path=$(repr(foo))),
+                     Pkg.PackageSpec(path=$(repr(revise_dir)))])
+        Pkg.rm("Foo961")
+        using Bar961
+    """
+    @test success(pipeline(`$julia --project=$proj -e $setup`, stderr=stderr))
+
+    # Force Foo961 to load from source on the next launch.
+    vdir = "v" * string(VERSION.major) * "." * string(VERSION.minor)
+    for depot in DEPOT_PATH
+        d = joinpath(depot, "compiled", vdir, "Foo961")
+        isdir(d) && rm(d; recursive=true, force=true)
+    end
+
+    # With the bug, `Main.Foo961` is created as an empty stub during Revise's
+    # parsing pass over the non-precompiled Foo961 source.
+    check = """
+        import Revise
+        import Bar961
+        print(isdefined(Main, :Foo961))
+    """
+    out = read(`$julia --project=$proj --compiled-modules=existing -e $check`, String)
+    @test out == "false"
+end
+
+do_test("Empty Main.<Pkg> stub (issue #961)") && if VERSION >= v"1.11"
+    # `--compiled-modules=existing` was added in Julia 1.11.
+    @testset "Empty Main.<Pkg> stub (issue #961)" begin
+        empty_main_stub_test_961()
+    end
+end
+
 include("backedges.jl")
 
 # include("non_jl_test.jl")
