@@ -10,19 +10,22 @@
 #   - checking the module in which each file is evaluated. This suffices to
 #     detect "supporting" files, i.e., those `included` within the module
 #     definition.
-#   - checking the filename. Since the "top level" file is evaluated into Main,
-#     we can't use the module-of-evaluation to find it. Here we hope that the
-#     top-level filename follows convention and matches the module. TODO?: it's
-#     possible that this needs to be supplemented with parsing.
+#   - checking the filename. The top-level file of a non-precompiled package
+#     is `include`d into `Base.__toplevel__` (see `Base._require` in
+#     `loading.jl`), so module-of-evaluation can't identify it. Here we hope
+#     that the top-level filename follows convention and matches the module.
+#
+# We pass `Base.__toplevel__` through to `parse_source` unchanged. `ExprSplitter`
+# has a dedicated `loaded_modules` fallback for that case which resolves
+# `module PkgName ... end` to the real loaded module even when `PkgName` is not
+# a direct dep of the active project. Rewriting to `Main` here would skip that
+# fallback and synthesize an empty `Main.PkgName` stub (#961).
 function queue_includes!(pkgdata::PkgData, id::PkgId)
     modstring = id.name
     @lock included_files_lock begin
         delids = Int[]
         for i = 1:length(included_files)
             mod, fname = included_files[i]
-            if mod == Base.__toplevel__
-                mod = Main
-            end
             modname = String(Symbol(mod))
             if startswith(modname, modstring) || endswith(fname, modstring*".jl")
                 mod_exs_infos = parse_source(fname, mod)
