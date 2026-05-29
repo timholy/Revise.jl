@@ -3610,6 +3610,33 @@ end
         @test endswith(file, "reducedim.jl") && line > 1
     end
 
+    do_test("Prompt color #755") && @testset "Prompt color #755" begin
+        # A revision error raised while the REPL is in a non-Julia mode (e.g.
+        # shell mode) must recolor only the `julia>` prompt, and must restore it
+        # to its own original color, rather than leaking the active mode's color
+        # onto `julia>` (issue #755).
+        green = Base.text_colors[:green]
+        red = Base.text_colors[:red]
+        julia_prompt = REPL.LineEdit.Prompt("julia> "; prompt_prefix=green)
+        shell_prompt = REPL.LineEdit.Prompt("shell> "; prompt_prefix=red)
+        term = REPL.Terminals.TTYTerminal("dumb", stdin, stdout, stderr)
+        repl = REPL.LineEditREPL(term, true)
+        repl.interface = REPL.LineEdit.ModalInterface(
+            REPL.LineEdit.TextInterface[julia_prompt, shell_prompt])
+        old_prefix = Revise.original_repl_prefix[]
+        try
+            Revise.original_repl_prefix[] = nothing
+            Revise.set_prompt_color!(:warn, repl)
+            @test julia_prompt.prompt_prefix == "\e[33m"   # yellow
+            @test shell_prompt.prompt_prefix == red        # left untouched
+            Revise.set_prompt_color!(:ok, repl)
+            @test julia_prompt.prompt_prefix == green       # restored, not red
+            @test shell_prompt.prompt_prefix == red
+        finally
+            Revise.original_repl_prefix[] = old_prefix
+        end
+    end
+
     do_test("Methods at REPL") && @testset "Methods at REPL" begin
         if isdefined(Base, :active_repl) && !isnothing(Base.active_repl)
             hp = Base.active_repl.interface.modes[1].hist
