@@ -2463,6 +2463,92 @@ end
         sleep(mtimedelay)
         yry()
         @test !isempty(methods(f877))
+
+        # Issue #954: methods in a statically-untaken branch must not have their
+        # signatures resolved, because the names they reference may not exist (e.g.
+        # a type behind a `VERSION`/`Sys` check). The signature walk follows control
+        # flow, so the dead branch is never visited.
+        function includet_quiet(file)
+            logfile = joinpath(tempdir(), randtmp()*".log")
+            open(logfile, "w") do io
+                redirect_stderr(io) do
+                    includet(file)
+                end
+            end
+            return read(logfile, String)
+        end
+
+        # Literal `if true`: live `then`, dead `else` references an undefined name.
+        file = joinpath(testdir, "deadbranch954.jl")
+        write(file, """
+            if true
+                f954(::Int) = 1
+            else
+                f954(::UNDEFINED_954) = 2
+            end
+            """)
+        log = includet_quiet(file)
+        @test f954(1) == 1
+        @test !any(m -> occursin("UNDEFINED_954", string(m.sig)), methods(f954))
+        @test !occursin("UNDEFINED_954", log)
+
+        # `if false`: the dead branch is now the `then` branch, live is `else`.
+        file = joinpath(testdir, "deadbranch954b.jl")
+        write(file, """
+            if false
+                g954(::UNDEFINED_954B) = 1
+            else
+                g954(::Int) = 2
+            end
+            """)
+        log = includet_quiet(file)
+        @test g954(1) == 2
+        @test !any(m -> occursin("UNDEFINED_954B", string(m.sig)), methods(g954))
+        @test !occursin("UNDEFINED_954B", log)
+
+        # Non-literal condition: the condition is evaluated and the dead branch
+        # skipped. This is the case a literal-only reachability fold cannot handle.
+        file = joinpath(testdir, "deadbranch954c.jl")
+        write(file, """
+            if Sys.WORD_SIZE == $(Sys.WORD_SIZE)
+                h954(::Int) = 1
+            else
+                h954(::UNDEFINED_954C) = 2
+            end
+            """)
+        log = includet_quiet(file)
+        @test h954(1) == 1
+        @test !any(m -> occursin("UNDEFINED_954C", string(m.sig)), methods(h954))
+        @test !occursin("UNDEFINED_954C", log)
+
+        # Code after the `if` must still be tracked (the live branch's jump to the
+        # merge point is followed).
+        file = joinpath(testdir, "deadbranch954d.jl")
+        write(file, """
+            if true
+                p954(::Int) = 1
+            else
+                p954(::UNDEFINED_954D) = 2
+            end
+            q954(::Float64) = 3
+            """)
+        log = includet_quiet(file)
+        @test p954(1) == 1
+        @test q954(1.0) == 3
+        @test !occursin("UNDEFINED_954D", log)
+
+        # A toplevel loop with no tracked body must not hang (we do not follow
+        # unconditional backedges), and methods after it are still tracked.
+        file = joinpath(testdir, "deadbranch954e.jl")
+        write(file, """
+            loop954 = Int[]
+            for i in 1:3
+                push!(loop954, i)
+            end
+            r954(::Int) = 1
+            """)
+        includet_quiet(file)
+        @test r954(1) == 1
     end
 
     do_test("Retry on InterruptException") && @testset "Retry on InterruptException" begin
