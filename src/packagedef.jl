@@ -1478,17 +1478,21 @@ const original_repl_prefix = Ref{Union{String,Function,Nothing}}(nothing)
 function maybe_set_prompt_color(color)
     if isdefined(Base, :active_repl)
         repl = Base.active_repl
-        if isa(repl, REPL.LineEditREPL)
+        if isa(repl, REPL.LineEditREPL) && isdefined(repl, :interface)
+            # Always recolor the `julia>` prompt, never whatever mode happens to
+            # be active, so a revision error raised while in shell/help/pkg mode
+            # does not leak that mode's color onto `julia>` (issue #755).
+            julia_prompt = repl.interface.modes[1]
             if color === :warn
                 # First save the original setting
                 if original_repl_prefix[] === nothing
-                    original_repl_prefix[] = repl.mistate.current_mode.prompt_prefix
+                    original_repl_prefix[] = julia_prompt.prompt_prefix
                 end
-                repl.mistate.current_mode.prompt_prefix = "\e[33m"  # yellow
+                julia_prompt.prompt_prefix = "\e[33m"  # yellow
             else
                 color = original_repl_prefix[]
                 color === nothing && return nothing
-                repl.mistate.current_mode.prompt_prefix = color
+                julia_prompt.prompt_prefix = color
                 original_repl_prefix[] = nothing
             end
         end
