@@ -112,6 +112,22 @@ function old_types_with(oldtypename::Core.TypeName, alltypes::Base.IdSet{Type})
     return related_types
 end
 
+function is_typeeq(@nospecialize(typlike))
+    @static if isdefined(Core, :TypeEq)
+        return typlike isa Core.TypeEq
+    else
+        return false
+    end
+end
+
+function typeeq_parameter(@nospecialize(typlike))
+    @static if isdefined(Base, :type_parameter)
+        return Base.type_parameter(typlike)
+    else
+        return getfield(typlike, :T)
+    end
+end
+
 function is_with_oldtypename(@nospecialize(typlike), oldtypename::Core.TypeName)
     if typlike isa DataType
         typlike.name == oldtypename && return true
@@ -120,6 +136,8 @@ function is_with_oldtypename(@nospecialize(typlike), oldtypename::Core.TypeName)
                 return true
             end
         end
+    elseif is_typeeq(typlike)
+        return is_with_oldtypename(typeeq_parameter(typlike), oldtypename)
     elseif typlike isa UnionAll
         return is_with_oldtypename(typlike.body, oldtypename)
     elseif typlike isa TypeVar
