@@ -295,6 +295,12 @@ function _methods_by_execution!(
         JuliaInterpreter.is_leaf(frame) || (@warn("not a leaf"); break)
         stmt = pc_expr(frame, pc)
         if !isrequired[pc] && mode !== :eval && !(mode === :evalassign && LoweredCodeUtils.get_lhs_rhs(stmt) !== nothing)
+            if isa(stmt, Core.ReturnNode)
+                # Follow control flow: a `return` terminates this frame. Walking past it
+                # would march into a statically-untaken branch of an `if`/`else` and try
+                # to resolve names that may not exist (issue #954).
+                break
+            end
             pc = next_or_nothing!(frame)
             pc === nothing && break
             continue
