@@ -218,7 +218,11 @@ global basesrccache::String
 Julia's top-level directory when Julia was built, as recorded by the entries in
 `Base._included_files`.
 """
-const basebuilddir = begin
+global basebuilddir::String
+
+# issue #835: compute at run time so this reflects the running Julia, not the Julia
+# that precompiled Revise (the two can differ for relocated/cache-compatible installs)
+function find_basebuilddir()
     # issue #1045: non-incremental PackageCompiler sysimages have no sysimg.jl entry
     idx = findfirst(x -> endswith(x[2], "sysimg.jl"), Base._included_files)
     idx === nothing ? expected_juliadir() : dirname(dirname(Base._included_files[idx][2]))
@@ -1595,6 +1599,7 @@ function __init__()
 
     # Setting up the paths relative to package module location
 
+    global basebuilddir = find_basebuilddir()
     global juliadir = find_juliadir()
     global basesrccache = normpath(joinpath(expected_juliadir(), "base.cache"))
 
