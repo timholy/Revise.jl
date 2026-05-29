@@ -3623,19 +3623,16 @@ end
         repl = REPL.LineEditREPL(term, true)
         repl.interface = REPL.LineEdit.ModalInterface(
             REPL.LineEdit.TextInterface[julia_prompt, shell_prompt])
-        old_repl = isdefined(Base, :active_repl) ? Base.active_repl : nothing
         old_prefix = Revise.original_repl_prefix[]
         try
-            @eval Base active_repl = $repl
             Revise.original_repl_prefix[] = nothing
-            Revise.maybe_set_prompt_color(:warn)
+            Revise.set_prompt_color!(:warn, repl)
             @test julia_prompt.prompt_prefix == "\e[33m"   # yellow
             @test shell_prompt.prompt_prefix == red        # left untouched
-            Revise.maybe_set_prompt_color(:ok)
+            Revise.set_prompt_color!(:ok, repl)
             @test julia_prompt.prompt_prefix == green       # restored, not red
             @test shell_prompt.prompt_prefix == red
         finally
-            @eval Base active_repl = $old_repl
             Revise.original_repl_prefix[] = old_prefix
         end
     end

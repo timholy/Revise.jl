@@ -1476,25 +1476,27 @@ end
 # Set the prompt color to indicate the presence of unhandled revision errors
 const original_repl_prefix = Ref{Union{String,Function,Nothing}}(nothing)
 function maybe_set_prompt_color(color)
-    if isdefined(Base, :active_repl)
-        repl = Base.active_repl
-        if isa(repl, REPL.LineEditREPL) && isdefined(repl, :interface)
-            # Always recolor the `julia>` prompt, never whatever mode happens to
-            # be active, so a revision error raised while in shell/help/pkg mode
-            # does not leak that mode's color onto `julia>` (issue #755).
-            julia_prompt = repl.interface.modes[1]
-            if color === :warn
-                # First save the original setting
-                if original_repl_prefix[] === nothing
-                    original_repl_prefix[] = julia_prompt.prompt_prefix
-                end
-                julia_prompt.prompt_prefix = "\e[33m"  # yellow
-            else
-                color = original_repl_prefix[]
-                color === nothing && return nothing
-                julia_prompt.prompt_prefix = color
-                original_repl_prefix[] = nothing
+    isdefined(Base, :active_repl) || return nothing
+    return set_prompt_color!(color, Base.active_repl)
+end
+
+function set_prompt_color!(color, repl)
+    if isa(repl, REPL.LineEditREPL) && isdefined(repl, :interface)
+        # Always recolor the `julia>` prompt, never whatever mode happens to
+        # be active, so a revision error raised while in shell/help/pkg mode
+        # does not leak that mode's color onto `julia>` (issue #755).
+        julia_prompt = repl.interface.modes[1]
+        if color === :warn
+            # First save the original setting
+            if original_repl_prefix[] === nothing
+                original_repl_prefix[] = julia_prompt.prompt_prefix
             end
+            julia_prompt.prompt_prefix = "\e[33m"  # yellow
+        else
+            color = original_repl_prefix[]
+            color === nothing && return nothing
+            julia_prompt.prompt_prefix = color
+            original_repl_prefix[] = nothing
         end
     end
     return nothing
