@@ -36,7 +36,7 @@ function inpath(path::AbstractString, dirs::Vector{String})
 end
 
 function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
-    haskey(pkgdatas, id) && return nothing  # already tracked
+    haspkgdata(id) && return nothing  # already tracked
     isbase = modname === :Base
     isstdlib = !isbase && modname ∈ stdlib_names
     if isbase || isstdlib
@@ -63,7 +63,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         mtcache = mtime(basesrccache)
         # Initialize expression-tracking for files, and
         # note any modified since Base was built
-        pkgdata = get(pkgdatas, id, nothing)
+        pkgdata = getpkgdata(id)
         if pkgdata === nothing
             pkgdata = PkgData(id, srcdir)
         end
@@ -76,7 +76,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         else
             cachefile = basesrccache
         end
-        @lock revision_queue_lock begin
+        @lock revise_lock begin
             for (submod, filename) in modulefiles_basestlibs(id)
                 ffilename = fixpath(filename)
                 inpath(ffilename, dirs) || continue
@@ -101,12 +101,12 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         # Add the files to the watch list
         init_watching(pkgdata, srcfiles(pkgdata))
         # Save the result (unnecessary if already in pkgdatas, but doesn't hurt either)
-        @lock pkgdatas_lock pkgdatas[id] = pkgdata
+        @lock revise_lock pkgdatas[id] = pkgdata
     elseif modname === :Compiler
         compilerdir = joinpath(juliadir, "Compiler", "src")
         compilerdir_pre_112 = joinpath(juliadir, "base", "compiler")
         isdir(compilerdir) || (compilerdir = compilerdir_pre_112)
-        pkgdata = get(pkgdatas, id, nothing)
+        pkgdata = getpkgdata(id)
         if pkgdata === nothing
             pkgdata = PkgData(id, compilerdir)
         end
@@ -153,7 +153,7 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
     tree = git_tree(repo, commit)
     files = Iterators.filter(file->startswith(file, prefix) && endswith(file, ".jl"), keys(tree))
     ccall((:giterr_clear, :libgit2), Cvoid, ())  # necessary to avoid errors like "the global/xdg file 'attributes' doesn't exist: No such file or directory"
-    @lock revision_queue_lock begin
+    @lock revise_lock begin
         for file in files
             fullpath = joinpath(repo_path, file)
             rpath = relpath(fullpath, pkgdata)  # this might undo the above, except for Core.Compiler
@@ -204,7 +204,7 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
         id = PkgId(pkgdata)
         CodeTracking._pkgfiles[id] = pkgdata.info
         init_watching(pkgdata, srcfiles(pkgdata))
-        @lock pkgdatas_lock pkgdatas[id] = pkgdata
+        @lock revise_lock pkgdatas[id] = pkgdata
     end
     return nothing
 end
