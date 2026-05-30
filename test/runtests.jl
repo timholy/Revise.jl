@@ -460,14 +460,18 @@ end
         @test Revise.unescape_mount("/plain/path") == "/plain/path"
 
         # The fstype is taken from the most specific (longest) matching mount point.
-        mounts = [
-            "drivers /usr/lib/wsl/drivers 9p ro 0 0",
-            "C:\\134 /mnt/c 9p rw,aname=drvfs 0 0",
-            "/dev/sdc / ext4 rw 0 0",
-        ]
-        @test Revise.fstype_for_path("/mnt/c/Users/foo", mounts) == "9p"
-        @test Revise.fstype_for_path("/home/tim/x", mounts) == "ext4"
-        @test Revise.fstype_for_path("/mnt/cdrom/x", mounts) == "ext4"  # not under /mnt/c
+        # These use Unix-style absolute paths (the only ones `/proc/mounts` describes),
+        # so restrict to Unix where `abspath` leaves them unchanged.
+        if Sys.isunix()
+            mounts = [
+                "drivers /usr/lib/wsl/drivers 9p ro 0 0",
+                "C:\\134 /mnt/c 9p rw,aname=drvfs 0 0",
+                "/dev/sdc / ext4 rw 0 0",
+            ]
+            @test Revise.fstype_for_path("/mnt/c/Users/foo", mounts) == "9p"
+            @test Revise.fstype_for_path("/home/tim/x", mounts) == "ext4"
+            @test Revise.fstype_for_path("/mnt/cdrom/x", mounts) == "ext4"  # not under /mnt/c
+        end
 
         # Off WSL, no path is ever treated as non-notifying.
         if !Revise.is_wsl()

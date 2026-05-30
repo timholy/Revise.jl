@@ -83,12 +83,7 @@ const polling_files = Ref(false)
 # paths Revise must poll regardless of the global `polling_files[]` setting.
 
 const _is_wsl = Ref{Union{Nothing,Bool}}(nothing)
-"""
-    Revise.is_wsl() -> Bool
-
-Return `true` if we are running under the Windows Subsystem for Linux. The result
-is cached after the first call.
-"""
+# Are we running under the Windows Subsystem for Linux? Cached after the first call.
 function is_wsl()
     cached = _is_wsl[]
     cached === nothing || return cached
@@ -136,15 +131,11 @@ end
 mount_fstype(path::AbstractString) =
     fstype_for_path(path, try eachline("/proc/mounts") catch; () end)
 
-"""
-    Revise.nonnotifying_path(path) -> Bool
-
-Return `true` if `path` lives on a filesystem that accepts file-watching calls but
-never delivers change notifications, so Revise must poll instead. The motivating
-case is the Windows filesystem mounted into WSL (a `drvfs`/`9p` mount); see issue
-#514. Only Linux's `/proc/mounts` is consulted, so the result is `false` on every
-other platform.
-"""
+# Does `path` live on a filesystem that accepts file-watching calls but never
+# delivers change notifications, so that Revise must poll instead? The motivating
+# case is the Windows filesystem mounted into WSL (a `drvfs`/`9p` mount); see issue
+# #514. Only Linux's `/proc/mounts` is consulted, so the result is `false` on every
+# other platform.
 function nonnotifying_path(path::AbstractString)
     is_wsl() || return false
     fstype = mount_fstype(path)
