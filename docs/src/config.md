@@ -202,4 +202,12 @@ string `"1"` (e.g., `JULIA_REVISE_POLL=1` in a bash script).
 !!! note
     NFS stands for [Network File System](https://en.wikipedia.org/wiki/Network_File_System) and is typically only used to mount shared network drives on *Unix* file systems.
     Despite similarities in the acronym, NTFS, the standard [filesystem on Windows](https://en.wikipedia.org/wiki/NTFS), is completely different from NFS; Revise's default configuration should work fine on Windows without polling.
-    However, WSL2 users currently need polling due to [this bug](https://github.com/JuliaLang/julia/issues/37029).
+
+!!! note
+    Under WSL, the Windows filesystem mounted at `/mnt/...` does not deliver file-change
+    notifications to Linux (an upstream [WSL bug](https://github.com/microsoft/WSL/issues/4739),
+    surfaced in Julia as [this issue](https://github.com/JuliaLang/julia/issues/37029)).
+    Revise detects this case automatically and falls back to polling for code stored there,
+    so you should not need to set `JULIA_REVISE_POLL` manually. Code kept in the native Linux
+    filesystem (e.g. under your home directory) continues to use fast notification-based watching.
+    Polling these `/mnt/...` files means revisions may take a few seconds to register.

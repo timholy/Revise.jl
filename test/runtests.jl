@@ -446,6 +446,39 @@ end
         @test occursin("1/1 parsed files", str)
     end
 
+    do_test("Non-notifying filesystems (issue #514)") && @testset "Non-notifying filesystems (issue #514)" begin
+        # Path-prefix matching must respect path components.
+        @test Revise.is_path_prefix("/mnt", "/mnt/c")
+        @test Revise.is_path_prefix("/mnt/c", "/mnt/c")
+        @test Revise.is_path_prefix("/", "/anything")
+        @test !Revise.is_path_prefix("/mnt", "/mnts")
+        @test !Revise.is_path_prefix("/mnt/c", "/mnt")
+
+        # `/proc/mounts` escapes spaces, backslashes, etc. as octal.
+        @test Revise.unescape_mount("C:\\134") == "C:\\"
+        @test Revise.unescape_mount("a\\040b") == "a b"
+        @test Revise.unescape_mount("/plain/path") == "/plain/path"
+
+        # The fstype is taken from the most specific (longest) matching mount point.
+        # These use Unix-style absolute paths (the only ones `/proc/mounts` describes),
+        # so restrict to Unix where `abspath` leaves them unchanged.
+        if Sys.isunix()
+            mounts = [
+                "drivers /usr/lib/wsl/drivers 9p ro 0 0",
+                "C:\\134 /mnt/c 9p rw,aname=drvfs 0 0",
+                "/dev/sdc / ext4 rw 0 0",
+            ]
+            @test Revise.fstype_for_path("/mnt/c/Users/foo", mounts) == "9p"
+            @test Revise.fstype_for_path("/home/tim/x", mounts) == "ext4"
+            @test Revise.fstype_for_path("/mnt/cdrom/x", mounts) == "ext4"  # not under /mnt/c
+        end
+
+        # Off WSL, no path is ever treated as non-notifying.
+        if !Revise.is_wsl()
+            @test !Revise.nonnotifying_path("/mnt/c/whatever")
+        end
+    end
+
     do_test("File paths") && @testset "File paths" begin
         testdir = newtestdir()
         for wf in (Revise.watching_files[] ? (true,) : (true, false))
