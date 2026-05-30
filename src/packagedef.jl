@@ -75,9 +75,86 @@ on such filesystems you should turn polling on.
 See the documentation for the `JULIA_REVISE_POLL` environment variable.
 """
 const polling_files = Ref(false)
+
+# Some filesystems accept `watch_file`/`watch_dir` calls but never deliver a
+# notification, so the watch silently blocks forever. The motivating case is the
+# Windows filesystem mounted into WSL under `/mnt/...` (a `drvfs`/`9p` mount):
+# inotify is broken there but `stat`-based polling works (issue #514). On such
+# paths Revise must poll regardless of the global `polling_files[]` setting.
+
+const _is_wsl = Ref{Union{Nothing,Bool}}(nothing)
+"""
+    Revise.is_wsl() -> Bool
+
+Return `true` if we are running under the Windows Subsystem for Linux. The result
+is cached after the first call.
+"""
+function is_wsl()
+    cached = _is_wsl[]
+    cached === nothing || return cached
+    wsl = false
+    if Sys.islinux()
+        try
+            wsl = occursin(r"microsoft|WSL"i, read("/proc/sys/kernel/osrelease", String))
+        catch
+            wsl = false
+        end
+    end
+    return _is_wsl[] = wsl
+end
+
+# `/proc/mounts` encodes spaces, tabs, etc. in mount points as octal escapes.
+function unescape_mount(s::AbstractString)
+    occursin('\\', s) || return s
+    return replace(s, r"\\([0-7]{3})" => m -> string(Char(parse(UInt8, m[2:end]; base=8))))
+end
+
+# Is `prefix` a path-component prefix of `path`? (`/mnt` is a prefix of `/mnt/c`
+# but not of `/mnts`.)
+function is_path_prefix(prefix::AbstractString, path::AbstractString)
+    prefix == path && return true
+    prefix == "/" && return startswith(path, "/")
+    return startswith(path, prefix * "/")
+end
+
+# Filesystem type for the most specific mount point containing `path`, given the
+# lines of a `/proc/mounts`-format table. Returns "" if none matches.
+function fstype_for_path(path::AbstractString, mount_lines)
+    apath = abspath(path)
+    best_mount = best_fstype = ""
+    for line in mount_lines
+        fields = split(line)
+        length(fields) >= 3 || continue
+        mountpoint = unescape_mount(fields[2])
+        if is_path_prefix(mountpoint, apath) && length(mountpoint) >= length(best_mount)
+            best_mount, best_fstype = mountpoint, fields[3]
+        end
+    end
+    return best_fstype
+end
+
+mount_fstype(path::AbstractString) =
+    fstype_for_path(path, try eachline("/proc/mounts") catch; () end)
+
+"""
+    Revise.nonnotifying_path(path) -> Bool
+
+Return `true` if `path` lives on a filesystem that accepts file-watching calls but
+never delivers change notifications, so Revise must poll instead. The motivating
+case is the Windows filesystem mounted into WSL (a `drvfs`/`9p` mount); see issue
+#514. Only Linux's `/proc/mounts` is consulted, so the result is `false` on every
+other platform.
+"""
+function nonnotifying_path(path::AbstractString)
+    is_wsl() || return false
+    fstype = mount_fstype(path)
+    return fstype == "9p" || fstype == "drvfs"
+end
+
 function wait_changed(file)
+    poll = polling_files[] || nonnotifying_path(file)
     try
-        polling_files[] ? poll_file(file) : watch_file(file)
+        poll ? poll_file(file) : watch_file(file)
     catch err
         if Sys.islinux() && err isa Base.IOError && err.code == -28  # ENOSPC; issue #1010
             @warn """Revise was unable to watch files for changes via inotify (ENOSPC).
@@ -654,7 +731,16 @@ function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
                 push!(watchlist, basename=>pkgdata)
                 # Record the current ctime as baseline so only future changes are detected
                 watchlist.file_ctimes[basename] = ctime(joinpath(dirfull, basename))
-                if watching_files[]
+                # On filesystems that never deliver notifications (e.g. WSL drvfs,
+                # issue #514) we must watch each file individually and poll it;
+                # directory-polling cannot detect content changes within a file.
+                if watching_files[] || nonnotifying_path(dirfull)
+                    if !watching_files[]
+                        @info """Revise: code under $dirfull is on a filesystem that does not deliver \
+                                 file-change notifications (e.g. a WSL `/mnt/...` drive, issue #514). \
+                                 Falling back to polling these files; revisions may take a few seconds \
+                                 to register.""" maxlog=1
+                    end
                     fwatcher = TaskThunk(revise_file_queued, (pkgdata, file))
                     schedule(Task(fwatcher))
                 else
