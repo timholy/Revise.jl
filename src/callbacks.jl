@@ -57,7 +57,7 @@ function add_callback(f, files, modules=nothing; all=false, key=gensym())
     # in case the `all` kwarg was set:
     # add all files which are already known to Revise
     if all
-        for pkgdata in values(pkgdatas)
+        for pkgdata in allpkgdatas()
             append!(files, joinpath.(Ref(basedir(pkgdata)), srcfiles(pkgdata)))
         end
     end
@@ -66,7 +66,8 @@ function add_callback(f, files, modules=nothing; all=false, key=gensym())
         for mod in modules
             track(mod)  # Potentially needed for modules like e.g. Base
             id = PkgId(mod)
-            pkgdata = pkgdatas[id]
+            pkgdata = getpkgdata(id)
+            pkgdata === nothing && continue
             for file in srcfiles(pkgdata)
                 absname = joinpath(basedir(pkgdata), file)
                 push!(files, absname)
@@ -76,11 +77,13 @@ function add_callback(f, files, modules=nothing; all=false, key=gensym())
 
     # There might be duplicate entries in `files`, but it shouldn't cause any
     # problem with the sort of things we do here
-    for file in files
-        cb = get!(Set, user_callbacks_by_file, file)
-        push!(cb, key)
+    @lock revise_lock begin
+        for file in files
+            cb = get!(Set, user_callbacks_by_file, file)
+            push!(cb, key)
+        end
+        user_callbacks_by_key[key] = f
     end
-    user_callbacks_by_key[key] = f
 
     return key
 end
@@ -92,11 +95,13 @@ Remove a callback previously installed by a call to `Revise.add_callback(...)`.
 See its docstring for details.
 """
 function remove_callback(key)
-    for cbs in values(user_callbacks_by_file)
-        delete!(cbs, key)
+    @lock revise_lock begin
+        for cbs in values(user_callbacks_by_file)
+            delete!(cbs, key)
+        end
+        delete!(user_callbacks_queue, key)
+        delete!(user_callbacks_by_key, key)
     end
-    delete!(user_callbacks_queue, key)
-    delete!(user_callbacks_by_key, key)
 
     # possible future work: we may stop watching (some of) these files
     # now. But we don't really keep track of what background tasks are running
@@ -186,7 +191,7 @@ function entr(f::Function, files, modules=nothing; all=false, postpone=false, pa
         return
     end
     # The watch callback fires once per detected change and must return
-    # promptly (it runs while `revise` holds `revision_queue_lock`), so it only
+    # promptly (it runs while `revise` holds `revise_lock`), so it only
     # records a new deadline; the wait and `f()` happen in `run_debounce`. A
     # debounce task already counting down will see the bumped `deadline` and
     # extend itself, so spawn one only when `dtask` is empty. Pairing this with

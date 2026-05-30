@@ -124,6 +124,30 @@ include("callbacks.jl")
 
 ### Globals to keep track of state
 
+# All of Revise's mutable global state (the dictionaries, sets, and vectors
+# defined below) is protected by a single coarse lock. A coarse lock is used
+# because these structures are interdependent and are touched from several
+# threads: the REPL/interactive thread (via `revise`), the package-load callback
+# (`watch_package`, which since Julia 1.12 can run on a background thread when
+# `require` finishes there), and the file/manifest-watcher tasks. Earlier
+# per-structure locks did not compose, so a reader on one thread could observe a
+# dictionary mid-rehash while a writer on another thread mutated it, which
+# segfaults.
+#
+# The lock is a `ReentrantLock`, so nested acquisitions on the same task are
+# fine. It is held only around state access, with one deliberate exception:
+# `revise` holds it across evaluation of revised code to serialize concurrent
+# revisions, as it always has (see issues #837 and #845). It must NOT be held
+# across a blocking `wait`/`sleep`; the watcher tasks therefore acquire it only
+# to enqueue work, never while waiting for filesystem events.
+#
+# Guards: `watched_files`, `watched_manifests`, `revision_queue`, `queue_errors`,
+# `pkgdatas`, `included_files`, `cache_file_key`, `src_file_key`,
+# `dont_watch_pkgs`, `silence_pkgs`, the `user_callbacks_*` collections, and the
+# `@require` bookkeeping. (`types_cache` in visit.jl has its own independent
+# lock, on a separate code path.)
+const revise_lock = ReentrantLock()
+
 """
     Revise.watched_files
 
@@ -134,7 +158,6 @@ This variable allows us to watch directories rather than files, reducing the bur
 the OS.
 """
 const watched_files = Dict{String,WatchList}()
-const watched_files_lock = ReentrantLock()
 
 """
     Revise.watched_manifests
@@ -142,7 +165,6 @@ const watched_files_lock = ReentrantLock()
 Global variable, a set of `Manifest.toml` files from the active projects used during this session.
 """
 const watched_manifests = Set{String}()
-const watched_manifests_lock = ReentrantLock()
 
 """
     Revise.revision_queue
@@ -152,7 +174,6 @@ that these files have changed since we last processed a revision.
 This list gets populated by callbacks that watch directories for updates.
 """
 const revision_queue = Set{Tuple{PkgData,String}}()
-const revision_queue_lock = ReentrantLock() # see issues #837 and #845
 
 """
     Revise.queue_errors
@@ -160,7 +181,7 @@ const revision_queue_lock = ReentrantLock() # see issues #837 and #845
 Global variable, maps `(pkgdata, filename)` pairs that errored upon last revision to
 `(exception, backtrace)`.
 """
-const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}() # locking is covered by revision_queue_lock
+const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}() # locking is covered by revise_lock
 
 # Can we revise types? This is assigned in __init__() based on the Julia version
 # and preference.
@@ -184,7 +205,16 @@ It is a dictionary indexed by PkgId:
 `pkgdatas[id]` returns a value of type [`Revise.PkgData`](@ref).
 """
 const pkgdatas = Dict{PkgId,PkgData}(NOPACKAGE => PkgData(NOPACKAGE))
-const pkgdatas_lock = ReentrantLock()
+
+# Accessors that take `revise_lock` for the duration of a single `pkgdatas`
+# operation. Use these (rather than touching `pkgdatas` directly) anywhere that
+# might run concurrently with package loading, so a read never observes the
+# dictionary mid-rehash. They release the lock before returning, so the result
+# may be stale by the time it is used; any authoritative read-modify-write must
+# happen inside its own `@lock revise_lock` block.
+getpkgdata(id::PkgId) = @lock revise_lock get(pkgdatas, id, nothing)
+haspkgdata(id::PkgId) = @lock revise_lock haskey(pkgdatas, id)
+allpkgdatas() = @lock revise_lock collect(values(pkgdatas))
 
 """
     Revise.included_files
@@ -193,8 +223,7 @@ Global variable, `included_files` gets populated by callbacks we register with `
 It's used to track non-precompiled packages and, optionally, user scripts (see docs on
 `JULIA_REVISE_INCLUDE`).
 """
-const included_files = Tuple{Module,String}[]  # (module, filename)
-const included_files_lock = ReentrantLock()    # issue #947
+const included_files = Tuple{Module,String}[]  # (module, filename); see issue #947
 
 """
     expected_juliadir()
@@ -612,23 +641,25 @@ function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
         file = String(file)::String
         dir, basename = splitdir(file)
         dirfull = joinpath(basedir(pkgdata), dir)
-        already_watching_dir = haskey(watched_files, dirfull)
-        @lock watched_files_lock begin
+        # Hold the lock across the whole body: we both query/insert `watched_files`
+        # and mutate the `WatchList` it stores, which the watcher tasks read.
+        @lock revise_lock begin
+            already_watching_dir = haskey(watched_files, dirfull)
             already_watching_dir || (watched_files[dirfull] = WatchList())
-        end
-        watchlist = watched_files[dirfull]
-        current_id = get(watchlist.trackedfiles, basename, nothing)
-        new_id = pkgdata.info.id
-        if new_id != NOPACKAGE || current_id === nothing
-            # Allow the package id to be updated
-            push!(watchlist, basename=>pkgdata)
-            # Record the current ctime as baseline so only future changes are detected
-            watchlist.file_ctimes[basename] = ctime(joinpath(dirfull, basename))
-            if watching_files[]
-                fwatcher = TaskThunk(revise_file_queued, (pkgdata, file))
-                schedule(Task(fwatcher))
-            else
-                already_watching_dir || push!(udirs, dirfull)
+            watchlist = watched_files[dirfull]
+            current_id = get(watchlist.trackedfiles, basename, nothing)
+            new_id = pkgdata.info.id
+            if new_id != NOPACKAGE || current_id === nothing
+                # Allow the package id to be updated
+                push!(watchlist, basename=>pkgdata)
+                # Record the current ctime as baseline so only future changes are detected
+                watchlist.file_ctimes[basename] = ctime(joinpath(dirfull, basename))
+                if watching_files[]
+                    fwatcher = TaskThunk(revise_file_queued, (pkgdata, file))
+                    schedule(Task(fwatcher))
+                else
+                    already_watching_dir || push!(udirs, dirfull)
+                end
             end
         end
     end
@@ -640,7 +671,7 @@ function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
     end
     return nothing
 end
-init_watching(files) = init_watching(pkgdatas[NOPACKAGE], files)
+init_watching(files) = init_watching((@lock revise_lock pkgdatas[NOPACKAGE]), files)
 
 """
     revise_dir_queued(dirname::AbstractString)
@@ -666,13 +697,13 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
         latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
         for (file, id) in latestfiles
             key = joinpath(dirname, file)
-            if key in keys(user_callbacks_by_file)
-                union!(user_callbacks_queue, user_callbacks_by_file[key])
-                notify(revision_event)
-            end
-            if id != NOPACKAGE
-                pkgdata = pkgdatas[id]
-                @lock revision_queue_lock begin
+            @lock revise_lock begin
+                if key in keys(user_callbacks_by_file)
+                    union!(user_callbacks_queue, user_callbacks_by_file[key])
+                    notify(revision_event)
+                end
+                if id != NOPACKAGE
+                    pkgdata = pkgdatas[id]
                     if hasfile(pkgdata, key)  # issue #228
                         push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
                         notify(revision_event)
@@ -720,15 +751,14 @@ function revise_file_queued(pkgdata::PkgData, file)
             (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
         end
 
-        if file in keys(user_callbacks_by_file)
-            union!(user_callbacks_queue, user_callbacks_by_file[file])
-            notify(revision_event)
-        end
-
-        # Check to see if we're still watching this file
-        stillwatching = haskey(watched_files, dirfull)
-        if PkgId(pkgdata) != NOPACKAGE
-            @lock revision_queue_lock begin
+        @lock revise_lock begin
+            if file in keys(user_callbacks_by_file)
+                union!(user_callbacks_queue, user_callbacks_by_file[file])
+                notify(revision_event)
+            end
+            # Check to see if we're still watching this file
+            stillwatching = haskey(watched_files, dirfull)
+            if PkgId(pkgdata) != NOPACKAGE
                 push!(revision_queue, (pkgdata, relpath(file, pkgdata)))
             end
         end
@@ -924,7 +954,7 @@ end
 Attempt to perform previously-failed revisions. This can be useful in cases of order-dependent errors.
 """
 function retry()
-    @lock revision_queue_lock begin
+    @lock revise_lock begin
         for k in keys(queue_errors)
             push!(revision_queue, k)
         end
@@ -943,7 +973,7 @@ function revise(; throw::Bool=false)
     active[] || return nothing
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
 
-    @lock revision_queue_lock begin
+    @lock revise_lock begin
         have_queue_errors = !isempty(queue_errors)
 
         # Julia 1.12+: when bindings switch to a new type, we need to re-evaluate method
@@ -1075,8 +1105,8 @@ and can lead to long recompilation times.
 function revise(mod::Module; force::Bool=true)
     mod == Main && error("cannot revise(Main)")
     id = PkgId(mod)
-    pkgdata = pkgdatas[id]
-    for file in pkgdata.info.files
+    pkgdata = @lock revise_lock pkgdatas[id]
+    @lock revise_lock for file in pkgdata.info.files
         push!(revision_queue, (pkgdata, file))
     end
     revise()
@@ -1115,8 +1145,8 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
     isfile(file) || error(file, " is not a file")
     # Determine whether we're already tracking this file
     id = Base.moduleroot(mod) == Main ? PkgId(mod, string(mod)) : PkgId(mod)  # see #689 for `Main`
-    if haskey(pkgdatas, id)
-        pkgdata = pkgdatas[id]
+    pkgdata = getpkgdata(id)
+    if pkgdata !== nothing
         relfile = relpath(abspath_no_normalize(file), pkgdata)
         hasfile(pkgdata, relfile) && return nothing
         # Use any "fixes" provided by relpath
@@ -1137,18 +1167,18 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
             mode = :sigs   # we already handled evaluation in `parse_source`
         end
         invokelatest(instantiate_sigs!, mod_exs_infos; mode, kwargs...)
-        if !haskey(pkgdatas, id)
+        if !haspkgdata(id)
             # Wait a bit to see if `mod` gets initialized
             sleep(0.1)
         end
-        pkgdata = get(pkgdatas, id, nothing)
+        pkgdata = getpkgdata(id)
         if pkgdata === nothing
             pkgdata = PkgData(id, pathof(mod))
         end
         if !haskey(CodeTracking._pkgfiles, id)
             CodeTracking._pkgfiles[id] = pkgdata.info
         end
-        @lock pkgdatas_lock begin
+        @lock revise_lock begin
             push!(pkgdata, relpath(file, pkgdata)=>FileInfo(mod_exs_infos))
             init_watching(pkgdata, (String(file)::String,))
             pkgdatas[id] = pkgdata
@@ -1267,7 +1297,7 @@ See also [`Revise.unsilence`](@ref).
 """
 silence(pkg::Symbol) = silence(String(pkg))
 function silence(pkg::AbstractString)
-    push!(silence_pkgs, pkg)
+    @lock revise_lock push!(silence_pkgs, pkg)
     Preferences.@set_preferences!("silenced_packages" => collect(silence_pkgs))
     nothing
 end
@@ -1282,7 +1312,7 @@ See also [`Revise.silence`](@ref).
 """
 unsilence(pkg::Symbol) = unsilence(String(pkg))
 function unsilence(pkg::AbstractString)
-    delete!(silence_pkgs, pkg)
+    @lock revise_lock delete!(silence_pkgs, pkg)
     Preferences.@set_preferences!("silenced_packages" => collect(silence_pkgs))
     nothing
 end
@@ -1296,7 +1326,7 @@ The list of excluded packages is stored persistently using Preferences.jl.
 See also [`Revise.allow_watch`](@ref) and [`Revise.silence`](@ref).
 """
 function dont_watch(pkg::Symbol)
-    push!(dont_watch_pkgs, pkg)
+    @lock revise_lock push!(dont_watch_pkgs, pkg)
     Preferences.@set_preferences!("dont_watch_packages" => String[string(p) for p in dont_watch_pkgs])
     nothing
 end
@@ -1311,7 +1341,7 @@ changes to that package again.
 See also [`Revise.dont_watch`](@ref).
 """
 function allow_watch(pkg::Symbol)
-    delete!(dont_watch_pkgs, pkg)
+    @lock revise_lock delete!(dont_watch_pkgs, pkg)
     Preferences.@set_preferences!("dont_watch_packages" => String[string(p) for p in dont_watch_pkgs])
     nothing
 end
@@ -1348,7 +1378,7 @@ function get_def(method::Method; modified_files=revision_queue)
     end
     id = get_tracked_id(method.module; modified_files=modified_files)
     id === nothing && return false
-    pkgdata = pkgdatas[id]
+    pkgdata = @lock revise_lock pkgdatas[id]
     filename = relpath(filename, pkgdata)
     if hasfile(pkgdata, filename)
         def = get_def(method, pkgdata, filename)
@@ -1388,12 +1418,12 @@ end
 
 function get_tracked_id(id::PkgId; modified_files=revision_queue)
     # Methods from Base or the stdlibs may require that we start tracking
-    if !haskey(pkgdatas, id)
+    if !haspkgdata(id)
         recipe = id.name === "Compiler" ? :Compiler : Symbol(id.name)
         recipe === :Core && return nothing
         _track(id, recipe; modified_files=modified_files)
         @info "tracking $recipe"
-        if !haskey(pkgdatas, id)
+        if !haspkgdata(id)
             @warn "despite tracking $recipe, $id was not found"
             return nothing
         end
@@ -1405,7 +1435,7 @@ get_tracked_id(mod::Module; modified_files=revision_queue) =
 
 function get_expressions(id::PkgId, filename)
     get_tracked_id(id)
-    pkgdata = pkgdatas[id]
+    pkgdata = @lock revise_lock pkgdatas[id]
     fi = maybe_parse_from_cache!(pkgdata, filename)
     maybe_extract_sigs!(fi)
     return fi.mod_exs_infos
@@ -1417,7 +1447,7 @@ function add_definitions_from_repl(filename::String)
     entry = hp.history[hp.start_idx+hist_idx]
     src = entry isa AbstractString ? entry : entry.content
     id = PkgId(nothing, "@REPL")
-    pkgdata = pkgdatas[id]
+    pkgdata = @lock revise_lock pkgdatas[id]
     mod_exs_infos = ModuleExprsInfos(Main::Module)
     parse_source!(mod_exs_infos, src, filename, Main::Module)
     instantiate_sigs!(mod_exs_infos)
@@ -1636,7 +1666,7 @@ function __init__()
     end
     # Set up a repository for methods defined at the REPL
     id = PkgId(nothing, "@REPL")
-    @lock pkgdatas_lock begin
+    @lock revise_lock begin
         pkgdatas[id] = PkgData(id, nothing)
     end
     # Set the lookup callbacks
@@ -1646,7 +1676,7 @@ function __init__()
     # Watch the manifest file for changes
     mfile = manifest_file()
     if mfile !== nothing
-        @lock watched_manifests_lock begin
+        @lock revise_lock begin
             push!(watched_manifests, mfile)
             wmthunk = TaskThunk(watch_manifest, (mfile,))
             schedule(Task(wmthunk))
@@ -1733,7 +1763,7 @@ end
 
 function add_revise_deps()
     # Populate CodeTracking data for dependencies and initialize watching on code that Revise depends on
-    @lock pkgdatas_lock begin
+    @lock revise_lock begin
         for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils, Revise)
             id = PkgId(mod)
             pkgdata = parse_pkg_files(id)

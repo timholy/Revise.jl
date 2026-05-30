@@ -1809,7 +1809,7 @@ end
 
         # Set up a WatchList as init_watching would (baseline ctime recorded at push time)
         pkgid = Base.PkgId(UUIDs.uuid4(), "tracked1025_test")
-        @lock Revise.watched_files_lock begin
+        @lock Revise.revise_lock begin
             wl = Revise.WatchList()
             push!(wl, basename(tracked_file) => pkgid)
             wl.file_ctimes[basename(tracked_file)] = stat(tracked_file).ctime
@@ -1845,7 +1845,7 @@ end
 
             @test basename(tracked_file) ∈ detected[]
         finally
-            @lock Revise.watched_files_lock begin
+            @lock Revise.revise_lock begin
                 delete!(Revise.watched_files, testdir)
             end
         end

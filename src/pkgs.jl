@@ -22,7 +22,7 @@
 # fallback and synthesize an empty `Main.PkgName` stub (#961).
 function queue_includes!(pkgdata::PkgData, id::PkgId)
     modstring = id.name
-    @lock included_files_lock begin
+    @lock revise_lock begin
         delids = Int[]
         for i = 1:length(included_files)
             mod, fname = included_files[i]
@@ -52,7 +52,7 @@ function queue_includes(mod::Module)
     if has_writable_paths(pkgdata)
         init_watching(pkgdata)
     end
-    @lock pkgdatas_lock pkgdatas[id] = pkgdata
+    @lock revise_lock pkgdatas[id] = pkgdata
     return pkgdata
 end
 
@@ -62,7 +62,7 @@ end
 function remove_from_included_files(modsym::Symbol)
     i = 1
     modstring = string(modsym)
-    @lock included_files_lock begin
+    @lock revise_lock begin
         while i <= length(included_files)
             mod, fname = included_files[i]
             modname = String(Symbol(mod))
@@ -203,20 +203,17 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
     end
 end
 
-# Use locking to prevent races between inner and outer @require blocks
-const requires_lock = ReentrantLock()
-
 # This is used by Requires.jl: therefore even if it appears unused by Revise.jl,
 # it cannot be removed as long as we support integration with Requires.jl
 function add_require(sourcefile::String, modcaller::Module, idmod::String, ::String, expr::Expr)
     id = PkgId(modcaller)
     # If this fires when the module is first being loaded (because the dependency
     # was already loaded), Revise may not yet have the pkgdata for this package.
-    if !haskey(pkgdatas, id)
+    if !haspkgdata(id)
         watch_package(id)
     end
 
-    @lock requires_lock begin
+    @lock revise_lock begin
         # Get/create the FileInfo specifically for tracking @require blocks
         pkgdata = pkgdatas[id]
         filekey = relpath(sourcefile, pkgdata) * "__@require__"
@@ -318,11 +315,17 @@ function watch_files_via_dir(dirname::AbstractString)
         (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
     end
     latestfiles = Pair{String,PkgId}[]
-    # Check to see if we're still watching this directory
-    stillwatching = haskey(watched_files, dirname)
+    # Snapshot the tracked files under the lock. We then do the (potentially
+    # blocking) filesystem checks below without holding it, reacquiring only to
+    # read/update ctimes, so we never hold `revise_lock` across `sleep`.
+    snap = @lock revise_lock begin
+        wf = get(watched_files, dirname, nothing)
+        wf === nothing ? nothing : (wf, collect(wf.trackedfiles))
+    end
+    stillwatching = snap !== nothing
     if stillwatching
-        wf = watched_files[dirname]
-        for (file, id) in wf.trackedfiles
+        wf, tracked = snap
+        for (file, id) in tracked
             fullpath = joinpath(dirname, file)
             if isdir(fullpath)
                 # Detected a modification in a directory that we're watching in
@@ -334,21 +337,19 @@ function watch_files_via_dir(dirname::AbstractString)
                 sleep(0.1)
                 if !file_exists(fullpath)
                     push!(latestfiles, file=>id)
-                    wf.file_ctimes[file] = 0.0
+                    @lock revise_lock wf.file_ctimes[file] = 0.0
                     continue
                 end
             end
             current_ctime = ctime(fullpath)
-            if current_ctime != get(wf.file_ctimes, file, current_ctime - 1)
+            if current_ctime != @lock revise_lock get(wf.file_ctimes, file, current_ctime - 1)
                 push!(latestfiles, file=>id)
-                wf.file_ctimes[file] = current_ctime
+                @lock revise_lock wf.file_ctimes[file] = current_ctime
             end
         end
     end
     return latestfiles, stillwatching
 end
-
-const wplock = ReentrantLock()
 
 """
     watch_package(id::Base.PkgId)
@@ -361,9 +362,10 @@ function watch_package(id::PkgId)
     # we may have switched environments, so make sure we're watching the right manifest
     active_project_watcher()
 
-    pkgdata = get(pkgdatas, id, nothing)
-    pkgdata !== nothing && return pkgdata
-    @lock wplock begin
+    local pkgdata   # declared here so it outlives the `try` scope that `@lock` introduces
+    @lock revise_lock begin
+        pkgdata = get(pkgdatas, id, nothing)
+        pkgdata !== nothing && return pkgdata
         modsym = Symbol(id.name)
         if modsym ∈ dont_watch_pkgs
             if id.name ∉ silence_pkgs
@@ -376,7 +378,7 @@ function watch_package(id::PkgId)
         if has_writable_paths(pkgdata)
             init_watching(pkgdata, srcfiles(pkgdata))
         end
-        @lock pkgdatas_lock pkgdatas[id] = pkgdata
+        pkgdatas[id] = pkgdata
     end
     return pkgdata
 end
@@ -403,7 +405,7 @@ function has_writable_paths(pkgdata::PkgData)
 end
 
 function watch_includes(mod::Module, fn::AbstractString)
-    @lock included_files_lock push!(included_files, (mod, abspath_no_normalize(fn)))
+    @lock revise_lock push!(included_files, (mod, abspath_no_normalize(fn)))
 end
 
 ## Working with Pkg and code-loading
@@ -461,22 +463,24 @@ function watch_manifest(mfile::String)
                 isfile(mfile) || return nothing
                 pkgdirs = manifest_paths(mfile)
                 pathreplacements = Pair{String,String}[]
-                for (id, pkgdir) in pkgdirs
-                    if haskey(pkgdatas, id)
-                        pkgdata = pkgdatas[id]
-                        if !samefile(pkgdir, basedir(pkgdata))
-                            ## The package directory has changed
-                            @debug "Pkg" _group="pathswitch" oldpath=basedir(pkgdata) newpath=pkgdir
-                            push!(pathreplacements, basedir(pkgdata)=>pkgdir)
-                            switch_basepath(pkgdata, pkgdir)
+                @lock revise_lock begin
+                    for (id, pkgdir) in pkgdirs
+                        if haskey(pkgdatas, id)
+                            pkgdata = pkgdatas[id]
+                            if !samefile(pkgdir, basedir(pkgdata))
+                                ## The package directory has changed
+                                @debug "Pkg" _group="pathswitch" oldpath=basedir(pkgdata) newpath=pkgdir
+                                push!(pathreplacements, basedir(pkgdata)=>pkgdir)
+                                switch_basepath(pkgdata, pkgdir)
+                            end
                         end
                     end
-                end
-                # Update the paths in the watchlist
-                for (oldpath, newpath) in pathreplacements
-                    for (_, pkgdata) in pkgdatas
-                        if samefile(basedir(pkgdata), oldpath)
-                            switch_basepath(pkgdata, newpath)
+                    # Update the paths in the watchlist
+                    for (oldpath, newpath) in pathreplacements
+                        for (_, pkgdata) in pkgdatas
+                            if samefile(basedir(pkgdata), oldpath)
+                                switch_basepath(pkgdata, newpath)
+                            end
                         end
                     end
                 end
@@ -491,7 +495,7 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
     # Stop all associated watching tasks
     for dir in unique_dirs(srcfiles(pkgdata))
         @debug "Pkg" _group="unwatch" dir=dir
-        @lock watched_files_lock delete!(watched_files, joinpath(basedir(pkgdata), dir))
+        @lock revise_lock delete!(watched_files, joinpath(basedir(pkgdata), dir))
         # Note: if the file is revised, the task(s) will run one more time.
         # However, because we've removed the directory from the watch list this will be a no-op,
         # and then the tasks will be dropped.
@@ -520,7 +524,7 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
             fi
         end
         maybe_extract_sigs!(fi)
-        push!(revision_queue, (pkgdata, file))
+        @lock revise_lock push!(revision_queue, (pkgdata, file))
         push!(files, file)
         mustnotify = true
     end
@@ -536,10 +540,12 @@ end
 
 function active_project_watcher()
     mfile = manifest_file()
-    if !isnothing(mfile) && mfile ∉ watched_manifests
+    isnothing(mfile) && return
+    @lock revise_lock begin
+        mfile ∈ watched_manifests && return
         push!(watched_manifests, mfile)
-        wmthunk = TaskThunk(watch_manifest, (mfile,))
-        schedule(Task(wmthunk))
     end
+    wmthunk = TaskThunk(watch_manifest, (mfile,))
+    schedule(Task(wmthunk))
     return
 end
