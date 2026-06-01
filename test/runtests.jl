@@ -4743,6 +4743,37 @@ do_test("misc - coverage") && !isinteractive() && @testset "misc - coverage" beg
     @test isnothing(Revise.revise(REPL.REPLBackend()))
 end
 
+do_test("watch reappearance") && @testset "watch reappearance" begin
+    # A transiently-missing watched path must not be abandoned (#523): the watcher
+    # waits up to `watch_reappear_grace[]` for it to return before giving up.
+    dir = mktempdir()
+    key = dir
+    Revise.watched_files[key] = Revise.WatchList()
+    old_grace = Revise.watch_reappear_grace[]
+    try
+        # Present: resume immediately.
+        @test Revise.await_watched_path(isdir, dir, key) === :reappeared
+        # Missing but reappears within the grace period: resume.
+        rm(dir; recursive=true)
+        recreate = @async (sleep(0.3); mkdir(dir))
+        Revise.watch_reappear_grace[] = 5.0
+        @test Revise.await_watched_path(isdir, dir, key) === :reappeared
+        wait(recreate)
+        # Missing past the grace period: give up (and the caller warns).
+        rm(dir; recursive=true)
+        Revise.watch_reappear_grace[] = 0.2
+        @test Revise.await_watched_path(isdir, dir, key) === :gone
+        # Missing and no longer registered (package moved/removed): give up quietly.
+        Revise.watch_reappear_grace[] = 5.0
+        delete!(Revise.watched_files, key)
+        @test Revise.await_watched_path(isdir, dir, key) === :removed
+    finally
+        Revise.watch_reappear_grace[] = old_grace
+        haskey(Revise.watched_files, key) && delete!(Revise.watched_files, key)
+        isdir(dir) && rm(dir; recursive=true)
+    end
+end
+
 do_test("deprecated") && @testset "deprecated" begin
     @test_logs (:warn, r"`steal_repl_backend` has been removed.*") Revise.async_steal_repl_backend()
     @test_logs (:warn, r"`steal_repl_backend` has been removed.*") Revise.wait_steal_repl_backend()
