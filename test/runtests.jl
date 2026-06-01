@@ -4774,9 +4774,12 @@ do_test("watch reappearance") && @testset "watch reappearance" begin
     end
 end
 
-# FSEvents does not reliably deliver directory-removal events, so this round-trip
-# is exercised only in directory-watching mode off macOS (cf. the `Cleanup` test).
-do_test("re-watch after reappearance") && !Revise.watching_files[] && !Sys.isapple() &&
+# Restricted to directory-watching mode on Linux: this exercises a full
+# delete/recreate/edit round-trip through the filesystem watcher, and only inotify
+# delivers those events reliably enough to test. (FSEvents drops directory-removal
+# events -- cf. the `Cleanup` test -- and on Windows a same-path recreate-then-edit
+# races ReadDirectoryChangesW arming.) The fix itself is platform-general.
+do_test("re-watch after reappearance") && !Revise.watching_files[] && Sys.islinux() &&
         @testset "re-watch after reappearance (#1057)" begin
     # A branch switch can remove a watched subdirectory and later restore it. When
     # it reappears, Revise must resume watching it so that subsequent edits are
