@@ -791,6 +791,12 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
                     with_logger(SimpleLogger(stderr)) do
                         @warn "$dirname is not an existing directory, Revise is not watching"
                     end
+                    # Drop the watch registration as we stop. Otherwise, if `dirname`
+                    # is recreated later (e.g. switching back to a branch that has it),
+                    # `init_watching` would see the stale entry, assume a watcher is
+                    # already running, and never start a replacement — so edits to the
+                    # reappeared files would go unnoticed.
+                    @lock revise_lock delete!(watched_files, dirname)
                 end
                 break
             end

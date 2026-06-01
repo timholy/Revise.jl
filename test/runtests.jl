@@ -4774,6 +4774,65 @@ do_test("watch reappearance") && @testset "watch reappearance" begin
     end
 end
 
+# FSEvents does not reliably deliver directory-removal events, so this round-trip
+# is exercised only in directory-watching mode off macOS (cf. the `Cleanup` test).
+do_test("re-watch after reappearance") && !Revise.watching_files[] && !Sys.isapple() &&
+        @testset "re-watch after reappearance (#1057)" begin
+    # A branch switch can remove a watched subdirectory and later restore it. When
+    # it reappears, Revise must resume watching it so that subsequent edits are
+    # still detected, rather than leaving a stale, watcher-less registration.
+    testdir = newtestdir()
+    dn = joinpath(testdir, "ReWatch", "src")
+    mkpath(joinpath(dn, "sub"))
+    withinclude = """
+        module ReWatch
+        include("sub/extra.jl")
+        f() = 1
+        end
+        """
+    noinclude = """
+        module ReWatch
+        f() = 1
+        end
+        """
+    write(joinpath(dn, "ReWatch.jl"), withinclude)
+    write(joinpath(dn, "sub", "extra.jl"), "g() = 2")
+    sleep(mtimedelay)
+    @eval using ReWatch
+    sleep(mtimedelay)
+    subdir = joinpath(dn, "sub")
+    @test ReWatch.f() == 1
+    @test ReWatch.g() == 2
+    @test haskey(Revise.watched_files, subdir)
+
+    old_grace = Revise.watch_reappear_grace[]
+    Revise.watch_reappear_grace[] = 0.0   # give up promptly so the round-trip is quick
+    try
+        # "Switch away": drop the subdirectory and the `include`.
+        rm(subdir; recursive=true)
+        write(joinpath(dn, "ReWatch.jl"), noinclude)
+        # The watcher must relinquish the directory: releasing its registration is
+        # exactly what lets a fresh watcher start when the directory returns.
+        @test timedwait(() -> !haskey(Revise.watched_files, subdir), event_timeout) === :ok
+        @yry
+
+        # "Switch back": restore the subdirectory and the `include`.
+        mkdir(subdir)
+        write(joinpath(subdir, "extra.jl"), "g() = 2")
+        write(joinpath(dn, "ReWatch.jl"), withinclude)
+        @yry
+        @test haskey(Revise.watched_files, subdir)
+        @test ReWatch.g() == 2
+
+        # The crucial check: an edit to the reappeared file is detected.
+        write(joinpath(subdir, "extra.jl"), "g() = 99")
+        @yry
+        @test ReWatch.g() == 99
+    finally
+        Revise.watch_reappear_grace[] = old_grace
+    end
+end
+
 do_test("deprecated") && @testset "deprecated" begin
     @test_logs (:warn, r"`steal_repl_backend` has been removed.*") Revise.async_steal_repl_backend()
     @test_logs (:warn, r"`steal_repl_backend` has been removed.*") Revise.wait_steal_repl_backend()
