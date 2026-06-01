@@ -4783,26 +4783,35 @@ println("beginning cleanup")
 GC.gc(); GC.gc()
 
 @testset "Cleanup" begin
-    logs, _ = Test.collect_test_logs() do
-        warnfile = randtmp()
-        open(warnfile, "w") do io
-            redirect_stderr(io) do
-                for name in to_remove
-                    try
-                        rm(name; force=true, recursive=true)
-                        deleteat!(LOAD_PATH, findall(LOAD_PATH .== name))
-                    catch
+    # The watchers defer their "is not watching" warning by `watch_reappear_grace`
+    # to ride out transient disappearances (#523). These deletions are permanent,
+    # so drop the grace to make the warning fire promptly within the window below.
+    old_grace = Revise.watch_reappear_grace[]
+    Revise.watch_reappear_grace[] = 0.0
+    try
+        logs, _ = Test.collect_test_logs() do
+            warnfile = randtmp()
+            open(warnfile, "w") do io
+                redirect_stderr(io) do
+                    for name in to_remove
+                        try
+                            rm(name; force=true, recursive=true)
+                            deleteat!(LOAD_PATH, findall(LOAD_PATH .== name))
+                        catch
+                        end
+                    end
+                    for i = 1:3
+                        yry()
+                        GC.gc()
                     end
                 end
-                for i = 1:3
-                    yry()
-                    GC.gc()
-                end
             end
+            msg = Revise.watching_files[] ? "is not an existing file" : "is not an existing directory"
+            isempty(ARGS) && !Sys.isapple() && @test occursin(msg, read(warnfile, String))
+            rm(warnfile)
         end
-        msg = Revise.watching_files[] ? "is not an existing file" : "is not an existing directory"
-        isempty(ARGS) && !Sys.isapple() && @test occursin(msg, read(warnfile, String))
-        rm(warnfile)
+    finally
+        Revise.watch_reappear_grace[] = old_grace
     end
 end
 
