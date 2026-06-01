@@ -4743,6 +4743,99 @@ do_test("misc - coverage") && !isinteractive() && @testset "misc - coverage" beg
     @test isnothing(Revise.revise(REPL.REPLBackend()))
 end
 
+do_test("watch reappearance") && @testset "watch reappearance" begin
+    # A transiently-missing watched path must not be abandoned (#523): the watcher
+    # waits up to `watch_reappear_grace[]` for it to return before giving up.
+    dir = mktempdir()
+    key = dir
+    Revise.watched_files[key] = Revise.WatchList()
+    old_grace = Revise.watch_reappear_grace[]
+    try
+        # Present: resume immediately.
+        @test Revise.await_watched_path(isdir, dir, key) === :reappeared
+        # Missing but reappears within the grace period: resume.
+        rm(dir; recursive=true)
+        recreate = @async (sleep(0.3); mkdir(dir))
+        Revise.watch_reappear_grace[] = 5.0
+        @test Revise.await_watched_path(isdir, dir, key) === :reappeared
+        wait(recreate)
+        # Missing past the grace period: give up (and the caller warns).
+        rm(dir; recursive=true)
+        Revise.watch_reappear_grace[] = 0.2
+        @test Revise.await_watched_path(isdir, dir, key) === :gone
+        # Missing and no longer registered (package moved/removed): give up quietly.
+        Revise.watch_reappear_grace[] = 5.0
+        delete!(Revise.watched_files, key)
+        @test Revise.await_watched_path(isdir, dir, key) === :removed
+    finally
+        Revise.watch_reappear_grace[] = old_grace
+        haskey(Revise.watched_files, key) && delete!(Revise.watched_files, key)
+        isdir(dir) && rm(dir; recursive=true)
+    end
+end
+
+# Restricted to directory-watching mode on Linux: this exercises a full
+# delete/recreate/edit round-trip through the filesystem watcher, and only inotify
+# delivers those events reliably enough to test. (FSEvents drops directory-removal
+# events -- cf. the `Cleanup` test -- and on Windows a same-path recreate-then-edit
+# races ReadDirectoryChangesW arming.) The fix itself is platform-general.
+do_test("re-watch after reappearance") && !Revise.watching_files[] && Sys.islinux() &&
+        @testset "re-watch after reappearance (#1057)" begin
+    # A branch switch can remove a watched subdirectory and later restore it. When
+    # it reappears, Revise must resume watching it so that subsequent edits are
+    # still detected, rather than leaving a stale, watcher-less registration.
+    testdir = newtestdir()
+    dn = joinpath(testdir, "ReWatch", "src")
+    mkpath(joinpath(dn, "sub"))
+    withinclude = """
+        module ReWatch
+        include("sub/extra.jl")
+        f() = 1
+        end
+        """
+    noinclude = """
+        module ReWatch
+        f() = 1
+        end
+        """
+    write(joinpath(dn, "ReWatch.jl"), withinclude)
+    write(joinpath(dn, "sub", "extra.jl"), "g() = 2")
+    sleep(mtimedelay)
+    @eval using ReWatch
+    sleep(mtimedelay)
+    subdir = joinpath(dn, "sub")
+    @test ReWatch.f() == 1
+    @test ReWatch.g() == 2
+    @test haskey(Revise.watched_files, subdir)
+
+    old_grace = Revise.watch_reappear_grace[]
+    Revise.watch_reappear_grace[] = 0.0   # give up promptly so the round-trip is quick
+    try
+        # "Switch away": drop the subdirectory and the `include`.
+        rm(subdir; recursive=true)
+        write(joinpath(dn, "ReWatch.jl"), noinclude)
+        # The watcher must relinquish the directory: releasing its registration is
+        # exactly what lets a fresh watcher start when the directory returns.
+        @test timedwait(() -> !haskey(Revise.watched_files, subdir), event_timeout) === :ok
+        @yry
+
+        # "Switch back": restore the subdirectory and the `include`.
+        mkdir(subdir)
+        write(joinpath(subdir, "extra.jl"), "g() = 2")
+        write(joinpath(dn, "ReWatch.jl"), withinclude)
+        @yry
+        @test haskey(Revise.watched_files, subdir)
+        @test ReWatch.g() == 2
+
+        # The crucial check: an edit to the reappeared file is detected.
+        write(joinpath(subdir, "extra.jl"), "g() = 99")
+        @yry
+        @test ReWatch.g() == 99
+    finally
+        Revise.watch_reappear_grace[] = old_grace
+    end
+end
+
 do_test("deprecated") && @testset "deprecated" begin
     @test_logs (:warn, r"`steal_repl_backend` has been removed.*") Revise.async_steal_repl_backend()
     @test_logs (:warn, r"`steal_repl_backend` has been removed.*") Revise.wait_steal_repl_backend()
@@ -4752,26 +4845,35 @@ println("beginning cleanup")
 GC.gc(); GC.gc()
 
 @testset "Cleanup" begin
-    logs, _ = Test.collect_test_logs() do
-        warnfile = randtmp()
-        open(warnfile, "w") do io
-            redirect_stderr(io) do
-                for name in to_remove
-                    try
-                        rm(name; force=true, recursive=true)
-                        deleteat!(LOAD_PATH, findall(LOAD_PATH .== name))
-                    catch
+    # The watchers defer their "is not watching" warning by `watch_reappear_grace`
+    # to ride out transient disappearances (#523). These deletions are permanent,
+    # so drop the grace to make the warning fire promptly within the window below.
+    old_grace = Revise.watch_reappear_grace[]
+    Revise.watch_reappear_grace[] = 0.0
+    try
+        logs, _ = Test.collect_test_logs() do
+            warnfile = randtmp()
+            open(warnfile, "w") do io
+                redirect_stderr(io) do
+                    for name in to_remove
+                        try
+                            rm(name; force=true, recursive=true)
+                            deleteat!(LOAD_PATH, findall(LOAD_PATH .== name))
+                        catch
+                        end
+                    end
+                    for i = 1:3
+                        yry()
+                        GC.gc()
                     end
                 end
-                for i = 1:3
-                    yry()
-                    GC.gc()
-                end
             end
+            msg = Revise.watching_files[] ? "is not an existing file" : "is not an existing directory"
+            isempty(ARGS) && !Sys.isapple() && @test occursin(msg, read(warnfile, String))
+            rm(warnfile)
         end
-        msg = Revise.watching_files[] ? "is not an existing file" : "is not an existing directory"
-        isempty(ARGS) && !Sys.isapple() && @test occursin(msg, read(warnfile, String))
-        rm(warnfile)
+    finally
+        Revise.watch_reappear_grace[] = old_grace
     end
 end
 

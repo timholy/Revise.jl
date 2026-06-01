@@ -750,6 +750,29 @@ function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
 end
 init_watching(files) = init_watching((@lock revise_lock pkgdatas[NOPACKAGE]), files)
 
+# Maximum time (in seconds) a watched path may be absent before Revise concludes
+# it was genuinely removed. A shorter absence is treated as transient: a
+# `Pkg.build`, a git checkout, an environment switch, or an editor's
+# atomic-rename save can briefly remove and recreate a directory or file, and in
+# those cases the watch should resume silently rather than stop and warn (#523).
+const watch_reappear_grace = Ref(5.0)
+
+# Block while a watched path is missing. `exists(path)` reports whether it is
+# currently present; `watchkey` is its entry in `watched_files`. Returns:
+#   :reappeared — came back within the grace period (resume watching)
+#   :removed    — no longer in the watch list, e.g. the package moved (stop quietly)
+#   :gone       — stayed missing past the grace period (stop and warn)
+function await_watched_path(exists, path::AbstractString, watchkey::AbstractString)
+    waited = 0.0
+    while !exists(path)
+        @lock revise_lock haskey(watched_files, watchkey) || return :removed
+        waited ≥ watch_reappear_grace[] && return :gone
+        sleep(0.1)
+        waited += 0.1
+    end
+    return :reappeared
+end
+
 """
     revise_dir_queued(dirname::AbstractString)
 
@@ -759,16 +782,24 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
 """
 @noinline function revise_dir_queued(dirname::AbstractString)
     @assert isabspath(dirname)
-    if !isdir(dirname)
-        sleep(0.1)   # in case git has done a delete/replace cycle
-    end
     stillwatching = true
     while stillwatching
         if !isdir(dirname)
-            with_logger(SimpleLogger(stderr)) do
-                @warn "$dirname is not an existing directory, Revise is not watching"
+            status = await_watched_path(isdir, dirname, dirname)
+            if status !== :reappeared
+                if status === :gone
+                    with_logger(SimpleLogger(stderr)) do
+                        @warn "$dirname is not an existing directory, Revise is not watching"
+                    end
+                    # Drop the watch registration as we stop. Otherwise, if `dirname`
+                    # is recreated later (e.g. switching back to a branch that has it),
+                    # `init_watching` would see the stale entry, assume a watcher is
+                    # already running, and never start a replacement — so edits to the
+                    # reappeared files would go unnoticed.
+                    @lock revise_lock delete!(watched_files, dirname)
+                end
+                break
             end
-            break
         end
 
         latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
@@ -805,21 +836,24 @@ function revise_file_queued(pkgdata::PkgData, file)
     if !isabspath(file)
         file = joinpath(basedir(pkgdata), file)
     end
-    if !file_exists(file)
-        sleep(0.1)  # in case git has done a delete/replace cycle
-    end
 
     dirfull, _ = splitdir(file)
+    fileexists(f) = file_exists(f) || isdir(f)
     stillwatching = true
     while stillwatching
-        if !file_exists(file) && !isdir(file)
-            let file=file
-                with_logger(SimpleLogger(stderr)) do
-                    @warn "$file is not an existing file, Revise is not watching"
+        if !fileexists(file)
+            status = await_watched_path(fileexists, file, dirfull)
+            if status !== :reappeared
+                if status === :gone
+                    let file=file
+                        with_logger(SimpleLogger(stderr)) do
+                            @warn "$file is not an existing file, Revise is not watching"
+                        end
+                    end
                 end
+                notify(revision_event)
+                break
             end
-            notify(revision_event)
-            break
         end
         try
             wait_changed(file)  # will block here until the file changes
