@@ -527,7 +527,13 @@ function handle_method_deletion!(siginfo::SigInfo, rex::RelocatableExpr, world::
                 line = firstline(rex)
                 ld = map(pr->linediff(line, pr[1]), locdefs)
                 idx = argmin(ld)
-                @assert ld[idx] < typemax(eltype(ld))
+                if ld[idx] === typemax(eltype(ld))
+                    # No `locdefs` entry shares a file with `rex`. This happens when the
+                    # method's recorded location comes from a macro rather than the source
+                    # file (e.g. `@views @timing function ... end`), so line matching can't
+                    # identify the reference to drop. Drop the last one, matching `eval_rex`. (#668)
+                    idx = length(locdefs)
+                end
                 deleteat!(locdefs, idx)
                 return nothing
             else
