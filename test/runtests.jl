@@ -2435,6 +2435,7 @@ end
             g(x} = 2
             end
             """)
+        sleep(mtimedelay)
         @test try
             revise(throw=true)
             false
