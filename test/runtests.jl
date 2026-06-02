@@ -2076,6 +2076,48 @@ end
         end
     end
 
+    do_test("Duplicate macro-defined methods") && @testset "Duplicate macro-defined methods" begin
+        # issue #668: two definitions sharing one signature, where the method's recorded
+        # location comes from a macro (a different file than the source). Deleting one of
+        # them must not fail with `AssertionError: ld[idx] < typemax(eltype(ld))`.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "Dup668", "src"); mkpath(dn)
+        fn = joinpath(dn, "Dup668.jl")
+        # `@deffoo` stamps the method body with a LineNumberNode from a phantom file,
+        # mimicking what macros like `@views`/`@timing` do to a wrapped function.
+        write(fn, """
+            __precompile__(false)
+            module Dup668
+            macro deffoo(val)
+                esc(Expr(:function, :(foo()),
+                         Expr(:block, LineNumberNode(99, Symbol("phantom.jl")), val)))
+            end
+            @deffoo 1
+            @deffoo 2
+            end""")
+        sleep(mtimedelay)
+        using Dup668
+        sleep(mtimedelay)
+        @test Dup668.foo() == 2
+        key = Revise.MethodInfoKey(nothing, first(methods(Dup668.foo)).sig)
+        # Remove the first (duplicate) definition, leaving a single method.
+        write(fn, """
+            __precompile__(false)
+            module Dup668
+            macro deffoo(val)
+                esc(Expr(:function, :(foo()),
+                         Expr(:block, LineNumberNode(99, Symbol("phantom.jl")), val)))
+            end
+            @deffoo 2
+            end""")
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test Dup668.foo() == 2
+        @test length(CodeTracking.method_info[key]) == 1
+
+        rm_precompile("Dup668")
+    end
+
     do_test("revise_file_now") && @testset "revise_file_now" begin
         # Very rarely this is used for debugging
         testdir = newtestdir()
