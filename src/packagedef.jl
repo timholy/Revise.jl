@@ -45,6 +45,43 @@ function remotecall_impl end
 # - is_master_worker(w::MyWorkerType): check if `w` is the master.
 function is_master_worker end
 
+# Ordered record of the revision actions applied on the master this session, each
+# stored as `(mod, expr)` meaning "evaluate `expr` in `mod`". Revisions are
+# normally pushed to the workers that exist at revision time, but a worker added
+# *later* loads the package fresh from disk and would otherwise miss them; in
+# particular it would lack the freshly-gensym'd closures that `@distributed`
+# bodies serialize, giving an `UndefVarError` on deserialization (issue #637).
+# `init_worker` replays this log to bring such a worker up to date. Reads and
+# writes both go through `revise_lock` (see `record_worker_replay!` and
+# `init_worker`). Only populated while a Distributed-like library is loaded and
+# this process is the master, so non-distributed sessions pay nothing.
+const worker_replay_log = Tuple{Module,Any}[]
+
+# Record `(mod, expr)` for later replay onto workers added after this revision,
+# but only when this process is the master for some registered worker library.
+# Takes `revise_lock` directly: on the normal `revise` path the caller already
+# holds it (a reentrant re-acquire is cheap), and this also covers the side paths
+# (`revise_file_now`, `eval_revised`) that reach here without holding it.
+function record_worker_replay!(mod::Module, expr)
+    @lock revise_lock for get_workers in workers_functions
+        if @invokelatest is_master_worker(get_workers)
+            push!(worker_replay_log, (mod, expr))
+            break
+        end
+    end
+    return nothing
+end
+
+# Evaluate `expr` in `mod` on worker `p`, ignoring failures (e.g. `mod` not yet
+# loaded there, or a type the expression references being absent).
+function apply_worker_action(p, mod::Module, expr)
+    try
+        @invokelatest remotecall_impl(Core.eval, p, mod, expr)
+    catch
+    end
+    return nothing
+end
+
 ## END abstract Distributed API
 
 """
@@ -211,9 +248,9 @@ include("callbacks.jl")
 #
 # Guards: `watched_files`, `watched_manifests`, `revision_queue`, `queue_errors`,
 # `pkgdatas`, `included_files`, `cache_file_key`, `src_file_key`,
-# `dont_watch_pkgs`, `silence_pkgs`, the `user_callbacks_*` collections, and the
-# `@require` bookkeeping. (`types_cache` in visit.jl has its own independent
-# lock, on a separate code path.)
+# `dont_watch_pkgs`, `silence_pkgs`, `worker_replay_log`, the `user_callbacks_*`
+# collections, and the `@require` bookkeeping. (`types_cache` in visit.jl has its
+# own independent lock, on a separate code path.)
 const revise_lock = ReentrantLock()
 
 """
@@ -499,11 +536,11 @@ function handle_method_deletion!(siginfo::SigInfo, rex::RelocatableExpr, world::
         end
         @debug "DeleteMethod" _group="Action" time=time() deltainfo=(sig, MethodSummary(m))
         # Delete the corresponding methods
-        for get_workers in workers_functions
-            for p in @invokelatest get_workers()
-                try  # guard against serialization errors if the type isn't defined on the worker
-                    @invokelatest remotecall_impl(Core.eval, p, Main, :(delete_method_by_sig($mt, $sig)))
-                catch
+        let delexpr = :(delete_method_by_sig($mt, $sig))
+            record_worker_replay!(Main, delexpr)
+            for get_workers in workers_functions
+                for p in @invokelatest get_workers()
+                    apply_worker_action(p, Main, delexpr)  # guard against serialization errors if the type isn't defined on the worker
                 end
             end
         end
@@ -591,14 +628,12 @@ function eval_rex(rex_new::RelocatableExpr, exs_infos_old::ExprsInfos, mod::Modu
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end
+            record_worker_replay!(mod, thunk)
             for get_workers in workers_functions
                 if @invokelatest is_master_worker(get_workers)
                     for p in @invokelatest get_workers()
                         @invokelatest(is_master_worker(p)) && continue
-                        try   # don't error if `mod` isn't defined on the worker
-                            @invokelatest remotecall_impl(Core.eval, p, mod, thunk)
-                        catch
-                        end
+                        apply_worker_action(p, mod, thunk)  # don't error if `mod` isn't defined on the worker
                     end
                 end
             end
@@ -1695,8 +1730,15 @@ async_steal_repl_backend() = steal_repl_backend()
 """
     Revise.init_worker(p)
 
-Define methods on worker `p` that Revise needs in order to perform revisions on `p`.
+Define methods on worker `p` that Revise needs in order to perform revisions on `p`,
+and replay onto `p` any revisions already applied on the master this session.
 Revise itself does not need to be running on `p`.
+
+Call this after the relevant packages have been loaded on `p` (e.g. via
+`@everywhere using MyPkg`); otherwise the replayed revisions, which evaluate into
+those modules, are silently skipped and `p` stays at the on-disk state. Replaying
+is what keeps closures serialized across workers (such as `@distributed` bodies)
+in sync after a revision, including for workers added later (issue #637).
 """
 function init_worker(p::AbstractWorker)
     @invokelatest remotecall_impl(Core.eval, p, Main, quote
@@ -1713,6 +1755,20 @@ function init_worker(p::AbstractWorker)
             isa(m, Method) && Base.delete_method(m)
         end
     end)
+    @invokelatest(is_master_worker(p)) && return nothing
+    actions = lock(revise_lock) do
+        copy(worker_replay_log)
+    end
+    # Unlike the best-effort propagation during `revise`, this is an explicit
+    # synchronization point: wait for each action so the worker is fully caught up
+    # before `init_worker` returns and the caller starts dispatching work to it.
+    for (mod, expr) in actions
+        try
+            @invokelatest wait(remotecall_impl(Core.eval, p, mod, expr))
+        catch  # e.g. `mod` not loaded on the worker yet
+        end
+    end
+    return nothing
 end
 
 init_worker(p::Int) = init_worker(DistributedWorker(p))

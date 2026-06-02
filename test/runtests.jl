@@ -3487,6 +3487,48 @@ end
         rmprocs(favorite_proc, boring_proc; waitfor=10)
     end
 
+    do_test("Distributed late worker") && @testset "Distributed late worker" begin
+        # A worker added *after* an in-session revision loads the package fresh
+        # from disk and so lacks the freshly-gensym'd closures the master now
+        # produces. Serializing such a closure to it (as `@distributed` bodies do)
+        # would throw `UndefVarError` on deserialization. `Revise.init_worker`
+        # must replay the session's revisions onto the new worker. (issue #637)
+        dirname = randtmp()
+        mkdir(dirname)
+        push!(to_remove, dirname)
+        push!(LOAD_PATH, dirname)
+        modname = "ReviseDist637"
+        dn = joinpath(dirname, modname, "src")
+        mkpath(dn)
+        file = joinpath(dn, modname * ".jl")
+        # `adder` returns an anonymous closure; revising its body re-lowers it and
+        # assigns it a new gensym type name on the master.
+        write(file, "module $modname\nadder() = (x -> x + 1)\nend\n")
+        sleep(mtimedelay)
+        @eval using ReviseDist637
+        sleep(mtimedelay)
+        @test ReviseDist637.adder()(5) == 6
+
+        write(file, "module $modname\nadder() = (x -> x + 10)\nend\n")
+        @yry()
+        @test ReviseDist637.adder()(5) == 15
+
+        # Add a worker only now, after the revision, then bring it up to date.
+        newproc = only(addprocs(1))
+        try
+            Distributed.remotecall_eval(Main, [newproc], :(push!(LOAD_PATH, $dirname)))
+            Distributed.remotecall_eval(Main, [newproc], :(using ReviseDist637))
+            Revise.init_worker(newproc)
+            # The master-created closure must deserialize on the new worker.
+            cl = ReviseDist637.adder()
+            @test remotecall_fetch(cl, newproc, 5) == 15
+        finally
+            rmprocs(newproc; waitfor=10)
+        end
+        rm_precompile(modname)
+        pop!(LOAD_PATH)
+    end
+
     do_test("Git") && @testset "Git" begin
         loc = Base.find_package("Revise")
         if occursin("dev", loc)
