@@ -29,14 +29,10 @@ Distributed = "1"
 InteractiveUtils = "1.10, 1.11"
 JuliaInterpreter = "0.10.8"
 LoweredCodeUtils = "3.5"
-OrderedCollections = "1"
+OrderedCollections = "1, 2"
 Preferences = "1.5.0"
-# Exclude Requires-1.1.0 - see https://github.com/JuliaPackaging/Requires.jl/issues/94
 Requires = "~1.0, ^1.1.1"
 julia = "1.10"
-
-# If support is limited to v1.12 and later, the following sections will become unnecessary.
-# From v1.12 onwards, `[workspace]` is used to manage the test environment
 
 [extras]
 CatIndices = "aafaddc9-749c-510e-ac4f-586e18779b91"
