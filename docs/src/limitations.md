@@ -247,6 +247,18 @@ worker = Threads.@spawn while true
 end
 ```
 
+The same limitation can also surface as an outright error rather than silent
+staleness. If a task pinned to an older world age dispatches a method or closure
+that was *created* after the task started, Julia raises a world-age error like
+
+```
+MethodError: no method matching f()
+The applicable method may be too new: running in world age 27916, while current world is 27952.
+```
+
+Examples that can trigger this include reactive or event-loop frameworks with
+runner Tasks.
+
 This is a consequence of Julia's world-age semantics, not something Revise can
 change: Revise cannot retroactively advance the world age of a task that is
 already running. There are two workarounds:
