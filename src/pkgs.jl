@@ -136,6 +136,23 @@ function maybe_extract_sigs!(fi::FileInfo)
 end
 maybe_extract_sigs!(pkgdata::PkgData, file::AbstractString) = maybe_extract_sigs!(fileinfo(pkgdata, file))
 
+# Signature extraction lowers and partially evaluates each top-level expression. For
+# macro-generated code this can be fragile to re-lowering: JLLWrappers builds a `let`
+# block that defines and immediately calls gensym'd closures, and re-`:sigs` after the
+# package is already loaded can leave the closure's call method undefined for the freshly
+# minted closure type (issue #706). The package is already loaded and correct, so on
+# failure record the error the same way `revise()` does and keep going, rather than
+# letting it abort the manifest watcher.
+function maybe_extract_sigs_or_queue_error!(pkgdata::PkgData, file::AbstractString, fi::FileInfo)
+    try
+        maybe_extract_sigs!(fi)
+    catch err
+        isa(err, InterruptException) && rethrow(err)
+        @lock revise_lock queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+    end
+    return fi
+end
+
 is_not_populated(fi::FileInfo) =
     (isempty(fi.mod_exs_infos) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
 
@@ -523,7 +540,7 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
             end
             fi
         end
-        maybe_extract_sigs!(fi)
+        maybe_extract_sigs_or_queue_error!(pkgdata, file, fi)
         @lock revise_lock push!(revision_queue, (pkgdata, file))
         push!(files, file)
         mustnotify = true

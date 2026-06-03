@@ -4075,6 +4075,32 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     push!(to_remove, depot)
 end
 
+do_test("Manifest re-extraction errors") && @testset "Manifest re-extraction errors" begin
+    # When a package's directory changes (e.g. a version bump), `switch_basepath`
+    # eagerly re-extracts signatures. For some macro-generated top-level code this can
+    # fail on re-lowering (issue #706, JLLWrappers' gensym'd closures). Such a failure
+    # must be recorded rather than abort the manifest watcher.
+    mod = Module(:Issue706)
+    Core.eval(mod, :(using Base))
+    # A method whose *signature* needs a throwing call, so extraction throws in `:sigs`.
+    badex = :(foo(::Val{error("issue 706 sigs failure")}) = 1)
+    mkfi() = begin
+        mei = Revise.ModuleExprsInfos(mod)
+        mei[mod][Revise.RelocatableExpr(badex)] = nothing
+        Revise.FileInfo(mei)
+    end
+    id = Base.PkgId(Base.UUID("00000000-0000-0000-0000-000000000706"), "Issue706")
+    pkgdata = Revise.PkgData(id, "/nonexistent/Issue706")
+    file = "src/Issue706.jl"
+    delete!(Revise.queue_errors, (pkgdata, file))
+    # Unguarded extraction throws ...
+    @test_throws Exception Revise.maybe_extract_sigs!(mkfi())
+    # ... but the resilient helper records the error instead of throwing.
+    @test (Revise.maybe_extract_sigs_or_queue_error!(pkgdata, file, mkfi()); true)
+    @test haskey(Revise.queue_errors, (pkgdata, file))
+    delete!(Revise.queue_errors, (pkgdata, file))   # leave global state clean
+end
+
 do_test("Switching environments") && @testset "Switching environments" begin
     old_project = Base.active_project()
 
