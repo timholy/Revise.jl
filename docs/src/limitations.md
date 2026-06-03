@@ -225,6 +225,48 @@ it's part of the same expression and Revise will re-evaluate the expression.
 The maintainers have no intention of ever "fixing" this limitation, as it would
 require adding enormous bloat to every session for very little actual benefit.
 
+### [Code already running in a task (including `Threads.@spawn`)](@id world-age-tasks)
+
+Revise installs revised methods as *new* definitions, which take effect in a new
+[world age](https://docs.julialang.org/en/v1/manual/methods/#Redefining-Methods).
+A task observes only the methods that existed when it *started running*: calls
+made from within the task dispatch at the task's fixed world age. Consequently a
+long-running task that began before you edited the source keeps executing the old
+definitions, even though Revise has successfully installed the new ones.
+
+This is most surprising with `Threads.@spawn` (or `@async`), because the REPL
+returns to the prompt and everything *appears* up to date—a fresh call from the
+REPL, or a newly spawned task, sees the revised code—while a background worker
+silently keeps running the old code:
+
+```julia
+f() = 1
+worker = Threads.@spawn while true
+    @show f()      # keeps printing 1, even after `f` is revised to return 2
+    sleep(1)
+end
+```
+
+This is a consequence of Julia's world-age semantics, not something Revise can
+change: Revise cannot retroactively advance the world age of a task that is
+already running. There are two workarounds:
+
+- restart the task after revising, so the new task picks up the current world age; or
+- route the calls that should track revisions through
+  [`Base.invokelatest`](https://docs.julialang.org/en/v1/base/base/#Base.invokelatest),
+  which dispatches at the latest world age:
+
+```julia
+worker = Threads.@spawn while true
+    @show Base.invokelatest(f)   # picks up revisions to `f`
+    sleep(1)
+end
+```
+
+The same caveat applies to any long-lived loop started before a revision,
+including a `while true` loop running directly at the REPL; see also
+[Editing code that defines REPL](@ref editREPL).
+
 ### Distributed computing (multiple workers) and anonymous functions
 
 Revise supports changes to code in worker processes.
