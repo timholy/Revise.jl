@@ -220,6 +220,12 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
     end
 end
 
+# `@require` blocks are tracked under a synthetic filename built by appending this
+# suffix to the real source file (see `add_require`). Such keys have no file on disk,
+# so any path-based operation (reading, watching) must skip them.
+const requires_suffix = "__@require__"
+is_requires_file(file::AbstractString) = endswith(file, requires_suffix)
+
 # This is used by Requires.jl: therefore even if it appears unused by Revise.jl,
 # it cannot be removed as long as we support integration with Requires.jl
 function add_require(sourcefile::String, modcaller::Module, idmod::String, ::String, expr::Expr)
@@ -233,7 +239,7 @@ function add_require(sourcefile::String, modcaller::Module, idmod::String, ::Str
     @lock revise_lock begin
         # Get/create the FileInfo specifically for tracking @require blocks
         pkgdata = pkgdatas[id]
-        filekey = relpath(sourcefile, pkgdata) * "__@require__"
+        filekey = relpath(sourcefile, pkgdata) * requires_suffix
         fileidx = fileindex(pkgdata, filekey)
         if fileidx === nothing
             files = srcfiles(pkgdata)
@@ -521,6 +527,9 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
     files = String[]
     mustnotify = false
     for file in srcfiles(pkgdata)
+        # issue #678: `@require` blocks are tracked under a synthetic filename with no
+        # file on disk; reading or watching it as a real path would error.
+        is_requires_file(file) && continue
         fi = try
             maybe_parse_from_cache!(pkgdata, file)
         catch

@@ -4101,6 +4101,27 @@ do_test("Manifest re-extraction errors") && @testset "Manifest re-extraction err
     delete!(Revise.queue_errors, (pkgdata, file))   # leave global state clean
 end
 
+do_test("@require path switch") && @testset "@require path switch" begin
+    # `@require` blocks are tracked under a synthetic "__@require__" filename that has
+    # no corresponding file on disk. When a package's directory changes, `switch_basepath`
+    # must not try to read or watch that fictitious path (issue #678).
+    mod = Module(:Issue678)
+    Core.eval(mod, :(using Base))
+    id = Base.PkgId(Base.UUID("00000000-0000-0000-0000-000000000678"), "Issue678")
+    olddir, newdir = mktempdir(), mktempdir()
+    pkgdata = Revise.PkgData(id, olddir)
+    # Reproduce the state `add_require` leaves behind for a deferred `@require` block:
+    # empty `mod_exs_infos` plus an unprocessed `cacheexpr` and no cache file, which
+    # drives `switch_basepath` into its read-from-disk fallback.
+    reqfile = joinpath("src", "Issue678.jl") * Revise.requires_suffix
+    fi = Revise.FileInfo(Revise.ModuleExprsInfos(), "", "",
+                         Tuple{Module,Expr}[(mod, :(g() = 42))], Ref(false), Ref(false))
+    push!(pkgdata, reqfile=>fi)
+    @test Revise.is_requires_file(reqfile)
+    @test (Revise.switch_basepath(pkgdata, newdir); true)   # must not throw
+    @test Revise.basedir(pkgdata) == newdir
+end
+
 do_test("Switching environments") && @testset "Switching environments" begin
     old_project = Base.active_project()
 
