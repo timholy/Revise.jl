@@ -2,11 +2,18 @@
     Revise.track(Base; revise_throw::Bool=!isinteractive())
     Revise.track(Core.Compiler; revise_throw::Bool=!isinteractive())
     Revise.track(stdlib; revise_throw::Bool=!isinteractive())
+    Revise.track(SysimagePackage; revise_throw::Bool=!isinteractive())
 
-Track updates to the code in Julia's `base` directory, `base/compiler`, or one of its
-standard libraries. Calls `revise()` after tracking to ensure that any changes
-detected during tracking are applied immediately. Optionally, if `revise_throw` is
-`true`, `revise()` will throw if any exceptions are encountered while revising.
+Track updates to the code in Julia's `base` directory, `base/compiler`, one of its
+standard libraries, or a package baked into the running system image (e.g. one
+compiled with PackageCompiler.jl). Calls `revise()` after tracking to ensure that any
+changes detected during tracking are applied immediately. Optionally, if `revise_throw`
+is `true`, `revise()` will throw if any exceptions are encountered while revising.
+
+A package compiled into a system image is already loaded at startup, so Revise's
+usual package callback never fires and any source edits made since the image was
+built go unnoticed. Calling `Revise.track` on such a package starts watching it and
+applies any pending edits.
 """
 function track(mod::Module; modified_files=revision_queue, revise_throw::Bool=!isinteractive())
     id = pkgidid_for_mod(mod)
@@ -113,7 +120,30 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         track_subdir_from_git!(pkgdata, compilerdir; modified_files=modified_files)
         # insertion into pkgdatas is done by track_subdir_from_git!
     else
-        error("no Revise.track recipe for module ", modname)
+        # issue #685: a package compiled into a system image (e.g. with
+        # PackageCompiler.jl) is already loaded when the session starts, so the
+        # `using`/`import` package callback that normally sets up watching never
+        # fired, and Julia never checked whether the on-disk source is newer than
+        # the baked-in code. Set up watching now and queue any source file modified
+        # since the package was precompiled. We use the precompile cache file's
+        # mtime as the reference point; for a sysimage package the cache file
+        # remains in the depot after the build.
+        origin = get(Base.pkgorigins, id, nothing)
+        cachepath = origin === nothing ? nothing : origin.cachepath
+        if cachepath === nothing || isempty(cachepath)
+            error("no Revise.track recipe for module ", modname)
+        end
+        pkgdata = watch_package(id)
+        pkgdata === nothing && return nothing
+        reftime = mtime(cachepath)
+        @lock revise_lock begin
+            for rpath in srcfiles(pkgdata)
+                fullpath = joinpath(basedir(pkgdata), rpath)
+                if mtime(fullpath) > reftime
+                    push!(modified_files, (pkgdata, rpath))
+                end
+            end
+        end
     end
     return nothing
 end
