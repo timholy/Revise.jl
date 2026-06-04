@@ -65,6 +65,7 @@ MethodSummary
 Revise.watch_package
 Revise.parse_pkg_files
 Revise.init_watching
+Revise.update_pkgversion!
 ```
 
 ### Monitoring for changes
