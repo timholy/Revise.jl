@@ -3340,6 +3340,48 @@ end
 
     end
 
+    do_test("Track sysimage package") && @testset "Track sysimage package" begin
+        # issue #685: a package baked into a system image (e.g. with PackageCompiler.jl)
+        # is already loaded at startup, so the `using` callback never fires and Revise
+        # has no record of it. `Revise.track` should start watching it and apply any
+        # edits made since it was precompiled. We reproduce the sysimage state by
+        # loading the package normally and then dropping Revise's record of it, leaving
+        # a valid `Base.pkgorigins` cache entry whose mtime predates the source edit.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "TrackSysimg685", "src")
+        mkpath(dn)
+        write(joinpath(dn, "TrackSysimg685.jl"), """
+            module TrackSysimg685
+            f685() = 1
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using TrackSysimg685
+        @latestworld
+        @test TrackSysimg685.f685() == 1
+        id = Base.PkgId(TrackSysimg685)
+        @lock Revise.revise_lock delete!(Revise.pkgdatas, id)
+        sleep(mtimedelay)
+        write(joinpath(dn, "TrackSysimg685.jl"), """
+            module TrackSysimg685
+            f685() = 2
+            end
+            """)
+        Revise.track(TrackSysimg685)
+        @latestworld
+        @test TrackSysimg685.f685() == 2
+
+        # A package with no precompile cache cannot be tracked this way; fail with a
+        # clear message rather than a `KeyError` (PR #688 review). Drive `_track`
+        # directly with a synthetic, never-loaded package id: a module defined here
+        # would resolve to `Main`, which the testsets above have already tracked.
+        fakeid = Base.PkgId(Base.UUID("00000000-0000-0000-0000-000000000685"), "NotALoadedPkg685")
+        @test_throws "no Revise.track recipe" Revise._track(fakeid, :NotALoadedPkg685)
+
+        rm_precompile("TrackSysimg685")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Auto-track user scripts") && @testset "Auto-track user scripts" begin
         srcfile = joinpath(tempdir(), randtmp()*".jl")
         push!(to_remove, srcfile)

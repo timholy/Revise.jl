@@ -4,8 +4,18 @@ This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
 <!-- links start -->
+[Revise 3.15]: https://github.com/timholy/Revise.jl/compare/v3.14.5...v3.15.0
 [Revise 3.13]: https://github.com/timholy/Revise.jl/compare/v3.12.3...v3.13.0
 <!-- links end -->
+
+## [Revise 3.15]
+
+- **Track packages baked into a system image**: `Revise.track(SomePackage)` now works
+  for a package compiled into the running system image (e.g. one built with
+  PackageCompiler.jl). Such a package is already loaded at startup, so Revise's usual
+  package callback never fires; calling `Revise.track` on it starts watching the
+  package and applies any source edits made since the image was built.
+  (https://github.com/timholy/Revise.jl/pull/688)
 
 ## [Revise 3.13]
 
