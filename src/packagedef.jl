@@ -1204,6 +1204,11 @@ function revise(; throw::Bool=false)
             end
         end
 
+        # Keep `Base.pkgorigins` version in sync with revised source (issue #684)
+        for pkgdata in unique!(first.(finished))
+            update_pkgversion!(PkgId(pkgdata))
+        end
+
         # Do binding redefinitions
         if __bpart__[]
             redefine_bindings!(revision_errors, reeval_list, world)

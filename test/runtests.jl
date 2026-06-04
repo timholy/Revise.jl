@@ -4075,6 +4075,53 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     push!(to_remove, depot)
 end
 
+do_test("pkgversion update") && @testset "pkgversion update" begin
+    # issue #684: Julia caches a package's version in `Base.pkgorigins` at load
+    # time (and on 1.12+ `pkgversion` returns that cached value). When developing
+    # a package and bumping its version, revising the source should refresh the
+    # cached version so `pkgversion` doesn't go stale.
+    testdir = newtestdir()
+    pkgdir = joinpath(testdir, "VersionPkg")
+    dn = joinpath(pkgdir, "src")
+    mkpath(dn)
+    projfile = joinpath(pkgdir, "Project.toml")
+    write(projfile, """
+        name = "VersionPkg"
+        uuid = "00000000-1111-2222-3333-000000000684"
+        version = "0.1.0"
+        """)
+    write(joinpath(dn, "VersionPkg.jl"), """
+        module VersionPkg
+        f() = 1
+        end
+        """)
+    sleep(mtimedelay)
+    @eval using VersionPkg
+    @latestworld
+    @test Base.invokelatest(VersionPkg.f) == 1
+    @test pkgversion(VersionPkg) == v"0.1.0"
+
+    sleep(mtimedelay)
+    # A normal dev cycle: bump the version and change the code together.
+    write(projfile, """
+        name = "VersionPkg"
+        uuid = "00000000-1111-2222-3333-000000000684"
+        version = "0.2.0"
+        """)
+    write(joinpath(dn, "VersionPkg.jl"), """
+        module VersionPkg
+        f() = 2
+        end
+        """)
+    @yry()
+    @test Base.invokelatest(VersionPkg.f) == 2
+    @test pkgversion(VersionPkg) == v"0.2.0"
+    @test Base.pkgorigins[Base.PkgId(VersionPkg)].version == v"0.2.0"
+
+    rm_precompile("VersionPkg")
+    pop!(LOAD_PATH)
+end
+
 do_test("Manifest re-extraction errors") && @testset "Manifest re-extraction errors" begin
     # When a package's directory changes (e.g. a version bump), `switch_basepath`
     # eagerly re-extracts signatures. For some macro-generated top-level code this can
