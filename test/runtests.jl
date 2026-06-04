@@ -912,6 +912,72 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("IJulia preexecute hook") && @testset "IJulia preexecute hook" begin
+        # IJulia reloads code by registering `Revise.revise` as a preexecute
+        # hook (IJulia.push_preexecute_hook) and invoking every hook before each
+        # cell runs. This reproduces that mechanism in-process (no Jupyter
+        # server) so CI guards the Revise side of the path exercised in issue
+        # #325: an edit to a tracked file between cells must take effect on the
+        # next cell, triggered solely by the hook and without an explicit
+        # `revise()` in the cell body.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "JupyterRevise", "src")
+        mkpath(dn)
+        write(joinpath(dn, "JupyterRevise.jl"), """
+            module JupyterRevise
+            greet() = "hello"
+            end
+            """)
+        sleep(mtimedelay)
+
+        # The kernel's preexecute hooks, populated exactly as IJulia does.
+        preexecute_hooks = Function[]
+        push_preexecute_hook(f) = push!(preexecute_hooks, f)
+        # Run a "cell": fire every preexecute hook, then evaluate the body.
+        # Time passes between cells in a real notebook, so by the time the user
+        # runs the next cell the file-watcher task has already pushed the change
+        # onto `revision_queue`; wait for that here so it is the hook (not the
+        # test) that applies the revision.
+        function run_cell(thunk)
+            timedwait(() -> !isempty(Revise.revision_queue), event_timeout; pollint=0.02)
+            sleep(0.02)
+            for hook in preexecute_hooks
+                Base.invokelatest(hook)
+            end
+            return Base.invokelatest(thunk)
+        end
+
+        # Load Revise's IJulia integration the way IJulia does, then `using`.
+        push_preexecute_hook(Revise.revise)
+        @eval using JupyterRevise
+        @test JupyterRevise.greet() == "hello"
+
+        sleep(mtimedelay)
+        write(joinpath(dn, "JupyterRevise.jl"), """
+            module JupyterRevise
+            greet() = "world"
+            end
+            """)
+        # The preexecute hook fires `revise()` automatically before the cell.
+        @test run_cell(() -> JupyterRevise.greet()) == "world"
+
+        sleep(mtimedelay)
+        write(joinpath(dn, "JupyterRevise.jl"), """
+            module JupyterRevise
+            greet() = "again"
+            end
+            """)
+        # Without firing the hook the cell sees stale code; firing it reloads.
+        # This confirms the preexecute hook is what drives the reload.
+        timedwait(() -> !isempty(Revise.revision_queue), event_timeout; pollint=0.02)
+        sleep(0.02)
+        @test Base.invokelatest(() -> JupyterRevise.greet()) == "world"
+        @test run_cell(() -> JupyterRevise.greet()) == "again"
+
+        rm_precompile("JupyterRevise")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Recursive types (issues #417 and #883)") && @testset "Recursive types (issues #417 and #883)" begin
         testdir = newtestdir()
         fn = joinpath(testdir, "recursive.jl")
