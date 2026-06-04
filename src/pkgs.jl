@@ -330,13 +330,36 @@ function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourc
     return ret
 end
 
-function watch_files_via_dir(dirname::AbstractString)
+# Block until `dirname` reports filesystem activity.
+#
+# On notifying filesystems this uses a *persistent, buffered* `FolderMonitor`
+# (`watch_folder`): the OS watch stays registered between calls and queues every
+# event, so a change that lands while we are busy enqueueing a previous one is
+# retained rather than dropped. This is the crucial difference from `watch_file`,
+# which arms a fresh one-shot monitor per call and silently loses anything that
+# occurs in the gap between calls -- a dominant source of missed revisions on
+# macOS FSEvents under load.
+#
+# On polling/non-notifying filesystems we keep the existing directory poll.
+function wait_changed_dir(dirname::AbstractString)
+    if polling_files[] || nonnotifying_path(dirname)
+        wait_changed(dirname)  # unchanged poll behavior
+        return
+    end
     try
-        wait_changed(dirname)  # this will block until there is a modification
+        watch_folder(dirname)                          # block for the next buffered event
+        while !last(watch_folder(dirname, 0)).timedout # drain a burst delivered in one wakeup
+        end
     catch e
+        e isa EOFError && return                       # monitor torn down; let caller re-check state
         # issue #459
         (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
     end
+    return
+end
+
+function watch_files_via_dir(dirname::AbstractString)
+    wait_changed_dir(dirname)  # block until the directory changes (buffered on notifying filesystems)
     latestfiles = Pair{String,PkgId}[]
     # Snapshot the tracked files under the lock. We then do the (potentially
     # blocking) filesystem checks below without holding it, reacquiring only to

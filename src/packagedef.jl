@@ -783,6 +783,11 @@ function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
     end
     for dirfull in udirs
         if !watching_files[]
+            # Register the buffered directory monitor now, before the watcher task
+            # runs, so events are queued from the moment we start tracking and the
+            # startup gap is closed. Skipped on polling/non-notifying filesystems,
+            # which never deliver notifications.
+            polling_files[] || nonnotifying_path(dirfull) || watch_folder(dirfull, 0)
             dwatcher = TaskThunk(revise_dir_queued, (dirfull,))
             schedule(Task(dwatcher))
         end
@@ -841,6 +846,10 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
                 end
                 break
             end
+            # Reappeared: the directory was removed and recreated, so the existing
+            # monitor may be watching a stale inode. Drop it; the next
+            # `wait_changed_dir` re-registers a fresh one.
+            unwatch_folder(dirname)
         end
 
         latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
@@ -861,6 +870,7 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
             end
         end
     end
+    unwatch_folder(dirname)  # stop the OS watch now that we no longer watch this dir
     return
 end
 
