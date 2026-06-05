@@ -1278,19 +1278,23 @@ function revise(mod::Module; force::Bool=true)
     end
     revise()
     force || return true
-    for i = 1:length(srcfiles(pkgdata))
-        fi = fileinfo(pkgdata, i)
-        for (mod, exs_infos) in fi.mod_exs_infos
-            for def_rex in keys(exs_infos)
-                ex = def_rex.ex
-                exuw = unwrap(ex)
-                isexpr(exuw, :call) && is_some_include(exuw.args[1]) && continue
-                try
-                    Core.eval(mod, ex)
-                catch err
-                    @show mod
-                    display(ex)
-                    rethrow(err)
+    # issue #975: re-evaluating every definition rewrites each docstring, and
+    # `Base.Docs` warns on every rewrite; suppress that expected noise.
+    with_logger(SuppressReplacingDocsLogger(current_logger())) do
+        for i = 1:length(srcfiles(pkgdata))
+            fi = fileinfo(pkgdata, i)
+            for (mod, exs_infos) in fi.mod_exs_infos
+                for def_rex in keys(exs_infos)
+                    ex = def_rex.ex
+                    exuw = unwrap(ex)
+                    isexpr(exuw, :call) && is_some_include(exuw.args[1]) && continue
+                    try
+                        Core.eval(mod, ex)
+                    catch err
+                        @show mod
+                        display(ex)
+                        rethrow(err)
+                    end
                 end
             end
         end
