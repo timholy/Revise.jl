@@ -4614,8 +4614,15 @@ do_test("entr") && @testset "entr" begin
                 sleep(pause/4)
             end
             waitfor(() -> Main.__entr__ >= 3)
-            sleep(2*pause)            # a surplus callback would fire within ~pause
-            @test Main.__entr__ == 3  # the whole burst triggered the callback once
+            sleep(2*pause)            # any further callback would fire within ~pause
+            # The burst must *coalesce*: 8 rapid changes collapse to far fewer
+            # callbacks than changes. An exact count is too strict on Windows,
+            # where the OS can spread event delivery across more than one
+            # `pause` window and split the burst into a second callback (e.g.,
+            # CI failure on #1066); bound it loosely so it still catches a
+            # debounce that fails to coalesce at all.
+            nburst = Main.__entr__ - 2
+            @test 1 <= nburst <= 4
 
             write(srcfile1, "error(\"stop\")")
         end
@@ -4690,8 +4697,11 @@ do_test("entr") && @testset "entr" begin
                     sleep(pause/4)
                 end
                 waitfor(() -> counter[] >= 3)
-                sleep(2*pause)       # a surplus callback would fire within ~pause
-                @test counter[] == 3 # the whole burst triggered the callback once
+                sleep(2*pause)       # any further callback would fire within ~pause
+                # As above: assert the burst coalesced to far fewer callbacks than
+                # changes, but don't insist on just one.
+                nburst = counter[] - 2
+                @test 1 <= nburst <= 4
 
                 # Stop
                 stop[] = true
@@ -4821,23 +4831,33 @@ do_test("callbacks") && @testset "callbacks" begin
             contents[] = read(path, String)
         end
 
+        # Wait for the watcher to enqueue the change before revising, instead of
+        # hoping a fixed sleep outlasts event-detection latency (leading to
+        # occasional CI failures, e.g., #1066). A callback-only file is not part
+        # of a tracked package, so its change lands in `user_callbacks_queue`
+        # rather than `revision_queue`.
+        function revise_after_event()
+            timedwait(() -> !isempty(Revise.user_callbacks_queue), event_timeout; pollint=0.02)
+            sleep(0.02)
+            revise()
+            sleep(mtimedelay)   # ctime guard so the next write has a larger ctime
+        end
+
         sleep(2*mtimedelay)
 
         append(path, "abc")
-        sleep(2*mtimedelay)
-        revise()
+        revise_after_event()
         @test contents[] == "abc"
 
-        sleep(mtimedelay)
-
         append(path, "def")
-        sleep(mtimedelay)
-        revise()
+        revise_after_event()
         @test contents[] == "abcdef"
 
+        # The callback is removed, so nothing is enqueued and there is no event to
+        # wait for; a fixed wait is correct here because we assert the *absence*
+        # of an update.
         Revise.remove_callback(key)
         sleep(mtimedelay)
-
         append(path, "ghi")
         sleep(mtimedelay)
         revise()
