@@ -128,7 +128,7 @@ function modulefiles(mod::Module)
         parentfile = String(first(methods(getfield(mod, :eval))).file)
     end
     id = PkgId(mod)
-    if id.name == "Base" || Symbol(id.name) ∈ stdlib_names
+    if id.name == "Base" || Base.is_stdlib(id)
         parentfile = normpath(Base.find_source_file(parentfile))
         if !startswith(parentfile, juliadir)
             parentfile = replace(parentfile, fallback_juliadir()=>juliadir)
