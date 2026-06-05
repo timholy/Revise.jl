@@ -45,7 +45,7 @@ end
 function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
     haspkgdata(id) && return nothing  # already tracked
     isbase = modname === :Base
-    isstdlib = !isbase && modname ∈ stdlib_names
+    isstdlib = !isbase && Base.is_stdlib(id)
     if isbase || isstdlib
         # Test whether we know where to find the files
         if isbase
@@ -238,17 +238,6 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
     end
     return nothing
 end
-
-# For tracking Julia's own stdlibs
-const stdlib_names = Set([
-    :Base64, :CRC32c, :Dates, :DelimitedFiles, :Distributed,
-    :FileWatching, :Future, :InteractiveUtils, :Libdl,
-    :LibGit2, :LinearAlgebra, :Logging, :Markdown, :Mmap,
-    :OldPkg, :Pkg, :Printf, :Profile, :Random, :REPL,
-    :Serialization, :SHA, :SharedArrays, :Sockets, :SparseArrays,
-    :Statistics, :SuiteSparse, :Test, :Unicode, :UUIDs,
-    :TOML, :Artifacts, :LibCURL_jll, :LibCURL, :MozillaCACerts_jll,
-    :Downloads, :Tar, :ArgTools, :NetworkOptions, :PCRE2_jll, :Zlib_jll])
 
 # This replacement is needed because the path written during compilation differs from
 # the git source path
