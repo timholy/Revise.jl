@@ -1334,6 +1334,34 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Forced revision docstrings (issue #975)") && @testset "Forced revision docstrings (issue #975)" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "ForceDocstring", "src")
+        mkpath(dn)
+        write(joinpath(dn, "ForceDocstring.jl"), """
+            module ForceDocstring
+            "f" f() = 1
+            "g" g() = 1
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using ForceDocstring
+        sleep(mtimedelay)
+        @test ForceDocstring.f() == 1
+        # `revise(mod; force=true)` re-evaluates every definition, which rewrites
+        # each docstring; `Base.Docs` warns on each rewrite unless we suppress it.
+        logs, _ = Test.collect_test_logs() do
+            revise(ForceDocstring)
+        end
+        @latestworld
+        @test !any(r -> occursin("Replacing docs", r.message), logs)
+        @test ForceDocstring.f() == 1
+        @test ForceDocstring.g() == 1
+
+        rm_precompile("ForceDocstring")
+        pop!(LOAD_PATH)
+    end
+
     do_test("doc expr signature") && @testset "Docstring attached to signatures" begin
         md = Revise.ModuleExprsInfos(Main)
         Revise.parse_source!(md, """
