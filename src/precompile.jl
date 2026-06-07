@@ -90,6 +90,7 @@ function _precompile_()
     end
     @warnpcfail precompile(Tuple{typeof(Revise.iswritable), String})
     @warnpcfail precompile(Tuple{typeof(Revise.active_repl_backend_available)})
+    @warnpcfail precompile(Tuple{typeof(wait_for_repl_backend)})
     @warnpcfail precompile(Tuple{typeof(pkg_fileinfo), PkgId})
     @warnpcfail precompile(Tuple{typeof(push!), WatchList, Pair{String,PkgId}})
     @warnpcfail precompile(Tuple{typeof(pushex!), ExprsInfos, Expr})

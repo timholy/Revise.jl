@@ -1800,6 +1800,22 @@ init_worker(p::Int) = init_worker(DistributedWorker(p))
 
 active_repl_backend_available() = isdefined(Base, :active_repl_backend) && Base.active_repl_backend !== nothing
 
+# Wait for the REPL backend to come up, then register `revise_first` on it.
+# #719: this runs async in case Revise is loaded from startup.jl, before the
+# backend exists. issue #900: keep this a named function (not an anonymous
+# `@async` closure) so it has a stable, precompilable signature.
+function wait_for_repl_backend()
+    iter = 0
+    while !active_repl_backend_available() && iter < 20
+        sleep(0.05)
+        iter += 1
+    end
+    if active_repl_backend_available()
+        push!(Base.active_repl_backend.ast_transforms, revise_first)
+    end
+    return nothing
+end
+
 function __init__()
     ccall(:jl_generating_output, Cint, ()) == 1 && return nothing
     run_on_worker = get(ENV, "JULIA_REVISE_WORKER_ONLY", "0")
@@ -1884,18 +1900,11 @@ function __init__()
         if active_repl_backend_available()
             push!(Base.active_repl_backend.ast_transforms, revise_first)
         else
-            # wait for active_repl_backend to exist
-            # #719: do this async in case Revise is being loaded from startup.jl
-            t = @async begin
-                iter = 0
-                while !active_repl_backend_available() && iter < 20
-                    sleep(0.05)
-                    iter += 1
-                end
-                if active_repl_backend_available()
-                    push!(Base.active_repl_backend.ast_transforms, revise_first)
-                end
-            end
+            # wait for active_repl_backend to exist. Schedule the named function
+            # directly (rather than `@async`, which wraps it in an anonymous
+            # closure) so the task body carries a stable, precompilable signature.
+            t = Task(wait_for_repl_backend)
+            schedule(t)
             isdefined(Base, :errormonitor) && Base.errormonitor(t)
         end
 

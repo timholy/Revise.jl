@@ -5251,6 +5251,33 @@ do_test("Import in empty environment (issue #532)") && @testset "Import in empty
     load_in_empty_project_test();
 end
 
+do_test("startup precompilation") && @testset "startup precompilation" begin
+    # issue #900: loading Revise and exiting must not force runtime compilation
+    # of any Revise-owned method; the whole load path should be covered by
+    # `src/precompile.jl`. `-i` without a tty exercises the REPL-backend-wait
+    # branch of `__init__`. Use a bare executable with pkgimages enabled (not
+    # `Base.julia_cmd()`): under coverage the parent runs `--pkgimages=no`,
+    # which bypasses the precompile image and makes everything compile at load.
+    julia = Base.julia_cmd().exec[1]
+    proj = dirname(Base.active_project())
+    loadfile = tempname()
+    write(loadfile, "using Revise\n")
+    tracefile = tempname()
+    code = "exit()"
+    try
+        run(pipeline(`$julia --startup-file=no --project=$proj --pkgimages=yes -i -L $loadfile --trace-compile=$tracefile -e $code`;
+                        stdin=devnull, stdout=devnull, stderr=devnull))
+        # `--trace-compile` only creates the file once something compiles; an
+        # absent file therefore means nothing compiled at all, which is the
+        # best possible outcome here.
+        trace = isfile(tracefile) ? read(tracefile, String) : ""
+        @test !occursin("Revise.", trace)
+    finally
+        rm(loadfile; force=true)
+        rm(tracefile; force=true)
+    end
+end
+
 # Issue #961: when an indirect dep has no precompile cache and Julia is started
 # with `--compiled-modules=existing`, the dep is loaded via
 # `include(Base.__toplevel__, path)`. Revise's `queue_includes!` must not rewrite
