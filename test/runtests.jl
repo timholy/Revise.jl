@@ -2845,41 +2845,6 @@ end
         end
     end
 
-    do_test("startup precompilation") && @testset "startup precompilation" begin
-        # issue #900: simply loading Revise and exiting must not force runtime
-        # compilation of any Revise-owned method. The REPL-backend-wait task is
-        # the easiest such method to regress: if it reverts to an anonymous
-        # `@async` closure it can no longer be precompiled and reappears in the
-        # trace (along with its `sleep`/`iszero` callees). `-i` without a tty
-        # leaves the REPL backend unavailable, so `__init__` takes exactly that
-        # async wait path. We tolerate Base-owned startup compilation (finalizers
-        # and the like) and only insist that nothing Revise-owned compiles.
-        #
-        # Use a bare executable (not `Base.julia_cmd()`) with pkgimages enabled:
-        # under coverage the parent runs with `--pkgimages=no`, which bypasses the
-        # precompile image entirely and would make everything compile at load,
-        # defeating the test. The scenario #900 cares about is the normal one,
-        # with native code cached in the pkgimage.
-        julia = Base.julia_cmd().exec[1]
-        proj = dirname(Base.active_project())
-        loadfile = tempname()
-        write(loadfile, "using Revise\n")
-        tracefile = tempname()
-        code = "exit()"
-        try
-            run(pipeline(`$julia --startup-file=no --project=$proj --pkgimages=yes -i -L $loadfile --trace-compile=$tracefile -e $code`;
-                         stdin=devnull, stdout=devnull, stderr=devnull))
-            # `--trace-compile` only creates the file once something compiles; an
-            # absent file therefore means nothing compiled at all, which is the
-            # best possible outcome here.
-            trace = isfile(tracefile) ? read(tracefile, String) : ""
-            @test !occursin("Revise.", trace)
-        finally
-            rm(loadfile; force=true)
-            rm(tracefile; force=true)
-        end
-    end
-
     # Struct revision tests require __bpart__[] = true. Enable it based on the Julia version
     # alone: the LocalPreferences setting (which defaults to false for end users) should not
     # suppress these tests on CI.
@@ -5284,6 +5249,33 @@ end
 
 do_test("Import in empty environment (issue #532)") && @testset "Import in empty environment (issue #532)" begin
     load_in_empty_project_test();
+end
+
+do_test("startup precompilation") && @testset "startup precompilation" begin
+    # issue #900: loading Revise and exiting must not force runtime compilation
+    # of any Revise-owned method; the whole load path should be covered by
+    # `src/precompile.jl`. `-i` without a tty exercises the REPL-backend-wait
+    # branch of `__init__`. Use a bare executable with pkgimages enabled (not
+    # `Base.julia_cmd()`): under coverage the parent runs `--pkgimages=no`,
+    # which bypasses the precompile image and makes everything compile at load.
+    julia = Base.julia_cmd().exec[1]
+    proj = dirname(Base.active_project())
+    loadfile = tempname()
+    write(loadfile, "using Revise\n")
+    tracefile = tempname()
+    code = "exit()"
+    try
+        run(pipeline(`$julia --startup-file=no --project=$proj --pkgimages=yes -i -L $loadfile --trace-compile=$tracefile -e $code`;
+                        stdin=devnull, stdout=devnull, stderr=devnull))
+        # `--trace-compile` only creates the file once something compiles; an
+        # absent file therefore means nothing compiled at all, which is the
+        # best possible outcome here.
+        trace = isfile(tracefile) ? read(tracefile, String) : ""
+        @test !occursin("Revise.", trace)
+    finally
+        rm(loadfile; force=true)
+        rm(tracefile; force=true)
+    end
 end
 
 # Issue #961: when an indirect dep has no precompile cache and Julia is started
