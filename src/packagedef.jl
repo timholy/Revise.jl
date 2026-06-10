@@ -482,7 +482,8 @@ end
 
 function delete_missing!(
         exs_infos_old::ExprsInfos, exs_infos_new::ExprsInfos,
-        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt
+        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
+        predictions::TypePredictions = TypePredictions(),
     )
     with_logger(_debug_logger) do
         for (rex, exinfos) in exs_infos_old
@@ -491,9 +492,23 @@ function delete_missing!(
             exinfos === nothing && continue
             for exinfo in exinfos
                 if exinfo isa SigInfo
+                    # Method deletions are never skipped on the strength of a
+                    # prediction: a textually identical signature may dispatch on a
+                    # type that is itself being redefined, in which case the new
+                    # method is distinct from the old one and the old one must go.
                     handle_method_deletion!(exinfo, rex, world)
                 elseif __bpart__[]
-                    handle_type_deletion!(exinfo::TypeInfo, reeval_list, handled_types, world)
+                    typeinfo = exinfo::TypeInfo
+                    oldtype = prediction_preserves_type(predictions, typeinfo, world)
+                    if oldtype !== nothing
+                        # The new source redefines this type equivalently, so
+                        # evaluation will keep the existing binding and the
+                        # subtype-tree walk is unnecessary (issue #1022). The
+                        # prediction is re-checked after evaluation; see `revise`.
+                        push!(predictions.skipped, (typeinfo, oldtype))
+                        continue
+                    end
+                    handle_type_deletion!(typeinfo, reeval_list, handled_types, world)
                 end
             end
         end
@@ -501,16 +516,67 @@ function delete_missing!(
     return exs_infos_old
 end
 
+# Return the existing type when `predictions` says the new code redefines
+# `typeinfo`'s type equivalently (so its deletion walk can be skipped), else `nothing`.
+function prediction_preserves_type(predictions::TypePredictions, typeinfo::TypeInfo, world::UInt)
+    tn = typeinfo.typname
+    get(predictions.preserved, (tn.module, tn.name), false) || return nothing
+    Base.invoke_in_world(world, isdefinedglobal, tn.module, tn.name) || return nothing
+    existing = Base.invoke_in_world(world, getglobal, tn.module, tn.name)
+    existing isa Type || return nothing
+    return existing
+end
+
 const empty_exs_infos = ExprsInfos()
 function delete_missing!(
         mod_exs_infos_old::ModuleExprsInfos, mod_exs_infos_new::ModuleExprsInfos,
-        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt
+        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
+        predictions::TypePredictions = TypePredictions(),
     )
     for (mod, exs_infos_old) in mod_exs_infos_old
         exs_infos_new = get(mod_exs_infos_new, mod, empty_exs_infos)
-        delete_missing!(exs_infos_old, exs_infos_new, reeval_list, handled_types, world)
+        delete_missing!(exs_infos_old, exs_infos_new, reeval_list, handled_types, world, predictions)
     end
     return mod_exs_infos_old
+end
+
+# `true` if diffing old against new will delete at least one expression that defined
+# a type. This gates the prediction pass: when no type deletion is pending, there is
+# nothing for a prediction to save.
+function has_pending_type_deletion(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos)
+    for (mod, exs_infos_old) in mod_exs_infos_old
+        exs_infos_new = get(mod_exs_infos_new, mod, empty_exs_infos)
+        for (rex, exinfos) in exs_infos_old
+            haskey(exs_infos_new, rex) && continue
+            exinfos === nothing && continue
+            any(exinfo -> exinfo isa TypeInfo, exinfos) && return true
+        end
+    end
+    return false
+end
+has_pending_type_deletion(@nospecialize(mod_exs_infos_new), mod_exs_infos_old::ModuleExprsInfos) = false
+
+# Run the type-preservation prediction over every expression the evaluation phase
+# will (re)evaluate, i.e., the new rexes. Best-effort: any error leaves the affected
+# types unpredicted, keeping the pessimistic deletion path in force.
+function predict_changes!(
+        predictions::TypePredictions,
+        mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos,
+    )
+    for (mod, exs_infos_new) in mod_exs_infos_new
+        exs_infos_old = get(mod_exs_infos_old, mod, empty_exs_infos)
+        for rex in keys(exs_infos_new)
+            haskey(exs_infos_old, rex) && continue
+            ex = rex.ex
+            try
+                predict_typebodies!(predictions, mod, ex)
+            catch err
+                isa(err, InterruptException) && rethrow(err)
+                @debug "PredictFailed" _group="Action" time=time() deltainfo=(mod, ex, err)
+            end
+        end
+    end
+    return predictions
 end
 
 function handle_method_deletion!(siginfo::SigInfo, rex::RelocatableExpr, world::UInt)
@@ -928,11 +994,10 @@ function revise_file_queued(pkgdata::PkgData, file)
     return
 end
 
-# Because we delete first, we have to make sure we've parsed the file
-function handle_deletions(
-        pkgdata::PkgData, file::AbstractString,
-        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt
-    )
+# Parse the file's current contents and look up the exprs Revise has on record for
+# it. Returns `(mod_exs_infos_new, mod_exs_infos_old, fileok)`. Safe to call from a
+# pre-deletion pass: any mutation of `pkgdata` is limited to lazily filling caches.
+function parse_for_revision(pkgdata::PkgData, file::AbstractString)
     fi = maybe_parse_from_cache!(pkgdata, file)
     maybe_extract_sigs!(fi)
     mod_exs_infos_old = fi.mod_exs_infos
@@ -948,10 +1013,31 @@ function handle_deletions(
     topmod = first(keys(mod_exs_infos_old))
     fileok = file_exists(String(filep)::String)
     mod_exs_infos_new = fileok ? parse_source(filep, topmod) : ModuleExprsInfos(topmod)
+    return mod_exs_infos_new, mod_exs_infos_old, fileok
+end
+
+# Apply deletions for `(pkgdata, file)` from the results of `parse_for_revision`.
+# Mutates `reeval_list`, `handled_types`, `predictions.skipped`, and — when the file
+# no longer exists — `pkgdata` and the watch lists.
+function delete_for_revision(
+        pkgdata::PkgData, file::AbstractString,
+        @nospecialize(mod_exs_infos_new), mod_exs_infos_old::ModuleExprsInfos, fileok::Bool,
+        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
+        predictions::TypePredictions,
+    )
     if mod_exs_infos_new !== nothing && mod_exs_infos_new !== DoNotParse()
-        delete_missing!(mod_exs_infos_old, mod_exs_infos_new, reeval_list, handled_types, world)
+        delete_missing!(mod_exs_infos_old, mod_exs_infos_new::ModuleExprsInfos, reeval_list, handled_types, world, predictions)
     end
     if !fileok
+        idx = fileindex(pkgdata, file)
+        filep = pkgdata.info.files[idx]
+        if isa(filep, AbstractString)
+            if file ≠ "."
+                filep = normpath(basedir(pkgdata), file)
+            else
+                filep = normpath(basedir(pkgdata))
+            end
+        end
         @warn("$filep no longer exists, deleted all methods")
         deleteat!(pkgdata.fileinfos, idx)
         deleteat!(pkgdata.info.files, idx)
@@ -961,6 +1047,18 @@ function handle_deletions(
             delete!(wl.file_ctimes, file)
         end
     end
+    return nothing
+end
+
+# Because we delete first, we have to make sure we've parsed the file
+function handle_deletions(
+        pkgdata::PkgData, file::AbstractString,
+        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
+        predictions::TypePredictions = TypePredictions(),
+    )
+    mod_exs_infos_new, mod_exs_infos_old, fileok = parse_for_revision(pkgdata, file)
+    delete_for_revision(pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok,
+                        reeval_list, handled_types, world, predictions)
     return mod_exs_infos_new, mod_exs_infos_old
 end
 
@@ -1148,15 +1246,66 @@ function revise(; throw::Bool=false)
         # won't get redefined first and deleted second.
         revision_errors = Tuple{PkgData,String}[]
         queue = sort!(collect(revision_queue); lt=pkgfileless)
+        # A watcher task can queue a `PkgData` that has since been replaced in
+        # `pkgdatas` (e.g., by `Revise.track` of a package whose record had been
+        # dropped, as for packages baked into a sysimage — issue #685). If both the
+        # stale and the current record are queued for the same file, keep only the
+        # current one: each holds its own copy of the file's old signatures, and
+        # processing both would delete the same methods twice.
+        keep = trues(length(queue))
+        for (i, (pkgdata, file)) in enumerate(queue)
+            current = get(pkgdatas, PkgId(pkgdata), nothing)
+            (current === nothing || current === pkgdata) && continue
+            if any(((qpkgdata, qfile),) -> qpkgdata === current && qfile == file, queue)
+                keep[i] = false
+            end
+        end
+        queue = queue[keep]
         finished = eltype(revision_queue)[]
         mod_exs_infos = ModuleExprsInfos[]
         interrupt = false
+
+        # Parse every queued file, then predict which already-defined types the new
+        # code re-creates unchanged (e.g., a `@kwdef` struct whose only edit is a
+        # default value — issue #1022). The prediction must precede `delete_missing!`,
+        # which consults it to skip the expensive subtype-tree walk, and it must span
+        # all queued files so a type moved between files is still recognized. It runs
+        # only when a type deletion is actually pending, and only under `__bpart__[]`
+        # (the consumer of the walk it can skip).
+        predictions = TypePredictions()
+        parsed = Tuple{PkgData,String,Any,ModuleExprsInfos,Bool}[]
+        pending_type_deletion = false
         for (pkgdata, file) in queue
             try
-                mod_exs_infos_new, _ = handle_deletions(pkgdata, file, reeval_list, handled_types, world)
+                mod_exs_infos_new, mod_exs_infos_old, fileok = parse_for_revision(pkgdata, file)
                 mod_exs_infos_new === DoNotParse() && continue
-                push!(mod_exs_infos, mod_exs_infos_new)
-                push!(finished, (pkgdata, file))
+                pending_type_deletion |= __bpart__[] && has_pending_type_deletion(mod_exs_infos_new, mod_exs_infos_old)
+                push!(parsed, (pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok))
+            catch err
+                throw && Base.throw(err)
+                interrupt |= isa(err, InterruptException)
+                push!(revision_errors, (pkgdata, file))
+                queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+            end
+        end
+        if pending_type_deletion
+            with_logger(_debug_logger) do
+                for (pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
+                    mod_exs_infos_new isa ModuleExprsInfos || continue
+                    predict_changes!(predictions, mod_exs_infos_new, mod_exs_infos_old)
+                end
+            end
+        end
+
+        # Apply the deletions
+        for (pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
+            try
+                delete_for_revision(pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok,
+                                    reeval_list, handled_types, world, predictions)
+                if mod_exs_infos_new !== nothing
+                    push!(mod_exs_infos, mod_exs_infos_new)
+                    push!(finished, (pkgdata, file))
+                end
             catch err
                 throw && Base.throw(err)
                 interrupt |= isa(err, InterruptException)
@@ -1221,6 +1370,21 @@ function revise(; throw::Bool=false)
 
         # Do binding redefinitions
         if __bpart__[]
+            # Verify the predictions that suppressed deletion walks: they were made
+            # before any queued change was applied, so a same-revision change to a
+            # binding the type's structure depends on (a field-type alias, a
+            # supertype, a parameter bound) can falsify them. If the binding moved
+            # anyway, run the walk now — `world` still resolves the old type. Relative
+            # to a pre-evaluation walk, signature extraction for files that have not
+            # yet been parsed sees the new binding, so methods in such files may
+            # escape re-evaluation.
+            for (typeinfo, oldtype) in predictions.skipped
+                tn = typeinfo.typname
+                current = @invokelatest(isdefinedglobal(tn.module, tn.name)) ?
+                          @invokelatest(getglobal(tn.module, tn.name)) : nothing
+                current === oldtype && continue
+                handle_type_deletion!(typeinfo, reeval_list, handled_types, world)
+            end
             redefine_bindings!(revision_errors, reeval_list, world)
         end
 
