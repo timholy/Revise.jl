@@ -1246,6 +1246,21 @@ function revise(; throw::Bool=false)
         # won't get redefined first and deleted second.
         revision_errors = Tuple{PkgData,String}[]
         queue = sort!(collect(revision_queue); lt=pkgfileless)
+        # A watcher task can queue a `PkgData` that has since been replaced in
+        # `pkgdatas` (e.g., by `Revise.track` of a package whose record had been
+        # dropped, as for packages baked into a sysimage — issue #685). If both the
+        # stale and the current record are queued for the same file, keep only the
+        # current one: each holds its own copy of the file's old signatures, and
+        # processing both would delete the same methods twice.
+        keep = trues(length(queue))
+        for (i, (pkgdata, file)) in enumerate(queue)
+            current = get(pkgdatas, PkgId(pkgdata), nothing)
+            (current === nothing || current === pkgdata) && continue
+            if any(((qpkgdata, qfile),) -> qpkgdata === current && qfile == file, queue)
+                keep[i] = false
+            end
+        end
+        queue = queue[keep]
         finished = eltype(revision_queue)[]
         mod_exs_infos = ModuleExprsInfos[]
         interrupt = false

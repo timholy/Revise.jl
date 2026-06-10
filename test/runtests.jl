@@ -3683,13 +3683,26 @@ end
         @latestworld
         @test TrackSysimg685.f685() == 1
         id = Base.PkgId(TrackSysimg685)
-        @lock Revise.revise_lock delete!(Revise.pkgdatas, id)
+        old_pkgdata = @lock Revise.revise_lock begin
+            pd = Revise.pkgdatas[id]
+            delete!(Revise.pkgdatas, id)
+            pd
+        end
         sleep(mtimedelay)
-        write(joinpath(dn, "TrackSysimg685.jl"), """
+        fn685 = joinpath(dn, "TrackSysimg685.jl")
+        write(fn685, """
             module TrackSysimg685
             f685() = 2
             end
             """)
+        # In file-watching mode, the watcher task still holds the dropped record and
+        # queues it when the file changes; `track` then queues the replacement record
+        # for the same file. Each record carries its own copy of the file's old
+        # signatures, so processing both would delete `f685` twice. Push the stale
+        # entry explicitly so the duplicate pair is exercised deterministically
+        # rather than only when the watcher wins the race.
+        @lock Revise.revise_lock push!(Revise.revision_queue,
+                                       (old_pkgdata, relpath(fn685, old_pkgdata)))
         Revise.track(TrackSysimg685)
         @latestworld
         @test TrackSysimg685.f685() == 2
