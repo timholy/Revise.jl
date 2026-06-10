@@ -3168,6 +3168,235 @@ end
         end
     end
 
+    if Revise.__bpart__[] && do_test("struct revision (issue #1022)")
+        @testset "struct revision (issue #1022)" begin
+            # Editing only the default value of a `@kwdef` struct (or any other change
+            # that re-creates a type with identical structure) must not trigger the
+            # expensive struct-revision path: no `DeleteType` walk runs and the
+            # binding is preserved. Genuine changes to fields, types, or mutability
+            # still go through full revision.
+            testdir = newtestdir()
+            try
+                rlogger = Revise.debug_logger()
+                deletetype_logs() = filter(r -> r.level == Debug && r.group == "Action" &&
+                                                r.message == "DeleteType", rlogger.logs)
+                dn = joinpath(testdir, "Revise1022", "src")
+                mkpath(dn)
+                fn = joinpath(dn, "Revise1022.jl")
+                pkg_code_v1 = """
+                    module Revise1022
+                    Base.@kwdef struct Blah
+                        x = 4
+                    end
+                    # Dispatches on Blah but is otherwise untouched by the revisions below;
+                    # it keeps working as long as the Blah binding is preserved.
+                    useblah(b::Blah) = b.x + 1
+                    # The `if` block keeps the abstract type and the struct in a single
+                    # expression, so revision interprets (rather than `Core.eval`s) it and
+                    # registers a `TypeInfo` for the abstract type too. Editing the default
+                    # then exercises preservation prediction for both.
+                    if true
+                        abstract type AbstractWrapped end
+                        Base.@kwdef struct Wrapped <: AbstractWrapped
+                            w::Int = 1
+                        end
+                    end
+                    end
+                    """
+                write(fn, pkg_code_v1)
+                sleep(mtimedelay)
+                @eval using Revise1022
+                sleep(mtimedelay)
+                T_v1 = Revise1022.Blah
+                W_v1 = Revise1022.Wrapped
+                AW_v1 = Revise1022.AbstractWrapped
+                @test Revise1022.Blah().x == 4
+                @test Revise1022.useblah(Revise1022.Blah()) == 5
+
+                # Revision 1: change only default values — bindings must be preserved,
+                # and no DeleteType walk may run
+                empty!(rlogger.logs)
+                pkg_code_v2 = replace(pkg_code_v1, "x = 4" => "x = 5", "w::Int = 1" => "w::Int = 2")
+                write(fn, pkg_code_v2)
+                @yry()
+                @test @invokelatest(getfield(Revise1022, :Blah)) === T_v1
+                @test @invokelatest(getfield(Revise1022, :Wrapped)) === W_v1
+                @test @invokelatest(Revise1022.Blah()).x == 5
+                @test @invokelatest(Revise1022.Wrapped()).w == 2
+                @test isempty(deletetype_logs())
+                @test @invokelatest(Revise1022.useblah(Revise1022.Blah())) == 6
+
+                # Revision 2: another default-only edit. The `if` block was interpreted in
+                # `:eval` mode by revision 1, so the abstract type now has a `TypeInfo` on
+                # record and its preservation must also be predicted (via `_equiv_typedef`).
+                empty!(rlogger.logs)
+                pkg_code_v3 = replace(pkg_code_v2, "w::Int = 2" => "w::Int = 3")
+                write(fn, pkg_code_v3)
+                @yry()
+                @test @invokelatest(getfield(Revise1022, :Wrapped)) === W_v1
+                @test @invokelatest(getfield(Revise1022, :AbstractWrapped)) === AW_v1
+                @test @invokelatest(Revise1022.Wrapped()).w == 3
+                @test isempty(deletetype_logs())
+
+                # Revision 3: add a field — the full struct-revision path must run
+                empty!(rlogger.logs)
+                pkg_code_v4 = replace(pkg_code_v3,
+                    "x = 5" => "x = 5\n        y::Int = 7",
+                    "useblah(b::Blah) = b.x + 1" => "useblah(b::Blah) = b.x + b.y")
+                write(fn, pkg_code_v4)
+                @yry()
+                T_v4 = @invokelatest getfield(Revise1022, :Blah)
+                @test T_v4 !== T_v1
+                @test :y in fieldnames(T_v4)
+                @test @invokelatest(Revise1022.useblah(Revise1022.Blah())) == 12  # 5 + 7
+                @test !isempty(deletetype_logs())
+
+                # Revision 4: change a field type — the full struct-revision path must run
+                empty!(rlogger.logs)
+                pkg_code_v5 = replace(pkg_code_v4, "y::Int = 7" => "y::Float64 = 7.0")
+                write(fn, pkg_code_v5)
+                @yry()
+                T_v5 = @invokelatest getfield(Revise1022, :Blah)
+                @test T_v5 !== T_v4
+                @test fieldtype(T_v5, :y) === Float64
+                @test !isempty(deletetype_logs())
+            finally
+                rm_precompile("Revise1022")
+                pop!(LOAD_PATH)
+            end
+
+            # Changing a field's `const` or `@atomic` annotation changes the type even
+            # though the field names and types are identical; preservation must not be
+            # predicted (`Core._equiv_typedef` compares these flags, so delegating the
+            # equivalence check to the runtime gets them right).
+            testdir = newtestdir()
+            try
+                dn = joinpath(testdir, "ReviseFieldFlags", "src")
+                mkpath(dn)
+                fn = joinpath(dn, "ReviseFieldFlags.jl")
+                pkg_code_v1 = """
+                    module ReviseFieldFlags
+                    mutable struct MC
+                        x::Int
+                    end
+                    MC() = MC(0)
+                    mutable struct MA
+                        y::Int
+                    end
+                    MA() = MA(0)
+                    end
+                    """
+                write(fn, pkg_code_v1)
+                sleep(mtimedelay)
+                @eval using ReviseFieldFlags
+                sleep(mtimedelay)
+                MC_v1, MA_v1 = ReviseFieldFlags.MC, ReviseFieldFlags.MA
+                @test !isconst(MC_v1, 1)
+                @test !Base.isfieldatomic(MA_v1, 1)
+
+                pkg_code_v2 = replace(pkg_code_v1, "x::Int" => "const x::Int",
+                                                   "y::Int" => "@atomic y::Int")
+                write(fn, pkg_code_v2)
+                @yry()
+                MC_v2 = @invokelatest getfield(ReviseFieldFlags, :MC)
+                @test MC_v2 !== MC_v1
+                @test isconst(MC_v2, 1)
+                MA_v2 = @invokelatest getfield(ReviseFieldFlags, :MA)
+                @test MA_v2 !== MA_v1
+                @test Base.isfieldatomic(MA_v2, 1)
+            finally
+                rm_precompile("ReviseFieldFlags")
+                pop!(LOAD_PATH)
+            end
+
+            # Preservation predictions run before any of the queued changes are applied,
+            # so a same-revision change to a binding the struct's structure depends on
+            # (here, a `const` field-type alias) makes the prediction stale: evaluation
+            # redefines the struct after all. The post-evaluation check must catch this
+            # and run the deletion walk late, so that dependent methods (`dist`) are
+            # still re-evaluated for the new type.
+            testdir = newtestdir()
+            try
+                dn = joinpath(testdir, "ReviseStale", "src")
+                mkpath(dn)
+                fn = joinpath(dn, "ReviseStale.jl")
+                pkg_code_v1 = """
+                    module ReviseStale
+                    const Coord = Float32
+                    Base.@kwdef struct Pt
+                        x::Coord = 0
+                    end
+                    dist(p::Pt) = Float64(p.x)
+                    end
+                    """
+                write(fn, pkg_code_v1)
+                sleep(mtimedelay)
+                @eval using ReviseStale
+                sleep(mtimedelay)
+                P_v1 = ReviseStale.Pt
+                @test ReviseStale.dist(ReviseStale.Pt()) === 0.0
+
+                pkg_code_v2 = replace(pkg_code_v1, "const Coord = Float32" => "const Coord = Float64",
+                                                   "x::Coord = 0" => "x::Coord = 1")
+                write(fn, pkg_code_v2)
+                @yry()
+                P_v2 = @invokelatest getfield(ReviseStale, :Pt)
+                @test P_v2 !== P_v1
+                @test fieldtype(P_v2, :x) === Float64
+                @test @invokelatest(ReviseStale.dist(@invokelatest(ReviseStale.Pt()))) === 1.0
+            finally
+                rm_precompile("ReviseStale")
+                pop!(LOAD_PATH)
+            end
+
+            # Moving an unchanged struct between files deletes it from one file's exprs
+            # and re-creates it from another's. Predictions span all queued files, so
+            # the move is recognized as preserving and skips the deletion walk.
+            testdir = newtestdir()
+            try
+                rlogger = Revise.debug_logger()
+                dn = joinpath(testdir, "ReviseMove", "src")
+                mkpath(dn)
+                write(joinpath(dn, "ReviseMove.jl"), """
+                    module ReviseMove
+                    include("types.jl")
+                    include("methods.jl")
+                    end
+                    """)
+                write(joinpath(dn, "types.jl"), """
+                    struct Movable
+                        x::Int
+                    end
+                    """)
+                write(joinpath(dn, "methods.jl"), """
+                    usemovable(m::Movable) = m.x + 1
+                    """)
+                sleep(mtimedelay)
+                @eval using ReviseMove
+                sleep(mtimedelay)
+                M_v1 = ReviseMove.Movable
+                @test ReviseMove.usemovable(ReviseMove.Movable(1)) == 2
+
+                empty!(rlogger.logs)
+                write(joinpath(dn, "types.jl"), "\n")
+                write(joinpath(dn, "methods.jl"), """
+                    struct Movable
+                        x::Int
+                    end
+                    usemovable(m::Movable) = m.x + 1
+                    """)
+                @yry()
+                @test @invokelatest(getfield(ReviseMove, :Movable)) === M_v1
+                @test @invokelatest(ReviseMove.usemovable(@invokelatest(ReviseMove.Movable(1)))) == 2
+                @test isempty(filter(r -> r.level == Debug && r.group == "Action" &&
+                                          r.message == "DeleteType", rlogger.logs))
+            finally
+                rm_precompile("ReviseMove")
+                pop!(LOAD_PATH)
+            end
+        end
+    end
+
     do_test("get_def") && @testset "get_def" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "GetDef", "src")

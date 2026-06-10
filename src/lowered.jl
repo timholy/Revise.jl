@@ -642,3 +642,175 @@ function skip_declare_const(interp::Interpreter, frame::Frame, stmt::Expr)
     name isa Symbol || return false
     return @invokelatest isdefined(mod_arg, name)
 end
+
+## Prediction of type preservation (issue #1022)
+#
+# Before deletions are applied, `revise` asks whether the new source re-creates
+# each old type unchanged. If so, the subtype-tree walk in
+# `handle_type_deletion!` is unnecessary. Problems arise from `struct`
+# definitions like those in #1022, which disguise the fact that the type is
+# unchanged and only surrounding code is changed. We fix this with a two-phase
+# evaluation: first, a limited evaluation that reconstructs (from the lowered
+# code) the *proposed* new type (henceforth called the "prediction"). This
+# prediction is compared for type-equivalence against the existing type; if they
+# are equivalent, type-deletion is skipped. Constructing the prediction builds
+# only throwaway objects and never publishes a binding; the point is to determine
+# whether the deletion is necessary, and if not we can trust the ordinary
+# mechanisms to do the right thing.
+#
+# The prediction interprets only the lowered statements that feed
+# `Core._typebody!` calls, plus `eval` calls (whose contents may define types
+# via metaprogramming). This is implemented by mimicking the larger pipeline
+# above: a new set of `isrequired` rules plus a focused line-stepper.
+
+# `true` when `stmt` is (or wraps, as the RHS of an assignment) a call to
+# `Core._typebody!`, following SSA chains to resolve the callee.
+function is_typebody_stmt(@nospecialize(stmt), code::Vector{Any})
+    isa(stmt, Expr) || return false
+    callstmt = stmt
+    if callstmt.head !== :call
+        LoweredCodeUtils.get_lhs_rhs(callstmt) === nothing && return false
+        rhs = LoweredCodeUtils.getrhs(callstmt)
+        isa(rhs, Expr) && rhs.head === :call || return false
+        callstmt = rhs
+    end
+    isempty(callstmt.args) && return false
+    callee = callstmt.args[1]
+    while isa(callee, Core.SSAValue) || isa(callee, JuliaInterpreter.SSAValue)
+        callee = code[callee.id]
+    end
+    if isa(callee, GlobalRef)
+        return callee.mod === Core && callee.name === :_typebody!
+    end
+    isa(callee, QuoteNode) && (callee = callee.value)
+    return @static(isdefined(Core, :_typebody!) ? true : false) && callee === Core._typebody!
+end
+
+# Statement filter for the prediction pass: only `_typebody!` calls, `eval` calls,
+# and `:toplevel` blocks (and, via `lines_required!`, their dependencies) run.
+function predict_predicate(@nospecialize(stmt), code::Vector{Any})
+    isa(stmt, Expr) || return (false, false)
+    haseval = matches_eval(stmt)
+    isreq = haseval | (stmt.head === :toplevel) | is_typebody_stmt(stmt, code)
+    return (isreq, haseval)
+end
+
+# Execute `Core._typebody!` — its effects are confined to the throwaway partial type
+# created by `_structtype` earlier in the frame — and record in `predictions` whether
+# evaluating this definition will preserve the existing binding. Returns the value to
+# assign to the statement's SSA slot.
+#
+# The two branches below reflect a difference in lowering. Struct definitions pass a
+# `prev` argument (the existing type if `Core._equiv_typedef` judged the headers
+# equivalent, `false` otherwise), and `_typebody!(prev, partial, ftypes)` returns
+# `prev` exactly when evaluation would reuse the existing type — so `result ===
+# existing` is the complete test. Abstract and primitive types lower to the
+# 2-argument form with `prev` always `false` (so `result` is always the partial);
+# their lowering instead gates the `const` on `Core._equiv_typedef`, so calling that
+# directly replicates the test evaluation would perform.
+function record_typebody_prediction!(predictions::TypePredictions, interp::Interpreter, frame::Frame, callstmt::Expr)
+    prev = lookup(interp, frame, callstmt.args[2])
+    partial = lookup(interp, frame, callstmt.args[3])
+    partial isa Type || error("unexpected _typebody! argument ", partial)
+    tn = (Base.unwrap_unionall(partial)::DataType).name
+    existing = @invokelatest(isdefinedglobal(tn.module, tn.name)) ?
+               @invokelatest(getglobal(tn.module, tn.name)) : nothing
+    if length(callstmt.args) >= 4
+        ftypes = lookup(interp, frame, callstmt.args[4])::Core.SimpleVector
+        result = Core._typebody!(prev, partial, ftypes)
+        preserved = existing isa Type && result === existing
+    else
+        result = Core._typebody!(prev, partial)
+        preserved = existing isa Type &&
+            @static(isdefined(Core, :_equiv_typedef) ? true : false) &&
+            Core._equiv_typedef(existing, partial)
+    end
+    predictions.preserved[(tn.module, tn.name)] = preserved
+    return result
+end
+
+# Record a prediction for every type `ex` would define, without publishing any
+# binding or defining any method. Throws on lowering or execution failure; the
+# caller treats a throw as "no prediction", leaving the pessimistic deletion path
+# in force (correct, just unoptimized).
+function predict_typebodies!(predictions::TypePredictions, mod::Module, ex::Expr)
+    # The walk requires the Julia 1.12+ struct-lowering protocol, in which
+    # `_typebody!(prev, partial, ...)` carries a `prev` argument and the binding is
+    # published only by a subsequent `const`/`declare_const`. Older lowering binds
+    # the type through statements this walk executes, so prediction would not be
+    # non-destructive there; report "no prediction" instead.
+    @static VERSION >= v"1.12.0-DEV.2047" || return predictions
+    lwr = Meta.lower(mod, ex)
+    isa(lwr, Expr) || return predictions
+    if lwr.head === :error || lwr.head === :incomplete
+        throw(LoweringException(lwr))
+    end
+    lwr.head === :thunk || return predictions
+    src = lwr.args[1]::CodeInfo
+    any(stmt -> predict_predicate(stmt, src.code)[1], src.code) || return predictions
+    frame = Frame(mod, src)
+    isrequired, _ = minimal_evaluation!(predict_predicate, frame, :sigs)
+    interp = Compiled()
+    pc = frame.pc
+    while true
+        stmt = pc_expr(frame, pc)
+        if !isrequired[pc]
+            pc = next_or_nothing!(frame)
+        elseif isa(stmt, Expr)
+            head = stmt.head
+            if head === :const || head === :method || head === :thunk
+                # `:const` would publish a binding; `:method`/`:thunk` would define
+                # methods ahead of the deletion phase. None of these feed a
+                # `_typebody!` call, so skipping is safe; if one is nevertheless a
+                # dependency, evaluation fails and the caller falls back to the
+                # pessimistic path.
+                pc = next_or_nothing!(frame)
+            elseif head === :toplevel
+                for a in stmt.args
+                    a isa Expr || continue
+                    predict_typebodies!(predictions, mod, a)
+                end
+                assign_this!(frame, nothing)
+                pc = next_or_nothing!(frame)
+            else
+                callstmt = stmt
+                if head !== :call
+                    rhs = LoweredCodeUtils.get_lhs_rhs(stmt) === nothing ? nothing :
+                          LoweredCodeUtils.getrhs(stmt)
+                    callstmt = isa(rhs, Expr) && rhs.head === :call ? rhs : nothing
+                end
+                if callstmt === nothing
+                    pc = step_expr!(interp, frame, stmt, true)
+                else
+                    f = lookup(frame, callstmt.args[1])
+                    if @static(isdefined(Core, :_typebody!) ? true : false) && f === Core._typebody! && length(callstmt.args) >= 3
+                        assign_this!(frame, record_typebody_prediction!(predictions, interp, frame, callstmt))
+                        pc = next_or_nothing!(frame)
+                    elseif @static(isdefined(Core, :declare_const) ? true : false) && f === Core.declare_const
+                        pc = next_or_nothing!(frame)
+                    elseif f === Core.eval
+                        evalmod = lookup(interp, frame, callstmt.args[2])
+                        evalex = lookup(interp, frame, callstmt.args[3])
+                        if evalmod isa Module && evalex isa Expr
+                            for (newmod, newex) in ExprSplitter(evalmod, evalex)
+                                if is_doc_expr(newex)
+                                    newex = newex.args[4]
+                                end
+                                newex = unwrap(newex)
+                                newex isa Expr && predict_typebodies!(predictions, newmod, newex)
+                            end
+                        end
+                        assign_this!(frame, nothing)
+                        pc = next_or_nothing!(frame)
+                    else
+                        pc = step_expr!(interp, frame, stmt, true)
+                    end
+                end
+            end
+        else
+            pc = step_expr!(interp, frame, stmt, true)
+        end
+        pc === nothing && break
+    end
+    return predictions
+end

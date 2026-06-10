@@ -174,6 +174,29 @@ function replace_extended_data(siginfo::SigInfo, owner::Symbol, @nospecialize(da
 end
 
 const ExprsInfos = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Union{SigInfo,TypeInfo}}}}
+
+# `TypePredictions`
+#
+# Per-revision record of whether the incoming source preserves each type it
+# (re)defines, built by `predict_changes!` before any deletions are applied.
+#
+# - `preserved[(mod, name)]` is `true` when evaluating the new code is predicted to
+#   keep the existing binding `mod.name`: the new definition is equivalent per the
+#   runtime's own `Core._equiv_typedef`/`Core._typebody!` checks, so evaluation
+#   reuses the existing type and the `const` re-assert leaves the binding partition
+#   untouched. `delete_missing!` consults this to skip the expensive subtype-tree
+#   walk in `handle_type_deletion!` (issue #1022).
+# - `skipped` records every `(typeinfo, oldtype)` whose deletion walk was skipped on
+#   the strength of a prediction. Predictions are made before any queued change is
+#   applied, so a same-revision change to a binding the type's structure depends on
+#   (a field-type alias, a supertype, a parameter bound) can falsify them; `revise`
+#   re-checks each entry after evaluation and runs the walk late for stale ones.
+struct TypePredictions
+    preserved::Dict{Tuple{Module,Symbol},Bool}
+    skipped::Vector{Tuple{TypeInfo,Type}}
+end
+TypePredictions() = TypePredictions(Dict{Tuple{Module,Symbol},Bool}(), Tuple{TypeInfo,Type}[])
+
 const DepDictVals = Tuple{Module,RelocatableExpr}
 const DepDict = Dict{Symbol,Set{DepDictVals}}
 
