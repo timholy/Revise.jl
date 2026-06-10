@@ -1153,6 +1153,121 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
     return revision_errors
 end
 
+# Extract the singleton function instance from a method signature `Tuple{typeof(f), ...}`.
+# Returns `nothing` for constructors (`Type{T}`) or callable objects with no singleton instance.
+function sig_function(@nospecialize(sig))
+    ft = Base.unwrap_unionall(sig)
+    ft isa DataType && !isempty(ft.parameters) || return nothing
+    F = Base.unwrap_unionall(ft.parameters[1])
+    (F isa DataType && isdefined(F, :instance)) || return nothing
+    return F.instance
+end
+
+# Collect the set of method signatures defined by the `SigInfo`s in `exs_infos`.
+function sigset(exs_infos::ExprsInfos)
+    sigs = Set{Any}()
+    for (_, exinfos) in exs_infos
+        exinfos === nothing && continue
+        for exinfo in exinfos
+            exinfo isa SigInfo || continue
+            push!(sigs, exinfo.sig)
+        end
+    end
+    return sigs
+end
+
+# Issue #239. An accidental definition such as
+#     foo() = iterate(x)        # intends to call Base.iterate
+#     iterate(x::Foo) = ...     # OOPS: defines a *new* `MyMod.iterate`, shadowing Base.iterate
+# creates a module-local `iterate` that shadows the imported one, and `foo`
+# binds to it. When the user corrects it to `Base.iterate(x::Foo) = ...`, Revise
+# deletes the wrong method, but the now-methodless `MyMod.iterate` binding
+# lingers; unqualified references keep resolving to it, so the package stays
+# broken until the session is restarted.
+#
+# This shadowing can only happen for a name that was implicitly in scope; an
+# explicit import errors when code like the above is encountered. Thus if an
+# edit (a) *empties* a module-owned function binding and (b) adds a method to a
+# *different* function of the same name that is implicitly in scope, we take a
+# stab at guessing user-intent and make the change. Because this involves
+# inference on Revise's part, we log this with an `@info`.
+#
+# Requires binding partitions (Julia 1.12+): earlier, function bindings are
+# `const` and cannot be reassigned, and `delete_binding` does not exist.
+# This 1.12+ feature is not hidden behind a check on `__bpart__`, as that
+# focuses on type-redefinition.
+function realias_orphaned_bindings!(mod_exs_infos_new::ModuleExprsInfos,
+                                    mod_exs_infos_old::ModuleExprsInfos)
+    Base.VERSION >= v"1.12.0-DEV.2047" || return nothing
+    repaired = Tuple{Module,Symbol,Module}[]
+    with_logger(_debug_logger) do
+        for (mod, exs_infos_old) in mod_exs_infos_old
+            oldsigs = sigset(exs_infos_old)
+            newsigs = sigset(get(mod_exs_infos_new, mod, empty_exs_infos))
+            # (b) functions that gained a method this revision, indexed by name
+            added = Dict{Symbol,Any}()
+            for s in newsigs
+                s in oldsigs && continue
+                f = sig_function(s)
+                f === nothing && continue
+                added[nameof(f)] = f
+            end
+            isempty(added) && continue
+            # (a) functions that lost a method this revision and are now empty + module-owned
+            for s in oldsigs
+                s in newsigs && continue
+                fdel = sig_function(s)
+                fdel === nothing && continue
+                isempty(methods(fdel)) || continue       # still has methods => not orphaned
+                parentmodule(fdel) === mod || continue    # only repair bindings this module owns
+                n = nameof(fdel)
+                fadd = get(added, n, nothing)
+                (fadd === nothing || fadd === fdel) && continue
+                # Only repair when `fadd` was implicitly in scope (an export of a module `mod`
+                # bare-`using`s, including Base/Core): that is the sole situation that can
+                # produce this shadow, so re-importing reproduces the original implicit scope.
+                src = implicit_import_source(mod, n, fadd)
+                src === nothing && continue
+                # `delete_binding` clears the orphan; `using src: n` re-establishes the import.
+                # A bare `delete_binding` is not enough: implicit-import fallthrough after
+                # deletion is not yet implemented, so `n` would resolve to `UndefVarError`.
+                # TODO: replicate to distributed workers (cf. `delete_method_by_sig`).
+                # See https://github.com/timholy/Revise.jl/pull/1056#discussion_r3338811301
+                try
+                    Base.delete_binding(mod, n)
+                    usestmt = Expr(:using, Expr(:(:), Expr(:., fullname(src)...), Expr(:., n)))
+                    Core.eval(mod, usestmt)
+                    @debug "RealiasOrphan" _group="Action" time=time() deltainfo=(mod, n, src)
+                    push!(repaired, (mod, n, src))
+                catch err
+                    @debug "RealiasOrphanFailed" _group="Action" time=time() deltainfo=(mod, n, err)
+                end
+            end
+        end
+    end
+    # Surface the repair to the user. Unlike method deletion/redefinition (logged only at
+    # `@debug`), this is a binding mutation Revise infers — it does not correspond 1:1 to a
+    # source edit the user made — so it is worth an `@info`.
+    for (mod, n, src) in repaired
+        @info "Revise re-imported `$n` into `$mod` from `$src`, repairing an orphaned binding (issue #239)"
+    end
+    return nothing
+end
+
+# If `n` is implicitly in scope in `mod` — an export of a module `mod` brings in via a bare
+# `using` (including the implicit `Base`/`Core`) — and that export is the function `f`, return
+# the module supplying it; otherwise `nothing`. This is precisely the condition under which an
+# unqualified `n(x::T) = ...` definition shadows `f` with a new module-local binding (#239).
+function implicit_import_source(mod::Module, n::Symbol, @nospecialize(f))
+    for used in ccall(:jl_module_usings, Any, (Any,), mod)::Vector{Any}
+        used isa Module || continue
+        Base.isexported(used, n) || continue
+        isdefined(used, n) || continue
+        getglobal(used, n) === f && return used
+    end
+    return nothing
+end
+
 """
     Revise.revise_file_now(pkgdata::PkgData, file)
 
@@ -1178,6 +1293,7 @@ function revise_file_now(pkgdata::PkgData, file)
     mod_exs_infos_new, mod_exs_infos_old = handle_deletions(pkgdata, file, reeval_list, handled_types, world)
     if mod_exs_infos_new != nothing
         _, includes = eval_new!(mod_exs_infos_new, mod_exs_infos_old)
+        realias_orphaned_bindings!(mod_exs_infos_new, mod_exs_infos_old)   # issue #239
         fi = fileinfo(pkgdata, i)
         pkgdata.fileinfos[i] = FileInfo(mod_exs_infos_new, fi)
         maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
@@ -1354,6 +1470,7 @@ function revise(; throw::Bool=false)
                 pkgdata.fileinfos[i] = FileInfo(mod_exs_infos_new, fi)
             end
             if isempty(modsremaining)
+                realias_orphaned_bindings!(mod_exs_infos_new, fi.mod_exs_infos)  # issue #239
                 delete!(queue_errors, (pkgdata, file))
             else
                 throw && Base.throw(err)
