@@ -873,7 +873,13 @@ end
         @test Namespace.sin(0) == 10
         @test Base.sin(0) == 0
         @test Base.cos(Namespace.X()) == 20
-        @test_throws MethodError Namespace.cos(Namespace.X())
+        if Base.VERSION >= v"1.12.0-DEV.2047"
+            # The orphaned local `cos` is re-imported from `Base` (issue #239), matching what
+            # a fresh load of the revised source would give (`Namespace.cos === Base.cos`).
+            @test Namespace.cos(Namespace.X()) == 20
+        else
+            @test_throws MethodError Namespace.cos(Namespace.X())
+        end
 
         rm_precompile("Namespace")
         pop!(LOAD_PATH)
@@ -2168,6 +2174,101 @@ end
             m = @which ReviseTestPrivate.methspecificity(1)
             @test m.sig.parameters[2] === Integer
         end
+    end
+
+    # Repairing an orphaned binding requires binding partitions (`delete_binding`, 1.12+).
+    do_test("Orphaned binding realias (issue #239)") && Base.VERSION >= v"1.12.0-DEV.2047" &&
+            @testset "Orphaned binding realias (issue #239)" begin
+        # An accidental `iterate(x::Foo)=...` defines a module-local `iterate` that shadows
+        # `Base.iterate`, and `caller` binds to it. Correcting it to `Base.iterate(x::Foo)=...`
+        # must leave the unqualified reference in `caller` resolving to `Base.iterate`, without
+        # a session restart.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "Orphan239", "src"); mkpath(dn)
+        fn = joinpath(dn, "Orphan239.jl")
+        write(fn, """
+            module Orphan239
+            struct Foo end
+            caller() = iterate(Foo())
+            iterate(x::Foo) = (42, nothing)   # accidental shadow of Base.iterate
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using Orphan239
+        @test Orphan239.caller() == (42, nothing)
+        @test Orphan239.iterate !== Base.iterate
+        sleep(mtimedelay)
+        write(fn, """
+            module Orphan239
+            struct Foo end
+            caller() = iterate(Foo())
+            Base.iterate(x::Foo) = (42, nothing)   # fixed: extend Base.iterate
+            end
+            """)
+        @yry()
+        @test Orphan239.iterate === Base.iterate     # orphaned binding re-imported from Base
+        @test Orphan239.caller() == (42, nothing)    # `caller` works again, no restart
+
+        rm_precompile("Orphan239")
+
+        # The bug is not specific to `Base`: it arises for any name brought into implicit scope
+        # by a bare `using`. Here `flatten` (not a `Base` export) is shadowed via
+        # `using Base.Iterators`, and the repair must re-import it from `Base.Iterators`.
+        dn = joinpath(testdir, "Orphan239c", "src"); mkpath(dn)
+        fn = joinpath(dn, "Orphan239c.jl")
+        write(fn, """
+            module Orphan239c
+            using Base.Iterators
+            struct Foo end
+            caller() = flatten(Foo())
+            flatten(x::Foo) = :shadow   # accidental shadow of Base.Iterators.flatten
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using Orphan239c
+        @test Orphan239c.caller() == :shadow
+        @test Orphan239c.flatten !== Base.Iterators.flatten
+        sleep(mtimedelay)
+        write(fn, """
+            module Orphan239c
+            using Base.Iterators
+            struct Foo end
+            caller() = flatten(Foo())
+            Base.Iterators.flatten(x::Foo) = :fixed   # fixed: extend Base.Iterators.flatten
+            end
+            """)
+        @yry()
+        @test Orphan239c.flatten === Base.Iterators.flatten   # re-imported from Base.Iterators
+        @test Orphan239c.caller() == :fixed                   # `caller` works again, no restart
+
+        rm_precompile("Orphan239c")
+
+        # The repair must be narrow: deleting a method that is NOT replaced by a same-named
+        # function leaves the (now empty) binding alone rather than re-importing it.
+        dn = joinpath(testdir, "Orphan239b", "src"); mkpath(dn)
+        fn = joinpath(dn, "Orphan239b.jl")
+        write(fn, """
+            module Orphan239b
+            gone(x::Int) = 1
+            keep() = 2
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using Orphan239b
+        @test Orphan239b.gone(0) == 1
+        sleep(mtimedelay)
+        write(fn, """
+            module Orphan239b
+            function fwd end    # genuine forward declaration, must stay empty
+            keep() = 3
+            end
+            """)
+        @yry()
+        @test Orphan239b.keep() == 3
+        @test isempty(methods(Orphan239b.gone))             # emptied, not re-imported
+        @test isdefined(Orphan239b, :fwd) && isempty(methods(Orphan239b.fwd))  # left untouched
+
+        rm_precompile("Orphan239b")
     end
 
     do_test("Duplicate macro-defined methods") && @testset "Duplicate macro-defined methods" begin
