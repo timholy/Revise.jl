@@ -354,7 +354,11 @@ function eval_require_now(pkgdata::PkgData, fileidx::Int, filekey::String, sourc
     return ret
 end
 
-# Block until `dirname` reports filesystem activity.
+# Block until `dirname` reports filesystem activity. Returns the set of entry
+# names the events identified, or `nothing` when the changed entries are not
+# known (polling mode, a torn-down monitor, or an event that did not name its
+# file) -- a `nothing` return means "anything in the directory may have
+# changed".
 #
 # On notifying filesystems this uses a *persistent, buffered* `FolderMonitor`
 # (`watch_folder`): the OS watch stays registered between calls and queues every
@@ -368,23 +372,71 @@ end
 function wait_changed_dir(dirname::AbstractString)
     if polling_files[] || nonnotifying_path(dirname)
         wait_changed(dirname)  # unchanged poll behavior
-        return
+        return nothing
     end
+    changed = Set{String}()
+    complete = true
+    note!(name) = isempty(name) ? (complete = false) : (push!(changed, name); true)
     try
-        watch_folder(dirname)                          # block for the next buffered event
-        while !last(watch_folder(dirname, 0)).timedout # drain a burst delivered in one wakeup
+        name, _ = watch_folder(dirname)              # block for the next buffered event
+        note!(name)
+        while true                                   # drain a burst delivered in one wakeup
+            name, event = watch_folder(dirname, 0)
+            event.timedout && break
+            note!(name)
         end
     catch e
-        e isa EOFError && return                       # monitor torn down; let caller re-check state
-        # issue #459
-        (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+        # EOFError: monitor torn down; let caller re-check state. issue #459: Ctrl-C.
+        e isa EOFError || (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+        return nothing
     end
-    return
+    return complete ? changed : nothing
+end
+
+# Scan the `tracked` `name=>PkgId` pairs of directory `dirname`, returning those
+# whose files should be queued for revision. `changed` is the set of entry names
+# reported by the filesystem events (`nothing` if unknown): a file named there is
+# queued even when its ctime matches the stored one. The kernel stamps inodes
+# with tick-resolution (often ~10ms) timestamps, so a delete-and-recreate that
+# lands within one tick of the recorded ctime is invisible to the timestamp
+# comparison; the event itself is the reliable signal (#945). The timestamp sweep
+# remains for files the events did not name.
+function scan_changed_files(dirname::AbstractString, wf::WatchList, tracked, changed::Union{Nothing,Set{String}})
+    latestfiles = Pair{String,PkgId}[]
+    for (file, id) in tracked
+        fullpath = joinpath(dirname, file)
+        if isdir(fullpath)
+            # Detected a modification in a directory that we're watching in
+            # itself (not as a container for watched files)
+            push!(latestfiles, file=>id)
+            continue
+        elseif !file_exists(fullpath)
+            # File may have been deleted. But check again after a very brief pause.
+            sleep(0.1)
+            if !file_exists(fullpath)
+                # Queue the disappearance only once (stored ctime 0.0 marks it
+                # as already queued); a sibling-file event must not requeue a
+                # persistently missing file. The stored value reverts to a real
+                # ctime when the file reappears.
+                if (@lock revise_lock get(wf.file_ctimes, file, NaN)) != 0.0
+                    push!(latestfiles, file=>id)
+                    @lock revise_lock wf.file_ctimes[file] = 0.0
+                end
+                continue
+            end
+        end
+        current_ctime = ctime(fullpath)
+        named = changed !== nothing && file in changed
+        if named || current_ctime != @lock revise_lock get(wf.file_ctimes, file, current_ctime - 1)
+            push!(latestfiles, file=>id)
+            @lock revise_lock wf.file_ctimes[file] = current_ctime
+        end
+    end
+    return latestfiles
 end
 
 function watch_files_via_dir(dirname::AbstractString)
-    wait_changed_dir(dirname)  # block until the directory changes (buffered on notifying filesystems)
-    latestfiles = Pair{String,PkgId}[]
+    changed = wait_changed_dir(dirname)  # block until the directory changes (buffered on notifying filesystems)
     # Snapshot the tracked files under the lock. We then do the (potentially
     # blocking) filesystem checks below without holding it, reacquiring only to
     # read/update ctimes, so we never hold `revise_lock` across `sleep`.
@@ -392,39 +444,9 @@ function watch_files_via_dir(dirname::AbstractString)
         wf = get(watched_files, dirname, nothing)
         wf === nothing ? nothing : (wf, collect(wf.trackedfiles))
     end
-    stillwatching = snap !== nothing
-    if stillwatching
-        wf, tracked = snap
-        for (file, id) in tracked
-            fullpath = joinpath(dirname, file)
-            if isdir(fullpath)
-                # Detected a modification in a directory that we're watching in
-                # itself (not as a container for watched files)
-                push!(latestfiles, file=>id)
-                continue
-            elseif !file_exists(fullpath)
-                # File may have been deleted. But check again after a very brief pause.
-                sleep(0.1)
-                if !file_exists(fullpath)
-                    # Queue the disappearance only once (stored ctime 0.0 marks it
-                    # as already queued); a sibling-file event must not requeue a
-                    # persistently missing file. The stored value reverts to a real
-                    # ctime when the file reappears.
-                    if (@lock revise_lock get(wf.file_ctimes, file, NaN)) != 0.0
-                        push!(latestfiles, file=>id)
-                        @lock revise_lock wf.file_ctimes[file] = 0.0
-                    end
-                    continue
-                end
-            end
-            current_ctime = ctime(fullpath)
-            if current_ctime != @lock revise_lock get(wf.file_ctimes, file, current_ctime - 1)
-                push!(latestfiles, file=>id)
-                @lock revise_lock wf.file_ctimes[file] = current_ctime
-            end
-        end
-    end
-    return latestfiles, stillwatching
+    snap === nothing && return Pair{String,PkgId}[], false
+    wf, tracked = snap
+    return scan_changed_files(dirname, wf, tracked, changed), true
 end
 
 """

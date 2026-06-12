@@ -4754,6 +4754,34 @@ do_test("Non-jl include_dependency (issue #388)") && @testset "Non-jl include_de
     @test joinpath("deps", "dependency.txt") ∉ files
 end
 
+do_test("Event-named files bypass the ctime filter") && @testset "Event-named files bypass the ctime filter" begin
+    # The kernel stamps inodes at timer-tick resolution (often ~10ms), so a
+    # delete-and-recreate can leave the new file with a ctime identical to the
+    # stored one; only the event's filename identifies the change (issue #945).
+    dir = randtmp()
+    mkdir(dir)
+    push!(to_remove, dir)
+    file = "tracked.jl"
+    fullpath = joinpath(dir, file)
+    write(fullpath, "f() = 1")
+    id = Base.PkgId("FakePkg")
+    wf = Revise.WatchList()
+    push!(wf, file=>id)
+    tracked = collect(wf.trackedfiles)
+
+    # Simulated ctime collision: stored matches current, but the event names the file
+    wf.file_ctimes[file] = ctime(fullpath)
+    @test Revise.scan_changed_files(dir, wf, tracked, Set([file])) == [file=>id]
+    # An event naming only an untracked sibling leaves the unchanged file alone
+    wf.file_ctimes[file] = ctime(fullpath)
+    @test isempty(Revise.scan_changed_files(dir, wf, tracked, Set(["other.jl"])))
+    # Unknown event names fall back to the timestamp sweep
+    wf.file_ctimes[file] = ctime(fullpath)
+    @test isempty(Revise.scan_changed_files(dir, wf, tracked, nothing))
+    wf.file_ctimes[file] = ctime(fullpath) - 1
+    @test Revise.scan_changed_files(dir, wf, tracked, nothing) == [file=>id]
+end
+
 ## A missing tracked file is often transient: code generators delete a whole
 ## directory and rewrite it over several seconds (issue #945). Within
 ## `missing_file_grace`, a `revise()` must neither delete the file's methods nor
