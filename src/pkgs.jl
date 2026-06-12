@@ -220,24 +220,28 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
             # Already registered, but the watch may have been relinquished while
             # the file's directory was absent (e.g. a branch switch removed it
             # past `watch_reappear_grace`); an `include` of the file in revised
-            # code is the signal to resume watching.
-            ensure_watching(pkgdata, incrp)
+            # code is the signal to resume. Filesystem events were lost while
+            # the watch was down — the stored state (including any deletion of
+            # the file's methods) cannot be trusted — so bring the file current
+            # before re-arming the watch.
+            if !iswatched(pkgdata, incrp)
+                revise_file_now(pkgdata, incrp)
+                init_watching(pkgdata, (incrp,))
+            end
         end
     end
 end
 
-# Restart watching for a registered file whose directory watcher gave up while
-# the directory was missing. A live watch is left untouched: `init_watching`
-# resets the file's ctime baseline, which must remain owned by the watcher task.
-function ensure_watching(pkgdata::PkgData, file::AbstractString)
+# Is `file` (relative to `pkgdata`) registered with a directory watcher? A live
+# watch must be left untouched by re-registration attempts: `init_watching`
+# resets the file's ctime baseline, which is owned by the watcher task.
+function iswatched(pkgdata::PkgData, file::AbstractString)
     dir, basename = splitdir(String(file)::String)
     dirfull = joinpath(basedir(pkgdata), dir)
-    watched = @lock revise_lock begin
+    return @lock revise_lock begin
         wl = get(watched_files, dirfull, nothing)
         wl !== nothing && haskey(wl.trackedfiles, basename)
     end
-    watched || init_watching(pkgdata, (file,))
-    return nothing
 end
 
 # `@require` blocks are tracked under a synthetic filename built by appending this
