@@ -4754,6 +4754,64 @@ do_test("Non-jl include_dependency (issue #388)") && @testset "Non-jl include_de
     @test joinpath("deps", "dependency.txt") ∉ files
 end
 
+## A missing tracked file is often transient: code generators delete a whole
+## directory and rewrite it over several seconds (issue #945). Within
+## `missing_file_grace`, a `revise()` must neither delete the file's methods nor
+## drop it from tracking; past the grace its methods are deleted but the file
+## stays registered so a later recreation is picked up. The orchestration below
+## relies on directory-watch events, hence the `watching_files` gate.
+do_test("Missing-file grace") && !Revise.watching_files[] && @testset "Missing-file grace" begin
+    testdir = newtestdir()
+    dn = joinpath(testdir, "MissingFileGrace", "src")
+    mkpath(dn)
+    write(joinpath(dn, "MissingFileGrace.jl"), """
+        module MissingFileGrace
+        include("gen.jl")
+        end
+        """)
+    genfile = joinpath(dn, "gen.jl")
+    write(genfile, "gen() = 1")
+    sleep(mtimedelay)
+    @eval using MissingFileGrace
+    sleep(mtimedelay)
+    @test MissingFileGrace.gen() == 1
+
+    # Within the grace period: methods survive the absence, and recreating the
+    # file with new content is a normal revision
+    rm(genfile)
+    @yry()
+    @test MissingFileGrace.gen() == 1
+    @test !isempty(Revise.revision_queue)   # stays queued for revisiting
+    @yry()
+    @test MissingFileGrace.gen() == 1
+    write(genfile, "gen() = 2")
+    @yry()
+    @test MissingFileGrace.gen() == 2
+    @test isempty(Revise.revision_queue)
+
+    # Past the grace period: methods are deleted (with a warning), but the file
+    # remains registered, so recreating it still restores the methods
+    old_grace = Revise.missing_file_grace[]
+    try
+        Revise.missing_file_grace[] = 0.5
+        rm(genfile)
+        @yry()      # notices the absence, starting the grace clock
+        @test MissingFileGrace.gen() == 2
+        sleep(1.0)
+        @test_logs (:warn, r"no longer exists, deleted all methods") match_mode=:any yry()
+        @latestworld
+        @test isempty(Revise.revision_queue)
+        @test_throws MethodError MissingFileGrace.gen()
+        write(genfile, "gen() = 3")
+        @yry()
+        @test MissingFileGrace.gen() == 3
+    finally
+        Revise.missing_file_grace[] = old_grace
+    end
+    rm_precompile("MissingFileGrace")
+    pop!(LOAD_PATH)
+end
+
 do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     # Issue #107
     testdir = newtestdir()
@@ -4822,7 +4880,13 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         end
         """)
     rm(joinpath(dn, "g.jl"))
-    @yry()
+    old_grace = Revise.missing_file_grace[]
+    Revise.missing_file_grace[] = 0.0   # delete the methods at the first revise
+    try
+        @yry()
+    finally
+        Revise.missing_file_grace[] = old_grace
+    end
     @test DeletedFile.f() == 1
     @test_throws MethodError DeletedFile.g()
 

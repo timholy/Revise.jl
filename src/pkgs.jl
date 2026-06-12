@@ -216,8 +216,28 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
             # Add to watchlist
             init_watching(pkgdata, (incrp,))
             yield()
+        else
+            # Already registered, but the watch may have been relinquished while
+            # the file's directory was absent (e.g. a branch switch removed it
+            # past `watch_reappear_grace`); an `include` of the file in revised
+            # code is the signal to resume watching.
+            ensure_watching(pkgdata, incrp)
         end
     end
+end
+
+# Restart watching for a registered file whose directory watcher gave up while
+# the directory was missing. A live watch is left untouched: `init_watching`
+# resets the file's ctime baseline, which must remain owned by the watcher task.
+function ensure_watching(pkgdata::PkgData, file::AbstractString)
+    dir, basename = splitdir(String(file)::String)
+    dirfull = joinpath(basedir(pkgdata), dir)
+    watched = @lock revise_lock begin
+        wl = get(watched_files, dirfull, nothing)
+        wl !== nothing && haskey(wl.trackedfiles, basename)
+    end
+    watched || init_watching(pkgdata, (file,))
+    return nothing
 end
 
 # `@require` blocks are tracked under a synthetic filename built by appending this
@@ -382,8 +402,14 @@ function watch_files_via_dir(dirname::AbstractString)
                 # File may have been deleted. But check again after a very brief pause.
                 sleep(0.1)
                 if !file_exists(fullpath)
-                    push!(latestfiles, file=>id)
-                    @lock revise_lock wf.file_ctimes[file] = 0.0
+                    # Queue the disappearance only once (stored ctime 0.0 marks it
+                    # as already queued); a sibling-file event must not requeue a
+                    # persistently missing file. The stored value reverts to a real
+                    # ctime when the file reappears.
+                    if (@lock revise_lock get(wf.file_ctimes, file, NaN)) != 0.0
+                        push!(latestfiles, file=>id)
+                        @lock revise_lock wf.file_ctimes[file] = 0.0
+                    end
                     continue
                 end
             end
