@@ -4776,23 +4776,24 @@ do_test("Missing-file grace") && !Revise.watching_files[] && @testset "Missing-f
     sleep(mtimedelay)
     @test MissingFileGrace.gen() == 1
 
-    # Within the grace period: methods survive the absence, and recreating the
-    # file with new content is a normal revision
-    rm(genfile)
-    @yry()
-    @test MissingFileGrace.gen() == 1
-    @test !isempty(Revise.revision_queue)   # stays queued for revisiting
-    @yry()
-    @test MissingFileGrace.gen() == 1
-    write(genfile, "gen() = 2")
-    @yry()
-    @test MissingFileGrace.gen() == 2
-    @test isempty(Revise.revision_queue)
-
-    # Past the grace period: methods are deleted (with a warning), but the file
-    # remains registered, so recreating it still restores the methods
     old_grace = Revise.missing_file_grace[]
     try
+        # Within the grace period: methods survive the absence, and recreating
+        # the file with new content is a normal revision
+        Revise.missing_file_grace[] = 5.0
+        rm(genfile)
+        @yry()
+        @test MissingFileGrace.gen() == 1
+        @test !isempty(Revise.revision_queue)   # stays queued for revisiting
+        @yry()
+        @test MissingFileGrace.gen() == 1
+        write(genfile, "gen() = 2")
+        @yry()
+        @test MissingFileGrace.gen() == 2
+        @test isempty(Revise.revision_queue)
+
+        # Past the grace period: methods are deleted (with a warning), but the
+        # file remains registered, so recreating it still restores the methods
         Revise.missing_file_grace[] = 0.5
         rm(genfile)
         @yry()      # notices the absence, starting the grace clock
@@ -4880,13 +4881,7 @@ do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
         end
         """)
     rm(joinpath(dn, "g.jl"))
-    old_grace = Revise.missing_file_grace[]
-    Revise.missing_file_grace[] = 0.0   # delete the methods at the first revise
-    try
-        @yry()
-    finally
-        Revise.missing_file_grace[] = old_grace
-    end
+    @yry()
     @test DeletedFile.f() == 1
     @test_throws MethodError DeletedFile.g()
 
