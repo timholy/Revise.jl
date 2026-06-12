@@ -32,6 +32,12 @@ Revise.silence
 Revise.unsilence
 ```
 
+### Tolerance for missing files
+
+```@docs
+Revise.missing_file_grace
+```
+
 ### Revise module
 
 ```@docs

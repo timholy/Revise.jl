@@ -25,6 +25,15 @@ else
     const mtimedelay = 0.1
 end
 
+# The suite assumes a deleted tracked file is processed at the first revise():
+# `yry()` waits on `revision_queue` becoming non-empty, and several testsets
+# assert on captured logs — a deletion deferred by `missing_file_grace` would
+# keep stray entries queued (making the wait vacuous) and emit its warning
+# inside whichever later testset crosses the grace boundary. The deferral
+# itself is exercised by the "Missing-file grace" testset, which sets its own
+# values.
+Revise.missing_file_grace[] = 0.0
+
 # Upper bound on how long `yry()` will wait for the file-watcher task to push
 # the expected change onto `revision_queue`. Only paid by yry() calls that
 # produce no revision (rare), so a generous value protects against slow
