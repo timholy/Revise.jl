@@ -4757,7 +4757,8 @@ end
 do_test("Event-named files bypass the ctime filter") && @testset "Event-named files bypass the ctime filter" begin
     # The kernel stamps inodes at timer-tick resolution (often ~10ms), so a
     # delete-and-recreate can leave the new file with a ctime identical to the
-    # stored one; only the event's filename identifies the change (issue #945).
+    # stored one; the event's filename plus a content-hash comparison identify
+    # the change (issue #945).
     dir = randtmp()
     mkdir(dir)
     push!(to_remove, dir)
@@ -4769,7 +4770,16 @@ do_test("Event-named files bypass the ctime filter") && @testset "Event-named fi
     push!(wf, file=>id)
     tracked = collect(wf.trackedfiles)
 
-    # Simulated ctime collision: stored matches current, but the event names the file
+    # Simulated ctime collision: stored ctime matches current and the content
+    # was never hashed, but the event names the file
+    wf.file_ctimes[file] = ctime(fullpath)
+    @test Revise.scan_changed_files(dir, wf, tracked, Set([file])) == [file=>id]
+    @test wf.file_hashes[file] == Revise.filehash(fullpath)   # hash recorded on queueing
+    # A duplicate notification (same name, same ctime, same content) is absorbed
+    wf.file_ctimes[file] = ctime(fullpath)
+    @test isempty(Revise.scan_changed_files(dir, wf, tracked, Set([file])))
+    # Same-tick rewrite: ctime and name as before, but the content differs
+    write(fullpath, "f() = 2")
     wf.file_ctimes[file] = ctime(fullpath)
     @test Revise.scan_changed_files(dir, wf, tracked, Set([file])) == [file=>id]
     # An event naming only an untracked sibling leaves the unchanged file alone

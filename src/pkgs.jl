@@ -376,14 +376,13 @@ function wait_changed_dir(dirname::AbstractString)
     end
     changed = Set{String}()
     complete = true
-    note!(name) = isempty(name) ? (complete = false) : (push!(changed, name); true)
     try
         name, _ = watch_folder(dirname)              # block for the next buffered event
-        note!(name)
+        isempty(name) ? (complete = false) : push!(changed, name)
         while true                                   # drain a burst delivered in one wakeup
             name, event = watch_folder(dirname, 0)
             event.timedout && break
-            note!(name)
+            isempty(name) ? (complete = false) : push!(changed, name)
         end
     catch e
         # EOFError: monitor torn down; let caller re-check state. issue #459: Ctrl-C.
@@ -393,14 +392,24 @@ function wait_changed_dir(dirname::AbstractString)
     return complete ? changed : nothing
 end
 
+# Content hash for disambiguating events whose ctime is unchanged. Reads the
+# file, so call it only on event-named files, not in the per-directory sweep.
+filehash(path::AbstractString) = hash(read(path))
+
 # Scan the `tracked` `name=>PkgId` pairs of directory `dirname`, returning those
 # whose files should be queued for revision. `changed` is the set of entry names
-# reported by the filesystem events (`nothing` if unknown): a file named there is
-# queued even when its ctime matches the stored one. The kernel stamps inodes
-# with tick-resolution (often ~10ms) timestamps, so a delete-and-recreate that
-# lands within one tick of the recorded ctime is invisible to the timestamp
-# comparison; the event itself is the reliable signal (#945). The timestamp sweep
-# remains for files the events did not name.
+# reported by the filesystem events (`nothing` if unknown).
+#
+# The primary change test compares ctimes, but the kernel stamps inodes with
+# tick-resolution (often ~10ms) timestamps, so a delete-and-recreate that lands
+# within one tick of the recorded ctime is invisible to it (#945). For a file
+# named in an event, an unchanged ctime therefore means either a duplicate
+# notification of a change already queued (a single save delivers several
+# events, possibly across wakeups) or a same-tick rewrite; only content
+# distinguishes the two, so those files are settled by comparing a stored
+# hash. Hashes are recorded when a file is queued — an absent hash reads as
+# changed, keeping the failure mode "spurious no-op revision", never a missed
+# one. The timestamp sweep is unchanged for files the events did not name.
 function scan_changed_files(dirname::AbstractString, wf::WatchList, tracked, changed::Union{Nothing,Set{String}})
     latestfiles = Pair{String,PkgId}[]
     for (file, id) in tracked
@@ -426,10 +435,18 @@ function scan_changed_files(dirname::AbstractString, wf::WatchList, tracked, cha
             end
         end
         current_ctime = ctime(fullpath)
-        named = changed !== nothing && file in changed
-        if named || current_ctime != @lock revise_lock get(wf.file_ctimes, file, current_ctime - 1)
+        queueit = current_ctime != @lock revise_lock get(wf.file_ctimes, file, current_ctime - 1)
+        if !queueit && changed !== nothing && file in changed
+            h = filehash(fullpath)
+            queueit = h != @lock revise_lock get(wf.file_hashes, file, h + 1)
+        end
+        if queueit
             push!(latestfiles, file=>id)
-            @lock revise_lock wf.file_ctimes[file] = current_ctime
+            h = filehash(fullpath)
+            @lock revise_lock begin
+                wf.file_ctimes[file] = current_ctime
+                wf.file_hashes[file] = h
+            end
         end
     end
     return latestfiles

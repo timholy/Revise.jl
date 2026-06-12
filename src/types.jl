@@ -9,10 +9,15 @@ should be tracked.
 Fields:
 - `trackedfiles`: map from basename to `PkgId` for each watched file
 - `file_ctimes`: last-seen `ctime` for each tracked file, used to detect changes
+- `file_hashes`: content hash for each tracked file, recorded when the file is
+  queued for revision. Disambiguates a filesystem event whose ctime matches the
+  stored one: kernel timestamps have tick resolution, so an unchanged ctime can
+  mean either a duplicate notification or a same-tick rewrite.
 """
 mutable struct WatchList
     trackedfiles::Dict{String,PkgId}
     file_ctimes::Dict{String,Float64}
+    file_hashes::Dict{String,UInt64}
 end
 
 """
