@@ -21,3 +21,19 @@ end
 ```
 
 Many thanks to `staticfloat` for [contributing](https://github.com/timholy/Revise.jl/issues/741) this suggestion.
+
+## Skipping re-precompilation after a restart
+
+If you restart Julia while developing a package that is expensive to precompile,
+`using MyBigPackage` will trigger precompilation before anything else can happen.
+When the edits since the last precompilation are modest, it can be much faster to
+load the old precompile cache and let Revise patch the loaded code up to date:
+
+```julia
+using Revise
+Revise.stale_load("MyBigPackage")
+using MyBigPackage
+```
+
+This mimics what Revise does during a running session, but across a restart.
+See [`Revise.stale_load`](@ref) for the details and limitations.

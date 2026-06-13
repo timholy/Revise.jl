@@ -4,9 +4,19 @@ This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
 <!-- links start -->
+[Revise 3.16]: https://github.com/timholy/Revise.jl/compare/v3.15.0...v3.16.0
 [Revise 3.15]: https://github.com/timholy/Revise.jl/compare/v3.14.5...v3.15.0
 [Revise 3.13]: https://github.com/timholy/Revise.jl/compare/v3.12.3...v3.13.0
 <!-- links end -->
+
+## [Revise 3.16]
+
+- **Load a package from a stale precompile cache**: `Revise.stale_load("MyPackage")`
+  loads a package from its most recent loadable cache even if the source files have
+  been edited since the cache was built, and then revises the loaded code up to date.
+  This skips the re-precompilation that `using` would otherwise trigger, which can be
+  a substantial savings for packages that are expensive to compile.
+  (https://github.com/timholy/Revise.jl/issues/738)
 
 ## [Revise 3.15]
 

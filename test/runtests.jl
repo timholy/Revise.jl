@@ -3559,6 +3559,161 @@ end
         end
     end
 
+    # issue #738
+    do_test("stale_load") && @testset "stale_load" begin
+        testdir = newtestdir()
+
+        # Methods changed, added, and deleted between cache build and load
+        dn = joinpath(testdir, "StaleLoadLeaf", "src")
+        mkpath(dn)
+        write(joinpath(dn, "StaleLoadLeaf.jl"), """
+            module StaleLoadLeaf
+            f() = 1
+            h(x) = x + 1
+            end
+            """)
+        id = Base.identify_package("StaleLoadLeaf")
+        ret = Base.compilecache(id)
+        cachefile = ret isa Tuple ? ret[1] : ret
+        sleep(mtimedelay)
+        write(joinpath(dn, "StaleLoadLeaf.jl"), """
+            module StaleLoadLeaf
+            f() = 2
+            g() = 42
+            end
+            """)
+        caches = Set(Base.find_all_in_cache_path(id))
+        m = Revise.stale_load("StaleLoadLeaf")
+        @latestworld
+        @test m isa Module
+        @test Base.root_module(id) === m
+        # The stale cache was loaded, and no new cache was built
+        @test Base.samefile(Base.pkgorigins[id].cachepath, cachefile)
+        @test Set(Base.find_all_in_cache_path(id)) == caches
+        # ...and revision brought the loaded code up to date
+        @test m.f() == 2
+        @test m.g() == 42
+        @test !isdefined(m, :h) || isempty(methods(m.h))
+        # The package is watched, so subsequent edits revise normally
+        sleep(mtimedelay)
+        write(joinpath(dn, "StaleLoadLeaf.jl"), """
+            module StaleLoadLeaf
+            f() = 3
+            g() = 42
+            end
+            """)
+        @yry()
+        @test m.f() == 3
+        # `using` binds the already-loaded module; a second `stale_load` warns
+        @eval using StaleLoadLeaf
+        @test StaleLoadLeaf === m
+        @test_logs (:warn, r"already loaded") Revise.stale_load("StaleLoadLeaf")
+        rm_precompile("StaleLoadLeaf")
+
+        @static if VERSION >= v"1.11"
+            # An edited dependency is stale-loaded and revised along with the top package
+            depuuid, topuuid = string(uuid4()), string(uuid4())
+            for (name, uuid, extra) in (("StaleLoadDep", depuuid, ""),
+                                        ("StaleLoadTop", topuuid, "\n[deps]\nStaleLoadDep = \"$depuuid\""))
+                mkpath(joinpath(testdir, name, "src"))
+                write(joinpath(testdir, name, "Project.toml"), """
+                    name = "$name"
+                    uuid = "$uuid"
+                    version = "0.1.0"
+                    $extra
+                    """)
+            end
+            write(joinpath(testdir, "StaleLoadDep", "src", "StaleLoadDep.jl"), """
+                module StaleLoadDep
+                dval() = 1
+                end
+                """)
+            write(joinpath(testdir, "StaleLoadTop", "src", "StaleLoadTop.jl"), """
+                module StaleLoadTop
+                using StaleLoadDep
+                tval() = StaleLoadDep.dval() + 10
+                end
+                """)
+            topid = Base.identify_package("StaleLoadTop")
+            depid = Base.identify_package(topid, "StaleLoadDep")
+            Base.compilecache(topid)   # also builds the dependency's cache
+            sleep(mtimedelay)
+            write(joinpath(testdir, "StaleLoadDep", "src", "StaleLoadDep.jl"), """
+                module StaleLoadDep
+                dval() = 2
+                end
+                """)
+            write(joinpath(testdir, "StaleLoadTop", "src", "StaleLoadTop.jl"), """
+                module StaleLoadTop
+                using StaleLoadDep
+                tval() = StaleLoadDep.dval() + 100
+                end
+                """)
+            mtop = Revise.stale_load(topid)
+            @latestworld
+            @test mtop.tval() == 102
+            @test Base.root_module_exists(depid)
+            @test haskey(Revise.pkgdatas, depid)
+            rm_precompile("StaleLoadTop")
+            rm_precompile("StaleLoadDep")
+        end
+
+        if Revise.__bpart__[]
+            # A `struct` redefined between cache build and load
+            dn = joinpath(testdir, "StaleLoadStruct", "src")
+            mkpath(dn)
+            write(joinpath(dn, "StaleLoadStruct.jl"), """
+                module StaleLoadStruct
+                struct Point
+                    x::Int
+                end
+                coord(p::Point) = (p.x,)
+                end
+                """)
+            sid = Base.identify_package("StaleLoadStruct")
+            Base.compilecache(sid)
+            sleep(mtimedelay)
+            write(joinpath(dn, "StaleLoadStruct.jl"), """
+                module StaleLoadStruct
+                struct Point
+                    x::Int
+                    y::Int
+                end
+                coord(p::Point) = (p.x, p.y)
+                end
+                """)
+            ms = Revise.stale_load(sid)
+            @latestworld
+            @test fieldnames(ms.Point) == (:x, :y)
+            @test ms.coord(ms.Point(3, 4)) == (3, 4)
+            rm_precompile("StaleLoadStruct")
+        end
+
+        # A package whose cache is up-to-date loads and revises nothing
+        dn = joinpath(testdir, "StaleLoadFresh", "src")
+        mkpath(dn)
+        write(joinpath(dn, "StaleLoadFresh.jl"), """
+            module StaleLoadFresh
+            fresh() = 1
+            end
+            """)
+        Base.compilecache(Base.identify_package("StaleLoadFresh"))
+        mf = Revise.stale_load(:StaleLoadFresh)
+        @latestworld
+        @test mf.fresh() == 1
+        rm_precompile("StaleLoadFresh")
+
+        # Failure modes
+        @test_throws "could not identify a package" Revise.stale_load("NotAPackageAnywhereZZZ")
+        dn = joinpath(testdir, "StaleLoadNoCache", "src")
+        mkpath(dn)
+        write(joinpath(dn, "StaleLoadNoCache.jl"), """
+            module StaleLoadNoCache
+            end
+            """)
+        @test_throws "no loadable precompile cache" Revise.stale_load("StaleLoadNoCache")
+    end
+
     do_test("get_def") && @testset "get_def" begin
         testdir = newtestdir()
         dn = joinpath(testdir, "GetDef", "src")
