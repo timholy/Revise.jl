@@ -35,17 +35,6 @@ function collect_all_subtypes(@nospecialize(parent_typ::Type))
     return _foreach_subtype!(Returns(nothing), parent_typ, Base.IdSet{Type}())
 end
 
-function foreach_subtype(f::Function, @nospecialize(parent_typ::Type))
-    if parent_typ === Any
-        for Ty in all_named_types()
-            f(Ty)
-        end
-        return nothing
-    end
-    _foreach_subtype!(f, parent_typ, Base.IdSet{Type}())
-    return nothing
-end
-
 # Every type reachable as `InteractiveUtils.subtypes(Any)` recursively is the
 # canonical binding of some name in some loaded module. Enumerate them in a
 # single pass over module bindings, rather than issuing one `subtypes` query per
