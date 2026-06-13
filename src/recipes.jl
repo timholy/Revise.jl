@@ -23,7 +23,7 @@ function track(mod::Module; modified_files=revision_queue, revise_throw::Bool=!i
     return ret
 end
 
-pkgidid_for_mod(mod) = id = Base.moduleroot(mod) == Core.Compiler ? PkgId(mod, "Core.Compiler") : PkgId(mod)
+pkgidid_for_mod(mod) = Base.moduleroot(mod) == Core.Compiler ? PkgId(mod, "Core.Compiler") : PkgId(mod)
 
 const vstring = "v$(VERSION.major).$(VERSION.minor)"
 

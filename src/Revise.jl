@@ -33,14 +33,14 @@ module Revise
 # This somewhat unusual structure is in place to support
 # the VS Code extension integration.
 
-using OrderedCollections, CodeTracking, JuliaInterpreter, LoweredCodeUtils
+using CodeTracking, JuliaInterpreter, LoweredCodeUtils, OrderedCollections
 using Preferences: Preferences
 
-using CodeTracking: PkgFiles, basedir, srcfiles, basepath, MethodInfoKey
-using JuliaInterpreter: Compiled, Frame, Interpreter, LineTypes, RecursiveInterpreter
-using JuliaInterpreter: codelocs, get_return, is_doc_expr, isassign, is_quotenode_egal,
-                        linetable, lookup, moduleof, pc_expr, step_expr!
-using LoweredCodeUtils: next_or_nothing!, callee_matches
+using CodeTracking: MethodInfoKey, PkgFiles, basedir, basepath, srcfiles
+using JuliaInterpreter: Compiled, Frame, Interpreter, LineTypes
+using JuliaInterpreter: codelocs, get_return, is_doc_expr, is_quotenode_egal, isassign,
+    linetable, lookup, moduleof, pc_expr, step_expr!
+using LoweredCodeUtils: callee_matches, next_or_nothing!
 
 include("packagedef.jl")
 

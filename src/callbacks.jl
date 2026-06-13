@@ -171,12 +171,12 @@ function entr(f::Function, files, modules=nothing; all=false, postpone=false, pa
     stopped = Ref(false)
     function run_debounce()
         while true
-            local remaining
-            @lock lk begin
-                remaining = deadline[] - time()
+            remaining = @lock lk begin
+                local remaining = deadline[] - time()
                 # Decide to exit and clear `dtask` atomically, so a change
                 # arriving now either extends this task or spawns a fresh one.
                 remaining <= 0 && (dtask[] = nothing)
+                remaining
             end
             remaining <= 0 && break
             sleep(remaining)

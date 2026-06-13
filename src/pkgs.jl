@@ -477,9 +477,8 @@ function watch_package(id::PkgId)
     # we may have switched environments, so make sure we're watching the right manifest
     active_project_watcher()
 
-    local pkgdata   # declared here so it outlives the `try` scope that `@lock` introduces
-    @lock revise_lock begin
-        pkgdata = get(pkgdatas, id, nothing)
+    return @lock revise_lock begin
+        local pkgdata = get(pkgdatas, id, nothing)
         pkgdata !== nothing && return pkgdata
         modsym = Symbol(id.name)
         if modsym ∈ dont_watch_pkgs
@@ -494,8 +493,8 @@ function watch_package(id::PkgId)
             init_watching(pkgdata, srcfiles(pkgdata))
         end
         pkgdatas[id] = pkgdata
+        pkgdata
     end
-    return pkgdata
 end
 
 function has_writable_paths(pkgdata::PkgData)
