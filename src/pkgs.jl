@@ -394,7 +394,7 @@ end
 
 # Content hash for disambiguating events whose ctime is unchanged. Reads the
 # file, so call it only on event-named files, not in the per-directory sweep.
-filehash(path::AbstractString) = hash(read(path))
+filehash(path::AbstractString) = open(crc32c, path)
 
 # Scan the `tracked` `name=>PkgId` pairs of directory `dirname`, returning those
 # whose files should be queued for revision. `changed` is the set of entry names
