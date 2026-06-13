@@ -151,6 +151,8 @@ function is_with_oldtypename(@nospecialize(typlike), oldtypename::Core.TypeName)
         return is_with_oldtypename(typeeq_parameter(typlike), oldtypename)
     elseif typlike isa UnionAll
         return is_with_oldtypename(typlike.body, oldtypename)
+    elseif typlike isa Union
+        return is_with_oldtypename(typlike.a, oldtypename) || is_with_oldtypename(typlike.b, oldtypename)
     elseif typlike isa TypeVar
         return is_with_oldtypename(typlike.lb, oldtypename) || is_with_oldtypename(typlike.ub, oldtypename)
     end
