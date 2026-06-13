@@ -106,4 +106,23 @@ let oldtype = TestVisitAbs4
     end
 end
 
+struct TestVisitInner5; x::Int; end
+struct TestVisitOther5; end
+struct TestVisit5; x::Union{TestVisitInner5, TestVisitOther5}; end
+func_test_visit_union5(::Union{TestVisitInner5, TestVisitOther5}) = nothing
+func_test_visit5(::TestVisit5) = nothing
+let oldtype = TestVisitInner5
+    reeval_list = record_invalidations_for_type_deletion(oldtype)
+    @test TestVisit5 in reeval_list
+    for m in methods(TestVisit5)
+        @test m in reeval_list
+    end
+    let m = only(methods(func_test_visit_union5, (TestVisitInner5,)))
+        @test m in reeval_list
+    end
+    let m = only(methods(func_test_visit5, (TestVisit5,)))
+        @test m in reeval_list
+    end
+end
+
 end # test_visit
