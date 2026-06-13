@@ -31,12 +31,51 @@ function old_methods_with(oldtypename::Core.TypeName)
 end
 
 function collect_all_subtypes(@nospecialize(parent_typ::Type))
+    parent_typ === Any && return all_named_types()
     return _foreach_subtype!(Returns(nothing), parent_typ, Base.IdSet{Type}())
 end
 
 function foreach_subtype(f::Function, @nospecialize(parent_typ::Type))
+    if parent_typ === Any
+        for Ty in all_named_types()
+            f(Ty)
+        end
+        return nothing
+    end
     _foreach_subtype!(f, parent_typ, Base.IdSet{Type}())
     return nothing
+end
+
+# Every type reachable as `InteractiveUtils.subtypes(Any)` recursively is the
+# canonical binding of some name in some loaded module. Enumerate them in a
+# single pass over module bindings, rather than issuing one `subtypes` query per
+# type: `subtypes(T)` rescans every loaded module's names on each call, so the
+# recursive walk costs one full system-wide name scan per abstract parent
+# (O(#abstract-types × #names)), whereas one binding sweep is O(#names).
+function all_named_types()
+    types = Base.IdSet{Type}()
+    seen = Base.IdSet{Module}()
+    work = Base.loaded_modules_array()
+    while !isempty(work)
+        m = pop!(work)
+        m in seen && continue
+        push!(seen, m)
+        for s in names(m; all=true)
+            (!Base.isdeprecated(m, s) && isdefined(m, s)) || continue
+            t = getglobal(m, s)
+            if t isa Type
+                dt = Base.unwrap_unionall(t)
+                # Keep only the canonical binding (a type's home module/name),
+                # so re-exports and imports don't enter the set more than once.
+                if dt isa DataType && dt.name.name === s && dt.name.module === m && t !== Any
+                    push!(types, t)
+                end
+            elseif t isa Module && nameof(t) === s && parentmodule(t) === m && t !== m && t !== Base
+                push!(work, t)
+            end
+        end
+    end
+    return types
 end
 
 function _foreach_subtype!(f::Function, @nospecialize(parent_typ::Type), types::Base.IdSet{Type})

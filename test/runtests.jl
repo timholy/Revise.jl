@@ -3052,6 +3052,59 @@ end
         end
     end
 
+    if Revise.__bpart__[] && do_test("type scan world-age (issue #993)")
+        @testset "type scan world-age (issue #993)" begin
+            # Enumerating the type tree for a struct revision must read bindings
+            # at the current world. The earlier recursive `subtypes`-per-type
+            # walk ran long enough that concurrent world advances left it
+            # reading freshly-defined bindings at a stale world, emitting
+            # "Detected access to binding ... prior to its definition world".
+            # `collect_all_subtypes(Any)` is a single current-world pass: it must
+            # see types defined after Revise loaded (as runtime `eval` from
+            # Requires produces) and emit no such warning.
+            # Heavy reproducer: Revise#993 / JuliaLang/julia#61804.
+            @eval module Late993
+                abstract type LateAbs end
+                struct LateConcrete{T} <: LateAbs; x::T; end
+                struct LateUser; y::LateConcrete{Int}; end
+                module Inner
+                    struct LateNested; z::Int; end
+                end
+            end
+            Revise.collect_all_subtypes(Any)  # warm up before capturing stderr
+            # redirect_stderr needs a real fd (the warning is a C-level write),
+            # so capture through a temp file rather than an IOBuffer.
+            errfile = tempname()
+            allt = open(errfile, "w") do io
+                redirect_stderr(io) do
+                    Revise.collect_all_subtypes(Any)
+                end
+            end
+            errstr = read(errfile, String)
+            rm(errfile; force=true)
+            # Types defined after load are found at the current world
+            @test Late993.LateAbs in allt
+            @test Late993.LateConcrete in allt
+            @test Late993.LateUser in allt
+            @test Late993.Inner.LateNested in allt
+            # No world-age warning emitted by the scan
+            @test !occursin("definition world", errstr)
+            @test !occursin("Detected access", errstr)
+            # The flat pass must not lose coverage relative to the recursive
+            # walk. Compare by TypeName over non-anonymous types (the flat pass
+            # stores raw bindings, the recursion parent-intersected forms, so
+            # identity differs but the TypeName set must not shrink). Take the
+            # flat scan last so types created by JIT-compiling the reference walk
+            # cannot make it spuriously smaller than the reference.
+            ref = Revise._foreach_subtype!(Returns(nothing), Any, Base.IdSet{Type}())
+            flat = Revise.collect_all_subtypes(Any)
+            realnames(s) = Set(dt.name for t in s
+                               for dt in (Base.unwrap_unionall(t),)
+                               if dt isa DataType && dt !== Any && !startswith(string(dt.name.name), "#"))
+            @test realnames(ref) ⊆ realnames(flat)
+        end
+    end
+
     if Revise.__bpart__[] && do_test("struct revision (retry)")
         @testset "struct revision (retry)" begin
             testdir = newtestdir()
