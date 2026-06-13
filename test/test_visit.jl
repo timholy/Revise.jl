@@ -5,7 +5,7 @@ using Revise, Test
 function record_invalidations_for_type_deletion(@nospecialize oldtype)
     reeval_list = IdSet{Union{Method,Type}}()
     handled_types = IdSet{Type}()
-    alltypes = Revise.collect_all_subtypes(Any)
+    alltypes = Revise.all_named_types()
     Revise.record_invalidations_for_type_deletion!(oldtype, reeval_list, handled_types, alltypes)
     return reeval_list
 end
