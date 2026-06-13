@@ -348,7 +348,6 @@ function _methods_by_execution!(
                     pc, pc3 = ret
                     # Get the line number from the body
                     stmt3 = pc_expr(frame, pc3)::Expr
-                    lnn = nothing
                     sigcode = lookup(interp, frame, stmt3.args[2])::Core.SimpleVector
                     lnn = sigcode[end]
                     if !isa(lnn, LineNumberNode)

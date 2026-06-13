@@ -1,5 +1,5 @@
 using Base.CoreLogging
-using Base.CoreLogging: Info, Debug
+using Base.CoreLogging: Debug, Info
 
 struct LogRecord
     level
