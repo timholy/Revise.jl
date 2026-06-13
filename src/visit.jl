@@ -30,12 +30,7 @@ function old_methods_with(oldtypename::Core.TypeName)
     return meths[]
 end
 
-function collect_all_subtypes(@nospecialize(parent_typ::Type))
-    parent_typ === Any && return all_named_types()
-    return _foreach_subtype!(Returns(nothing), parent_typ, Base.IdSet{Type}())
-end
-
-# Every type reachable as `InteractiveUtils.subtypes(Any)` recursively is the
+# Every type reachable as `subtypes(Any)` recursively is the
 # canonical binding of some name in some loaded module. Enumerate them in a
 # single pass over module bindings, rather than issuing one `subtypes` query per
 # type: `subtypes(T)` rescans every loaded module's names on each call, so the
@@ -49,14 +44,14 @@ function all_named_types()
         m = pop!(work)
         m in seen && continue
         push!(seen, m)
-        # `unsorted_names` skips the per-module name sort that `names` does; the
-        # result is an unordered set, so the order is irrelevant here.
+        # `unsorted_names` skips the per-module name sort that `names` does; since
+        #  the result is an unordered set, order is irrelevant here.
         for s in Base.unsorted_names(m; all=true)
             (!Base.isdeprecated(m, s) && isdefined(m, s)) || continue
             t = getglobal(m, s)
             if t isa Type
                 dt = Base.unwrap_unionall(t)
-                # Keep only the canonical binding (a type's home module/name),
+                # Keep only the canonical binding (a type's home module/name)
                 # so re-exports and imports don't enter the set more than once.
                 if dt isa DataType && dt.name.name === s && dt.name.module === m && t !== Any
                     push!(types, t)
@@ -64,20 +59,6 @@ function all_named_types()
             elseif t isa Module && nameof(t) === s && parentmodule(t) === m && t !== m && t !== Base
                 push!(work, t)
             end
-        end
-    end
-    return types
-end
-
-function _foreach_subtype!(f::Function, @nospecialize(parent_typ::Type), types::Base.IdSet{Type})
-    # TODO: for Ty in InteractiveUtils.subtypes(parent_typ; max_world=Base.tls_world_age())
-    for Ty in InteractiveUtils.subtypes(parent_typ)
-        if Ty in types
-            continue
-        else
-            f(Ty)
-            push!(types, Ty)
-            _foreach_subtype!(f, Ty, types)
         end
     end
     return types

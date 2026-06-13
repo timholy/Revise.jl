@@ -3059,7 +3059,7 @@ end
             # walk ran long enough that concurrent world advances left it
             # reading freshly-defined bindings at a stale world, emitting
             # "Detected access to binding ... prior to its definition world".
-            # `collect_all_subtypes(Any)` is a single current-world pass: it must
+            # `all_named_types()` is a single current-world pass: it must
             # see types defined after Revise loaded (as runtime `eval` from
             # Requires produces) and emit no such warning.
             # Heavy reproducer: Revise#993 / JuliaLang/julia#61804.
@@ -3071,13 +3071,13 @@ end
                     struct LateNested; z::Int; end
                 end
             end
-            Revise.collect_all_subtypes(Any)  # warm up before capturing stderr
+            Revise.all_named_types()  # warm up before capturing stderr
             # redirect_stderr needs a real fd (the warning is a C-level write),
             # so capture through a temp file rather than an IOBuffer.
             errfile = tempname()
             allt = open(errfile, "w") do io
                 redirect_stderr(io) do
-                    Revise.collect_all_subtypes(Any)
+                    Revise.all_named_types()
                 end
             end
             errstr = read(errfile, String)
@@ -3090,14 +3090,22 @@ end
             # No world-age warning emitted by the scan
             @test !occursin("definition world", errstr)
             @test !occursin("Detected access", errstr)
-            # The flat pass must not lose coverage relative to the recursive
-            # walk. Compare by TypeName over non-anonymous types (the flat pass
-            # stores raw bindings, the recursion parent-intersected forms, so
-            # identity differs but the TypeName set must not shrink). Take the
-            # flat scan last so types created by JIT-compiling the reference walk
-            # cannot make it spuriously smaller than the reference.
-            ref = Revise._foreach_subtype!(Returns(nothing), Any, Base.IdSet{Type}())
-            flat = Revise.collect_all_subtypes(Any)
+            # The flat pass must not lose coverage relative to a recursive
+            # `subtypes` walk. Compare by TypeName over non-anonymous types (the
+            # flat pass stores raw bindings, the recursion parent-intersected
+            # forms, so identity differs but the TypeName set must not shrink).
+            # Take the flat scan last so types created by JIT-compiling the
+            # reference walk cannot make it spuriously smaller than the reference.
+            function recursive_subtypes!(types, parent)
+                for Ty in InteractiveUtils.subtypes(parent)
+                    Ty in types && continue
+                    push!(types, Ty)
+                    recursive_subtypes!(types, Ty)
+                end
+                return types
+            end
+            ref = recursive_subtypes!(Base.IdSet{Type}(), Any)
+            flat = Revise.all_named_types()
             realnames(s) = Set(dt.name for t in s
                                for dt in (Base.unwrap_unionall(t),)
                                if dt isa DataType && dt !== Any && !startswith(string(dt.name.name), "#"))

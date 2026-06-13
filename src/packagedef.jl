@@ -5,7 +5,6 @@ using LibGit2: LibGit2
 using CRC32c: crc32c
 using Base: PkgId, IdSet
 using Base.Meta: isexpr
-using InteractiveUtils: InteractiveUtils
 using Core: CodeInfo, MethodTable
 
 if !isdefined(Core, :isdefinedglobal)
@@ -664,7 +663,7 @@ function handle_type_deletion!(
     with_logger(_debug_logger) do
         old_list = copy(reeval_list)
         oldtype = Base.invoke_in_world(world, getglobal, oldtypename.module, oldtypename.name)::Type
-        alltypes = collect_all_subtypes(Any) # reuse cache for recursive searches performance (freezed at this world)
+        alltypes = all_named_types() # reuse for recursive searches (frozen at this world)
         record_invalidations_for_type_deletion!(oldtype, reeval_list, handled_types, alltypes)
         diff = setdiff(reeval_list, old_list)
         @debug "DeleteType" _group="Action" time=time() deltainfo=(oldtype,diff)
@@ -680,6 +679,13 @@ function record_invalidations_for_type_deletion!(
 
     olddatatype = Base.unwrap_unionall(oldtype)::DataType
     oldtypename = olddatatype.name
+    # `oldtype` must be the canonical binding for its TypeName: a non-parametric
+    # DataType or the full `T where ...` UnionAll, never a concrete or partial
+    # instantiation. The subtype filter below relies on this — `t <: oldtype`
+    # then selects exactly what `subtypes(oldtype)` would. (For `P{Int}`,
+    # `subtypes` keeps `PC{Int}` via `typeintersect` while `PC <: P{Int}` is
+    # `false`, so the two would otherwise diverge.)
+    @assert oldtypename.wrapper === oldtype "expected the canonical binding of $(oldtypename), got $(oldtype)"
 
     # Find all methods restricted to `oldtype`
     meths = old_methods_with(oldtypename)
@@ -694,8 +700,11 @@ function record_invalidations_for_type_deletion!(
     meths !== nothing && maybe_extract_sigs_for_meths(meths)
     related_types !== nothing && maybe_extract_sigs_for_types(related_types)
 
-    # If `oldtype` is an abstract type, we need to traverse its subtypes and invalidate them
-    oldsubtypes = collect_all_subtypes(oldtype)
+    # If `oldtype` is an abstract type, traverse its subtypes and invalidate them.
+    # By the canonical invariant asserted above, filtering the `alltypes` sweep by
+    # `t <: oldtype` matches `subtypes(oldtype)` without re-scanning module names
+    # at each recursion level.
+    oldsubtypes = Base.IdSet{Type}(t for t in alltypes if t !== oldtype && t <: oldtype)
     maybe_extract_sigs_for_types(oldsubtypes)
     for oldsubtype in oldsubtypes
         oldsubtype in handled_types && continue
