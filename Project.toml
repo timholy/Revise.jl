@@ -2,10 +2,8 @@ name = "Revise"
 uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
 version = "3.15.0"
 
-[workspace]
-projects = ["docs", "test"]
-
 [deps]
+CRC32c = "8bf52ea8-c179-5cab-976a-9e18b702a9bc"
 CodeTracking = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
 FileWatching = "7b1f6079-737a-58dc-b8bc-7a2ca5c1b5ee"
 InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
@@ -53,3 +51,6 @@ UnsafeArrays = "c4a57d5a-5b31-53a6-b365-19f8c011fbd6"
 
 [targets]
 test = ["CatIndices", "Distributed", "EndpointRanges", "EponymTuples", "Example", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Pkg", "Random", "Requires", "RoundingIntegers", "Test", "UnsafeArrays"]
+
+[workspace]
+projects = ["docs", "test"]
