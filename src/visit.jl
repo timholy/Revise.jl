@@ -49,7 +49,9 @@ function all_named_types()
         m = pop!(work)
         m in seen && continue
         push!(seen, m)
-        for s in names(m; all=true)
+        # `unsorted_names` skips the per-module name sort that `names` does; the
+        # result is an unordered set, so the order is irrelevant here.
+        for s in Base.unsorted_names(m; all=true)
             (!Base.isdeprecated(m, s) && isdefined(m, s)) || continue
             t = getglobal(m, s)
             if t isa Type
