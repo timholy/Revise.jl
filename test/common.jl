@@ -17,13 +17,12 @@ function newtestdir()
     return testdir
 end
 
-@static if Sys.isapple()
-    const mtimedelay = 3.1  # so the defining files are old enough not to trigger mtime criterion
-elseif Sys.islinux() && isfile("/etc/wsl.conf")   # WSL
-    const mtimedelay = 3.0
-else
-    const mtimedelay = 0.1
-end
+# Spacing between successive writes to a tracked file, so that the watcher sees
+# each edit as distinct. A file named in a filesystem event is settled by a
+# content hash when its ctime is unchanged (see `scan_changed_files`), so this
+# only needs to clear the resolution of `mtime`-based change detection on the
+# polling/non-notifying path, where ext4 timestamps are fine-grained.
+const mtimedelay = 0.1
 
 # The suite assumes a deleted tracked file is processed at the first revise():
 # `yry()` waits on `revision_queue` becoming non-empty, and several testsets
@@ -51,21 +50,22 @@ else
     end
 end
 
-# Replaces the historical `sleep(mtimedelay); revise(); sleep(mtimedelay)`:
-#   * pre-revise wait is event-driven (wait for the background watcher task to
-#     populate `Revise.revision_queue`), with `event_timeout` as a fall-through
-#     for tests that legitimately produce no revision.
+# Wait for a pending file change to be revised:
+#   * the pre-revise wait is event-driven (block until the background watcher
+#     task populates `Revise.revision_queue`), with `event_timeout` as a
+#     fall-through for tests that legitimately produce no revision.
 #   * a short settling pause lets a *burst* of writes that the watcher delivers
 #     across more than one wakeup land in the queue before we revise.
-#   * the trailing `sleep(mtimedelay)` is retained: it is the ctime-resolution
-#     guard so the *next* test write has a strictly larger ctime than the one
-#     `watch_files_via_dir` just cached. (When the dir watcher learns to use
-#     `watch_folder`, this trailing sleep can be removed.)
+#   * under `watching_files[]` (per-file and polling watches) a trailing pause
+#     lets the one-shot `watch_file` re-arm before the next test write. That
+#     path re-watches a single file after each revision and, unlike the
+#     buffered per-directory watcher, has neither an event queue nor a content
+#     hash to recover a write that lands while it is between watches.
 function yry()
     timedwait(() -> !isempty(Revise.revision_queue), event_timeout; pollint=0.02)
     sleep(0.02)
     revise()
-    sleep(mtimedelay)
+    Revise.watching_files[] && sleep(mtimedelay)
 end
 macro yry()
     esc(quote
