@@ -2,6 +2,7 @@ Base.Experimental.@optlevel 1
 
 using FileWatching, REPL, UUIDs
 using LibGit2: LibGit2
+using CRC32c: crc32c
 using Base: PkgId, IdSet
 using Base.Meta: isexpr
 using InteractiveUtils: InteractiveUtils
