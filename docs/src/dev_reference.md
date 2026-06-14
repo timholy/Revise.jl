@@ -30,6 +30,7 @@ Revise.watched_files
 Revise.revision_queue
 Revise.NOPACKAGE
 Revise.queue_errors
+Revise.duplicated_signatures
 Revise.included_files
 Revise.watched_manifests
 ```
