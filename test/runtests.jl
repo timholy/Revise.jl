@@ -5050,16 +5050,30 @@ do_test("Missing-file grace") && !Revise.watching_files[] && @testset "Missing-f
         @test isempty(Revise.revision_queue)
 
         # Past the grace period: methods are deleted (with a warning), but the
-        # file remains registered, so recreating it still restores the methods
+        # file remains registered, so recreating it still restores the methods.
+        # The grace clock starts only when a `revise()` first observes the
+        # absence, and that observation rides a filesystem event whose delivery
+        # time we don't control. Rather than sleep a fixed interval and assume one
+        # revise deletes, poll: keep revising until the deletion lands. This can't
+        # flake on a late clock start; a genuine failure to ever delete still
+        # surfaces as the `timedwait` timing out.
         Revise.missing_file_grace[] = 0.5
         rm(genfile)
-        @yry()      # notices the absence, starting the grace clock
-        @test MissingFileGrace.gen() == 2
-        sleep(1.0)
-        @test_logs (:warn, r"no longer exists, deleted all methods") match_mode=:any yry()
+        @yry()
+        @test MissingFileGrace.gen() == 2          # survives while within grace
+        logs = []
+        deleted = timedwait(20.0; pollint=0.1) do
+            logs, _ = Test.collect_test_logs() do
+                revise()
+            end
+            isempty(methods(MissingFileGrace.gen))
+        end
+        @test deleted === :ok                      # :timed_out ⇒ a genuine "never deleted" bug
         @latestworld
         @test isempty(Revise.revision_queue)
         @test_throws MethodError MissingFileGrace.gen()
+        # the deleting revise (the final poll iteration) is the one that warns
+        @test any(r -> occursin("no longer exists, deleted all methods", r.message), logs)
         write(genfile, "gen() = 3")
         @yry()
         @test MissingFileGrace.gen() == 3
