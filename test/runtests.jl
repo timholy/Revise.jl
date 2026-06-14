@@ -2325,7 +2325,10 @@ end
         @eval using DupWarn
         @test DupWarn.foo(1) == 1
         @yry()  # populate `method_info` for the original definition
-        @test isempty(Revise.duplicated_signatures)
+        # Track this signature specifically: other test packages may leave unrelated
+        # duplicates in the global `duplicated_signatures`.
+        key = Revise.MethodInfoKey(nothing, first(methods(DupWarn.foo)).sig)
+        @test !haskey(Revise.duplicated_signatures, key)
 
         # Add a second definition of the same signature.
         write(fn, "module DupWarn\nfoo(x::Int) = 1\nfoo(x::Int) = 2\nend\n")
@@ -2333,7 +2336,6 @@ end
         @test_logs (:warn, r"defined in more than one location") match_mode=:any yry()
         @latestworld
         @test DupWarn.foo(3) == 2                       # still works in this session
-        key = Revise.MethodInfoKey(nothing, first(methods(DupWarn.foo)).sig)
         @test haskey(Revise.duplicated_signatures, key)
 
         # Removing the duplicate clears the tracked state.
@@ -2341,7 +2343,7 @@ end
         sleep(mtimedelay)
         @yry()
         @test DupWarn.foo(3) == 99
-        @test isempty(Revise.duplicated_signatures)
+        @test !haskey(Revise.duplicated_signatures, key)
 
         rm_precompile("DupWarn")
     end
@@ -2360,7 +2362,8 @@ end
         write(script, "dupscriptfn(x::Int) = 1\ndupscriptfn(x::Int) = 2\n")
         sleep(mtimedelay)
         @yry()
-        @test isempty(Revise.duplicated_signatures)
+        scriptkey = Revise.MethodInfoKey(nothing, first(methods(Main.dupscriptfn)).sig)
+        @test !haskey(Revise.duplicated_signatures, scriptkey)
 
         # `__precompile__(false)` package: likewise not tracked.
         dn = joinpath(testdir, "NoPCDup", "src"); mkpath(dn)
@@ -2373,7 +2376,8 @@ end
         sleep(mtimedelay)
         @yry()
         @test NoPCDup.bar(3) == 2
-        @test isempty(Revise.duplicated_signatures)
+        barkey = Revise.MethodInfoKey(nothing, first(methods(NoPCDup.bar)).sig)
+        @test !haskey(Revise.duplicated_signatures, barkey)
 
         rm_precompile("NoPCDup")
     end
