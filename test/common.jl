@@ -74,6 +74,25 @@ function yry(; expect_revision::Bool=true)
     end
     sleep(0.02)
     revise()
+    # Drain to quiescence. The watcher can deliver a just-written edit's event
+    # *after* this first revise (notably under macOS FSEvents latency): the first
+    # revise then drains some earlier/stale queue entry while the edit we are
+    # waiting for is still in flight, so a single revise would leave it unapplied
+    # until a later `yry`. Keep revising as long as each pass clears something,
+    # absorbing such stragglers within this call. Two stop conditions keep this
+    # bounded: skip entirely once a revision errors (an errored file stays queued
+    # for retry, and re-revising it would re-log and perturb error-reporting
+    # tests), and stop on any pass that makes no progress (a missing file within
+    # `missing_file_grace` is re-queued each pass, so the queue need not empty).
+    if expect_revision
+        for _ in 1:50   # hard cap; the conditions below are the normal exits
+            isempty(Revise.queue_errors) || break
+            timedwait(() -> !isempty(Revise.revision_queue), mtimedelay; pollint=0.02) === :ok || break
+            n = length(Revise.revision_queue)
+            revise()
+            length(Revise.revision_queue) < n || break
+        end
+    end
     Revise.watching_files[] && sleep(mtimedelay)
 end
 macro yry(args...)
