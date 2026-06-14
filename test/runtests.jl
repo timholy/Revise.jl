@@ -2330,7 +2330,8 @@ end
         # Add a second definition of the same signature.
         write(fn, "module DupWarn\nfoo(x::Int) = 1\nfoo(x::Int) = 2\nend\n")
         sleep(mtimedelay)
-        @test_logs (:warn, r"defined in more than one location") match_mode=:any @yry()
+        @test_logs (:warn, r"defined in more than one location") match_mode=:any yry()
+        @latestworld
         @test DupWarn.foo(3) == 2                       # still works in this session
         key = Revise.MethodInfoKey(nothing, first(methods(DupWarn.foo)).sig)
         @test haskey(Revise.duplicated_signatures, key)
