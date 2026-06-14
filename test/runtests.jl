@@ -2337,6 +2337,8 @@ end
         @latestworld
         @test DupWarn.foo(3) == 2                       # still works in this session
         @test haskey(Revise.duplicated_signatures, key)
+        # `duplicate_methods()` re-reports the tracked duplicates on demand.
+        @test_logs (:warn, r"defined in more than one location") match_mode=:any Revise.duplicate_methods()
 
         # Removing the duplicate clears the tracked state.
         write(fn, "module DupWarn\nfoo(x::Int) = 99\nend\n")
