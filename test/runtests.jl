@@ -1913,7 +1913,7 @@ end
             f(x) = 2
             end
             """)
-        @yry()
+        @yry(expect_revision=false)   # tmpfile is not the tracked path; no revision yet
         @test Timing.f(nothing) == 1
         mv(tmpfile, pathof(Timing), force=true)
         @yry()
@@ -2546,7 +2546,7 @@ end
 
         # test errors are not re-reported
         logs, _ = Test.collect_test_logs() do
-            yry()
+            yry(expect_revision=false)   # nothing new to revise
         end
         @test isempty(logs)
 
@@ -4048,10 +4048,10 @@ end
         user_track_includes = Revise.tracking_Main_includes[]
         Revise.tracking_Main_includes[] = false
         include(srcfile)
-        @yry()
+        @yry(expect_revision=false)   # user scripts are not tracked by default
         @test revise_g() == 1
         write(srcfile, "revise_g() = 2")
-        @yry()
+        @yry(expect_revision=false)   # still untracked, so the edit is not picked up
         @test revise_g() == 1
         # Turn on tracking of user scripts
         empty!(Revise.included_files)  # don't track files already loaded (like this one)
@@ -4062,7 +4062,7 @@ end
             write(srcfile, "revise_g() = 1")
             sleep(mtimedelay)
             include(srcfile)
-            @yry()
+            @yry(expect_revision=false)   # include just ran; no edit to revise yet
             @test revise_g() == 1
             write(srcfile, "revise_g() = 2")
             @yry()
@@ -4071,9 +4071,9 @@ end
             # issue #257
             logs, _ = Test.collect_test_logs() do  # just to prevent noisy warning
                 try include("nonexistent1.jl") catch end
-                yry()
+                yry(expect_revision=false)   # include of a missing file revises nothing
                 try include("nonexistent2.jl") catch end
-                yry()
+                yry(expect_revision=false)
             end
         finally
             Revise.tracking_Main_includes[] = user_track_includes  # restore old behavior
