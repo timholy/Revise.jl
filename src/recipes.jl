@@ -222,7 +222,7 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
                 push!(modified_files, (pkgdata, rpath))
             end
             fi = FileInfo(fmod)
-            if parse_source!(fi.mod_exs_infos, src, file, fmod) === nothing
+            if !parse_and_maybe_eval_source!(fi.mod_exs_infos, src, file, fmod).success
                 @warn "failed to parse Git source text for $file"
             else
                 instantiate_sigs!(fi.mod_exs_infos)

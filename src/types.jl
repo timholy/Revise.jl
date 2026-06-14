@@ -241,7 +241,7 @@ or that the method table/signature pairs have not yet been cached.
 
 The first `mod` key is guaranteed to be the module into which this file was `include`d.
 
-To create a `ModuleExprsInfos` from a source file, see [`Revise.parse_source`](@ref).
+To create a `ModuleExprsInfos` from a source file, see [`Revise.parse_and_maybe_eval_source`](@ref).
 """
 const ModuleExprsInfos = OrderedDict{Module,ExprsInfos}
 

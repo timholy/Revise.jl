@@ -15,7 +15,7 @@
 #     `loading.jl`), so module-of-evaluation can't identify it. Here we hope
 #     that the top-level filename follows convention and matches the module.
 #
-# We pass `Base.__toplevel__` through to `parse_source` unchanged. `ExprSplitter`
+# We pass `Base.__toplevel__` through to `parse_and_maybe_eval_source` unchanged. `ExprSplitter`
 # has a dedicated `loaded_modules` fallback for that case which resolves
 # `module PkgName ... end` to the real loaded module even when `PkgName` is not
 # a direct dep of the active project. Rewriting to `Main` here would skip that
@@ -28,10 +28,10 @@ function queue_includes!(pkgdata::PkgData, id::PkgId)
             mod, fname = included_files[i]
             modname = String(Symbol(mod))
             if startswith(modname, modstring) || endswith(fname, modstring*".jl")
-                mod_exs_infos = parse_source(fname, mod)
-                if mod_exs_infos !== nothing
+                pr = parse_and_maybe_eval_source(fname, mod)
+                if pr.success
                     fname = relpath(fname, pkgdata)
-                    push!(pkgdata, fname=>FileInfo(mod_exs_infos))
+                    push!(pkgdata, fname=>FileInfo(pr.modexinfos))
                 end
                 push!(delids, i)
             end
@@ -103,11 +103,11 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
         filep = joinpath(basedir(pkgdata), file)
         filec = get(cache_file_key, filep, filep)
         topmod = first(keys(fi.mod_exs_infos))
-        ret = parse_source!(fi.mod_exs_infos, src, filec, topmod)
-        if ret === nothing
+        pr = parse_and_maybe_eval_source!(fi.mod_exs_infos, src, filec, topmod)
+        if !pr.success
             @error "failed to parse cache file source text for $file"
         end
-        if ret !== DoNotParse()
+        if !pr.donotparse
             add_modexs!(fi, fi.cacheexprs)
             empty!(fi.cacheexprs)
         end
@@ -207,7 +207,7 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
             # Parse the source of the new file
             fullfile = joinpath(basedir(pkgdata), incrp)
             if isfile(fullfile)
-                parse_source!(fi.mod_exs_infos, fullfile, mod)
+                parse_and_maybe_eval_source!(fi.mod_exs_infos, fullfile, mod)
                 if eval_now
                     # Use runtime dispatch to reduce latency
                     Base.invokelatest(instantiate_sigs!, fi.mod_exs_infos; mode=:eval)
@@ -631,7 +631,7 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
                 filep = joinpath(basedir(pkgdata), file)
                 src = read(filep, String)
                 topmod = first(keys(fi.mod_exs_infos))
-                if parse_source!(fi.mod_exs_infos, src, filep, topmod) === nothing
+                if !parse_and_maybe_eval_source!(fi.mod_exs_infos, src, filep, topmod).success
                     @error "failed to parse source text for $filep"
                 end
                 add_modexs!(fi, fi.cacheexprs)

@@ -147,7 +147,7 @@ end
     do_test("Parse errors") && @testset "Parse errors" begin
         md = Revise.ModuleExprsInfos(Main)
         errtype = Base.VERSION < v"1.10" ? LoadError : Base.Meta.ParseError
-        @test_throws errtype Revise.parse_source!(md, """
+        @test_throws errtype parse_source!(md, """
             begin # this block should parse correctly, cf. issue #109
 
             end
@@ -192,7 +192,7 @@ end
         scriptfile = joinpath(jidir, "test", "toplevel_script.jl")
         modex = :(module Toplevel include($scriptfile) end)
         mod = eval(modex)
-        mexs = Revise.parse_source(scriptfile, mod)
+        mexs = parse_source(scriptfile, mod)
         Revise.instantiate_sigs!(mexs)
         nms = names(mod; all=true)
         modeval, modinclude = getfield(mod, :eval), getfield(mod, :include)
@@ -262,12 +262,12 @@ end
         delmeth = first(methods(ReviseTest.Internal.mult4))
         mmult3 = @which ReviseTest.Internal.mult3(2)
 
-        mod_exs_infos_old = Revise.parse_source(tmpfile, Main)
+        mod_exs_infos_old = parse_source(tmpfile, Main)
         Revise.instantiate_sigs!(mod_exs_infos_old)
         mcube = @which ReviseTest.cube(2)
 
         cp(fl2, tmpfile; force=true)
-        mod_exs_infos_new = Revise.parse_source(tmpfile, Main)
+        mod_exs_infos_new = parse_source(tmpfile, Main)
         mod_exs_infos_new = Revise.eval_revised(mod_exs_infos_new, mod_exs_infos_old)
         @latestworld
         @test ReviseTest.cube(2) == 8
@@ -361,7 +361,7 @@ end
         # because both of these are revised definitions.
         cp(fl3, tmpfile; force=true)
         mod_exs_infos_old = mod_exs_infos_new
-        mod_exs_infos_new = Revise.parse_source(tmpfile, Main)
+        mod_exs_infos_new = parse_source(tmpfile, Main)
         mod_exs_infos_new = Revise.eval_revised(mod_exs_infos_new, mod_exs_infos_old)
         @latestworld
         try
@@ -421,7 +421,7 @@ end
         mod = private_module()
         file = joinpath(@__DIR__, "revisetest.jl")
         Base.include(mod, file)
-        mexs = Revise.parse_source(file, mod)
+        mexs = parse_source(file, mod)
         Revise.instantiate_sigs!(mexs)
         print(IOContext(io, :compact=>true), mexs)
         str = String(take!(io))
@@ -1370,7 +1370,7 @@ end
 
     do_test("doc expr signature") && @testset "Docstring attached to signatures" begin
         md = Revise.ModuleExprsInfos(Main)
-        Revise.parse_source!(md, """
+        parse_source!(md, """
             module DocstringSigsOnly
             function f end
             "basecase" f(x)
@@ -1387,8 +1387,8 @@ end
 
     do_test("Undef in docstrings") && @testset "Undef in docstrings" begin
         fn = Base.find_source_file("abstractset.jl")   # has lots of examples of """str""" func1, func2
-        mod_exs_infos_old = Revise.parse_source(fn, Base)
-        mod_exs_infos_new = Revise.parse_source(fn, Base)
+        mod_exs_infos_old = parse_source(fn, Base)
+        mod_exs_infos_new = parse_source(fn, Base)
         odict = mod_exs_infos_old[Base]
         ndict = mod_exs_infos_new[Base]
         for (k, v) in odict
@@ -3794,9 +3794,11 @@ end
         srcfile = joinpath(tempdir(), randtmp()*".jl")
         write(srcfile, "revise_f(x) = 1")
         sleep(mtimedelay)
-        includet(srcfile)
+        # issue #783: `includet` returns the value of the last evaluated expression
+        ret = includet(srcfile)
         sleep(mtimedelay)
         @latestworld
+        @test ret === revise_f
         @test revise_f(10) == 1
         @test length(signatures_at(srcfile, 1)) == 1
         write(srcfile, "revise_f(x) = 2")
@@ -3829,7 +3831,8 @@ end
         srcfile = joinpath(tempdir(), randtmp()*".jl")
         write(srcfile, "\n")
         sleep(mtimedelay)
-        includet(srcfile)
+        # issue #783: an empty file has no last expression, so `includet` returns `nothing`
+        @test includet(srcfile) === nothing
         sleep(mtimedelay)
         @test basename(srcfile) ∈ Revise.watched_files[dirname(srcfile)]
         push!(to_remove, srcfile)

@@ -107,8 +107,9 @@ Revise.get_def
 ### Parsing source code
 
 ```@docs
-Revise.parse_source
-Revise.parse_source!
+Revise.parse_and_maybe_eval_source
+Revise.parse_and_maybe_eval_source!
+Revise.ParseResult
 ```
 
 ### Lowered source code

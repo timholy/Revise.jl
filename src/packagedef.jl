@@ -1045,8 +1045,8 @@ function parse_for_revision(pkgdata::PkgData, file::AbstractString)
     end
     topmod = first(keys(mod_exs_infos_old))
     fileok = file_exists(String(filep)::String)
-    mod_exs_infos_new = fileok ? parse_source(filep, topmod) : ModuleExprsInfos(topmod)
-    return mod_exs_infos_new, mod_exs_infos_old, fileok
+    pr = fileok ? parse_and_maybe_eval_source(filep, topmod) : ParseResult(ModuleExprsInfos(topmod), true)
+    return pr, mod_exs_infos_old, fileok
 end
 
 # Apply deletions for `(pkgdata, file)` from the results of `parse_for_revision`.
@@ -1061,7 +1061,7 @@ function delete_for_revision(
         reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
         predictions::TypePredictions,
     )
-    if mod_exs_infos_new !== nothing && mod_exs_infos_new !== DoNotParse()
+    if mod_exs_infos_new !== nothing
         delete_missing!(mod_exs_infos_old, mod_exs_infos_new::ModuleExprsInfos, reeval_list, handled_types, world, predictions)
     end
     if !fileok && any(!isempty, values(mod_exs_infos_old))
@@ -1085,7 +1085,8 @@ function handle_deletions(
         reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
         predictions::TypePredictions = TypePredictions(),
     )
-    mod_exs_infos_new, mod_exs_infos_old, fileok = parse_for_revision(pkgdata, file)
+    pr, mod_exs_infos_old, fileok = parse_for_revision(pkgdata, file)
+    mod_exs_infos_new = (pr.success && !pr.donotparse) ? pr.modexinfos : nothing
     delete_for_revision(pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok,
                         reeval_list, handled_types, world, predictions)
     return mod_exs_infos_new, mod_exs_infos_old
@@ -1423,8 +1424,9 @@ function revise(; throw::Bool=false)
         deferred_missing = Tuple{PkgData,String}[]
         for (pkgdata, file) in queue
             try
-                mod_exs_infos_new, mod_exs_infos_old, fileok = parse_for_revision(pkgdata, file)
-                mod_exs_infos_new === DoNotParse() && continue
+                pr, mod_exs_infos_old, fileok = parse_for_revision(pkgdata, file)
+                pr.donotparse && continue
+                mod_exs_infos_new = pr.success ? pr.modexinfos : nothing
                 if fileok
                     delete!(missing_file_times, (pkgdata, file))
                 else
@@ -1660,10 +1662,11 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
         file = abspath_no_normalize(file)
     end
     # Set up tracking
-    mod_exs_infos = parse_source(file, mod; mode)
-    if mod_exs_infos !== nothing
+    pr = parse_and_maybe_eval_source(file, mod; mode)
+    if pr.success
+        mod_exs_infos = pr.modexinfos
         if mode === :includet
-            mode = :sigs   # we already handled evaluation in `parse_source`
+            mode = :sigs   # we already handled evaluation in `parse_and_maybe_eval_source`
         end
         invokelatest(instantiate_sigs!, mod_exs_infos; mode, kwargs...)
         if !haspkgdata(id)
@@ -1683,7 +1686,8 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
             pkgdatas[id] = pkgdata
         end
     end
-    return nothing
+    # issue #783: in `:includet` mode, return the value of the last evaluated expression
+    return isdefined(pr, :ret) ? pr.ret : nothing
 end
 
 function track(file::AbstractString; kwargs...)
@@ -1698,6 +1702,8 @@ Load `filename` and track future changes. `includet` is intended for quick "user
 established projects are encouraged to put the code in one or more packages loaded with `using`
 or `import` instead of using `includet`. See https://timholy.github.io/Revise.jl/stable/cookbook/
 for tips about setting up the package workflow.
+
+Like `include`, `includet` returns the value of the last evaluated expression in `filename`.
 
 By default, `includet` only tracks modifications to *methods*, not *data*. See the extended help for details.
 Note that this differs from packages, which evaluate all changes by default.
@@ -1761,8 +1767,9 @@ function includet(mod::Module, file::AbstractString)
     end
     tls = task_local_storage()
     tls[:SOURCE_PATH] = file
+    result = nothing
     try
-        track(mod, file; mode=:includet, skip_include=true)
+        result = track(mod, file; mode=:includet, skip_include=true)
         if prev === nothing
             delete!(tls, :SOURCE_PATH)
         else
@@ -1782,7 +1789,7 @@ function includet(mod::Module, file::AbstractString)
             rethrow()
         end
     end
-    return nothing
+    return result
 end
 includet(file::AbstractString) = includet(Main, file)
 
@@ -1948,7 +1955,7 @@ function add_definitions_from_repl(filename::String)
     id = PkgId(nothing, "@REPL")
     pkgdata = @lock revise_lock pkgdatas[id]
     mod_exs_infos = ModuleExprsInfos(Main::Module)
-    parse_source!(mod_exs_infos, src, filename, Main::Module)
+    parse_and_maybe_eval_source!(mod_exs_infos, src, filename, Main::Module)
     instantiate_sigs!(mod_exs_infos)
     fi = FileInfo(mod_exs_infos)
     push!(pkgdata, filename=>fi)
