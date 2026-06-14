@@ -82,6 +82,20 @@ function collectexprs(rex::Revise.RelocatableExpr)
     items
 end
 
+# Test helpers, *not* Revise functions: each wraps `Revise.parse_and_maybe_eval_source[!]`, asserts
+# the parse succeeded, and returns the resulting `ModuleExprsInfos`. Sharing one terse name keeps the
+# many call sites readable and localizes the `ParseResult` unwrapping to this one spot.
+function parse_source(file::AbstractString, mod::Module; kwargs...)
+    pr = Revise.parse_and_maybe_eval_source(file, mod; kwargs...)
+    pr.success || error("parsing $file produced no usable expressions")
+    return pr.modexinfos
+end
+function parse_source!(mexs::Revise.ModuleExprsInfos, args...; kwargs...)
+    pr = Revise.parse_and_maybe_eval_source!(mexs, args...; kwargs...)
+    pr.success || error("parsing produced no usable expressions")
+    return pr.modexinfos
+end
+
 function get_docstring(obj)
     while !isa(obj, AbstractString)
         fn = fieldnames(typeof(obj))

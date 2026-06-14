@@ -99,7 +99,7 @@ try # Suppress world age increments, since the instantiation messes with base
         Base.VERSION < v"1.7" && Sys.iswindows() && endswith(file, "RNGs.jl") && continue  # invalid redefinition of constant RandomDevice
         file = Revise.fixpath(file)
         push!(basefiles, reljpath(file))
-        mexs = Revise.parse_source(file, mod)
+        mexs = Revise.parse_and_maybe_eval_source(file, mod).modexinfos
         Revise.instantiate_sigs!(mexs; always_rethrow=true)
     end
     failed, extras, nmethods = signature_diffs(Base, CodeTracking.method_info; filepredicate = fn->filepredicate(fn, basefiles))
