@@ -290,6 +290,17 @@ Global variable, maps `(pkgdata, filename)` pairs that errored upon last revisio
 const queue_errors = Dict{Tuple{PkgData,String},Tuple{Exception, Any}}() # locking is covered by revise_lock
 
 """
+    Revise.duplicated_signatures
+
+Global variable, maps each method signature currently defined in more than one place
+within a precompilable package to the list of `LineNumberNode`s where it is defined.
+Such duplicates evaluate successfully in the running session but cause the next
+precompilation to fail with "Method overwriting is not permitted during Module
+precompilation". See [`Revise.duplicate_methods`](@ref). Locking is covered by `revise_lock`.
+"""
+const duplicated_signatures = Dict{MethodInfoKey,Vector{LineNumberNode}}()
+
+"""
     Revise.missing_file_grace
 
 A tracked file can be missing transiently: code generators often delete a whole
@@ -1368,6 +1379,103 @@ function retry()
     revise()
 end
 
+# Resolve the least-specific type-equal method for a tracked signature, or `nothing`
+# if no matching method currently exists.
+function resolve_signature_method(key::MethodInfoKey, world::UInt)
+    mt, sig = key
+    ret = Base._methods_by_ftype(sig, mt, -1, world)
+    isempty(ret) && return nothing
+    return ret[end].method
+end
+
+# A duplicate signature only matters when its package is actually precompiled: the
+# "Method overwriting is not permitted during Module precompilation" failure cannot
+# occur for `Main`/`includet` code (never precompiled) or for `__precompile__(false)`
+# packages (no cache is ever written). `Base.isprecompiled` is unusable here because a
+# package under active Revise development always has a stale cache; the mere existence
+# of a cache file distinguishes a precompilable package from one that opts out.
+function in_precompilable_package(m::Method)
+    root = Base.moduleroot(m.module)
+    root === Main && return false
+    pkgid = Base.PkgId(root)
+    pkgid.name == "Main" && return false
+    return !isempty(Base.find_all_in_cache_path(pkgid))
+end
+
+# Recompute `duplicated_signatures` from the current tracking data and return the keys
+# that are newly duplicated relative to the previous state.
+function update_duplicated_signatures!(world::UInt)
+    current = Dict{MethodInfoKey,Vector{LineNumberNode}}()
+    for (key, locdefs) in CodeTracking.method_info
+        isa(locdefs, Vector{Tuple{LineNumberNode,Expr}}) || continue
+        length(locdefs) > 1 || continue
+        m = resolve_signature_method(key, world)
+        m === nothing && continue
+        in_precompilable_package(m) || continue
+        current[key] = LineNumberNode[ld[1] for ld in locdefs]
+    end
+    newly = MethodInfoKey[key for key in keys(current) if !haskey(duplicated_signatures, key)]
+    empty!(duplicated_signatures)
+    merge!(duplicated_signatures, current)
+    return newly
+end
+
+# Append a human-readable description of one duplicated signature to `io`.
+function report_duplicate_signature(io::IO, key::MethodInfoKey, lnns, world::UInt)
+    m = resolve_signature_method(key, world)
+    if m !== nothing
+        try
+            Base.show_tuple_as_call(io, m.name, m.sig)
+        catch
+            print(io, key.sig)
+        end
+    else
+        print(io, key.sig)
+    end
+    println(io)
+    for ln in lnns
+        println(io, "    ", location_string((ln.file, ln.line)))
+    end
+    return io
+end
+
+function warn_duplicated_signatures(newly::Vector{MethodInfoKey}, world::UInt)
+    isempty(newly) && return nothing
+    io = IOBuffer()
+    for key in newly
+        print(io, "  ")
+        report_duplicate_signature(io, key, duplicated_signatures[key], world)
+    end
+    @warn """The following method(s) are defined in more than one location. They work now, but \
+the next precompilation will fail with "Method overwriting is not permitted during Module \
+precompilation". Delete the redundant definition(s):
+$(String(take!(io)))Use `Revise.duplicate_methods()` to report these again.
+Your prompt color may be yellow until the duplicates are resolved."""
+    return nothing
+end
+
+"""
+    Revise.duplicate_methods()
+
+Report the method signatures currently defined in more than one place within a
+precompilable package (see [`Revise.duplicated_signatures`](@ref)). Such duplicates
+evaluate successfully in the running session but cause the next precompilation to fail
+with "Method overwriting is not permitted during Module precompilation". Delete the
+redundant definition(s) to resolve. Duplicates are reported automatically the first time
+they are detected; this function reports them again.
+"""
+function duplicate_methods()
+    isempty(duplicated_signatures) && return nothing
+    world = Base.get_world_counter()
+    io = IOBuffer()
+    for (key, lnns) in duplicated_signatures
+        print(io, "  ")
+        report_duplicate_signature(io, key, lnns, world)
+    end
+    @warn "The following method(s) are defined in more than one location and will fail precompilation:\n$(String(take!(io)))"
+    return nothing
+end
+
 """
     revise(; throw=false)
 
@@ -1575,10 +1683,17 @@ function revise(; throw::Bool=false)
                 If the error was due to evaluation order, it can sometimes be resolved by calling `Revise.retry()`.
                 Use Revise.errors() to report errors again. Only the first error in each file is shown.
                 Your prompt color may be yellow until the errors are resolved."""
-                maybe_set_prompt_color(:warn)
             end
-        else
+        end
+        # Surface signatures now defined in more than one place within a precompilable
+        # package. They evaluate successfully here, but the next precompilation fails with
+        # "Method overwriting is not permitted during Module precompilation" (issue #889).
+        dupworld = Base.get_world_counter()
+        warn_duplicated_signatures(update_duplicated_signatures!(dupworld), dupworld)
+        if isempty(queue_errors) && isempty(duplicated_signatures)
             maybe_set_prompt_color(:ok)
+        else
+            maybe_set_prompt_color(:warn)
         end
         tracking_Main_includes[] && queue_includes(Main)
 

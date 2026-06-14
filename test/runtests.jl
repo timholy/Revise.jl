@@ -2313,6 +2313,70 @@ end
         rm_precompile("Dup668")
     end
 
+    do_test("Duplicate method warning") && @testset "Duplicate method warning" begin
+        # issue #889: a duplicated method signature in a precompilable package works in the
+        # running session but fails the next precompilation. Revise warns and tracks it in
+        # `duplicated_signatures`, clearing the state once the duplicate is removed.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "DupWarn", "src"); mkpath(dn)
+        fn = joinpath(dn, "DupWarn.jl")
+        write(fn, "module DupWarn\nfoo(x::Int) = 1\nend\n")
+        sleep(mtimedelay)
+        @eval using DupWarn
+        @test DupWarn.foo(1) == 1
+        @yry()  # populate `method_info` for the original definition
+        @test isempty(Revise.duplicated_signatures)
+
+        # Add a second definition of the same signature.
+        write(fn, "module DupWarn\nfoo(x::Int) = 1\nfoo(x::Int) = 2\nend\n")
+        sleep(mtimedelay)
+        @test_logs (:warn, r"defined in more than one location") match_mode=:any @yry()
+        @test DupWarn.foo(3) == 2                       # still works in this session
+        key = Revise.MethodInfoKey(nothing, first(methods(DupWarn.foo)).sig)
+        @test haskey(Revise.duplicated_signatures, key)
+
+        # Removing the duplicate clears the tracked state.
+        write(fn, "module DupWarn\nfoo(x::Int) = 99\nend\n")
+        sleep(mtimedelay)
+        @yry()
+        @test DupWarn.foo(3) == 99
+        @test isempty(Revise.duplicated_signatures)
+
+        rm_precompile("DupWarn")
+    end
+
+    do_test("Duplicate method warning exclusions") && @testset "Duplicate method warning exclusions" begin
+        # The warning is scoped to precompilable packages: `includet`/`Main` scripts and
+        # `__precompile__(false)` packages never precompile, so duplicate methods there are
+        # harmless (and sometimes deliberate) and must not be flagged (issue #889).
+        testdir = newtestdir()
+
+        # `includet` script: a duplicated method must not be tracked.
+        script = joinpath(testdir, "dupscript.jl")
+        write(script, "dupscriptfn(x::Int) = 1\n")
+        sleep(mtimedelay)
+        includet(script)
+        write(script, "dupscriptfn(x::Int) = 1\ndupscriptfn(x::Int) = 2\n")
+        sleep(mtimedelay)
+        @yry()
+        @test isempty(Revise.duplicated_signatures)
+
+        # `__precompile__(false)` package: likewise not tracked.
+        dn = joinpath(testdir, "NoPCDup", "src"); mkpath(dn)
+        fn = joinpath(dn, "NoPCDup.jl")
+        write(fn, "__precompile__(false)\nmodule NoPCDup\nbar(x::Int) = 1\nend\n")
+        sleep(mtimedelay)
+        @eval using NoPCDup
+        @test NoPCDup.bar(1) == 1
+        write(fn, "__precompile__(false)\nmodule NoPCDup\nbar(x::Int) = 1\nbar(x::Int) = 2\nend\n")
+        sleep(mtimedelay)
+        @yry()
+        @test NoPCDup.bar(3) == 2
+        @test isempty(Revise.duplicated_signatures)
+
+        rm_precompile("NoPCDup")
+    end
+
     do_test("revise_file_now") && @testset "revise_file_now" begin
         # Very rarely this is used for debugging
         testdir = newtestdir()
