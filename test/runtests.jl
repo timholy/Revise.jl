@@ -3790,7 +3790,37 @@ end
         pop!(LOAD_PATH)
     end
 
+    # TEMP debug instrumentation for the macOS Manual-track revision flake. Captured
+    # *after* each @yry, and deliberately yield-free (no I/O, no lock): `fileinfos`
+    # is only mutated inside revise() — which runs only during @yry — so reading it
+    # between captures is race-free, and the stored `exprs` already reflect what
+    # revise() parsed from disk. If `exprs` shows the new body but `value` is stale,
+    # the change was detected+parsed but not applied (eval/diff miss); if `exprs`
+    # shows the old body, revise() never re-parsed the file (detection/queue miss).
+    FLAKE_DIAG = Any[]
+    function _diag_exprs(srcfile)
+        try
+            for (id, pd) in Revise.pkgdatas
+                for (f, fi) in zip(Revise.srcfiles(pd), pd.fileinfos)
+                    if occursin(basename(srcfile), f)
+                        es = String[]
+                        for (_, exsinfos) in fi.mod_exs_infos, rex in keys(exsinfos)
+                            push!(es, strip(string(rex.ex)))
+                        end
+                        return (id=string(id), file=f, exprs=es)
+                    end
+                end
+            end
+            return (id="not-found", file="", exprs=String[])
+        catch e
+            return (id="diag-error", file=sprint(showerror, e), exprs=String[])
+        end
+    end
+    diag_capture(label, value, srcfile) =
+        push!(FLAKE_DIAG, (; label, value, queuelen=length(Revise.revision_queue), _diag_exprs(srcfile)...))
+
     do_test("Manual track") && @testset "Manual track" begin
+        empty!(FLAKE_DIAG)
         srcfile = joinpath(tempdir(), randtmp()*".jl")
         write(srcfile, "revise_f(x) = 1")
         sleep(mtimedelay)
@@ -3803,6 +3833,7 @@ end
         @test length(signatures_at(srcfile, 1)) == 1
         write(srcfile, "revise_f(x) = 2")
         @yry()
+        diag_capture(:revise_f, revise_f(10), srcfile)
         @test revise_f(10) == 2
         push!(to_remove, srcfile)
 
@@ -3818,6 +3849,7 @@ end
         sleep(mtimedelay)
         write(srcfile, "revise_floc(x) = 2")
         @yry()
+        diag_capture(:revise_floc, revise_floc(10), srcfile)
         @test revise_floc(10) == 2
         # Call track again & make sure it doesn't track twice
         Revise.track(srcfile)
@@ -3877,7 +3909,10 @@ end
         @test f264() == 1
         write(srcfile2, "f264() = 2")
         @yry()
+        diag_capture(:f264, f264(), srcfile2)
         @test f264() == 2
+        println(stderr, "FLAKE_DIAG (Manual track):")
+        foreach(d -> println(stderr, "  ", d), FLAKE_DIAG)
 
         # recursive `includet`s (issue #302)
         testdir = newtestdir()
