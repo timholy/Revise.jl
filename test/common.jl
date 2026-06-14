@@ -61,15 +61,26 @@ end
 #     path re-watches a single file after each revision and, unlike the
 #     buffered per-directory watcher, has neither an event queue nor a content
 #     hash to recover a write that lands while it is between watches.
-function yry()
-    timedwait(() -> !isempty(Revise.revision_queue), event_timeout; pollint=0.02)
+#
+# `expect_revision=true` (the default) means a write should already have been
+# queued: hitting `event_timeout` then signals a dropped/late filesystem event,
+# the usual cause of "revision not applied" CI flakes, so we warn. Tests that
+# legitimately expect no revision pass `expect_revision=false` to take the
+# timeout silently.
+function yry(; expect_revision::Bool=true)
+    status = timedwait(() -> !isempty(Revise.revision_queue), event_timeout; pollint=0.02)
+    if expect_revision && status === :timed_out
+        @warn "yry: timed out after $(event_timeout)s waiting for revision_queue; a filesystem event was likely dropped or delayed"
+    end
     sleep(0.02)
     revise()
     Revise.watching_files[] && sleep(mtimedelay)
 end
-macro yry()
+macro yry(args...)
+    # Forward `@yry(expect_revision=false)` as a keyword argument, not a positional one.
+    kws = [a isa Expr && a.head === :(=) ? Expr(:kw, a.args[1], a.args[2]) : a for a in args]
     esc(quote
-        yry()
+        yry($(kws...))
         @latestworld
     end)
 end
