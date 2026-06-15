@@ -11,7 +11,7 @@ if !isdefined(Core, :isdefinedglobal)
     isdefinedglobal(m::Module, s::Symbol) = isdefined(m, s)
 end
 
-export revise, includet, entr, MethodSummary
+export revise, includet, @includet, entr, MethodSummary
 
 ## BEGIN abstract Distributed API
 
@@ -1828,6 +1828,10 @@ for tips about setting up the package workflow.
 
 Like `include`, `includet` returns the value of the last evaluated expression in `filename`.
 
+Unlike `include`, `includet` evaluates `filename` into `Main` rather than into the module from
+which it is called. To evaluate into the caller's module instead, use [`@includet`](@ref) or pass
+the module explicitly with `includet(mod, filename)`.
+
 By default, `includet` only tracks modifications to *methods*, not *data*. See the extended help for details.
 Note that this differs from packages, which evaluate all changes by default.
 This default behavior can be overridden; see [Configuring the revise mode](@ref).
@@ -1880,6 +1884,8 @@ try fixing it with something like `push!(LOAD_PATH, "/path/to/my/private/repos")
 `includet` is deliberately non-recursive, so if `filename` loads any other files,
 they will not be automatically tracked.
 (Call [`Revise.track`](@ref) manually on each file, if you've already `included`d all the code you need.)
+Multi-file code that needs all of its files tracked is better organized as a package loaded with
+`using`/`import`, which Revise tracks recursively and which gives you a proper module namespace.
 """
 function includet(mod::Module, file::AbstractString)
     prev = Base.source_path(nothing)
@@ -1915,6 +1921,23 @@ function includet(mod::Module, file::AbstractString)
     return result
 end
 includet(file::AbstractString) = includet(Main, file)
+
+"""
+    @includet "file.jl"
+
+Load `file` and track future changes, evaluating its code into the module in which the macro
+is expanded. This is the only difference from [`includet`](@ref): the function form always
+evaluates into `Main` (or an explicitly-passed module), whereas `@includet` uses the caller's
+module, just as `include` does.
+
+Use `@includet` when calling from inside a module other than `Main`; at the REPL the two forms
+are equivalent. The expansion is simply
+
+    Revise.includet(@__MODULE__, file)
+"""
+macro includet(file)
+    return :(includet($__module__, $(esc(file))))
+end
 
 """
     Revise.silence(pkg)

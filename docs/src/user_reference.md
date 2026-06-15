@@ -1,7 +1,7 @@
 # User reference
 
-There are really only eight functions that most users would be expected to call manually:
-`revise`, `includet`, `Revise.track`, `entr`, `Revise.retry`, `Revise.errors`,
+There are really only a handful of functions that most users would be expected to call manually:
+`revise`, `includet` (or [`@includet`](@ref)), `Revise.track`, `entr`, `Revise.retry`, `Revise.errors`,
 `Revise.duplicate_methods`, and `Revise.stale_load`.
 Other user-level constructs might apply if you want to debug Revise or
 prevent it from watching specific packages, or for fine-grained handling of callbacks.
@@ -10,6 +10,7 @@ prevent it from watching specific packages, or for fine-grained handling of call
 revise
 Revise.track
 includet
+@includet
 entr
 Revise.retry
 Revise.errors
