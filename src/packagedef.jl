@@ -414,6 +414,14 @@ function fallback_juliadir(candidate = expected_juliadir())
     normpath(candidate)
 end
 
+# issue #717: point users at their actual depot. Stale caches are written to
+# the first depot entry, which honors a custom DEPOT_PATH rather than ~/.julia.
+function revise_cache_dir()
+    major, minor = Base.VERSION.major, Base.VERSION.minor
+    depot = isempty(DEPOT_PATH) ? joinpath(homedir(), ".julia") : first(DEPOT_PATH)
+    return joinpath(depot, "compiled", "v$major.$minor", "Revise")
+end
+
 function find_juliadir()
     candidate = expected_juliadir()
     isdir(candidate) && return normpath(candidate)
@@ -2293,10 +2301,9 @@ function __init__()
 
     # Check Julia paths (issue #601)
     if !isdir(juliadir)
-        major, minor = Base.VERSION.major, Base.VERSION.minor
         @warn """Expected non-existent $juliadir to be your Julia directory.
                  Certain functionality will be disabled.
-                 To fix this, try deleting Revise's cache files in ~/.julia/compiled/v$major.$minor/Revise, then restart Julia and load Revise.
+                 To fix this, try deleting Revise's cache files in $(revise_cache_dir()), then restart Julia and load Revise.
                  If this doesn't fix the problem, please report an issue at https://github.com/timholy/Revise.jl/issues."""
     end
     excluded = Preferences.@load_preference("dont_watch_packages", String[])

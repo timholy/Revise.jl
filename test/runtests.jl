@@ -5821,6 +5821,11 @@ do_test("misc - coverage") && !isinteractive() && @testset "misc - coverage" beg
 
     @test endswith(Revise.fallback_juliadir(), "julia")
 
+    # issue #717: the stale-cache hint must point at the active depot, not a
+    # hardcoded ~/.julia
+    major, minor = Base.VERSION.major, Base.VERSION.minor
+    @test Revise.revise_cache_dir() == joinpath(first(DEPOT_PATH), "compiled", "v$major.$minor", "Revise")
+
     @test isnothing(Revise.revise(REPL.REPLBackend()))
 end
 
