@@ -287,8 +287,11 @@ function _methods_by_execution!(
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
 
     mod = moduleof(frame)
-    # Hoist this lookup for performance. Don't throw even when `mod` is a baremodule:
-    modinclude = isdefined(mod, :include) ? getglobal(mod, :include) : nothing
+    # Hoist this lookup for performance. Don't throw even when `mod` is a baremodule.
+    # Read at the latest world: when `frame` defines a new submodule, that module's
+    # `include` is a `const` created in a newer world than this frame runs in, and a
+    # plain access would be a backdated-const read (warning now, error in future Julia).
+    modinclude = @invokelatest(isdefinedglobal(mod, :include)) ? @invokelatest(getglobal(mod, :include)) : nothing
     signatures = MethodInfoKey[]  # temporary for method signature storage
     pc = frame.pc
     while true
