@@ -402,15 +402,74 @@ end
         rex2 = Revise.RelocatableExpr(:(x = $sym2))
         @test isequal(rex1, rex2)
         @test hash(rex1) == hash(rex2)
+        # the gensym counter is ignored, but the base name is not
         sym3 = gensym(:world)
         rex3 = Revise.RelocatableExpr(:(x = $sym3))
-        @test isequal(rex1, rex3)
-        @test hash(rex1) == hash(rex3)
+        @test !isequal(rex1, rex3)
+        @test hash(rex1) != hash(rex3)
+        # the pairing between gensyms must be consistent across the expression
+        @test isequal(Revise.RelocatableExpr(:($sym1 + f($sym1))),
+                      Revise.RelocatableExpr(:($sym2 + f($sym2))))
+        @test hash(Revise.RelocatableExpr(:($sym1 + f($sym1)))) ==
+              hash(Revise.RelocatableExpr(:($sym2 + f($sym2))))
+        @test !isequal(Revise.RelocatableExpr(:($sym1 + f($sym1))),
+                       Revise.RelocatableExpr(:($sym1 + f($sym2))))
+        @test hash(Revise.RelocatableExpr(:($sym1 + f($sym1)))) !=
+              hash(Revise.RelocatableExpr(:($sym1 + f($sym2))))
+        @test !isequal(Revise.RelocatableExpr(:(g($sym1, $sym2) = $sym1)),
+                       Revise.RelocatableExpr(:(g($sym1, $sym2) = $sym2)))
+        # counter-free `#` names denote reproducible bindings and compare exactly
+        @test !isequal(Revise.RelocatableExpr(:(getval() = var"#x")),
+                       Revise.RelocatableExpr(:(getval() = var"#y")))
+        @test hash(Revise.RelocatableExpr(:(getval() = var"#x"))) !=
+              hash(Revise.RelocatableExpr(:(getval() = var"#y")))
+        @test isequal(Revise.RelocatableExpr(:(getval() = var"#x")),
+                      Revise.RelocatableExpr(:(getval() = var"#x")))
+        # expressions differing only in such names must not collide as
+        # `ExprsInfos` keys (generated precompile files contain many
+        # directives that differ only in the gensym base name)
+        src = """
+            module GensymKeyCollision
+            precompile(Tuple{typeof(var"#f#1"), Int})
+            precompile(Tuple{typeof(var"#g#2"), Int})
+            end
+            """
+        mexs = parse_source!(Revise.ModuleExprsInfos(), src, "gensym_collision.jl", Main)
+        @test length(mexs[getfield(Main, :GensymKeyCollision)]) == 2
 
         # coverage
         rex = convert(Revise.RelocatableExpr, :(a = 1))
         @test Revise.striplines!(rex) isa Revise.RelocatableExpr
         @test copy(rex) !== rex
+    end
+
+    do_test("Gensym names in source") && @testset "Gensym names in source" begin
+        # An edit confined to var"#..." names must still trigger revision
+        testdir = newtestdir()
+        fn = joinpath(testdir, "gensymnames.jl")
+        write(fn, """
+            module GensymNames
+            const var"#x" = 1
+            const var"#y" = 2
+            getval() = var"#x"
+            end
+            """)
+        sleep(mtimedelay)
+        includet(fn)
+        @latestworld
+        @test GensymNames.getval() == 1
+        sleep(mtimedelay)
+        write(fn, """
+            module GensymNames
+            const var"#x" = 1
+            const var"#y" = 2
+            getval() = var"#y"
+            end
+            """)
+        @yry()
+        @test GensymNames.getval() == 2
+
+        pop!(LOAD_PATH)
     end
 
     do_test("Display") && @testset "Display" begin
