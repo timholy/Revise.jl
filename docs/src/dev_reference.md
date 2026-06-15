@@ -119,6 +119,7 @@ Much of the "brains" of Revise comes from doing analysis on lowered code.
 This part of the package is not as well documented.
 
 ```@docs
+Revise.gensym_base
 Revise.minimal_evaluation!
 Revise.methods_by_execution!
 Revise.ExInfo
