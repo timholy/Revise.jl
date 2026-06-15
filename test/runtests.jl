@@ -5815,6 +5815,28 @@ do_test("includet with mod arg (issue #689)") && @testset "includet with mod arg
     @test Driver.Codes.Common.foo == 2
 end
 
+do_test("@includet uses caller's module (issue #682)") && @testset "@includet uses caller's module (issue #682)" begin
+    testdir = newtestdir()
+
+    srcfile = joinpath(testdir, "evalscope.jl")
+    write(srcfile, "f_682() = 1")
+
+    module682 = Module(:Module682)
+    Core.eval(module682, :(using Revise))
+    sleep(mtimedelay)
+    Core.eval(module682, :(@includet $srcfile))
+
+    # The macro evaluates into the caller's module, not `Main`.
+    @test Base.invokelatest(module682.f_682) == 1
+    @test !isdefined(Main, :f_682)
+
+    # Tracking still works.
+    sleep(mtimedelay)
+    write(srcfile, "f_682() = 2")
+    yry()
+    @test Base.invokelatest(module682.f_682) == 2
+end
+
 do_test("misc - coverage") && !isinteractive() && @testset "misc - coverage" begin
     @test Revise.ReviseEvalException("undef", UndefVarError(:foo)).loc isa String
     @test !Revise.throwto_repl(UndefVarError(:foo))   # this causes an error in interactive
