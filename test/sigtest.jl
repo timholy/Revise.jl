@@ -17,7 +17,10 @@ function filepredicate(file, reffiles)
     return reljpath(bfile) ∈ reffiles
 end
 function signature_diffs(mod::Module, signatures; filepredicate=nothing)
-    extras = copy(signatures)
+    # `signatures` (CodeTracking.method_info) is keyed by `MethodInfoKey(mt, sig)`;
+    # compare against the signature types it records.
+    sigkeys = Set(k.sig for k in keys(signatures))
+    extras = copy(sigkeys)
     modeval, modinclude = getfield(mod, :eval), getfield(mod, :include)
     failed = []
     nmethods = 0
@@ -28,7 +31,7 @@ function signature_diffs(mod::Module, signatures; filepredicate=nothing)
         (f === modeval || f === modinclude) && continue
         for m in methods(f)
             nmethods += 1
-            if haskey(signatures, m.sig)
+            if m.sig in sigkeys
                 delete!(extras, m.sig)
             else
                 if filepredicate !== nothing
