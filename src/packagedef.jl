@@ -467,6 +467,29 @@ See also [`Revise.silence`](@ref).
 const dont_watch_pkgs = Set{Symbol}()
 const silence_pkgs = Set{String}()
 
+# Revise pins its OWN method dispatch to the world age captured at `__init__` (`worldage[]`),
+# so that revising a method Revise itself calls (e.g. via `track(Base)`) cannot invalidate
+# Revise's machinery mid-operation (issue #552). User code is still evaluated at the latest
+# world: JuliaInterpreter threads the latest world through each `Frame`. `worldage[]` is
+# `nothing` until `__init__` runs, in which case `frozen` degrades to a plain call.
+const worldage = Ref{Union{Nothing,UInt}}(nothing)
+
+@inline function frozen(f, args...; kwargs...)
+    w = worldage[]
+    return w === nothing ? f(args...; kwargs...) : Base.invoke_in_world(w, f, args...; kwargs...)
+end
+
+"""
+    Revise.advance_world!()
+
+Re-pin Revise's own method dispatch to the current world age. Revise calls this once during
+`__init__`; thereafter it stays fixed, so in ordinary use Revise runs at the world it froze at
+initialization and is unaffected by later (re)definitions. Call this manually only after
+deliberately revising Revise itself or one of its dependencies (CodeTracking, JuliaInterpreter,
+LoweredCodeUtils, OrderedCollections), to make those changes take effect in Revise's machinery.
+"""
+advance_world!() = (worldage[] = Base.get_world_counter(); nothing)
+
 function collect_mis(sigs)
     mis = Core.MethodInstance[]
     world = Base.get_world_counter()
@@ -683,7 +706,7 @@ function handle_type_deletion!(
     with_logger(_debug_logger) do
         old_list = copy(reeval_list)
         oldtype = Base.invoke_in_world(world, getglobal, oldtypename.module, oldtypename.name)::Type
-        alltypes = all_named_types() # reuse for recursive searches (frozen at this world)
+        alltypes = all_named_types(world) # snapshot the old type universe at the revision world
         record_invalidations_for_type_deletion!(oldtype, reeval_list, handled_types, alltypes)
         diff = setdiff(reeval_list, old_list)
         @debug "DeleteType" _group="Action" time=time() deltainfo=(oldtype,diff)
@@ -1491,7 +1514,9 @@ end
 If `throw` is `true`, throw any errors that occur during revision or callback;
 otherwise these are only logged.
 """
-function revise(; throw::Bool=false)
+revise(; throw::Bool=false) = frozen(_revise; throw)
+
+function _revise(; throw::Bool=false)
     active[] || return nothing
     sleep(0.01)  # in case the file system isn't quite done writing out the new files
 
@@ -1722,15 +1747,24 @@ to propagate an updated macro definition, or to force recompiling generated func
 Be warned, however, that this invalidates all the compiled code in your session that depends on `mod`,
 and can lead to long recompilation times.
 """
-function revise(mod::Module; force::Bool=true)
+revise(mod::Module; force::Bool=true) = frozen(_revise, mod; force)
+
+function _revise(mod::Module; force::Bool=true)
     mod == Main && error("cannot revise(Main)")
     id = PkgId(mod)
     pkgdata = @lock revise_lock pkgdatas[id]
     @lock revise_lock for file in pkgdata.info.files
         push!(revision_queue, (pkgdata, file))
     end
-    revise()
+    _revise()
     force || return true
+    # The force re-evaluation runs user code and logs through the user's ambient logger;
+    # escape Revise's frozen world so both dispatch at the latest world (issue #552).
+    Base.invokelatest(force_reeval!, pkgdata)
+    return true  # fixme try/catch?
+end
+
+function force_reeval!(pkgdata::PkgData)
     # issue #975: re-evaluating every definition rewrites each docstring, and
     # `Base.Docs` warns on every rewrite; suppress that expected noise.
     with_logger(SuppressReplacingDocsLogger(current_logger())) do
@@ -1752,7 +1786,7 @@ function revise(mod::Module; force::Bool=true)
             end
         end
     end
-    return true  # fixme try/catch?
+    return nothing
 end
 
 """
@@ -1765,7 +1799,10 @@ it defaults to `Main`.
 
 If this produces many errors, check that you specified `mod` correctly.
 """
-function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
+track(mod::Module, file::AbstractString; mode=:sigs, kwargs...) =
+    frozen(_track, mod, file; mode, kwargs...)
+
+function _track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
     isfile(file) || error(file, " is not a file")
     # Determine whether we're already tracking this file
     id = Base.moduleroot(mod) == Main ? PkgId(mod, string(mod)) : PkgId(mod)  # see #689 for `Main`
@@ -1791,7 +1828,7 @@ function track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
         if mode === :includet
             mode = :sigs   # we already handled evaluation in `parse_and_maybe_eval_source`
         end
-        invokelatest(instantiate_sigs!, mod_exs_infos; mode, kwargs...)
+        frozen(instantiate_sigs!, mod_exs_infos; mode, kwargs...)
         if !haspkgdata(id)
             # Wait a bit to see if `mod` gets initialized
             sleep(0.1)
@@ -2316,6 +2353,10 @@ function __init__()
         return nothing
     end
 
+    # Pin Revise's own dispatch to the world it sees now, after Revise and its dependencies
+    # are fully loaded (issue #552). See `advance_world!`.
+    advance_world!()
+
     # Setting up the paths relative to package module location
 
     global basebuilddir = find_basebuilddir()
@@ -2405,11 +2446,11 @@ function watch_package_callback(id::PkgId)
     # would fire on Revise itself. This is not necessary for most users, and has
     # the downside that the user doesn't get to the REPL prompt until
     # `watch_package` finishes compiling.  To prevent this, Revise hides the
-    # actual `watch_package` method behind an `invokelatest`. This delays
-    # compilation of everything that `watch_package` requires, leading to faster
-    # perceived startup times.
+    # actual `watch_package` method behind `frozen` (a world-pinned `invoke_in_world`),
+    # whose runtime dispatch also delays compilation of everything `watch_package` requires,
+    # leading to faster perceived startup times.
     if id != REVISE_ID
-        Base.invokelatest(watch_package, id)
+        frozen(watch_package, id)
     end
     return
 end

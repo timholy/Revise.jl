@@ -209,8 +209,9 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
             if isfile(fullfile)
                 parse_and_maybe_eval_source!(fi.mod_exs_infos, fullfile, mod)
                 if eval_now
-                    # Use runtime dispatch to reduce latency
-                    Base.invokelatest(instantiate_sigs!, fi.mod_exs_infos; mode=:eval)
+                    # Pin to Revise's frozen world (issue #552); `frozen`'s runtime dispatch
+                    # also reduces latency.
+                    frozen(instantiate_sigs!, fi.mod_exs_infos; mode=:eval)
                 end
             end
             # Add to watchlist
@@ -297,7 +298,7 @@ function add_require(sourcefile::String, modcaller::Module, idmod::String, ::Str
             end
         end
         if complex
-            Base.invokelatest(eval_require_now, pkgdata, fileidx, filekey, sourcefile, modcaller, expr)
+            frozen(eval_require_now, pkgdata, fileidx, filekey, sourcefile, modcaller, expr)
         end
     end
 end

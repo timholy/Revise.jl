@@ -227,7 +227,10 @@ function methods_by_execution!(
         mode === :sigs && return Pair{Any,Union{Nothing,Expr}}(nothing, nothing)
         return Pair{Any,Union{Nothing,Expr}}(Core.eval(mod, lwr), nothing)
     end
-    frame = Frame(mod, lwr.args[1]::CodeInfo)
+    # Interpret user code at the latest world (JuliaInterpreter dispatches it at `frame.world`),
+    # so that even when Revise's own machinery is pinned to its frozen world (issue #552), new
+    # definitions remain visible within the batch and to the running session.
+    frame = Frame(mod, lwr.args[1]::CodeInfo; world=Base.get_world_counter())
     mode === :eval || LoweredCodeUtils.rename_framemethods!(interp, frame)
     # Determine whether we need interpreted mode
     isrequired, evalassign = minimal_evaluation!(frame, mode)
@@ -750,7 +753,7 @@ function predict_typebodies!(predictions::TypePredictions, mod::Module, ex::Expr
     lwr.head === :thunk || return predictions
     src = lwr.args[1]::CodeInfo
     any(stmt -> predict_predicate(stmt, src.code)[1], src.code) || return predictions
-    frame = Frame(mod, src)
+    frame = Frame(mod, src; world=Base.get_world_counter())
     isrequired, _ = minimal_evaluation!(predict_predicate, frame, :sigs)
     interp = Compiled()
     pc = frame.pc

@@ -101,10 +101,10 @@ function parse_pkg_files(id::PkgId)
     # Non-precompiled package(s). Here we rely on the `include` callbacks to have
     # already populated `included_files`; all we have to do is collect the relevant
     # files.
-    # To reduce compiler latency, use runtime dispatch for `queue_includes!`.
-    # `queue_includes!` requires compilation of the whole parsing/expression-splitting infrastructure,
-    # and it's better to wait to compile it until we actually need it.
-    @invokelatest queue_includes!(pkgdata, id)
+    # Pin to Revise's frozen world (issue #552); `frozen`'s runtime dispatch also reduces
+    # compiler latency, since `queue_includes!` pulls in the whole parsing/expression-splitting
+    # infrastructure and it's better to wait to compile it until we actually need it.
+    frozen(queue_includes!, pkgdata, id)
     return pkgdata
 end
 
