@@ -36,7 +36,7 @@ end
 # type: `subtypes(T)` rescans every loaded module's names on each call, so the
 # recursive walk costs one full system-wide name scan per abstract parent
 # (O(#abstract-types × #names)), whereas one binding sweep is O(#names).
-function all_named_types()
+function all_named_types(world::UInt=Base.get_world_counter())
     types = Base.IdSet{Type}()
     seen = Base.IdSet{Module}()
     work = Base.loaded_modules_array()
@@ -47,8 +47,11 @@ function all_named_types()
         # `unsorted_names` skips the per-module name sort that `names` does; since
         #  the result is an unordered set, order is irrelevant here.
         for s in Base.unsorted_names(m; all=true)
-            (!Base.isdeprecated(m, s) && isdefined(m, s)) || continue
-            t = getglobal(m, s)
+            # Read bindings at `world` (the revision's pre-deletion snapshot). With Revise's own
+            # dispatch pinned to its frozen init world (issue #552), a plain access would miss or
+            # stale-read types defined or redefined after Revise initialized.
+            (!Base.isdeprecated(m, s) && Base.invoke_in_world(world, isdefinedglobal, m, s)) || continue
+            t = Base.invoke_in_world(world, getglobal, m, s)
             if t isa Type
                 dt = Base.unwrap_unionall(t)
                 # Keep only the canonical binding (a type's home module/name)

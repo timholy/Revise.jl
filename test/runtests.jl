@@ -3056,14 +3056,18 @@ end
     do_test("revise_structs preference") && if Base.VERSION >= v"1.12.0-DEV.2047"
         @testset "revise_structs preference" begin
             # The preference is read in __init__, so we have to test it via subprocesses.
+            # Set the value explicitly in the active project's `LocalPreferences.toml`: a
+            # preference there takes precedence over one inherited from the default
+            # environment, so the test reflects the `revise_structs` plumbing rather than
+            # whatever the host machine happens to set globally.
             test_proj_dir = dirname(Base.active_project())
-            prefs_file = joinpath(test_proj_dir, "JuliaLocalPreferences.toml")
+            prefs_file = joinpath(test_proj_dir, "LocalPreferences.toml")
             backup = isfile(prefs_file) ? read(prefs_file, String) : nothing
             julia = Base.julia_cmd()
             check_bpart = "using Revise; print(Revise.__bpart__[])"
             try
-                # Without the preference set, __bpart__ should be false
-                rm(prefs_file; force=true)
+                # With revise_structs = false, __bpart__ should be false
+                write(prefs_file, "[Revise]\nrevise_structs = false\n")
                 @test read(`$julia --project=$test_proj_dir -e $check_bpart`, String) == "false"
                 # With revise_structs = true, __bpart__ should be true
                 write(prefs_file, "[Revise]\nrevise_structs = true\n")
@@ -6001,6 +6005,88 @@ do_test("re-watch after reappearance") && !Revise.watching_files[] && Sys.islinu
     finally
         Revise.watch_reappear_grace[] = old_grace
     end
+end
+
+do_test("Frozen world") && @testset "Frozen world" begin
+    # Revise pins its own method dispatch to the world it froze at `__init__` (issue #552),
+    # so revising a method Revise itself uses cannot invalidate Revise mid-operation. The rest
+    # of this suite is itself the functional test: every revision here runs while Revise is
+    # frozen. Here we check the freeze/advance semantics directly.
+    @test Revise.worldage[] isa UInt
+    saved = Revise.worldage[]
+    try
+        @eval frozenworld_probe() = 1
+        Revise.advance_world!()                      # freeze with the `== 1` method visible
+        wfrozen = Revise.worldage[]
+        @test Revise.frozen(frozenworld_probe) == 1
+        @eval frozenworld_probe() = 2                # redefine; advances the global world
+        @test frozenworld_probe() == 2               # latest dispatch sees the new method
+        @test Revise.frozen(frozenworld_probe) == 1  # frozen dispatch still sees the old one
+        @test Revise.worldage[] == wfrozen           # advancing is manual-only
+        Revise.advance_world!()
+        @test Revise.frozen(frozenworld_probe) == 2  # now the frozen world includes it
+    finally
+        Revise.worldage[] = saved
+    end
+end
+
+do_test("Frozen world user-code frame") && @testset "Frozen world user-code frame" begin
+    # Counterpart to "Frozen world": while Revise's own dispatch is frozen, the code it
+    # interprets on the user's behalf must run at the *latest* world, or a definition made
+    # earlier in the same revision is "too new" when later code dispatches to it (issues
+    # #552, #607). Revise secures this by building the interpreter `Frame` with
+    # `world=get_world_counter()` (see `methods_by_execution!`). This checks the underlying
+    # capability directly: the same call interpreted in a stale world throws "method too
+    # new", while at the latest world it succeeds.
+    @eval function frozenframe_target end           # commit the binding at its own world
+    wstale = Base.get_world_counter()               # after the binding, before any method
+    @eval frozenframe_target(x::Int) = 42           # only applicable method, defined after wstale
+    lwr = Meta.lower(@__MODULE__, :(frozenframe_target(1)))
+    mkframe(w) = Frame(@__MODULE__, lwr.args[1]::Core.CodeInfo; world=w)
+    # At the latest world the freshly-defined method is visible and the call succeeds:
+    @test Revise.JuliaInterpreter.finish_and_return!(mkframe(Base.get_world_counter())) == 42
+    # Pinned to the pre-definition world it is not: the call throws (a "method too new"
+    # MethodError, or its binding-partition analog). The two frames differ only in `world`,
+    # so the world is the sole cause — exactly what threading it into the frame fixes.
+    # `NullLogger` silences any stale-world access warning a given Julia version may emit.
+    @test_throws Exception Base.CoreLogging.with_logger(Base.CoreLogging.NullLogger()) do
+        Revise.JuliaInterpreter.finish_and_return!(mkframe(wstale))
+    end
+end
+
+do_test("Revise issue #607") && @testset "Revise issue #607" begin
+    # A top-level loop that defines methods (so Revise must interpret it during a revision)
+    # and, while building each method's arguments, applies a freshly-created closure (the
+    # comprehension). Under Revise's frozen world this closure-application must still see the
+    # latest world; otherwise it throws "method too new" and the revision silently fails
+    # (issue #607, originally hit via Plots' `utils_eval.jl`).
+    testdir = newtestdir()
+    dn = joinpath(testdir, "WA607", "src"); mkpath(dn)
+    fn = joinpath(dn, "WA607.jl")
+    write(fn, """
+        module WA607
+        for fname in (:wa_a, :wa_b)
+            argtypes = (Int, Float64)
+            args = Any[:(\$(Symbol(:x, i))::\$T) for (i, T) in enumerate(argtypes)]
+            @eval \$fname(\$(args...)) = 1
+        end
+        end""")
+    sleep(mtimedelay)
+    @eval using WA607
+    sleep(mtimedelay)
+    @test WA607.wa_a(1, 2.0) == 1
+    write(fn, """
+        module WA607
+        for fname in (:wa_a, :wa_b)
+            argtypes = (Int, Float64)
+            args = Any[:(\$(Symbol(:x, i))::\$T) for (i, T) in enumerate(argtypes)]
+            @eval \$fname(\$(args...)) = 2
+        end
+        end""")
+    @yry()
+    @test WA607.wa_a(1, 2.0) == 2
+    @test WA607.wa_b(3, 4.0) == 2
+    rm_precompile("WA607")
 end
 
 do_test("deprecated") && @testset "deprecated" begin

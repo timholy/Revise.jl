@@ -99,6 +99,13 @@ Revise.remove_callback
 Revise.revise_file_now
 ```
 
+Revise pins its own method dispatch to the world age captured at initialization, so that
+revising a method Revise itself uses cannot disrupt its machinery mid-operation.
+
+```@docs
+Revise.advance_world!
+```
+
 ### Caching the definition of methods
 
 ```@docs
