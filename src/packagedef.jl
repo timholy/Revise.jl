@@ -1518,7 +1518,6 @@ revise(; throw::Bool=false) = frozen(_revise; throw)
 
 function _revise(; throw::Bool=false)
     active[] || return nothing
-    sleep(0.01)  # in case the file system isn't quite done writing out the new files
 
     @lock revise_lock begin
         have_queue_errors = !isempty(queue_errors)
