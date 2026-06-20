@@ -349,6 +349,14 @@ function fileindex(info::PkgData, file::AbstractString)
     return nothing
 end
 
+# A single file may be `include`d into several modules, in which case it appears
+# once in `srcfiles` per inclusion, each with its own `FileInfo` (issue #730).
+# `fileindices` returns every such index so a revision updates all of them.
+function fileindices(info::PkgData, file::AbstractString)
+    sf = String(file)
+    return Int[i for (i, f) in enumerate(srcfiles(info)) if String(f) == sf]
+end
+
 function hasfile(info::PkgData, file::AbstractString)
     if isabspath(file)
         file = relpath(file, info)

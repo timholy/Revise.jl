@@ -977,6 +977,47 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Multimodule include") && @testset "Multimodule include" begin
+        # A single file `include`d into more than one module has one `FileInfo`
+        # per inclusion; a revision must update all of them, not just the first
+        # (issue #730).
+        testdir = newtestdir()
+        dn = joinpath(testdir, "Multimod730", "src")
+        mkpath(dn)
+        write(joinpath(dn, "Multimod730.jl"), """
+            module Multimod730
+            module A
+            include("multimod730_inc.jl")
+            end
+            module B
+            include("multimod730_inc.jl")
+            end
+            end
+            """)
+        write(joinpath(dn, "multimod730_inc.jl"), "f730(x) = 1")
+        sleep(mtimedelay)
+        @eval using Multimod730
+        @test Multimod730.A.f730(0) == 1
+        @test Multimod730.B.f730(0) == 1
+        # An edit must propagate to both modules
+        sleep(mtimedelay)
+        write(joinpath(dn, "multimod730_inc.jl"), "f730(x) = 2")
+        @yry()
+        @test Multimod730.A.f730(0) == 2
+        @test Multimod730.B.f730(0) == 2
+        # Method deletion must cascade to both modules
+        sleep(mtimedelay)
+        write(joinpath(dn, "multimod730_inc.jl"), "g730(x) = 3")
+        @yry()
+        @test_throws MethodError Multimod730.A.f730(0)
+        @test_throws MethodError Multimod730.B.f730(0)
+        @test Multimod730.A.g730(0) == 3
+        @test Multimod730.B.g730(0) == 3
+
+        rm_precompile("Multimod730")
+        pop!(LOAD_PATH)
+    end
+
     do_test("IJulia preexecute hook") && @testset "IJulia preexecute hook" begin
         # IJulia reloads code by registering `Revise.revise` as a preexecute
         # hook (IJulia.push_preexecute_hook) and invoking every hook before each

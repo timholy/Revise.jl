@@ -75,8 +75,9 @@ function remove_from_included_files(modsym::Symbol)
     end
 end
 
-function read_from_cache(pkgdata::PkgData, file::AbstractString)
-    fi = fileinfo(pkgdata, file)
+read_from_cache(pkgdata::PkgData, file::AbstractString) =
+    read_from_cache(pkgdata, file, fileinfo(pkgdata, file))
+function read_from_cache(pkgdata::PkgData, file::AbstractString, fi::FileInfo)
     filep = joinpath(basedir(pkgdata), file)
     if fi.cachefile == basesrccache
         # Get the original path
@@ -96,10 +97,12 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
     if startswith(file, "REPL[")
         return add_definitions_from_repl(file)
     end
-    fi = fileinfo(pkgdata, file)
+    return maybe_parse_from_cache!(pkgdata, file, fileinfo(pkgdata, file))
+end
+function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString, fi::FileInfo)
     if (isempty(fi.mod_exs_infos) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
         # Source was never parsed, get it from the precompile cache
-        src = read_from_cache(pkgdata, file)
+        src = read_from_cache(pkgdata, file, fi)
         filep = joinpath(basedir(pkgdata), file)
         filec = get(cache_file_key, filep, filep)
         topmod = first(keys(fi.mod_exs_infos))

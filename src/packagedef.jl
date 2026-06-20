@@ -1072,11 +1072,11 @@ end
 # Parse the file's current contents and look up the exprs Revise has on record for
 # it. Returns `(mod_exs_infos_new, mod_exs_infos_old, fileok)`. Safe to call from a
 # pre-deletion pass: any mutation of `pkgdata` is limited to lazily filling caches.
-function parse_for_revision(pkgdata::PkgData, file::AbstractString)
-    fi = maybe_parse_from_cache!(pkgdata, file)
+function parse_for_revision(pkgdata::PkgData, file::AbstractString, idx::Int)
+    fi = fileinfo(pkgdata, idx)
+    maybe_parse_from_cache!(pkgdata, file, fi)
     maybe_extract_sigs!(fi)
     mod_exs_infos_old = fi.mod_exs_infos
-    idx = fileindex(pkgdata, file)
     filep = pkgdata.info.files[idx]
     if isa(filep, AbstractString)
         if file ≠ "."
@@ -1098,7 +1098,7 @@ end
 # next `revise` re-evaluates the new content. (The caller replaces the stored
 # `FileInfo` with the parse result, which for a missing file is empty.)
 function delete_for_revision(
-        pkgdata::PkgData, file::AbstractString,
+        pkgdata::PkgData, file::AbstractString, idx::Int,
         @nospecialize(mod_exs_infos_new), mod_exs_infos_old::ModuleExprsInfos, fileok::Bool,
         reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
         predictions::TypePredictions,
@@ -1107,7 +1107,6 @@ function delete_for_revision(
         delete_missing!(mod_exs_infos_old, mod_exs_infos_new::ModuleExprsInfos, reeval_list, handled_types, world, predictions)
     end
     if !fileok && any(!isempty, values(mod_exs_infos_old))
-        idx = fileindex(pkgdata, file)
         filep = pkgdata.info.files[idx]
         if isa(filep, AbstractString)
             if file ≠ "."
@@ -1123,13 +1122,13 @@ end
 
 # Because we delete first, we have to make sure we've parsed the file
 function handle_deletions(
-        pkgdata::PkgData, file::AbstractString,
+        pkgdata::PkgData, file::AbstractString, idx::Int,
         reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
         predictions::TypePredictions = TypePredictions(),
     )
-    pr, mod_exs_infos_old, fileok = parse_for_revision(pkgdata, file)
+    pr, mod_exs_infos_old, fileok = parse_for_revision(pkgdata, file, idx)
     mod_exs_infos_new = (pr.success && !pr.donotparse) ? pr.modexinfos : nothing
-    delete_for_revision(pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok,
+    delete_for_revision(pkgdata, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok,
                         reeval_list, handled_types, world, predictions)
     return mod_exs_infos_new, mod_exs_infos_old
 end
@@ -1354,21 +1353,25 @@ that move from one file to another.
 """
 function revise_file_now(pkgdata::PkgData, file)
     # @assert !isabspath(file)
-    i = fileindex(pkgdata, file)
-    if i === nothing
+    indices = fileindices(pkgdata, file)
+    if isempty(indices)
         println("Revise is currently tracking the following files in $(PkgId(pkgdata)): ", srcfiles(pkgdata))
         error(file, " is not currently being tracked.")
     end
     reeval_list = IdSet{Union{Method,Type}}()
     handled_types = IdSet{Type}()
     world = Base.get_world_counter()
-    mod_exs_infos_new, mod_exs_infos_old = handle_deletions(pkgdata, file, reeval_list, handled_types, world)
-    if mod_exs_infos_new != nothing
-        _, includes = eval_new!(mod_exs_infos_new, mod_exs_infos_old)
-        realias_orphaned_bindings!(mod_exs_infos_new, mod_exs_infos_old)   # issue #239
-        fi = fileinfo(pkgdata, i)
-        pkgdata.fileinfos[i] = FileInfo(mod_exs_infos_new, fi)
-        maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
+    # A file `include`d into several modules has one `FileInfo` per inclusion; revise
+    # them all (issue #730).
+    for i in indices
+        mod_exs_infos_new, mod_exs_infos_old = handle_deletions(pkgdata, file, i, reeval_list, handled_types, world)
+        if mod_exs_infos_new != nothing
+            _, includes = eval_new!(mod_exs_infos_new, mod_exs_infos_old)
+            realias_orphaned_bindings!(mod_exs_infos_new, mod_exs_infos_old)   # issue #239
+            fi = fileinfo(pkgdata, i)
+            pkgdata.fileinfos[i] = FileInfo(mod_exs_infos_new, fi)
+            maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
+        end
     end
     nothing
 end
@@ -1549,6 +1552,7 @@ function _revise(; throw::Bool=false)
         end
         queue = queue[keep]
         finished = eltype(revision_queue)[]
+        finished_idx = Int[]
         mod_exs_infos = ModuleExprsInfos[]
         interrupt = false
 
@@ -1560,38 +1564,43 @@ function _revise(; throw::Bool=false)
         # only when a type deletion is actually pending, and only under `__bpart__[]`
         # (the consumer of the walk it can skip).
         predictions = TypePredictions()
-        parsed = Tuple{PkgData,String,Any,ModuleExprsInfos,Bool}[]
+        # A file `include`d into several modules has one `FileInfo` per inclusion,
+        # all sharing the queued filename; each is parsed and revised independently,
+        # so `idx` identifies which `FileInfo` a parse result belongs to (issue #730).
+        parsed = Tuple{PkgData,String,Int,Any,ModuleExprsInfos,Bool}[]
         pending_type_deletion = false
         deferred_missing = Tuple{PkgData,String}[]
         for (pkgdata, file) in queue
-            try
-                pr, mod_exs_infos_old, fileok = parse_for_revision(pkgdata, file)
-                pr.donotparse && continue
-                mod_exs_infos_new = pr.success ? pr.modexinfos : nothing
-                if fileok
-                    delete!(missing_file_times, (pkgdata, file))
-                else
-                    # The file may be missing only transiently (e.g., mid-rewrite by a
-                    # code generator). Within the grace period, leave it queued and
-                    # untouched; see `missing_file_grace`.
-                    tfirst = get!(missing_file_times, (pkgdata, file), time())
-                    if time() - tfirst < missing_file_grace[]
-                        push!(deferred_missing, (pkgdata, file))
-                        continue
+            for idx in fileindices(pkgdata, file)
+                try
+                    pr, mod_exs_infos_old, fileok = parse_for_revision(pkgdata, file, idx)
+                    pr.donotparse && continue
+                    mod_exs_infos_new = pr.success ? pr.modexinfos : nothing
+                    if fileok
+                        delete!(missing_file_times, (pkgdata, file))
+                    else
+                        # The file may be missing only transiently (e.g., mid-rewrite by a
+                        # code generator). Within the grace period, leave it queued and
+                        # untouched; see `missing_file_grace`.
+                        tfirst = get!(missing_file_times, (pkgdata, file), time())
+                        if time() - tfirst < missing_file_grace[]
+                            push!(deferred_missing, (pkgdata, file))
+                            continue
+                        end
                     end
+                    pending_type_deletion |= __bpart__[] && has_pending_type_deletion(mod_exs_infos_new, mod_exs_infos_old)
+                    push!(parsed, (pkgdata, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok))
+                catch err
+                    throw && Base.throw(err)
+                    interrupt |= isa(err, InterruptException)
+                    push!(revision_errors, (pkgdata, file))
+                    queue_errors[(pkgdata, file)] = (err, catch_backtrace())
                 end
-                pending_type_deletion |= __bpart__[] && has_pending_type_deletion(mod_exs_infos_new, mod_exs_infos_old)
-                push!(parsed, (pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok))
-            catch err
-                throw && Base.throw(err)
-                interrupt |= isa(err, InterruptException)
-                push!(revision_errors, (pkgdata, file))
-                queue_errors[(pkgdata, file)] = (err, catch_backtrace())
             end
         end
         if pending_type_deletion
             with_logger(_debug_logger) do
-                for (pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
+                for (pkgdata, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
                     mod_exs_infos_new isa ModuleExprsInfos || continue
                     predict_changes!(predictions, mod_exs_infos_new, mod_exs_infos_old)
                 end
@@ -1599,13 +1608,14 @@ function _revise(; throw::Bool=false)
         end
 
         # Apply the deletions
-        for (pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
+        for (pkgdata, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
             try
-                delete_for_revision(pkgdata, file, mod_exs_infos_new, mod_exs_infos_old, fileok,
+                delete_for_revision(pkgdata, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok,
                                     reeval_list, handled_types, world, predictions)
                 if mod_exs_infos_new !== nothing
                     push!(mod_exs_infos, mod_exs_infos_new)
                     push!(finished, (pkgdata, file))
+                    push!(finished_idx, idx)
                 end
             catch err
                 throw && Base.throw(err)
@@ -1616,10 +1626,8 @@ function _revise(; throw::Bool=false)
         end
 
         # Do the evaluation
-        for ((pkgdata, file), mod_exs_infos_new) in zip(finished, mod_exs_infos)
+        for ((pkgdata, file), i, mod_exs_infos_new) in zip(finished, finished_idx, mod_exs_infos)
             defaultmode = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
-            i = fileindex(pkgdata, file)
-            i === nothing && continue   # defensive: the file is no longer registered
             fi = fileinfo(pkgdata, i)
             modsremaining = Set(keys(mod_exs_infos_new))
             changed, err = true, nothing
