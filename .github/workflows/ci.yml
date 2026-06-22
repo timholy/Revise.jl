@@ -35,7 +35,7 @@ jobs:
     env:
       REVISE_PRECOMPILE_ERROR: true
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
     - uses: julia-actions/setup-julia@latest
       with:
         version: ${{ matrix.version }}
