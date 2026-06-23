@@ -601,8 +601,54 @@ function delete_missing!(
     for (mod, exs_infos_old) in mod_exs_infos_old
         exs_infos_new = get(mod_exs_infos_new, mod, empty_exs_infos)
         delete_missing!(exs_infos_old, exs_infos_new, reeval_list, handled_types, world, predictions)
+        retract_dropped_exports!(mod, exs_infos_old, exs_infos_new)
     end
     return mod_exs_infos_old
+end
+
+# issue #633: a name dropped from a module's `export` list must be un-exported,
+# otherwise modules that already did `using ThatModule` keep resolving it. This
+# needs `Base.set_binding_visibility!`, the accessor that can lower a binding's
+# declared visibility to `:none`; it does not exist before Julia 1.14, where
+# retracting an export is impossible and this is a no-op.
+@static if isdefined(Base, :set_binding_visibility!)
+    function retract_dropped_exports!(mod::Module, exs_infos_old::ExprsInfos, exs_infos_new::ExprsInfos)
+        old = exported_names(exs_infos_old)
+        isempty(old) && return nothing
+        new = exported_names(exs_infos_new)
+        for name in old
+            name in new && continue
+            Base.set_binding_visibility!(mod, name, :none)
+        end
+        return nothing
+    end
+
+    function exported_names(exs_infos::ExprsInfos)
+        names = Set{Symbol}()
+        for rex in keys(exs_infos)
+            add_exported_names!(names, rex.ex)
+        end
+        return names
+    end
+
+    # `parse_source!` stores each top-level statement wrapped in a `:block` (and
+    # conditional/`for`-`include` groups can nest further), so recurse to reach
+    # the `:export` expression.
+    function add_exported_names!(names::Set{Symbol}, @nospecialize(ex))
+        isa(ex, Expr) || return names
+        if ex.head === :export
+            for a in ex.args
+                a isa Symbol && push!(names, a)
+            end
+        elseif ex.head === :block || ex.head === :toplevel
+            for a in ex.args
+                add_exported_names!(names, a)
+            end
+        end
+        return names
+    end
+else
+    retract_dropped_exports!(::Module, ::ExprsInfos, ::ExprsInfos) = nothing
 end
 
 # `true` if diffing old against new will delete at least one expression that defined
