@@ -36,18 +36,18 @@ jobs:
       REVISE_PRECOMPILE_ERROR: true
     steps:
     - uses: actions/checkout@v7
-    - uses: julia-actions/setup-julia@latest
+    - uses: julia-actions/setup-julia@v1
       with:
         version: ${{ matrix.version }}
         show-versioninfo: ${{ matrix.version == 'nightly' }}
-    - uses: julia-actions/cache@v3
-    - uses: julia-actions/julia-buildpkg@latest
+    - uses: julia-actions/cache@v4
+    - uses: julia-actions/julia-buildpkg@v1
     # Revise's tests need significant customization
     # Populate the precompile cache with an extraneous file, to catch issues like in #460
     - name: populate_compiled
       if: ${{ matrix.os != 'windows-latest' }}
       run: julia -e 'include(joinpath("test", "populate_compiled.jl"))'
-    - uses: julia-actions/julia-runtest@latest
+    - uses: julia-actions/julia-runtest@v1
     - name: filewatching
       if: ${{ matrix.os == 'ubuntu-latest' && matrix.version != '1.0' }}
       run: julia --project -e 'using Pkg; Pkg.build(); Pkg.test(; test_args=["REVISE_TESTS_WATCH_FILES"], coverage=true)'
@@ -104,7 +104,7 @@ jobs:
     # - name: inotify
     #   if: ${{ matrix.os == 'ubuntu-latest' }}
     #   run: echo 4 | sudo tee /proc/sys/fs/inotify/max_user_watches; julia --project --code-coverage=user -e 'cd("test"); include("inotify.jl")'
-    - uses: julia-actions/julia-processcoverage@latest
+    - uses: julia-actions/julia-processcoverage@v1
     - uses: codecov/codecov-action@v7
       with:
         files: lcov.info
