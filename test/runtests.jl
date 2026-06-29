@@ -1468,6 +1468,54 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("New documented binding") && @testset "New documented binding" begin
+        # A revision that introduces a brand-new documented binding creates that
+        # binding in a world newer than the one Revise's machinery runs in (the
+        # frozen world of issue #552). Revise's `doc!` interception must read the
+        # binding back at the latest world; a plain access would be a
+        # backdated-const read, which Julia 1.12 reports with
+        # "access to binding ... in a world prior to its definition world"
+        # (and will turn into an error in a future release).
+        testdir = newtestdir()
+        dn = joinpath(testdir, "NewDocBinding", "src")
+        mkpath(dn)
+        write(joinpath(dn, "NewDocBinding.jl"), """
+            module NewDocBinding
+            g() = 1
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using NewDocBinding
+        sleep(mtimedelay)
+        @test NewDocBinding.g() == 1
+        write(joinpath(dn, "NewDocBinding.jl"), """
+            module NewDocBinding
+            g() = 1
+            "h" h() = 1
+            end
+            """)
+        # The backdated-const admonition is printed by the runtime (not via the
+        # logging system), so capture stderr at the stream level to detect it.
+        errfile, errio = mktemp()
+        try
+            redirect_stderr(errio) do
+                yry()
+            end
+        finally
+            close(errio)
+        end
+        @latestworld
+        stderrtxt = read(errfile, String)
+        rm(errfile; force=true)
+        @test !occursin("world prior to its definition world", stderrtxt)
+        @test NewDocBinding.h() == 1
+        ds = @doc(NewDocBinding.h)
+        @test get_docstring(ds) == "h"
+
+        rm_precompile("NewDocBinding")
+        pop!(LOAD_PATH)
+    end
+
     do_test("doc expr signature") && @testset "Docstring attached to signatures" begin
         md = Revise.ModuleExprsInfos(Main)
         parse_source!(md, """
