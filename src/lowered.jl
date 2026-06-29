@@ -519,8 +519,8 @@ function _methods_by_execution!(
                     popfirst!(fargs)
                     length(fargs) == 3 && push!(fargs, Union{})  # add the default sig
                     dmod::Module, b::Base.Docs.Binding, str::Base.Docs.DocStr, sig = fargs
-                    if isdefined(b.mod, b.var)
-                        tmpvar = getfield(b.mod, b.var)
+                    if @invokelatest(isdefinedglobal(b.mod, b.var))
+                        tmpvar = @invokelatest(getglobal(b.mod, b.var))
                         if isa(tmpvar, Module)
                             dmod = tmpvar
                         end
