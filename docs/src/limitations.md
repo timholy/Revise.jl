@@ -2,7 +2,7 @@
 
 ## Struct revision
 
-### Struct revision  is supported on Julia 1.12+
+### Struct revision is supported on Julia 1.12+
 
 Starting with Julia 1.12, Revise can handle changes to struct definitions. When you modify
 a struct, Revise will automatically re-evaluate the struct definition and any methods or
@@ -166,7 +166,7 @@ struct MyVec{T}
 end
 ```
 
-If you change `MyVecType{T}` from `Vector{T}` to `AbstractVector{T}`, the struct `A` will
+If you change `MyVecType{T}` from `Vector{T}` to `AbstractVector{T}`, the struct `MyVec` will
 **not** be automatically re-evaluated because Revise does not track the dependency edge
 from `MyVecType` to `MyVec`. The same applies to `const` bindings and other global bindings
 that are referenced in type definitions.
@@ -191,6 +191,14 @@ already evaluated the macro or generated function.
 You may explicitly call `revise(MyModule)` to force reevaluating every definition in module
 `MyModule`.
 Note that when a macro changes, you have to revise all of the modules that *use* it.
+
+### Removing a name from `export` (Julia before 1.14)
+
+On Julia versions before 1.14, deleting a name from a module's `export` list
+leaves the name accessible in any module that had already done `using
+ThatModule`. Revise itself supports retracting exported names, but it relies on
+a Julia feature that will only become available starting with Julia 1.14
+(https://github.com/JuliaLang/julia/pull/62131).
 
 ### [Code that depends on data](@id data)
 
