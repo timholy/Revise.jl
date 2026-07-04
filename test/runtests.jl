@@ -3145,12 +3145,19 @@ end
     do_test("revise_structs preference") && if Base.VERSION >= v"1.12.0-DEV.2047"
         @testset "revise_structs preference" begin
             # The preference is read in __init__, so we have to test it via subprocesses.
-            # Set the value explicitly in the active project's `LocalPreferences.toml`: a
+            # Set the value explicitly in the active project's preferences file: a
             # preference there takes precedence over one inherited from the default
             # environment, so the test reflects the `revise_structs` plumbing rather than
-            # whatever the host machine happens to set globally.
+            # whatever the host machine happens to set globally. NOTE: when the tests run
+            # in a `Pkg.test` sandbox (e.g. testing Revise as a dependency of another
+            # project), Pkg materializes the ambient preferences as
+            # `JuliaLocalPreferences.toml`, which shadows any `LocalPreferences.toml` in
+            # the same directory — so write to the file that actually has priority.
             test_proj_dir = dirname(Base.active_project())
-            prefs_file = joinpath(test_proj_dir, "LocalPreferences.toml")
+            prefs_file = let candidates = joinpath.(test_proj_dir, Base.preferences_names)
+                i = findfirst(isfile, candidates)
+                i === nothing ? joinpath(test_proj_dir, last(Base.preferences_names)) : candidates[i]
+            end
             backup = isfile(prefs_file) ? read(prefs_file, String) : nothing
             julia = Base.julia_cmd()
             check_bpart = "using Revise; print(Revise.__bpart__[])"
