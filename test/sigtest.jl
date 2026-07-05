@@ -19,7 +19,11 @@ end
 function signature_diffs(mod::Module, signatures; filepredicate=nothing)
     # `signatures` (CodeTracking.method_info) is keyed by `MethodInfoKey(mt, sig)`;
     # compare against the signature types it records.
-    sigkeys = Set(k.sig for k in keys(signatures))
+    # Use an IdSet: an ==-hashed Set would dynamically dispatch on each distinct
+    # signature type, minting (and natively compiling) a fresh MethodInstance per
+    # signature — ~25ms x tens of thousands of signatures. Identity matching is
+    # also what the pre-MethodInfoKey code did (method_info is an IdDict).
+    sigkeys = Base.IdSet{Any}(k.sig for k in keys(signatures))
     extras = copy(sigkeys)
     modeval, modinclude = getfield(mod, :eval), getfield(mod, :include)
     failed = []
