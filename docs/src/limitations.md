@@ -321,7 +321,14 @@ end # module
 and the corresponding edit to the code would be to modify it to `greetcaller(x) = greet("Bar")`
 and `remotecall_fetch(greetcaller, p, 1)`.
 
-### `include(mapexpr, filename)` is not supported
+### `include(mapexpr, filename)` requires Julia 1.14 for packages
 
-Julia supports the ability to modify source code after parsing and before evaluation.
-Supporting this is a TODO item but is not yet implemented.
+Julia supports the ability to modify source code after parsing and before evaluation,
+via `include(mapexpr, filename)`. Revising such files applies the same transform.
+For files included this way *while a package loads*, Revise depends on a record kept
+by Julia (`Base.include_mapexprs`) that is available starting with Julia 1.14; on
+older Julia versions the transform is silently dropped when the file is revised.
+No version restriction applies to [`includet`](@ref)/[`Revise.track`](@ref) (which
+accept a leading `mapexpr` of their own) or to `include(mapexpr, filename)` statements
+*added* to an already-loaded package, since those transforms are discovered without
+the load-time record.

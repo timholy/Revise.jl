@@ -577,22 +577,36 @@ end
 
 function handle_include!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt::Expr)
     if length(stmt.args) == 2
+        # include(path)
         local arg2 = lookup(interp, frame, stmt.args[2])
         if arg2 isa AbstractString
-            push!(exinfo.includes, moduleof(frame)=>arg2)
+            push!(exinfo.includes, (moduleof(frame), identity, arg2))
             return exinfo
         end
-        error("Bad include call")
     elseif length(stmt.args) == 3
+        # include(mod, path) or include(mapexpr, path)
         local arg2 = lookup(interp, frame, stmt.args[2])
         local arg3 = lookup(interp, frame, stmt.args[3])
-        if arg2 isa Module && arg3 isa AbstractString
-            push!(exinfo.includes, arg2=>arg3)
+        if arg3 isa AbstractString
+            if arg2 isa Module
+                push!(exinfo.includes, (arg2, identity, arg3))
+                return exinfo
+            elseif arg2 isa Function
+                push!(exinfo.includes, (moduleof(frame), arg2, arg3))
+                return exinfo
+            end
+        end
+    elseif length(stmt.args) == 4
+        # include(mapexpr, mod, path)
+        local arg2 = lookup(interp, frame, stmt.args[2])
+        local arg3 = lookup(interp, frame, stmt.args[3])
+        local arg4 = lookup(interp, frame, stmt.args[4])
+        if arg2 isa Function && arg3 isa Module && arg4 isa AbstractString
+            push!(exinfo.includes, (arg3, arg2, arg4))
             return exinfo
         end
-        error("Bad include call")
     end
-    error("include(mapexpr::Function, mod::Module, path::AbstractString) is not supported") # TODO (issue #634)
+    error("Bad include call")
 end
 
 function analyze_typebody!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt::Expr)

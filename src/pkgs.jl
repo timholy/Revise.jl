@@ -28,10 +28,11 @@ function queue_includes!(pkgdata::PkgData, id::PkgId)
             mod, fname = included_files[i]
             modname = String(Symbol(mod))
             if startswith(modname, modstring) || endswith(fname, modstring*".jl")
-                pr = parse_and_maybe_eval_source(fname, mod)
+                mapexpr = include_mapexpr_for(mod, fname)
+                pr = parse_and_maybe_eval_source(fname, mod; mapexpr)
                 if pr.success
                     fname = relpath(fname, pkgdata)
-                    push!(pkgdata, fname=>FileInfo(pr.modexinfos))
+                    push!(pkgdata, fname=>FileInfo(pr.modexinfos; mapexpr))
                 end
                 push!(delids, i)
             end
@@ -106,7 +107,7 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString, fi::Fil
         filep = joinpath(basedir(pkgdata), file)
         filec = get(cache_file_key, filep, filep)
         topmod = first(keys(fi.mod_exs_infos))
-        pr = parse_and_maybe_eval_source!(fi.mod_exs_infos, src, filec, topmod)
+        pr = parse_and_maybe_eval_source!(fi.mod_exs_infos, src, filec, topmod; mapexpr=fi.mapexpr)
         if !pr.success
             @error "failed to parse cache file source text for $file"
         end
@@ -192,35 +193,26 @@ function maybe_extract_sigs_for_types(types)
 end
 
 function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, includes; eval_now::Bool=false)
-    for (mod, inc) in includes
+    for (mod, mapexpr, inc) in includes
         inc = joinpath(splitdir(file)[1], inc)
         incrp = relpath(inc, pkgdata)
-        hasfile = false
-        for srcfile in srcfiles(pkgdata)
-            if srcfile == incrp
-                hasfile = true
+        hasinclude = false
+        # An entry for the same path and destination module whose `mapexpr` differs:
+        # the `include(mapexpr, ...)` statement was edited (or its closure was
+        # recreated when the including statement was re-evaluated), so that entry
+        # describes a transform that is no longer in the source.
+        stale_idx = 0
+        for (i, srcfile) in enumerate(srcfiles(pkgdata))
+            srcfile == incrp || continue
+            fi = pkgdata.fileinfos[i]
+            if fi.mapexpr === mapexpr
+                hasinclude = true
                 break
+            elseif stale_idx == 0 && first(keys(fi.mod_exs_infos)) === mod
+                stale_idx = i
             end
         end
-        if !hasfile
-            # Add the file to pkgdata
-            push!(pkgdata.info.files, incrp)
-            fi = FileInfo(mod)
-            push!(pkgdata.fileinfos, fi)
-            # Parse the source of the new file
-            fullfile = joinpath(basedir(pkgdata), incrp)
-            if isfile(fullfile)
-                parse_and_maybe_eval_source!(fi.mod_exs_infos, fullfile, mod)
-                if eval_now
-                    # Pin to Revise's frozen world (issue #552); `frozen`'s runtime dispatch
-                    # also reduces latency.
-                    frozen(instantiate_sigs!, fi.mod_exs_infos; mode=:eval)
-                end
-            end
-            # Add to watchlist
-            init_watching(pkgdata, (incrp,))
-            yield()
-        else
+        if hasinclude
             # Already registered, but the watch may have been relinquished while
             # the file's directory was absent (e.g. a branch switch removed it
             # past `watch_reappear_grace`); an `include` of the file in revised
@@ -232,6 +224,44 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
                 revise_file_now(pkgdata, incrp)
                 init_watching(pkgdata, (incrp,))
             end
+        elseif stale_idx != 0
+            fi = pkgdata.fileinfos[stale_idx]
+            # The stored expressions must describe what is currently loaded, which was
+            # produced by the *old* transform: reconstruct them from the source snapshot
+            # in the precompile cache before swapping in the new transform. (Parsing
+            # after the swap would apply the new transform to the old source, making the
+            # subsequent diff vacuous and leaving the session stale.)
+            maybe_parse_from_cache!(pkgdata, incrp, fi)
+            pkgdata.fileinfos[stale_idx] = FileInfo(fi.mod_exs_infos, mapexpr, fi.cachefile, fi.cachefilename,
+                                                    fi.cacheexprs, fi.extracted, fi.parsed)
+            # Re-diff the file under the new transform so the session catches up with
+            # the new effective source.
+            if eval_now
+                revise_file_now(pkgdata, incrp)
+            else
+                @lock revise_lock push!(revision_queue, (pkgdata, incrp))
+            end
+            if !iswatched(pkgdata, incrp)
+                init_watching(pkgdata, (incrp,))
+            end
+        else
+            # Add the file to pkgdata
+            push!(pkgdata.info.files, incrp)
+            fi = FileInfo(mod; mapexpr)
+            push!(pkgdata.fileinfos, fi)
+            # Parse the source of the new file
+            fullfile = joinpath(basedir(pkgdata), incrp)
+            if isfile(fullfile)
+                parse_and_maybe_eval_source!(fi.mod_exs_infos, fullfile, mod; mapexpr)
+                if eval_now
+                    # Pin to Revise's frozen world (issue #552); `frozen`'s runtime dispatch
+                    # also reduces latency.
+                    frozen(instantiate_sigs!, fi.mod_exs_infos; mode=:eval)
+                end
+            end
+            # Add to watchlist
+            init_watching(pkgdata, (incrp,))
+            yield()
         end
     end
 end
@@ -286,10 +316,10 @@ function add_require(sourcefile::String, modcaller::Module, idmod::String, ::Str
             # signature-extraction code has not yet been compiled (latency reduction)
             includes, complex = deferrable_require(expr)
             if !complex
-                # [(modcaller, inc) for inc in includes] but without precompiling a Generator
-                modincludes = Tuple{Module,String}[]
+                # [(modcaller, identity, inc) for inc in includes] but without precompiling a Generator
+                modincludes = Tuple{Module,Function,String}[]
                 for inc in includes
-                    push!(modincludes, (modcaller, inc))
+                    push!(modincludes, (modcaller, identity, inc))
                 end
                 maybe_add_includes_to_pkgdata!(pkgdata, filekey, modincludes)
                 if isempty(fi.mod_exs_infos)
@@ -635,7 +665,7 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
                 filep = joinpath(basedir(pkgdata), file)
                 src = read(filep, String)
                 topmod = first(keys(fi.mod_exs_infos))
-                if !parse_and_maybe_eval_source!(fi.mod_exs_infos, src, filep, topmod).success
+                if !parse_and_maybe_eval_source!(fi.mod_exs_infos, src, filep, topmod; mapexpr=fi.mapexpr).success
                     @error "failed to parse source text for $filep"
                 end
                 add_modexs!(fi, fi.cacheexprs)
