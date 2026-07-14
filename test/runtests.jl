@@ -1116,6 +1116,17 @@ end
         @yry()
         @test MapExprRT.h() == 44
         @test_throws MethodError MapExprRT.g()
+        # The three-argument `include(mapexpr, mod, path)` targets another module
+        sleep(mtimedelay)
+        write(joinpath(dn, "c_rt.jl"), "k() = 5\n")
+        write(joinpath(dn, "MapExprRT.jl"),
+              top_rt("include(bump, \"b_rt.jl\")\nmodule SubRT end\nBase.include(bump, SubRT, \"c_rt.jl\")"))
+        @yry()
+        @test MapExprRT.SubRT.k() == 45
+        sleep(mtimedelay)
+        write(joinpath(dn, "c_rt.jl"), "k() = 6\n")
+        @yry()
+        @test MapExprRT.SubRT.k() == 46
         rm_precompile("MapExprRT")
 
         # For `include(mapexpr, file)` executed while a package loads (including from its

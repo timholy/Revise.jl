@@ -4,12 +4,30 @@ function assign_this!(frame::Frame, @nospecialize value)
     frame.framedata.ssavalues[frame.pc] = value
 end
 
+# The callee of a lowered statement may be a `GlobalRef`, or the function itself: JuliaInterpreter
+# resolves some `GlobalRef`s to their values (as a `QuoteNode`) when it builds a `FrameCode`.
+function is_getproperty(@nospecialize(f))
+    isa(f, QuoteNode) && (f = f.value)
+    isa(f, GlobalRef) && return f.name === :getproperty
+    return f === getproperty
+end
+
 function is_some_include(@nospecialize(f))
     @assert !isa(f, Core.SSAValue) && !isa(f, JuliaInterpreter.SSAValue)
     if isa(f, GlobalRef)
         return f.name === :include
     elseif isa(f, Symbol)
         return f === :include
+    elseif isa(f, Expr)
+        # A qualified `Mod.include` (e.g. `Base.include(mapexpr, mod, path)`) lowers to a
+        # `getproperty` call, so the callee of the `include` call is that expression rather
+        # than a `GlobalRef`. Whether it really resolves to an `include` function is settled
+        # by identity when the call is reached; here it need only be a candidate.
+        isexpr(f, :call) && length(f.args) == 3 || return false
+        is_getproperty(f.args[1]) || return false
+        name = f.args[3]
+        isa(name, QuoteNode) && (name = name.value)
+        return name === :include
     else
         if isa(f, QuoteNode)
             f = f.value
