@@ -1018,6 +1018,182 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("include with mapexpr") && @testset "include with mapexpr" begin
+        # The transform passed to `include(mapexpr, file)`/`includet(mapexpr, file)` must be
+        # re-applied whenever the file is revised (issues #634, #820). The test transform
+        # bumps the integer literal body of a short-form function definition by a fixed
+        # offset, so `f() = 2` behaves as `f() = 42`: return values reveal whether the
+        # transform was applied, and which one.
+        function mkbump(n)
+            return function (ex)
+                if Meta.isexpr(ex, :(=), 2)
+                    rhs = ex.args[2]
+                    if rhs isa Expr && rhs.head === :block && rhs.args[end] isa Int
+                        rhs.args[end] += n
+                    end
+                end
+                return ex
+            end
+        end
+        bump40 = mkbump(40)
+        testdir = newtestdir()
+
+        # includet(mapexpr, file)
+        script = joinpath(testdir, "mapexpr_script.jl")
+        write(script, "fmap634() = 2\n")
+        sleep(mtimedelay)
+        includet(bump40, script)
+        @latestworld
+        @test fmap634() == 42
+        sleep(mtimedelay)
+        write(script, "fmap634() = 3\n")
+        @yry()
+        @test fmap634() == 43
+        @test occursin("with mapexpr", sprint(show, Revise.FileInfo(Main; mapexpr=bump40)))
+
+        # An error thrown by the transform is reported against the statement it was applied to
+        badscript = joinpath(testdir, "mapexpr_bad.jl")
+        write(badscript, "# a comment\nfmap634bad() = 2\n")
+        sleep(mtimedelay)
+        badmap(ex) = error("bad transform")
+        err = try
+            Revise.track(badmap, badscript)
+        catch err
+            err
+        end
+        @test err isa Revise.ReviseEvalException
+        @test occursin("mapexpr_bad.jl:2", err.loc)
+        @test occursin("bad transform", sprint(showerror, err))
+
+        # track(mapexpr, file) on an already-loaded script
+        script2 = joinpath(testdir, "mapexpr_script2.jl")
+        write(script2, "fmap634b() = 2\n")
+        include(bump40, script2)
+        @latestworld
+        @test fmap634b() == 42
+        sleep(mtimedelay)
+        Revise.track(bump40, script2)
+        sleep(mtimedelay)
+        write(script2, "fmap634b() = 3\n")
+        @yry()
+        @test fmap634b() == 43
+
+        # A revision that introduces `include(mapexpr, file)` into a package starts
+        # tracking the file with its transform. This path discovers the transform from
+        # the revised code itself, so it works on all supported Julia versions.
+        dn = joinpath(testdir, "MapExprRT", "src")
+        mkpath(dn)
+        top_rt(inc) = """
+            module MapExprRT
+            function bump(ex)
+                if Meta.isexpr(ex, :(=), 2)
+                    rhs = ex.args[2]
+                    rhs isa Expr && rhs.head === :block && rhs.args[end] isa Int && (rhs.args[end] += 40)
+                end
+                return ex
+            end
+            f() = 1
+            $inc
+            end
+            """
+        write(joinpath(dn, "MapExprRT.jl"), top_rt(""))
+        sleep(mtimedelay)
+        @eval using MapExprRT
+        @test MapExprRT.f() == 1
+        sleep(mtimedelay)
+        write(joinpath(dn, "b_rt.jl"), "g() = 2\n")
+        write(joinpath(dn, "MapExprRT.jl"), top_rt("include(bump, \"b_rt.jl\")"))
+        @yry()
+        @test MapExprRT.g() == 42
+        # Subsequent revisions of the included file re-apply the transform
+        sleep(mtimedelay)
+        write(joinpath(dn, "b_rt.jl"), "g() = 3\n")
+        @yry()
+        @test MapExprRT.g() == 43
+        # Method deletion works through the transform
+        sleep(mtimedelay)
+        write(joinpath(dn, "b_rt.jl"), "h() = 4\n")
+        @yry()
+        @test MapExprRT.h() == 44
+        @test_throws MethodError MapExprRT.g()
+        # The three-argument `include(mapexpr, mod, path)` targets another module
+        sleep(mtimedelay)
+        write(joinpath(dn, "c_rt.jl"), "k() = 5\n")
+        write(joinpath(dn, "MapExprRT.jl"),
+              top_rt("include(bump, \"b_rt.jl\")\nmodule SubRT end\nBase.include(bump, SubRT, \"c_rt.jl\")"))
+        @yry()
+        @test MapExprRT.SubRT.k() == 45
+        sleep(mtimedelay)
+        write(joinpath(dn, "c_rt.jl"), "k() = 6\n")
+        @yry()
+        @test MapExprRT.SubRT.k() == 46
+        rm_precompile("MapExprRT")
+
+        # For `include(mapexpr, file)` executed while a package loads (including from its
+        # precompile cache), the transform is discovered from the record kept by
+        # `Base.include_mapexprs` (Julia ≥ 1.14).
+        if isdefined(Base, :include_mapexprs)
+            dn = joinpath(testdir, "MapExprPC", "src")
+            mkpath(dn)
+            top_pc(f) = """
+                module MapExprPC
+                function mkbump(n)
+                    return function (ex)
+                        if Meta.isexpr(ex, :(=), 2)
+                            rhs = ex.args[2]
+                            if rhs isa Expr && rhs.head === :block && rhs.args[end] isa Int
+                                rhs.args[end] += n
+                            end
+                        end
+                        return ex
+                    end
+                end
+                const pcbump40 = mkbump(40)   # closures capturing load-time state
+                const pcbump50 = mkbump(50)
+                include($f, "b_pc.jl")
+                module Sub end
+                Base.include(pcbump50, Sub, "c_pc.jl")
+                include(pcbump40, "c_pc.jl")
+                end
+                """
+            write(joinpath(dn, "MapExprPC.jl"), top_pc("pcbump40"))
+            write(joinpath(dn, "b_pc.jl"), "g() = 2\n")
+            write(joinpath(dn, "c_pc.jl"), "h() = 2\n")
+            sleep(mtimedelay)
+            @eval using MapExprPC
+            @test MapExprPC.g() == 42        # pcbump40 applied at load (Base behavior)
+            @test MapExprPC.Sub.h() == 52    # include(mapexpr, mod, path) into Sub
+            @test MapExprPC.h() == 42        # same file, different transform, into the root
+            # Revise recorded each inclusion's transform
+            pkgdata = Revise.pkgdatas[Base.PkgId(MapExprPC)]
+            @test Revise.fileinfo(pkgdata, "src/b_pc.jl").mapexpr === MapExprPC.pcbump40
+            @test Revise.fileinfo(pkgdata, "src/MapExprPC.jl").mapexpr === identity
+            # A file included twice with different transforms revises under each
+            sleep(mtimedelay)
+            write(joinpath(dn, "c_pc.jl"), "h() = 3\n")
+            @yry()
+            @test MapExprPC.Sub.h() == 53
+            @test MapExprPC.h() == 43
+            # Editing the `include(mapexpr, ...)` statement itself re-diffs the file under
+            # the new transform, replacing (not duplicating) the tracked entry
+            sleep(mtimedelay)
+            write(joinpath(dn, "MapExprPC.jl"), top_pc("pcbump50"))
+            @yry()
+            @test MapExprPC.g() == 52
+            idxs = Revise.fileindices(pkgdata, "src/b_pc.jl")
+            @test length(idxs) == 1
+            @test pkgdata.fileinfos[only(idxs)].mapexpr === MapExprPC.pcbump50
+            # ...and later revisions of the file use the new transform
+            sleep(mtimedelay)
+            write(joinpath(dn, "b_pc.jl"), "g() = 4\n")
+            @yry()
+            @test MapExprPC.g() == 54
+            rm_precompile("MapExprPC")
+        end
+
+        pop!(LOAD_PATH)
+    end
+
     do_test("IJulia preexecute hook") && @testset "IJulia preexecute hook" begin
         # IJulia reloads code by registering `Revise.revise` as a preexecute
         # hook (IJulia.push_preexecute_hook) and invoking every hook before each
@@ -5091,7 +5267,7 @@ do_test("@require path switch") && @testset "@require path switch" begin
     # empty `mod_exs_infos` plus an unprocessed `cacheexpr` and no cache file, which
     # drives `switch_basepath` into its read-from-disk fallback.
     reqfile = joinpath("src", "Issue678.jl") * Revise.requires_suffix
-    fi = Revise.FileInfo(Revise.ModuleExprsInfos(), "", "",
+    fi = Revise.FileInfo(Revise.ModuleExprsInfos(), identity, "", "",
                          Tuple{Module,Expr}[(mod, :(g() = 42))], Ref(false), Ref(false))
     push!(pkgdata, reqfile=>fi)
     @test Revise.is_requires_file(reqfile)

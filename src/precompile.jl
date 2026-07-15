@@ -99,7 +99,7 @@ function _precompile_()
     @warnpcfail precompile(Tuple{Type{PkgData}, PkgId})
     @warnpcfail precompile(Tuple{typeof(Base._deleteat!), Vector{Tuple{Module,String,Float64}}, Vector{Int}})
     @warnpcfail precompile(Tuple{typeof(add_require), String, Module, String, String, Expr})
-    @warnpcfail precompile(Tuple{Core.kwftype(typeof(maybe_add_includes_to_pkgdata!)),NamedTuple{(:eval_now,), Tuple{Bool}},typeof(maybe_add_includes_to_pkgdata!),PkgData,String,Vector{Pair{Module, String}}})
+    @warnpcfail precompile(Tuple{Core.kwftype(typeof(maybe_add_includes_to_pkgdata!)),NamedTuple{(:eval_now,), Tuple{Bool}},typeof(maybe_add_includes_to_pkgdata!),PkgData,String,Vector{Tuple{Module, Function, String}}})
 
     for TT in (Tuple{Module,Expr}, Tuple{DataType,MethodSummary})
         @warnpcfail precompile(Tuple{Core.kwftype(typeof(Base.CoreLogging.handle_message)),NamedTuple{(:time, :deltainfo), Tuple{Float64, TT}},typeof(Base.CoreLogging.handle_message),ReviseLogger,LogLevel,String,Module,String,Symbol,String,Int})

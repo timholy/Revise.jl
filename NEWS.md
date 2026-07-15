@@ -4,10 +4,21 @@ This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
 <!-- links start -->
+[Revise 3.17]: https://github.com/timholy/Revise.jl/compare/v3.16.0...v3.17.0
 [Revise 3.16]: https://github.com/timholy/Revise.jl/compare/v3.15.0...v3.16.0
 [Revise 3.15]: https://github.com/timholy/Revise.jl/compare/v3.14.5...v3.15.0
 [Revise 3.13]: https://github.com/timholy/Revise.jl/compare/v3.12.3...v3.13.0
 <!-- links end -->
+
+## [Revise 3.17]
+
+- **`include(mapexpr, file)` support**: revising a file that was included with a
+  transform now re-applies the same transform to each top-level expression, instead of
+  silently dropping it. For files included while a package loads, discovering the
+  transform relies on `Base.include_mapexprs` (Julia ≥ 1.14); `includet` and
+  `Revise.track` also accept a leading `mapexpr` on all supported Julia versions.
+  (https://github.com/timholy/Revise.jl/issues/634,
+  https://github.com/timholy/Revise.jl/issues/820)
 
 ## [Revise 3.16]
 

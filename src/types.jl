@@ -107,16 +107,17 @@ It also has the following fields:
 - `exprstack`: used when descending into `@eval` statements: `ex` (used in creating the `ExInfo` object) is the first entry in the stack
 - `allsigs`: a list of all method signatures defined by a given expression (cached in `CodeTracking.method_info`)
 - `typeinfos`: a list of all type definitions defined by a given expression (not cached in CodeTracking)
-- `includes`: a list of `module=>filename` for any `include` statements encountered while the
-  expression was parsed.
+- `includes`: a list of `(module, mapexpr, filename)` for any `include` statements encountered
+  while the expression was parsed. `mapexpr` is the transform passed to
+  `include(mapexpr, filename)`, or `identity` for plain `include(filename)`.
 """
 struct ExInfo
     exprstack::Vector{Expr}
     allsigs::Vector{SigInfo}
     typeinfos::Vector{TypeInfo}
-    includes::Vector{Pair{Module,String}}
+    includes::Vector{Tuple{Module,Function,String}}
 end
-ExInfo(ex::Expr) = ExInfo(Expr[ex], SigInfo[], TypeInfo[], Pair{Module,String}[])
+ExInfo(ex::Expr) = ExInfo(Expr[ex], SigInfo[], TypeInfo[], Tuple{Module,Function,String}[])
 
 """
     get_extended_data(ext::ExtendedData, owner::Symbol) -> ext::Union{ExtendedData,Nothing}
@@ -260,11 +261,17 @@ ModuleExprsInfos(mod::Module) = ModuleExprsInfos(mod=>ExprsInfos())
 Base.isempty(fm::ModuleExprsInfos) = length(fm) == 1 && isempty(first(values(fm)))
 
 """
-    FileInfo(mod_exs_infos::ModuleExprsInfos, cachefile="")
+    FileInfo(mod_exs_infos::ModuleExprsInfos, cachefile=""; mapexpr=identity)
 
 Structure to hold the per-module expressions found when parsing a
 single file.
 `mod_exs_infos` holds the [`Revise.ModuleExprsInfos`](@ref) for the file.
+
+`mapexpr` is the transform passed to `include(mapexpr, filename)` when the file was
+included (`identity` for plain `include`). Parsing the file for revision applies the
+same transform to each top-level expression, matching what `include` evaluated.
+A file included more than once with different `mapexpr`s has one `FileInfo` per
+inclusion (see `Revise.fileindices`).
 
 Optionally, a `FileInfo` can also record the path to a cache file holding the original source code.
 This is applicable only for precompiled modules and `Base`.
@@ -278,24 +285,25 @@ Source cache files greatly reduce the overhead of using Revise.
 """
 struct FileInfo
     mod_exs_infos::ModuleExprsInfos
+    mapexpr::Function                                  # transform applied to each top-level expression (identity if none)
     cachefile::String
-    cachefilename::String                              # the source path as recorded inside `cachefile`, used to read from the cache
+    cachefilename::String                              # the source path as recorded inside `cachefile`; the lookup key for reading from the cache
     cacheexprs::Vector{Tuple{Module,Expr}}             # "unprocessed" exprs, used to support @require
     extracted::Base.RefValue{Bool}                     # true if signatures have been processed from mod_exs_infos
     parsed::Base.RefValue{Bool}                        # true if mod_exs_infos have been parsed from cachefile
 end
-FileInfo(mod_exs_infos::ModuleExprsInfos, cachefile="", cachefilename="") =
-    FileInfo(mod_exs_infos, cachefile, cachefilename, Tuple{Module,Expr}[], Ref(false), Ref(false))
+FileInfo(mod_exs_infos::ModuleExprsInfos, cachefile="", cachefilename=""; mapexpr::Function=identity) =
+    FileInfo(mod_exs_infos, mapexpr, cachefile, cachefilename, Tuple{Module,Expr}[], Ref(false), Ref(false))
 
 """
-    FileInfo(mod::Module, cachefile="", cachefilename="")
+    FileInfo(mod::Module, cachefile="", cachefilename=""; mapexpr=identity)
 
 Initialize an empty FileInfo for a file that is `include`d into `mod`.
 """
-FileInfo(mod::Module, cachefile::AbstractString="", cachefilename::AbstractString="") =
-    FileInfo(ModuleExprsInfos(mod), cachefile, cachefilename)
+FileInfo(mod::Module, cachefile::AbstractString="", cachefilename::AbstractString=""; mapexpr::Function=identity) =
+    FileInfo(ModuleExprsInfos(mod), cachefile, cachefilename; mapexpr)
 
-FileInfo(fm::ModuleExprsInfos, fi::FileInfo) = FileInfo(fm, fi.cachefile, fi.cachefilename, copy(fi.cacheexprs), Ref(fi.extracted[]), Ref(fi.parsed[]))
+FileInfo(fm::ModuleExprsInfos, fi::FileInfo) = FileInfo(fm, fi.mapexpr, fi.cachefile, fi.cachefilename, copy(fi.cacheexprs), Ref(fi.extracted[]), Ref(fi.parsed[]))
 
 function Base.show(io::IO, fi::FileInfo)
     print(io, "FileInfo(")
@@ -304,6 +312,9 @@ function Base.show(io::IO, fi::FileInfo)
         print(io, "=>")
         show(io, exs_infos)
         print(io, ", ")
+    end
+    if fi.mapexpr !== identity
+        print(io, "with mapexpr ", fi.mapexpr, ", ")
     end
     if !isempty(fi.cachefile)
         print(io, "with cachefile ", fi.cachefile)

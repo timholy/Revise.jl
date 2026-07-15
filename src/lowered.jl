@@ -4,12 +4,30 @@ function assign_this!(frame::Frame, @nospecialize value)
     frame.framedata.ssavalues[frame.pc] = value
 end
 
+# The callee of a lowered statement may be a `GlobalRef`, or the function itself: JuliaInterpreter
+# resolves some `GlobalRef`s to their values (as a `QuoteNode`) when it builds a `FrameCode`.
+function is_getproperty(@nospecialize(f))
+    isa(f, QuoteNode) && (f = f.value)
+    isa(f, GlobalRef) && return f.name === :getproperty
+    return f === getproperty
+end
+
 function is_some_include(@nospecialize(f))
     @assert !isa(f, Core.SSAValue) && !isa(f, JuliaInterpreter.SSAValue)
     if isa(f, GlobalRef)
         return f.name === :include
     elseif isa(f, Symbol)
         return f === :include
+    elseif isa(f, Expr)
+        # A qualified `Mod.include` (e.g. `Base.include(mapexpr, mod, path)`) lowers to a
+        # `getproperty` call, so the callee of the `include` call is that expression rather
+        # than a `GlobalRef`. Whether it really resolves to an `include` function is settled
+        # by identity when the call is reached; here it need only be a candidate.
+        isexpr(f, :call) && length(f.args) == 3 || return false
+        is_getproperty(f.args[1]) || return false
+        name = f.args[3]
+        isa(name, QuoteNode) && (name = name.value)
+        return name === :include
     else
         if isa(f, QuoteNode)
             f = f.value
@@ -577,22 +595,36 @@ end
 
 function handle_include!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt::Expr)
     if length(stmt.args) == 2
+        # include(path)
         local arg2 = lookup(interp, frame, stmt.args[2])
         if arg2 isa AbstractString
-            push!(exinfo.includes, moduleof(frame)=>arg2)
+            push!(exinfo.includes, (moduleof(frame), identity, arg2))
             return exinfo
         end
-        error("Bad include call")
     elseif length(stmt.args) == 3
+        # include(mod, path) or include(mapexpr, path)
         local arg2 = lookup(interp, frame, stmt.args[2])
         local arg3 = lookup(interp, frame, stmt.args[3])
-        if arg2 isa Module && arg3 isa AbstractString
-            push!(exinfo.includes, arg2=>arg3)
+        if arg3 isa AbstractString
+            if arg2 isa Module
+                push!(exinfo.includes, (arg2, identity, arg3))
+                return exinfo
+            elseif arg2 isa Function
+                push!(exinfo.includes, (moduleof(frame), arg2, arg3))
+                return exinfo
+            end
+        end
+    elseif length(stmt.args) == 4
+        # include(mapexpr, mod, path)
+        local arg2 = lookup(interp, frame, stmt.args[2])
+        local arg3 = lookup(interp, frame, stmt.args[3])
+        local arg4 = lookup(interp, frame, stmt.args[4])
+        if arg2 isa Function && arg3 isa Module && arg4 isa AbstractString
+            push!(exinfo.includes, (arg3, arg2, arg4))
             return exinfo
         end
-        error("Bad include call")
     end
-    error("include(mapexpr::Function, mod::Module, path::AbstractString) is not supported") # TODO (issue #634)
+    error("Bad include call")
 end
 
 function analyze_typebody!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt::Expr)

@@ -815,7 +815,7 @@ end
 # These are typically bypassed in favor of expression-by-expression evaluation to
 # allow handling of new `include` statements.
 function eval_new!(exs_infos_new::ExprsInfos, exs_infos_old::ExprsInfos, mod::Module; mode::Symbol=:eval)
-    includes = Vector{Pair{Module,String}}()
+    includes = Vector{Tuple{Module,Function,String}}()
     for rex in keys(exs_infos_new)
         exinfos, includes′ = eval_rex(rex, exs_infos_old, mod; mode)
         if exinfos !== nothing
@@ -829,7 +829,7 @@ function eval_new!(exs_infos_new::ExprsInfos, exs_infos_old::ExprsInfos, mod::Mo
 end
 
 function eval_new!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos; mode::Symbol=:eval)
-    includes = Vector{Pair{Module,String}}()
+    includes = Vector{Tuple{Module,Function,String}}()
     for (mod, exs_infos_new) in mod_exs_infos_new
         # Allow packages to override the supplied mode
         if isdefined(mod, :__revise_mode__)
@@ -1087,7 +1087,7 @@ function parse_for_revision(pkgdata::PkgData, file::AbstractString, idx::Int)
     end
     topmod = first(keys(mod_exs_infos_old))
     fileok = file_exists(String(filep)::String)
-    pr = fileok ? parse_and_maybe_eval_source(filep, topmod) : ParseResult(ModuleExprsInfos(topmod), true)
+    pr = fileok ? parse_and_maybe_eval_source(filep, topmod; mapexpr=fi.mapexpr) : ParseResult(ModuleExprsInfos(topmod), true)
     return pr, mod_exs_infos_old, fileok
 end
 
@@ -1799,17 +1799,25 @@ end
 """
     Revise.track(mod::Module, file::AbstractString)
     Revise.track(file::AbstractString)
+    Revise.track(mapexpr::Function, [mod::Module], file::AbstractString)
 
 Watch `file` for updates and [`revise`](@ref) loaded code with any
 changes. `mod` is the module into which `file` is evaluated; if omitted,
 it defaults to `Main`.
 
+If the file was loaded with `include(mapexpr, file)`, pass the same `mapexpr` so
+revisions apply the same transform to each top-level expression.
+
 If this produces many errors, check that you specified `mod` correctly.
 """
 track(mod::Module, file::AbstractString; mode=:sigs, kwargs...) =
     frozen(_track, mod, file; mode, kwargs...)
+track(mapexpr::Function, mod::Module, file::AbstractString; kwargs...) =
+    track(mod, file; mapexpr, kwargs...)
+track(mapexpr::Function, file::AbstractString; kwargs...) =
+    track(mapexpr, Main, file; kwargs...)
 
-function _track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
+function _track(mod::Module, file::AbstractString; mode=:sigs, mapexpr::Function=identity, kwargs...)
     isfile(file) || error(file, " is not a file")
     # Determine whether we're already tracking this file
     id = Base.moduleroot(mod) == Main ? PkgId(mod, string(mod)) : PkgId(mod)  # see #689 for `Main`
@@ -1829,7 +1837,7 @@ function _track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
         file = abspath_no_normalize(file)
     end
     # Set up tracking
-    pr = parse_and_maybe_eval_source(file, mod; mode)
+    pr = parse_and_maybe_eval_source(file, mod; mode, mapexpr)
     if pr.success
         mod_exs_infos = pr.modexinfos
         if mode === :includet
@@ -1848,7 +1856,7 @@ function _track(mod::Module, file::AbstractString; mode=:sigs, kwargs...)
             CodeTracking._pkgfiles[id] = pkgdata.info
         end
         @lock revise_lock begin
-            push!(pkgdata, relpath(file, pkgdata)=>FileInfo(mod_exs_infos))
+            push!(pkgdata, relpath(file, pkgdata)=>FileInfo(mod_exs_infos; mapexpr))
             init_watching(pkgdata, (String(file)::String,))
             pkgdatas[id] = pkgdata
         end
@@ -1864,13 +1872,16 @@ end
 
 """
     includet(filename::AbstractString)
+    includet(mapexpr::Function, filename::AbstractString)
 
 Load `filename` and track future changes. `includet` is intended for quick "user scripts"; larger or more
 established projects are encouraged to put the code in one or more packages loaded with `using`
 or `import` instead of using `includet`. See https://timholy.github.io/Revise.jl/stable/cookbook/
 for tips about setting up the package workflow.
 
-Like `include`, `includet` returns the value of the last evaluated expression in `filename`.
+Like `include`, `includet` returns the value of the last evaluated expression in `filename`,
+and accepts a leading `mapexpr` that transforms each top-level expression before it is
+evaluated; revisions of `filename` apply the same transform.
 
 Unlike `include`, `includet` evaluates `filename` into `Main` rather than into the module from
 which it is called. To evaluate into the caller's module instead, use [`@includet`](@ref) or pass
@@ -1931,7 +1942,7 @@ they will not be automatically tracked.
 Multi-file code that needs all of its files tracked is better organized as a package loaded with
 `using`/`import`, which Revise tracks recursively and which gives you a proper module namespace.
 """
-function includet(mod::Module, file::AbstractString)
+function includet(mapexpr::Function, mod::Module, file::AbstractString)
     prev = Base.source_path(nothing)
     file = if prev === nothing
         abspath(file)
@@ -1942,7 +1953,7 @@ function includet(mod::Module, file::AbstractString)
     tls[:SOURCE_PATH] = file
     result = nothing
     try
-        result = track(mod, file; mode=:includet, skip_include=true)
+        result = track(mod, file; mode=:includet, skip_include=true, mapexpr)
         if prev === nothing
             delete!(tls, :SOURCE_PATH)
         else
@@ -1964,7 +1975,9 @@ function includet(mod::Module, file::AbstractString)
     end
     return result
 end
-includet(file::AbstractString) = includet(Main, file)
+includet(mod::Module, file::AbstractString) = includet(identity, mod, file)
+includet(mapexpr::Function, file::AbstractString) = includet(mapexpr, Main, file)
+includet(file::AbstractString) = includet(identity, Main, file)
 
 """
     @includet "file.jl"
