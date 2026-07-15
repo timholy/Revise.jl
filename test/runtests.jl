@@ -779,6 +779,36 @@ end
         rm_precompile("A228")
         rm_precompile("B228")
 
+        # Retracting an export (issue #633): dropping a name from `export`
+        # un-exports it, so `using`-ing modules stop resolving it. Requires the
+        # `Base.set_binding_visibility!` accessor added in Julia 1.14.
+        @static if isdefined(Base, :set_binding_visibility!)
+            write(joinpath(testdir, "Export633.jl"), """
+                module Export633
+                export hello633, g633
+                hello633() = 1
+                g633() = 2
+                end
+                """)
+            sleep(mtimedelay)
+            using Export633
+            sleep(mtimedelay)
+            @test Base.isexported(Export633, :g633)
+            @test @eval(g633()) == 2
+            write(joinpath(testdir, "Export633.jl"), """
+                module Export633
+                export hello633
+                hello633() = 1
+                g633() = 2
+                end
+                """)
+            @yry()
+            @test !Base.isexported(Export633, :g633)
+            @test Export633.g633() == 2          # only the export is retracted; the method remains
+            @test_throws UndefVarError @eval g633()
+            rm_precompile("Export633")
+        end
+
         # uncoupled packages in the same directory (issue #339)
         write(joinpath(testdir, "A339.jl"), """
             module A339
