@@ -817,7 +817,13 @@ function eval_rex(rex_new::RelocatableExpr, exs_infos_old::ExprsInfos, mod::Modu
             ex = rex_new.ex
             # ex is not present in old
             @debug titlecase(String(mode)) _group="Action" time=time() deltainfo=(mod, ex, mode)
-            exinfos, includes, thunk = eval_with_signatures(mod, ex; mode)  # All signatures defined by `ex`
+            # `ex` is new or changed source that `mod` does not yet reflect, so its
+            # `using`/`import`/`export` statements are executed even in `:sigs` mode: a
+            # name a newly-added `using` brings into scope may be needed to form the
+            # signature of a method defined later in the same file. Signature-cataloging
+            # sweeps of already-loaded source (`instantiate_sigs!`) do not come through
+            # here and so remain free of such side effects.
+            exinfos, includes, thunk = eval_with_signatures(mod, ex; mode, eval_namespace=true)  # All signatures defined by `ex`
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end

@@ -974,6 +974,86 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Revise mode :sigs") && @testset "Revise mode :sigs" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "SigsMode", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "SigsMode.jl")
+        write(fn, """
+            module SigsMode
+            __revise_mode__ = :sigs
+            using Statistics: mean
+            f(x) = mean(x)
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using SigsMode
+        @test SigsMode.f([1,2,3]) == 2.0
+        @test whereis(only(methods(SigsMode.f))) == (fn, 4)
+        sleep(mtimedelay)
+        write(fn, """
+            module SigsMode
+            __revise_mode__ = :sigs
+
+            using Statistics: mean
+            using LinearAlgebra: Diagonal
+            export h
+
+            f(x) = mean(x)
+            h(x::Diagonal) = 1
+            end
+            """)
+        @yry()
+        @test isempty(Revise.queue_errors)
+        # A `using`/`export` introduced by the revision takes effect, so later
+        # expressions in the same file can name what it brings into scope.
+        @eval using LinearAlgebra
+        @test SigsMode.Diagonal === LinearAlgebra.Diagonal
+        @test :h ∈ names(SigsMode)
+        # `:sigs` still installs no method bodies: `h` is a binding with no methods,
+        # and `f` keeps the method it was loaded with, updated only in its location.
+        @test length(methods(getglobal(SigsMode, :h))) == 0
+        @test SigsMode.f([1,2,3]) == 2.0
+        @test whereis(only(methods(SigsMode.f))) == (fn, 8)
+
+        rm_precompile("SigsMode")
+        pop!(LOAD_PATH)
+    end
+
+    do_test("Signature instantiation") && @testset "Signature instantiation" begin
+        # Cataloging the signatures of source that a module already reflects must not
+        # execute its namespace statements: `instantiate_sigs!` runs on freshly-parsed
+        # source for packages that are merely being tracked (including `Base` and the
+        # stdlibs), and executing a `using` there would load packages as a side effect.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "SigsUnloaded", "src")
+        mkpath(dn)
+        write(joinpath(dn, "SigsUnloaded.jl"), """
+            module SigsUnloaded
+            struct Marker end
+            end
+            """)
+        sleep(mtimedelay)
+        host = Core.eval(Main, :(module SigsHost
+                                 q(x::Int) = 1
+                                 end))
+        src = """
+            using SigsUnloaded
+            q(x::Int) = 1
+            """
+        fn = joinpath(testdir, "sigs_host.jl")
+        write(fn, src)
+        mexs = Revise.ModuleExprsInfos(host)
+        parse_source!(mexs, src, fn, host)
+        Revise.instantiate_sigs!(mexs)
+        @test !isdefined(host, :SigsUnloaded)
+        @test !any(id -> id.name == "SigsUnloaded", keys(Base.loaded_modules))
+        # The signature of the already-defined method is still cataloged.
+        @test any(k -> k.sig === Tuple{typeof(host.q),Int}, keys(CodeTracking.method_info))
+
+        pop!(LOAD_PATH)
+    end
+
     do_test("Multiple definitions") && @testset "Multiple definitions" begin
         # This simulates a copy/paste/save "error" from one file to another
         # ref https://github.com/timholy/CodeTracking.jl/issues/55
