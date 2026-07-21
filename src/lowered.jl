@@ -465,7 +465,30 @@ function _methods_by_execution!(
                 callstmt = stmt
                 @label call_dispatch
                 f = lookup(frame, callstmt.args[1])
-                if @static(isdefined(Core, :_typebody!) ? true : false) && f === Core._typebody!
+                if @static(isdefined(Core, :resolve_typegroup) ? true : false) && f === Core.resolve_typegroup
+                    # The statement that creates the type(s) of a struct definition or
+                    # `typegroup` block. In `:sigs` mode, when every type in the group is
+                    # already defined (e.g., by package loading), reuse the existing types
+                    # rather than re-creating them; the lowered `olds` argument holds
+                    # exactly the currently-bound types. Like `reuse_existing_type!`, no
+                    # structural equivalence check is performed. The subsequent
+                    # `declare_const` calls are skipped by `skip_declare_const`.
+                    pc0 = pc
+                    local groupresult
+                    if mode === :sigs && (existing = existing_typegroup_types(interp, frame, callstmt)) !== nothing
+                        groupresult = existing
+                        assign_this!(frame, existing)
+                        pc = next_or_nothing!(frame)
+                    else
+                        pc = step_expr!(interp, frame, stmt, true)
+                        # (guarded: an assignment form would store to the slot instead)
+                        groupresult = isassigned(frame.framedata.ssavalues, pc0) ?
+                            frame.framedata.ssavalues[pc0] : nothing
+                    end
+                    if __bpart__[]
+                        analyze_typegroup_result!(exinfo, groupresult)
+                    end
+                elseif @static(isdefined(Core, :_typebody!) ? true : false) && f === Core._typebody!
                     if __bpart__[]
                         analyze_typebody!(exinfo, interp, frame, callstmt)
                     end
@@ -627,16 +650,54 @@ function handle_include!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt
     error("Bad include call")
 end
 
-function analyze_typebody!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt::Expr)
-    if length(stmt.args) == 3 # abstract type definition
-        typ = lookup(interp, frame, stmt.args[3])::Type
-    elseif length(stmt.args) == 4 # general struct definition
-        typ = lookup(interp, frame, stmt.args[3])::Type
-    else
-        return nothing
+# `_typebody!` comes in two protocols: the older struct protocol
+# `_typebody!(prev, partial[, fieldtypes])`, where `prev` is `false` or the
+# existing type, and the typegroup-era `_typebody!(partial[, fieldtypes])`
+# (emitted at top level only for abstract and primitive type definitions).
+# Identify the partial type structurally so both lowerings are handled: in the
+# newer protocol the first argument is the type, followed by nothing or the
+# field-type `SimpleVector`; in the older one the type sits in second position.
+function typebody_partial(interp::Interpreter, frame::Frame, callstmt::Expr)
+    length(callstmt.args) >= 2 || return nothing
+    arg2 = lookup(interp, frame, callstmt.args[2])
+    if arg2 isa Type &&
+            (length(callstmt.args) == 2 || lookup(interp, frame, callstmt.args[3]) isa Core.SimpleVector)
+        return arg2
     end
+    length(callstmt.args) >= 3 || return nothing
+    arg3 = lookup(interp, frame, callstmt.args[3])
+    return arg3 isa Type ? arg3 : nothing
+end
+
+function analyze_typebody!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt::Expr)
+    typ = typebody_partial(interp, frame, stmt)
+    typ === nothing && return nothing
     datatype = Base.unwrap_unionall(typ)::DataType
     push!(exinfo.typeinfos, TypeInfo(datatype.name))
+    return exinfo
+end
+
+# For `resolve_typegroup(mod, typevars, infos, olds)` in `:sigs` mode: return a
+# tuple of the already-existing types for this group (to be assigned as the
+# statement's result in place of executing it), or `nothing` if any group member
+# is not currently defined.
+function existing_typegroup_types(interp::Interpreter, frame::Frame, callstmt::Expr)
+    length(callstmt.args) >= 5 || return nothing
+    olds = lookup(interp, frame, callstmt.args[5])
+    olds isa Core.SimpleVector || return nothing
+    isempty(olds) && return nothing
+    all(o -> o isa Type, olds) || return nothing
+    return (olds...,)
+end
+
+# Record a `TypeInfo` for each type created (or reused) by a `resolve_typegroup`
+# statement, whose result is the tuple of group types.
+function analyze_typegroup_result!(exinfo::ExInfo, @nospecialize(result))
+    result isa Tuple || return nothing
+    for typ in result
+        typ isa Type || continue
+        push!(exinfo.typeinfos, TypeInfo((Base.unwrap_unionall(typ)::DataType).name))
+    end
     return exinfo
 end
 
@@ -700,22 +761,30 @@ end
 # via metaprogramming). This is implemented by mimicking the larger pipeline
 # above: a new set of `isrequired` rules plus a focused line-stepper.
 
-# `true` when `stmt` is (or wraps, as the RHS of an assignment) a call to
-# `Core._typebody!`, following SSA chains to resolve the callee.
-function is_typebody_stmt(@nospecialize(stmt), code::Vector{Any})
-    isa(stmt, Expr) || return false
+# Resolve the callee of `stmt` (or of the call it wraps as the RHS of an
+# assignment), following SSA chains; `nothing` if `stmt` is not a call.
+function typedef_callee(@nospecialize(stmt), code::Vector{Any})
+    isa(stmt, Expr) || return nothing
     callstmt = stmt
     if callstmt.head !== :call
-        LoweredCodeUtils.get_lhs_rhs(callstmt) === nothing && return false
+        LoweredCodeUtils.get_lhs_rhs(callstmt) === nothing && return nothing
         rhs = LoweredCodeUtils.getrhs(callstmt)
-        isa(rhs, Expr) && rhs.head === :call || return false
+        isa(rhs, Expr) && rhs.head === :call || return nothing
         callstmt = rhs
     end
-    isempty(callstmt.args) && return false
+    isempty(callstmt.args) && return nothing
     callee = callstmt.args[1]
     while isa(callee, Core.SSAValue) || isa(callee, JuliaInterpreter.SSAValue)
         callee = code[callee.id]
     end
+    return callee
+end
+
+# `true` when `stmt` is (or wraps, as the RHS of an assignment) a call to
+# `Core._typebody!`, following SSA chains to resolve the callee.
+function is_typebody_stmt(@nospecialize(stmt), code::Vector{Any})
+    callee = typedef_callee(stmt, code)
+    callee === nothing && return false
     if isa(callee, GlobalRef)
         return callee.mod === Core && callee.name === :_typebody!
     end
@@ -723,46 +792,80 @@ function is_typebody_stmt(@nospecialize(stmt), code::Vector{Any})
     return @static(isdefined(Core, :_typebody!) ? true : false) && callee === Core._typebody!
 end
 
-# Statement filter for the prediction pass: only `_typebody!` calls, `eval` calls,
-# and `:toplevel` blocks (and, via `lines_required!`, their dependencies) run.
+# `true` when `stmt` is (or wraps) a call to `Core.resolve_typegroup`, the
+# statement that creates the types of a struct definition or `typegroup` block.
+function is_resolve_typegroup_stmt(@nospecialize(stmt), code::Vector{Any})
+    callee = typedef_callee(stmt, code)
+    callee === nothing && return false
+    if isa(callee, GlobalRef)
+        return callee.mod === Core && callee.name === :resolve_typegroup
+    end
+    isa(callee, QuoteNode) && (callee = callee.value)
+    return @static(isdefined(Core, :resolve_typegroup) ? true : false) && callee === Core.resolve_typegroup
+end
+
+# Statement filter for the prediction pass: only type-defining calls
+# (`_typebody!`/`resolve_typegroup`), `eval` calls, and `:toplevel` blocks (and,
+# via `lines_required!`, their dependencies) run.
 function predict_predicate(@nospecialize(stmt), code::Vector{Any})
     isa(stmt, Expr) || return (false, false)
     haseval = matches_eval(stmt)
-    isreq = haseval | (stmt.head === :toplevel) | is_typebody_stmt(stmt, code)
+    isreq = haseval | (stmt.head === :toplevel) | is_typebody_stmt(stmt, code) |
+            is_resolve_typegroup_stmt(stmt, code)
     return (isreq, haseval)
 end
 
 # Execute `Core._typebody!` — its effects are confined to the throwaway partial type
-# created by `_structtype` earlier in the frame — and record in `predictions` whether
-# evaluating this definition will preserve the existing binding. Returns the value to
-# assign to the statement's SSA slot.
+# created earlier in the frame — and record in `predictions` whether evaluating this
+# definition will preserve the existing binding. Returns the value to assign to the
+# statement's SSA slot.
 #
-# The two branches below reflect a difference in lowering. Struct definitions pass a
-# `prev` argument (the existing type if `Core._equiv_typedef` judged the headers
-# equivalent, `false` otherwise), and `_typebody!(prev, partial, ftypes)` returns
-# `prev` exactly when evaluation would reuse the existing type — so `result ===
-# existing` is the complete test. Abstract and primitive types lower to the
-# 2-argument form with `prev` always `false` (so `result` is always the partial);
-# their lowering instead gates the `const` on `Core._equiv_typedef`, so calling that
-# directly replicates the test evaluation would perform.
+# Both `_typebody!` protocols are handled (see `typebody_partial`). The
+# preservation test depends on the form: the older struct protocol passes a `prev`
+# argument (the existing type if `Core._equiv_typedef` judged the headers
+# equivalent, `false` otherwise) along with the field types, and
+# `_typebody!(prev, partial, ftypes)` returns `prev` exactly when evaluation would
+# reuse the existing type — so `result === existing` is the complete test. In every
+# other form (abstract and primitive types on either protocol), the lowering gates
+# the `const` on `Core._equiv_typedef`, so calling that directly replicates the
+# test evaluation would perform.
 function record_typebody_prediction!(predictions::TypePredictions, interp::Interpreter, frame::Frame, callstmt::Expr)
-    prev = lookup(interp, frame, callstmt.args[2])
-    partial = lookup(interp, frame, callstmt.args[3])
-    partial isa Type || error("unexpected _typebody! argument ", partial)
+    partial = typebody_partial(interp, frame, callstmt)
+    partial isa Type || error("unexpected _typebody! call ", callstmt)
     tn = (Base.unwrap_unionall(partial)::DataType).name
     existing = @invokelatest(isdefinedglobal(tn.module, tn.name)) ?
                @invokelatest(getglobal(tn.module, tn.name)) : nothing
-    if length(callstmt.args) >= 4
-        ftypes = lookup(interp, frame, callstmt.args[4])::Core.SimpleVector
-        result = Core._typebody!(prev, partial, ftypes)
-        preserved = existing isa Type && result === existing
+    fargs = Any[lookup(interp, frame, a) for a in callstmt.args[2:end]]
+    result = Core._typebody!(fargs...)
+    oldstructform = length(fargs) >= 3 && partial === fargs[2]
+    preserved = if oldstructform
+        existing isa Type && result === existing
     else
-        result = Core._typebody!(prev, partial)
-        preserved = existing isa Type &&
+        existing isa Type &&
             @static(isdefined(Core, :_equiv_typedef) ? true : false) &&
             Core._equiv_typedef(existing, partial)
     end
     predictions.preserved[(tn.module, tn.name)] = preserved
+    return result
+end
+
+# Execute `Core.resolve_typegroup` — it creates the group's types (or, per its
+# internal equivalence check, returns the existing ones) without publishing any
+# binding — and record for each group member whether evaluation would preserve
+# the existing binding: `resolve_typegroup` returns the existing type object
+# exactly when the new definition is equivalent to it. Returns the value to
+# assign to the statement's SSA slot.
+function record_typegroup_prediction!(predictions::TypePredictions, interp::Interpreter, frame::Frame, callstmt::Expr)
+    mod = lookup(interp, frame, callstmt.args[2])::Module
+    typevars = lookup(interp, frame, callstmt.args[3])::Core.SimpleVector
+    infos = lookup(interp, frame, callstmt.args[4])::Core.SimpleVector
+    olds = lookup(interp, frame, callstmt.args[5])::Core.SimpleVector
+    result = Core.resolve_typegroup(mod, typevars, infos, olds)
+    for (i, tv) in enumerate(typevars)
+        old = olds[i]
+        preserved = old isa Type && result[i] === old
+        predictions.preserved[(mod, (tv::TypeVar).name)] = preserved
+    end
     return result
 end
 
@@ -771,11 +874,13 @@ end
 # caller treats a throw as "no prediction", leaving the pessimistic deletion path
 # in force (correct, just unoptimized).
 function predict_typebodies!(predictions::TypePredictions, mod::Module, ex::Expr)
-    # The walk requires the Julia 1.12+ struct-lowering protocol, in which
-    # `_typebody!(prev, partial, ...)` carries a `prev` argument and the binding is
-    # published only by a subsequent `const`/`declare_const`. Older lowering binds
-    # the type through statements this walk executes, so prediction would not be
-    # non-destructive there; report "no prediction" instead.
+    # The walk requires the Julia 1.12+ struct-lowering protocol, in which the
+    # type-defining statement (`_typebody!` with a `prev` argument, or
+    # `resolve_typegroup` on typegroup-based versions) builds only throwaway
+    # objects and the binding is published only by a subsequent
+    # `const`/`declare_const`. Older lowering binds the type through statements
+    # this walk executes, so prediction would not be non-destructive there;
+    # report "no prediction" instead.
     @static VERSION >= v"1.12.0-DEV.2047" || return predictions
     lwr = Meta.lower(mod, ex)
     isa(lwr, Expr) || return predictions
@@ -820,7 +925,11 @@ function predict_typebodies!(predictions::TypePredictions, mod::Module, ex::Expr
                     pc = step_expr!(interp, frame, stmt, true)
                 else
                     f = lookup(frame, callstmt.args[1])
-                    if @static(isdefined(Core, :_typebody!) ? true : false) && f === Core._typebody! && length(callstmt.args) >= 3
+                    if @static(isdefined(Core, :resolve_typegroup) ? true : false) && f === Core.resolve_typegroup && length(callstmt.args) >= 5
+                        assign_this!(frame, record_typegroup_prediction!(predictions, interp, frame, callstmt))
+                        pc = next_or_nothing!(frame)
+                    elseif @static(isdefined(Core, :_typebody!) ? true : false) && f === Core._typebody! &&
+                           length(callstmt.args) >= 2
                         assign_this!(frame, record_typebody_prediction!(predictions, interp, frame, callstmt))
                         pc = next_or_nothing!(frame)
                     elseif @static(isdefined(Core, :declare_const) ? true : false) && f === Core.declare_const
