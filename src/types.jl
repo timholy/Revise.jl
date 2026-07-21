@@ -188,9 +188,10 @@ const ExprsInfos = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Union{SigInf
 #
 # - `preserved[(mod, name)]` is `true` when evaluating the new code is predicted to
 #   keep the existing binding `mod.name`: the new definition is equivalent per the
-#   runtime's own `Core._equiv_typedef`/`Core._typebody!` checks, so evaluation
-#   reuses the existing type and the `const` re-assert leaves the binding partition
-#   untouched. `delete_missing!` consults this to skip the expensive subtype-tree
+#   runtime's own redefinition checks (`Core.resolve_typegroup`'s internal
+#   equivalence test, or `Core._equiv_typedef`/`Core._typebody!` on older
+#   versions), so evaluation reuses the existing type and the `const` re-assert
+#   leaves the binding partition untouched. `delete_missing!` consults this to skip the expensive subtype-tree
 #   walk in `handle_type_deletion!` (issue #1022).
 # - `skipped` records every `(typeinfo, oldtype)` whose deletion walk was skipped on
 #   the strength of a prediction. Predictions are made before any queued change is
