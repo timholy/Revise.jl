@@ -2141,7 +2141,7 @@ function get_def(method::Method; modified_files=revision_queue)
     end
     # Lookup can fail for macro-defined methods, see https://github.com/JuliaLang/julia/issues/31197
     # We need to find the right file.
-    if method.module == Base || method.module == Core || method.module == Core.Compiler
+    if method.module === Base || method.module === Core || method.module === Core.Compiler
         @warn "skipping $method to avoid parsing too much code" maxlog=1 _id=method
         CodeTracking.invoked_setindex!(CodeTracking.method_info, missing, MethodInfoKey(method))
         return false
@@ -2154,6 +2154,12 @@ function get_def(method::Method; modified_files=revision_queue)
             def = get_def(method, pkgdata, relpath(modulefile, pkgdata))
             def !== nothing && return true
         end
+    end
+    rootmod = Base.moduleroot(method.module)
+    if rootmod === Base || rootmod === Core || rootmod === Core.Compiler
+        @warn "skipping $method to avoid parsing too much code" maxlog=1 _id=method
+        CodeTracking.invoked_setindex!(CodeTracking.method_info, missing, MethodInfoKey(method))
+        return false
     end
     # As a last resort, try every file in the package
     for file in srcfiles(pkgdata)
