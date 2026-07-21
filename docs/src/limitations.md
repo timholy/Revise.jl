@@ -200,6 +200,16 @@ ThatModule`. Revise itself supports retracting exported names, but it relies on
 a Julia feature that will only become available starting with Julia 1.14
 (https://github.com/JuliaLang/julia/pull/62131).
 
+### Upgrading a registered package
+
+Revise watches the active `Manifest.toml` and follows a package whose directory moves,
+which is how it picks up a `Pkg.develop`ed package. It does not, however, switch a
+loaded package to a different *release* of itself: when the manifest is re-resolved (for
+instance by another process sharing the project) so that it selects a new version of an
+already-loaded package, Revise warns and keeps tracking the version in the session.
+Applying one release's source to a module built from another merges the two, which is a
+state no restart-free path can repair. Restart Julia to pick up the new version.
+
 ### [Code that depends on data](@id data)
 
 Revise does not track dependencies on "data." For example, if your source code

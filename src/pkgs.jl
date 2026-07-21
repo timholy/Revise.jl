@@ -570,7 +570,7 @@ function manifest_file(project_file = Base.active_project())
     return nothing
 end
 
-function manifest_paths!(pkgpaths::Dict, manifest_file::String)
+function manifest_entries!(pkgentries::Dict{PkgId,ManifestEntry}, manifest_file::String)
     d = if isdefined(Base, :get_deps) # `get_deps` is present in versions that support new manifest formats
         Base.get_deps(Base.parsed_toml(manifest_file))
     else
@@ -586,15 +586,96 @@ function manifest_paths!(pkgpaths::Dict, manifest_file::String)
                     # Workaround for #802
                     path = dirname(dirname(path))
                 end
-                pkgpaths[id] = path
+                v = get(entry, "version", nothing)
+                pkgentries[id] = ManifestEntry(path,
+                                               isa(v, String) ? VersionNumber(v) : nothing,
+                                               haskey(entry, "path"))
             end
         end
     end
-    return pkgpaths
+    return pkgentries
 end
 
-manifest_paths(manifest_file::String) =
-    manifest_paths!(Dict{PkgId,String}(), manifest_file)
+manifest_entries(manifest_file::String) =
+    manifest_entries!(Dict{PkgId,ManifestEntry}(), manifest_file)
+
+"""
+    msg = version_switch_message(id::PkgId, olddir::AbstractString, entry::ManifestEntry)
+
+Return the reason `id` must keep being tracked in `olddir` rather than following its
+manifest `entry` to a new directory, or `nothing` if Revise can follow the move.
+
+Each release of a registered package is unpacked into its own depot directory, so a
+registered entry that names a different release than the one loaded is offering a
+different version of the package, not an edit of the loaded one. Its source cannot be
+applied to the loaded module: doing so merges two releases into one session. An entry
+added by path (`Pkg.develop`) instead tracks whatever source lives at that path, and is
+always followed.
+"""
+function version_switch_message(id::PkgId, olddir::AbstractString, entry::ManifestEntry)
+    entry.isdev && return nothing
+    newversion = entry.version
+    newversion === nothing && return nothing
+    oldversion = Base.get_pkgversion_from_path(olddir)
+    (oldversion === nothing || oldversion == newversion) && return nothing
+    return """
+        $(id.name) v$oldversion is loaded, but the manifest now selects v$newversion.
+        Revise keeps tracking the loaded version in
+            $olddir
+        and does not apply the source in
+            $(entry.path)
+        because that would merge two releases into a single session.
+        Restart Julia to load $(id.name) v$newversion."""
+end
+
+"""
+    process_manifest(mfile::String)
+
+Bring the tracked packages into agreement with the manifest `mfile`, following any
+package whose directory has moved. A package whose entry now selects a different
+release is left as it is; the corresponding [`version_switch_message`](@ref)s are
+warned about and returned.
+"""
+function process_manifest(mfile::String)
+    declined = with_logger(_debug_logger) do
+        @debug "Pkg" _group="manifest_update" manifest_file=mfile
+        msgs = String[]
+        isfile(mfile) || return msgs
+        pkgentries = manifest_entries(mfile)
+        pathreplacements = Pair{String,String}[]
+        @lock revise_lock begin
+            for (id, entry) in pkgentries
+                haskey(pkgdatas, id) || continue
+                pkgdata = pkgdatas[id]
+                olddir = basedir(pkgdata)
+                samefile(entry.path, olddir) && continue
+                ## The package directory has changed
+                msg = version_switch_message(id, olddir, entry)
+                if msg !== nothing
+                    push!(msgs, msg)
+                    continue
+                end
+                @debug "Pkg" _group="pathswitch" oldpath=olddir newpath=entry.path
+                push!(pathreplacements, olddir=>entry.path)
+                switch_basepath(pkgdata, entry.path)
+            end
+            # Update the paths in the watchlist
+            for (oldpath, newpath) in pathreplacements
+                for (_, pkgdata) in pkgdatas
+                    if samefile(basedir(pkgdata), oldpath)
+                        switch_basepath(pkgdata, newpath)
+                    end
+                end
+            end
+        end
+        return msgs
+    end
+    # Warn outside `_debug_logger` so the user sees this on the standard logger.
+    for msg in declined
+        @warn msg
+    end
+    return declined
+end
 
 function watch_manifest(mfile::String)
     while true
@@ -606,33 +687,7 @@ function watch_manifest(mfile::String)
         end
         manifest_file() == mfile || continue   # process revisions only if this is the active manifest
         try
-            with_logger(_debug_logger) do
-                @debug "Pkg" _group="manifest_update" manifest_file=mfile
-                isfile(mfile) || return nothing
-                pkgdirs = manifest_paths(mfile)
-                pathreplacements = Pair{String,String}[]
-                @lock revise_lock begin
-                    for (id, pkgdir) in pkgdirs
-                        if haskey(pkgdatas, id)
-                            pkgdata = pkgdatas[id]
-                            if !samefile(pkgdir, basedir(pkgdata))
-                                ## The package directory has changed
-                                @debug "Pkg" _group="pathswitch" oldpath=basedir(pkgdata) newpath=pkgdir
-                                push!(pathreplacements, basedir(pkgdata)=>pkgdir)
-                                switch_basepath(pkgdata, pkgdir)
-                            end
-                        end
-                    end
-                    # Update the paths in the watchlist
-                    for (oldpath, newpath) in pathreplacements
-                        for (_, pkgdata) in pkgdatas
-                            if samefile(basedir(pkgdata), oldpath)
-                                switch_basepath(pkgdata, newpath)
-                            end
-                        end
-                    end
-                end
-            end
+            process_manifest(mfile)
         catch err
             @error "Error watching manifest" exception=(err, trim_toplevel!(catch_backtrace()))
         end

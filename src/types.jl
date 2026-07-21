@@ -421,6 +421,23 @@ function Base.show(io::IO, pkgdata::PkgData)
     end
 end
 
+"""
+    ManifestEntry(path, version, isdev)
+
+A package's location and identity as declared by a `Manifest.toml`.
+`path` is the package's top-level directory.
+
+`isdev` is `true` for an entry added by path (`Pkg.develop`); such an entry tracks
+whatever source currently lives at `path`. Otherwise the entry selects a release of a
+registered package, unpacked into a directory of the depot that is specific to that
+release; `version` is the release it names (`nothing` if the entry declares none).
+"""
+struct ManifestEntry
+    path::String
+    version::Union{Nothing,VersionNumber}
+    isdev::Bool
+end
+
 function pkgfileless((pkgdata1,file1)::Tuple{PkgData,String}, (pkgdata2,file2)::Tuple{PkgData,String})
     # implements a partial order
     PkgId(pkgdata1) ∈ pkgdata2.requirements && return true

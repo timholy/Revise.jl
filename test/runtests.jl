@@ -5305,6 +5305,93 @@ do_test("@require path switch") && @testset "@require path switch" begin
     @test Revise.basedir(pkgdata) == newdir
 end
 
+do_test("Manifest version switch") && @testset "Manifest version switch" begin
+    # Each release of a registered package is unpacked into its own depot directory. If
+    # another process re-resolves the manifest so that it selects a different release than
+    # the one loaded, Revise must keep tracking the loaded release: the two trees are
+    # different versions of the package, not successive edits of one.
+    depot = mktempdir()
+    projdir = mktempdir()
+    uuid = UUID("00000000-1111-2222-3333-444455556666")
+    id = Base.PkgId(uuid, "VerSwitch")
+
+    function makeversion(version, treehash)
+        dir = joinpath(depot, "packages", "VerSwitch",
+                       Base.version_slug(uuid, Base.SHA1(treehash)))
+        mkpath(joinpath(dir, "src"))
+        write(joinpath(dir, "Project.toml"), """
+            name = "VerSwitch"
+            uuid = "$uuid"
+            version = "$version"
+            """)
+        write(joinpath(dir, "src", "VerSwitch.jl"), """
+            module VerSwitch
+            f() = 1
+            end
+            """)
+        return dir
+    end
+
+    mfile = joinpath(projdir, "Manifest.toml")
+    function writemanifest(version, location)
+        write(mfile, """
+            julia_version = "$VERSION"
+            manifest_format = "2.0"
+
+            [[deps.VerSwitch]]
+            uuid = "$uuid"
+            version = "$version"
+            $location
+            """)
+    end
+
+    hash1, hash2, hash3 = "1"^40, "2"^40, "3"^40
+    dir1, dir2, dir3 = makeversion("0.1.0", hash1), makeversion("0.2.0", hash2), makeversion("0.1.0", hash3)
+
+    mod = Module(:VerSwitch)
+    Core.eval(mod, :(using Base))
+    mei = Revise.ModuleExprsInfos(mod)
+    mei[mod][Revise.RelocatableExpr(:(f() = 1))] = nothing
+    pkgdata = Revise.PkgData(id, dir1)
+    push!(pkgdata, joinpath("src", "VerSwitch.jl")=>Revise.FileInfo(mei))
+
+    push!(DEPOT_PATH, depot)
+    Revise.pkgdatas[id] = pkgdata
+    try
+        # A different release: decline, and keep tracking the loaded one.
+        writemanifest("0.2.0", "git-tree-sha1 = \"$hash2\"")
+        local msgs
+        @test_logs (:warn, r"manifest now selects") begin
+            msgs = Revise.process_manifest(mfile)
+        end
+        @test length(msgs) == 1
+        @test occursin("VerSwitch v0.1.0 is loaded, but the manifest now selects v0.2.0", msgs[1])
+        @test occursin(dir1, msgs[1])
+        @test occursin(dir2, msgs[1])
+        @test occursin("Restart Julia to load VerSwitch v0.2.0", msgs[1])
+        @test Revise.basedir(pkgdata) == dir1
+
+        # The same release in a new directory (e.g. a reinstall): follow it.
+        writemanifest("0.1.0", "git-tree-sha1 = \"$hash3\"")
+        @test isempty(Revise.process_manifest(mfile))
+        @test Revise.basedir(pkgdata) == dir3
+
+        # An entry added by path tracks whatever source is at that path, whatever
+        # version it declares.
+        writemanifest("0.2.0", "path = \"$(escape_string(dir2))\"")
+        @test isempty(Revise.process_manifest(mfile))
+        @test Revise.basedir(pkgdata) == dir2
+    finally
+        delete!(Revise.pkgdatas, id)
+        filter!(!=(depot), DEPOT_PATH)
+        filter!(pr -> first(pr) !== pkgdata, Revise.revision_queue)
+        filter!(pr -> first(first(pr)) !== pkgdata, Revise.queue_errors)
+        for dir in (dir1, dir2, dir3)
+            delete!(Revise.watched_files, joinpath(dir, "src"))
+        end
+    end
+end
+
 do_test("Switching environments") && @testset "Switching environments" begin
     old_project = Base.active_project()
 
