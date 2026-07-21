@@ -1033,6 +1033,90 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Revise mode :sigs") && @testset "Revise mode :sigs" begin
+        testdir = newtestdir()
+        # Sibling helper packages, so the test depends on nothing outside `testdir`.
+        # `SigsHelper2` is not loaded until a revision adds a `using` for it.
+        for (helper, def) in (("SigsHelper1", "export dmean\ndmean(x) = sum(x)/length(x)"),
+                              ("SigsHelper2", "export DiagLike\nstruct DiagLike end"))
+            hn = joinpath(testdir, helper, "src")
+            mkpath(hn)
+            write(joinpath(hn, helper*".jl"), "module $helper\n$def\nend\n")
+        end
+        dn = joinpath(testdir, "SigsMode", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "SigsMode.jl")
+        write(fn, """
+            module SigsMode
+            __revise_mode__ = :sigs
+            using SigsHelper1: dmean
+            f(x) = dmean(x)
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using SigsMode
+        @test SigsMode.f([1,2,3]) == 2.0
+        @test whereis(only(methods(SigsMode.f))) == (fn, 4)
+        sleep(mtimedelay)
+        write(fn, """
+            module SigsMode
+            __revise_mode__ = :sigs
+
+            using SigsHelper1: dmean
+            using SigsHelper2: DiagLike
+            export h
+
+            f(x) = dmean(x)
+            h(x::DiagLike) = 1
+            end
+            """)
+        @yry()
+        @test isempty(Revise.queue_errors)
+        # Revised namespace statements take effect before later expressions.
+        @eval using SigsHelper2
+        @test SigsMode.DiagLike === SigsHelper2.DiagLike
+        @test :h ∈ names(SigsMode)
+        # `:sigs` updates signatures without installing method bodies.
+        @test length(methods(getglobal(SigsMode, :h))) == 0
+        @test SigsMode.f([1,2,3]) == 2.0
+        @test whereis(only(methods(SigsMode.f))) == (fn, 8)
+
+        rm_precompile("SigsMode")
+        rm_precompile("SigsHelper1")
+        rm_precompile("SigsHelper2")
+        pop!(LOAD_PATH)
+    end
+
+    do_test("Signature instantiation") && @testset "Signature instantiation" begin
+        # Cataloging loaded source must not execute namespace statements.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "SigsUnloaded", "src")
+        mkpath(dn)
+        write(joinpath(dn, "SigsUnloaded.jl"), """
+            module SigsUnloaded
+            struct Marker end
+            end
+            """)
+        sleep(mtimedelay)
+        host = Core.eval(Main, :(module SigsHost
+                                 q(x::Int) = 1
+                                 end))
+        src = """
+            using SigsUnloaded
+            q(x::Int) = 1
+            """
+        fn = joinpath(testdir, "sigs_host.jl")
+        write(fn, src)
+        mexs = Revise.ModuleExprsInfos(host)
+        parse_source!(mexs, src, fn, host)
+        Revise.instantiate_sigs!(mexs)
+        @test !isdefined(host, :SigsUnloaded)
+        @test !any(id -> id.name == "SigsUnloaded", keys(Base.loaded_modules))
+        @test any(k -> k.sig === Tuple{typeof(host.q),Int}, keys(CodeTracking.method_info))
+
+        pop!(LOAD_PATH)
+    end
+
     do_test("Multiple definitions") && @testset "Multiple definitions" begin
         # This simulates a copy/paste/save "error" from one file to another
         # ref https://github.com/timholy/CodeTracking.jl/issues/55

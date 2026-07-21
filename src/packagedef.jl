@@ -836,7 +836,8 @@ function eval_rex(rex_new::RelocatableExpr, exs_infos_old::ExprsInfos, mod::Modu
             ex = rex_new.ex
             # ex is not present in old
             @debug titlecase(String(mode)) _group="Action" time=time() deltainfo=(mod, ex, mode)
-            exinfos, includes, thunk = eval_with_signatures(mod, ex; mode)  # All signatures defined by `ex`
+            # Revised signatures may depend on new namespace statements.
+            exinfos, includes, thunk = eval_with_signatures(mod, ex; mode, eval_namespace=true)  # All signatures defined by `ex`
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end
