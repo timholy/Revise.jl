@@ -6309,6 +6309,60 @@ do_test("re-watch after reappearance") && !Revise.watching_files[] && Sys.islinu
     end
 end
 
+# Restricted to directory-watching mode on Linux for the same reasons as the
+# preceding testset: it drives a delete/recreate round-trip through the
+# filesystem watcher. The fix itself is platform-general.
+do_test("re-arm dropped watch") && !Revise.watching_files[] && Sys.islinux() &&
+        @testset "re-arm dropped watch" begin
+    # A directory that stays missing past `watch_reappear_grace` loses its watcher.
+    # Nothing in the source need change when it returns, so its reappearance is the
+    # only signal Revise gets: `revise` must resume watching it, and pick up whatever
+    # changed while the watch was down. Otherwise the session is silently blind to
+    # that directory for the rest of its life.
+    testdir = newtestdir()
+    dn = joinpath(testdir, "ReArm", "src")
+    subdir = joinpath(dn, "sub")
+    mkpath(subdir)
+    write(joinpath(dn, "ReArm.jl"), """
+        module ReArm
+        include("sub/extra.jl")
+        f() = 1
+        end
+        """)
+    write(joinpath(subdir, "extra.jl"), "g() = 2")
+    sleep(mtimedelay)
+    @eval using ReArm
+    sleep(mtimedelay)
+    @test ReArm.g() == 2
+    @test haskey(Revise.watched_files, subdir)
+
+    old_grace = Revise.watch_reappear_grace[]
+    Revise.watch_reappear_grace[] = 0.0   # give up promptly so the round-trip is quick
+    try
+        rm(subdir; recursive=true)
+        @test timedwait(() -> !haskey(Revise.watched_files, subdir), event_timeout) === :ok
+        @yry
+
+        # The directory returns with new content, while the `include` that brought it
+        # into the package is untouched.
+        mkdir(subdir)
+        write(joinpath(subdir, "extra.jl"), "g() = 3")
+        sleep(mtimedelay)
+        revise()
+        @latestworld
+        @test haskey(Revise.watched_files, subdir)
+        @test ReArm.g() == 3
+
+        # The resumed watch is live: a later edit is detected without further help.
+        write(joinpath(subdir, "extra.jl"), "g() = 99")
+        @yry
+        @test ReArm.g() == 99
+    finally
+        Revise.watch_reappear_grace[] = old_grace
+    end
+    rm_precompile("ReArm")
+end
+
 do_test("Frozen world") && @testset "Frozen world" begin
     # Revise pins its own method dispatch to the world it froze at `__init__` (issue #552),
     # so revising a method Revise itself uses cannot invalidate Revise mid-operation. The rest

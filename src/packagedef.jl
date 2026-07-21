@@ -961,7 +961,9 @@ function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
                                  to register.""" maxlog=1
                     end
                     fwatcher = TaskThunk(revise_file_queued, (pkgdata, file))
-                    schedule(Task(fwatcher))
+                    # A watcher that throws stops delivering revisions; `errormonitor`
+                    # makes that visible instead of leaving the session silently blind.
+                    errormonitor(schedule(Task(fwatcher)))
                 else
                     already_watching_dir || push!(udirs, dirfull)
                 end
@@ -976,7 +978,9 @@ function init_watching(pkgdata::PkgData, files=srcfiles(pkgdata))
             # which never deliver notifications.
             polling_files[] || nonnotifying_path(dirfull) || watch_folder(dirfull, 0)
             dwatcher = TaskThunk(revise_dir_queued, (dirfull,))
-            schedule(Task(dwatcher))
+            # A watcher that throws stops delivering revisions; `errormonitor` makes
+            # that visible instead of leaving the session silently blind.
+            errormonitor(schedule(Task(dwatcher)))
         end
     end
     return nothing
@@ -1006,6 +1010,73 @@ function await_watched_path(exists, path::AbstractString, watchkey::AbstractStri
     return :reappeared
 end
 
+# Watches that were given up, mapping the path whose absence (or whose watcher's
+# failure) stopped the watch to the `filename=>PkgId` pairs that were being
+# tracked through it. Nothing is watching those files, and they hold no entry in
+# `watched_files`, so `init_watching` is free to start a replacement watcher:
+# `rearm_watching` does so once the path exists again. Locking is covered by
+# `revise_lock`.
+const lost_watches = Dict{String,Vector{Pair{String,PkgId}}}()
+
+# Give up the watch on directory `dirname`, recording its tracked files so that
+# `rearm_watching` can resume. `path` is what must exist again before resuming;
+# it differs from `dirname` only for the per-file watches used on filesystems
+# that do not deliver directory notifications, where a single file is
+# relinquished and the rest of the directory stays watched.
+function relinquish_watch(dirname::AbstractString, path::AbstractString=dirname)
+    @lock revise_lock begin
+        wl = get(watched_files, dirname, nothing)
+        wl === nothing && return nothing
+        entries = get!(Vector{Pair{String,PkgId}}, lost_watches, path)
+        if path == dirname
+            for (basename, id) in wl.trackedfiles
+                push!(entries, joinpath(dirname, basename) => id)
+            end
+            delete!(watched_files, dirname)
+        else
+            _, basename = splitdir(path)
+            id = get(wl.trackedfiles, basename, nothing)
+            if id === nothing
+                isempty(entries) && delete!(lost_watches, path)
+                return nothing
+            end
+            push!(entries, path => id)
+            delete!(wl.trackedfiles, basename)
+            delete!(wl.file_ctimes, basename)
+            delete!(wl.file_hashes, basename)
+        end
+    end
+    return nothing
+end
+
+# Resume any watch given up while its path was missing, for paths that exist
+# again. Their files are queued for revision: filesystem events were lost while
+# the watch was down, so what Revise has on record for them may be stale.
+function rearm_watching()
+    lost = @lock revise_lock begin
+        isempty(lost_watches) && return nothing
+        collect(lost_watches)
+    end
+    for (path, entries) in lost
+        ispath(path) || continue
+        @lock revise_lock delete!(lost_watches, path)
+        requeue = Tuple{PkgData,String}[]
+        for (fullfile, id) in entries
+            pkgdata = getpkgdata(id)
+            pkgdata === nothing && continue
+            file = relpath(fullfile, pkgdata)
+            iswatched(pkgdata, file) && continue
+            init_watching(pkgdata, (file,))
+            hasfile(pkgdata, file) && push!(requeue, (pkgdata, file))
+        end
+        if !isempty(requeue)
+            @lock revise_lock union!(revision_queue, requeue)
+            notify(revision_event)
+        end
+    end
+    return nothing
+end
+
 """
     revise_dir_queued(dirname::AbstractString)
 
@@ -1015,49 +1086,55 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
 """
 @noinline function revise_dir_queued(dirname::AbstractString)
     @assert isabspath(dirname)
-    stillwatching = true
-    while stillwatching
-        if !isdir(dirname)
-            status = await_watched_path(isdir, dirname, dirname)
-            if status !== :reappeared
-                if status === :gone
-                    with_logger(SimpleLogger(stderr)) do
-                        @warn "$dirname is not an existing directory, Revise is not watching"
+    try
+        stillwatching = true
+        while stillwatching
+            if !isdir(dirname)
+                status = await_watched_path(isdir, dirname, dirname)
+                if status !== :reappeared
+                    if status === :gone
+                        with_logger(SimpleLogger(stderr)) do
+                            @warn "$dirname is not an existing directory, Revise is not watching (watching resumes if it reappears)"
+                        end
+                        relinquish_watch(dirname)
                     end
-                    # Drop the watch registration as we stop. Otherwise, if `dirname`
-                    # is recreated later (e.g. switching back to a branch that has it),
-                    # `init_watching` would see the stale entry, assume a watcher is
-                    # already running, and never start a replacement — so edits to the
-                    # reappeared files would go unnoticed.
-                    @lock revise_lock delete!(watched_files, dirname)
+                    break
                 end
-                break
+                # Reappeared: the directory was removed and recreated, so the existing
+                # monitor may be watching a stale inode. Drop it; the next
+                # `wait_changed_dir` re-registers a fresh one.
+                unwatch_folder(dirname)
             end
-            # Reappeared: the directory was removed and recreated, so the existing
-            # monitor may be watching a stale inode. Drop it; the next
-            # `wait_changed_dir` re-registers a fresh one.
-            unwatch_folder(dirname)
-        end
 
-        latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
-        for (file, id) in latestfiles
-            key = joinpath(dirname, file)
-            @lock revise_lock begin
-                if key in keys(user_callbacks_by_file)
-                    union!(user_callbacks_queue, user_callbacks_by_file[key])
-                    notify(revision_event)
-                end
-                if id != NOPACKAGE
-                    pkgdata = pkgdatas[id]
-                    if hasfile(pkgdata, key)  # issue #228
-                        push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
+            latestfiles, stillwatching = watch_files_via_dir(dirname)  # will block here until file(s) change
+            for (file, id) in latestfiles
+                key = joinpath(dirname, file)
+                @lock revise_lock begin
+                    if key in keys(user_callbacks_by_file)
+                        union!(user_callbacks_queue, user_callbacks_by_file[key])
                         notify(revision_event)
                     end
+                    if id != NOPACKAGE
+                        pkgdata = pkgdatas[id]
+                        if hasfile(pkgdata, key)  # issue #228
+                            push!(revision_queue, (pkgdata, relpath(key, pkgdata)))
+                            notify(revision_event)
+                        end
+                    end
                 end
             end
         end
+    catch
+        # This task is the directory's only watcher, so its death must also release
+        # the registration: while a `watched_files` entry stands, `init_watching`
+        # takes it to mean a watcher is running and starts no replacement.
+        # Relinquishing instead leaves the directory eligible for `rearm_watching`.
+        # The error is rethrown for the task's `errormonitor` to report.
+        relinquish_watch(dirname)
+        rethrow()
+    finally
+        unwatch_folder(dirname)  # stop the OS watch now that we no longer watch this dir
     end
-    unwatch_folder(dirname)  # stop the OS watch now that we no longer watch this dir
     return
 end
 
@@ -1077,40 +1154,49 @@ function revise_file_queued(pkgdata::PkgData, file)
 
     dirfull, _ = splitdir(file)
     fileexists(f) = file_exists(f) || isdir(f)
-    stillwatching = true
-    while stillwatching
-        if !fileexists(file)
-            status = await_watched_path(fileexists, file, dirfull)
-            if status !== :reappeared
-                if status === :gone
-                    let file=file
-                        with_logger(SimpleLogger(stderr)) do
-                            @warn "$file is not an existing file, Revise is not watching"
+    try
+        stillwatching = true
+        while stillwatching
+            if !fileexists(file)
+                status = await_watched_path(fileexists, file, dirfull)
+                if status !== :reappeared
+                    if status === :gone
+                        let file=file
+                            with_logger(SimpleLogger(stderr)) do
+                                @warn "$file is not an existing file, Revise is not watching (watching resumes if it reappears)"
+                            end
                         end
+                        relinquish_watch(dirfull, file)
                     end
+                    notify(revision_event)
+                    break
                 end
-                notify(revision_event)
-                break
             end
-        end
-        try
-            wait_changed(file)  # will block here until the file changes
-        catch e
-            # issue #459
-            (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
-        end
+            try
+                wait_changed(file)  # will block here until the file changes
+            catch e
+                # issue #459
+                (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+            end
 
-        @lock revise_lock begin
-            if file in keys(user_callbacks_by_file)
-                union!(user_callbacks_queue, user_callbacks_by_file[file])
-                notify(revision_event)
-            end
-            # Check to see if we're still watching this file
-            stillwatching = haskey(watched_files, dirfull)
-            if PkgId(pkgdata) != NOPACKAGE
-                push!(revision_queue, (pkgdata, relpath(file, pkgdata)))
+            @lock revise_lock begin
+                if file in keys(user_callbacks_by_file)
+                    union!(user_callbacks_queue, user_callbacks_by_file[file])
+                    notify(revision_event)
+                end
+                # Check to see if we're still watching this file
+                stillwatching = haskey(watched_files, dirfull)
+                if PkgId(pkgdata) != NOPACKAGE
+                    push!(revision_queue, (pkgdata, relpath(file, pkgdata)))
+                end
             end
         end
+    catch
+        # This task is the file's only watcher; releasing the registration as it dies
+        # keeps the file eligible for `rearm_watching` instead of appearing watched
+        # forever. The error is rethrown for the task's `errormonitor` to report.
+        relinquish_watch(dirfull, file)
+        rethrow()
     end
     return
 end
@@ -1567,6 +1653,11 @@ revise(; throw::Bool=false) = frozen(_revise; throw)
 
 function _revise(; throw::Bool=false)
     active[] || return nothing
+
+    # Restore any watch that was given up while its path was missing. This is the
+    # only thing that re-arms such a watch, so it must run before the queue is
+    # drained: the files it recovers are queued here and revised below.
+    rearm_watching()
 
     @lock revise_lock begin
         have_queue_errors = !isempty(queue_errors)
