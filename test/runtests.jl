@@ -6356,6 +6356,45 @@ do_test("Frozen world user-code frame") && @testset "Frozen world user-code fram
     end
 end
 
+do_test("Frozen world include path") && @testset "Frozen world include path" begin
+    # An `include` filename in interpreted user code may be a custom AbstractString
+    # (e.g. RelocatableFolders.Path in Plots' @require blocks) whose methods are newer
+    # than Revise's frozen world. Recording it in `exinfo.includes` converts it to
+    # `String`; that conversion must happen at the latest world or it throws a
+    # "method too new" MethodError (e.g. for `iterate`).
+    saved = Revise.worldage[]
+    try
+        Revise.advance_world!()      # freeze before the fake path type's methods exist
+        @eval module FrozenIncludePath
+            struct FakePath <: AbstractString
+                path::String
+            end
+            Base.ncodeunits(p::FakePath) = ncodeunits(p.path)
+            Base.codeunit(p::FakePath) = codeunit(p.path)
+            Base.codeunit(p::FakePath, i::Integer) = codeunit(p.path, i)
+            Base.isvalid(p::FakePath, i::Integer) = isvalid(p.path, i)
+            Base.iterate(p::FakePath) = iterate(p.path)
+            Base.iterate(p::FakePath, i::Integer) = iterate(p.path, i)
+            const fake = FakePath("frozen_include_target.jl")
+            module Target end
+        end
+        # invokelatest: these bindings are newer than this thunk's world
+        FIP = Base.invokelatest(getglobal, @__MODULE__, :FrozenIncludePath)
+        fake = Base.invokelatest(getglobal, FIP, :fake)
+        target = Base.invokelatest(getglobal, FIP, :Target)
+        ex = quote
+            frozen_include_dummy() = 1   # force the interpreter path
+            include($fake)
+        end
+        exinfo = Revise.ExInfo(ex)
+        Revise.frozen(Revise.methods_by_execution!, exinfo, target, ex;
+                      mode=:eval, skip_include=true, always_rethrow=true)
+        @test exinfo.includes == [(target, identity, "frozen_include_target.jl")]
+    finally
+        Revise.worldage[] = saved
+    end
+end
+
 do_test("Revise issue #607") && @testset "Revise issue #607" begin
     # A top-level loop that defines methods (so Revise must interpret it during a revision)
     # and, while building each method's arguments, applies a freshly-created closure (the

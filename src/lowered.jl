@@ -631,12 +631,18 @@ function add_signature!(exinfo::ExInfo, mt_sig::MethodInfoKey, ln::LineNumberNod
     return exinfo
 end
 
+# The path may be a custom AbstractString from interpreted user code (e.g.
+# RelocatableFolders.Path) whose methods are newer than Revise's frozen world;
+# convert at the latest world.
+include_filename(path::String) = path
+include_filename(path::AbstractString) = (@invokelatest String(path))::String
+
 function handle_include!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt::Expr)
     if length(stmt.args) == 2
         # include(path)
         local arg2 = lookup(interp, frame, stmt.args[2])
         if arg2 isa AbstractString
-            push!(exinfo.includes, (moduleof(frame), identity, arg2))
+            push!(exinfo.includes, (moduleof(frame), identity, include_filename(arg2)))
             return exinfo
         end
     elseif length(stmt.args) == 3
@@ -645,10 +651,10 @@ function handle_include!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt
         local arg3 = lookup(interp, frame, stmt.args[3])
         if arg3 isa AbstractString
             if arg2 isa Module
-                push!(exinfo.includes, (arg2, identity, arg3))
+                push!(exinfo.includes, (arg2, identity, include_filename(arg3)))
                 return exinfo
             elseif arg2 isa Function
-                push!(exinfo.includes, (moduleof(frame), arg2, arg3))
+                push!(exinfo.includes, (moduleof(frame), arg2, include_filename(arg3)))
                 return exinfo
             end
         end
@@ -658,7 +664,7 @@ function handle_include!(exinfo::ExInfo, interp::Interpreter, frame::Frame, stmt
         local arg3 = lookup(interp, frame, stmt.args[3])
         local arg4 = lookup(interp, frame, stmt.args[4])
         if arg2 isa Function && arg3 isa Module && arg4 isa AbstractString
-            push!(exinfo.includes, (arg3, arg2, arg4))
+            push!(exinfo.includes, (arg3, arg2, include_filename(arg4)))
             return exinfo
         end
     end
