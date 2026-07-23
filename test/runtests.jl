@@ -11,6 +11,7 @@ using Pkg, Unicode, Distributed, InteractiveUtils, REPL, UUIDs, Dates
 import LibGit2
 using Revise.OrderedCollections: OrderedSet
 using Test: collect_test_logs
+using Logging: ConsoleLogger, with_logger
 using Base.CoreLogging: Debug,Info
 
 # Some test cases (especially those that redirect stderr during precompilation)
@@ -2943,11 +2944,22 @@ end
 
         function check_revision_error(rec, ErrorType, msg, line)
             @test rec.message == "Failed to revise $fn"
-            exc = rec.kwargs[:exception]
+            exc, bt = rec.kwargs[:exception]
             if exc isa Revise.ReviseEvalException
-                exc, st = exc.exc, exc.stacktrace
+                @test bt === nothing
+                st = exc.stacktrace
+                io = IOBuffer()
+                let exc=exc
+                    with_logger(ConsoleLogger(io)) do
+                        @error rec.message exception=(exc, nothing)
+                    end
+                end
+                rendered = String(take!(io))
+                @test occursin("Stacktrace:", rendered)
+                frame, _ = only(st)
+                @test occursin("RevisionErrors.jl:$(frame.line)", rendered)
+                exc = exc.exc
             else
-                exc, bt = exc
                 st = stacktrace(bt)
             end
             @test exc isa ErrorType
@@ -5276,11 +5288,43 @@ do_test("Manifest re-extraction errors") && @testset "Manifest re-extraction err
     pkgdata = Revise.PkgData(id, "/nonexistent/Issue706")
     file = "src/Issue706.jl"
     delete!(Revise.queue_errors, (pkgdata, file))
-    # Unguarded extraction throws ...
-    @test_throws Exception Revise.maybe_extract_sigs!(mkfi())
-    # ... but the resilient helper records the error instead of throwing.
+    # Unguarded extraction identifies partial-evaluation failure separately from
+    # an error thrown by normally-evaluated package code.
+    err = try
+        Revise.maybe_extract_sigs!(mkfi())
+        nothing
+    catch err
+        err
+    end
+    @test err isa Revise.SignatureExtractionError
+    @test err.mod === mod
+    @test err.exc isa Revise.ReviseEvalException
+    errmsg = sprint(showerror, err)
+    @test startswith(errmsg, "failed to extract method signatures")
+    @test !occursin("Revise evaluation error", errmsg)
+
+    # Debugging and non-`:sigs` modes preserve their original exception behavior.
+    @test_throws ErrorException Revise.instantiate_sigs!(mkfi().mod_exs_infos; always_rethrow=true)
+    @test_throws Revise.ReviseEvalException Revise.instantiate_sigs!(mkfi().mod_exs_infos; mode=:eval)
+
+    # The resilient helper records the contextual error instead of throwing.
     @test (Revise.maybe_extract_sigs_or_queue_error!(pkgdata, file, mkfi()); true)
     @test haskey(Revise.queue_errors, (pkgdata, file))
+    queued_err, _ = Revise.queue_errors[(pkgdata, file)]
+    @test queued_err isa Revise.SignatureExtractionError
+
+    # Self-rendering exceptions use the standard `(exception, backtrace)` log shape
+    # without appending Revise's internal backtrace.
+    logger = Revise.ReviseLogger()
+    redirect_stderr(devnull) do
+        Base.CoreLogging.with_logger(logger) do
+            Revise.errors([(pkgdata, file)])
+        end
+    end
+    logged_err, logged_bt = only(logger.logs).kwargs[:exception]
+    @test logged_err === queued_err
+    @test logged_bt === nothing
+    @test occursin("failed to extract method signatures", sprint(show, only(logger.logs)))
     delete!(Revise.queue_errors, (pkgdata, file))   # leave global state clean
 end
 

@@ -901,7 +901,22 @@ function instantiate_sigs!(mod_exs_infos::ModuleExprsInfos; mode::Symbol=:sigs, 
     for (mod, exs_infos) in mod_exs_infos
         for rex in keys(exs_infos)
             is_doc_expr(rex.ex) && continue
-            exs_infos[rex], _, _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
+            try
+                exs_infos[rex], _, _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
+            catch err
+                if (mode !== :sigs || get(kwargs, :always_rethrow, false) ||
+                    err isa InterruptException || err isa SignatureExtractionError)
+                    rethrow()
+                end
+                loc = if err isa ReviseEvalException && err.loc != "unknown location"
+                    err.loc
+                else
+                    lnn = firstline(rex)
+                    lnn === nothing || lnn.file === nothing || lnn.file === :none ?
+                        "unknown location" : location_string((lnn.file, lnn.line))
+                end
+                throw(SignatureExtractionError(mod, loc, err))
+            end
         end
     end
     return mod_exs_infos
@@ -1437,8 +1452,9 @@ function errors(revision_errors=keys(queue_errors))
         pkgdata, file = item
         (err, bt) = queue_errors[(pkgdata, file)]
         fullpath = joinpath(basedir(pkgdata), file)
-        if err isa ReviseEvalException
-            @error "Failed to revise $fullpath" exception=err
+        if (err isa ReviseEvalException ||
+            (err isa SignatureExtractionError && captured_stacktrace(err) !== nothing))
+            @error "Failed to revise $fullpath" exception=(err, nothing)
         else
             @error "Failed to revise $fullpath" exception=(err, trim_toplevel!(bt))
         end
