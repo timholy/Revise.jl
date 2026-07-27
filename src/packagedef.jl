@@ -3,7 +3,7 @@ Base.Experimental.@optlevel 1
 using FileWatching, REPL, UUIDs
 using LibGit2: LibGit2
 using CRC32c: crc32c
-using Base: PkgId, IdSet
+using Base: IdSet, PkgId
 using Base.Meta: isexpr
 using Core: CodeInfo, MethodTable
 
@@ -11,7 +11,7 @@ if !isdefined(Core, :isdefinedglobal)
     isdefinedglobal(m::Module, s::Symbol) = isdefined(m, s)
 end
 
-export revise, includet, @includet, entr, MethodSummary
+export @includet, MethodSummary, entr, includet, revise
 
 ## BEGIN abstract Distributed API
 
@@ -665,7 +665,7 @@ function has_pending_type_deletion(mod_exs_infos_new::ModuleExprsInfos, mod_exs_
     end
     return false
 end
-has_pending_type_deletion(@nospecialize(mod_exs_infos_new), mod_exs_infos_old::ModuleExprsInfos) = false
+has_pending_type_deletion(@nospecialize(_), ::ModuleExprsInfos) = false
 
 # Run the type-preservation prediction over every expression the evaluation phase
 # will (re)evaluate, i.e., the new rexes. Best-effort: any error leaves the affected
@@ -810,7 +810,7 @@ end
 
 function eval_rex(rex_new::RelocatableExpr, exs_infos_old::ExprsInfos, mod::Module; mode::Symbol=:eval)
     return with_logger(_debug_logger) do
-        exinfos, includes = nothing, nothing
+        _, includes = nothing, nothing
         rex_old = getkey(exs_infos_old, rex_new, nothing)
         # extract the signatures and update the line info
         if rex_old === nothing
@@ -1661,7 +1661,7 @@ function _revise(; throw::Bool=false)
         end
         if pending_type_deletion
             with_logger(_debug_logger) do
-                for (pkgdata, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
+                for (_pkgdata, _file, _idx, mod_exs_infos_new, mod_exs_infos_old, _fileok) in parsed
                     mod_exs_infos_new isa ModuleExprsInfos || continue
                     predict_changes!(predictions, mod_exs_infos_new, mod_exs_infos_old)
                 end

@@ -7,7 +7,7 @@ using Test
 
 @test isempty(detect_ambiguities(Revise))
 
-using Pkg, Unicode, Distributed, InteractiveUtils, REPL, UUIDs, Dates
+using Dates, Distributed, InteractiveUtils, Pkg, REPL, UUIDs, Unicode
 import LibGit2
 using Revise.OrderedCollections: OrderedSet
 using Test: collect_test_logs
@@ -93,7 +93,7 @@ function lower_and_track(ex::Expr)
     lwr = Meta.lower(TypeInfoTracking, ex)
     frame = Frame(TypeInfoTracking, lwr.args[1])
     exinfo = Revise.ExInfo(ex)
-    ret = Revise._methods_by_execution!(
+    Revise._methods_by_execution!(
         JuliaInterpreter.RecursiveInterpreter(), exinfo, frame, trues(length(frame.framecode.src.code)); mode=:sigs)
     return exinfo
 end
@@ -919,7 +919,7 @@ end
         @test Revise.fixpath("/some/bad/path/mydir/myfile.jl"; badpath="/some/bad/path/", goodpath="/good/path") == targetfn
         @test isfile(Revise.fixpath(Base.find_source_file("array.jl")))
         failedfiles = Tuple{String,String}[]
-        for (mod,file) = Base._included_files
+        for (_,file) = Base._included_files
             fixedfile = Revise.fixpath(file)
             if !isfile(fixedfile)
                 push!(failedfiles, (file, fixedfile))
@@ -1086,7 +1086,7 @@ end
         badscript = joinpath(testdir, "mapexpr_bad.jl")
         write(badscript, "# a comment\nfmap634bad() = 2\n")
         sleep(mtimedelay)
-        badmap(ex) = error("bad transform")
+        badmap(_) = error("bad transform")
         err = try
             Revise.track(badmap, badscript)
         catch err
@@ -1746,7 +1746,7 @@ end
         mod_exs_infos_new = parse_source(fn, Base)
         odict = mod_exs_infos_old[Base]
         ndict = mod_exs_infos_new[Base]
-        for (k, v) in odict
+        for (k, _) in odict
             @test haskey(ndict, k)
         end
     end
@@ -2131,7 +2131,7 @@ end
         try
             triggered(true, false)
             @test false
-        catch err
+        catch
             st = stacktrace(catch_backtrace())
             Revise.update_stacktrace_lineno!(st)
             bt = throwing_function(st)
@@ -2154,14 +2154,14 @@ end
         try
             triggered(true, false)
             @test false
-        catch err
+        catch
             bt = throwing_function(Revise.update_stacktrace_lineno!(stacktrace(catch_backtrace())))
             @test bt.file == Symbol(filename) && bt.line == 3
         end
         st = try
             triggered(true, false)
             @test false
-        catch err
+        catch
             stacktrace(catch_backtrace())
         end
         targetstr = basename(filename * ":3")
@@ -3267,10 +3267,9 @@ end
             @test rec.message == "Failed to revise $fn"
             exc = rec.kwargs[:exception]
             if exc isa Revise.ReviseEvalException
-                exc, st = exc.exc, exc.stacktrace
+                exc = exc.exc
             else
-                exc, bt = exc
-                st = stacktrace(bt)
+                exc, _ = exc
             end
             @test exc isa InterruptException
             if length(logs) > 1
@@ -3672,7 +3671,6 @@ end
                 @eval using StructConstUser
                 @eval using StructConstUserUser
                 sleep(mtimedelay)
-                w1 = Base.get_world_counter()
                 f = StructConst.Fixed(5)
                 v1 = hash(f)
                 p = StructConst.Point(5.0)
@@ -4191,7 +4189,7 @@ end
         @test ex isa Revise.RelocatableExpr
         @test isequal(ex, Revise.RelocatableExpr(:(f(v::AbstractVector{<:Integer}) = 3)))
 
-        st = try GetDef.bar(5.0) catch err stacktrace(catch_backtrace()) end
+        st = try GetDef.bar(5.0) catch _ stacktrace(catch_backtrace()) end
         linfo = st[2].linfo
         m = isa(linfo, Core.CodeInstance) ? linfo.def.def : linfo.def
         def = Revise.RelocatableExpr(definition(m))
@@ -4519,7 +4517,7 @@ end
             @test revise_g() == 2
 
             # issue #257
-            logs, _ = Test.collect_test_logs() do  # just to prevent noisy warning
+            _logs, _ = Test.collect_test_logs() do  # just to prevent noisy warning
                 try include("nonexistent1.jl") catch end
                 yry(expect_revision=false)   # include of a missing file revises nothing
                 try include("nonexistent2.jl") catch end
@@ -6009,7 +6007,7 @@ do_test("entr with modules") && @testset "entr with modules" begin
             A354_result[] = A354.test()
             error()
         end
-    catch err
+    catch
     end
 
     @test A354_result[] == 2
@@ -6489,7 +6487,7 @@ GC.gc(); GC.gc()
     old_grace = Revise.watch_reappear_grace[]
     Revise.watch_reappear_grace[] = 0.0
     try
-        logs, _ = Test.collect_test_logs() do
+        _logs, _ = Test.collect_test_logs() do
             warnfile = randtmp()
             open(warnfile, "w") do io
                 redirect_stderr(io) do
@@ -6500,7 +6498,7 @@ GC.gc(); GC.gc()
                         catch
                         end
                     end
-                    for i = 1:3
+                    for _ = 1:3
                         yry()
                         GC.gc()
                     end
