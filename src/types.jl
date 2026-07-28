@@ -459,6 +459,45 @@ function Base.showerror(io::IO, ex::ReviseEvalException; blame_revise::Bool=true
     end
 end
 
+"""
+    SignatureExtractionError(mod::Module, loc::String, exc::Exception)
+
+Reports a failure to reconstruct method signatures using partial evaluation.
+"""
+struct SignatureExtractionError <: Exception
+    mod::Module
+    loc::String
+    exc
+    SignatureExtractionError(mod::Module, loc::String, @nospecialize exc) = new(mod, loc, exc)
+end
+
+function captured_stacktrace(ex::SignatureExtractionError)
+    cause = ex.exc
+    while cause isa ReviseEvalException
+        cause.stacktrace === nothing || return cause.stacktrace
+        cause = cause.exc
+    end
+    return nothing
+end
+
+function Base.showerror(io::IO, ex::SignatureExtractionError)
+    print(io, "failed to extract method signatures for ", ex.mod, " at ", ex.loc)
+    print(io, "\nRevise could not determine which methods this top-level expression defines")
+    print(io, "\nwithout re-running module initialization. Generated definitions may depend")
+    print(io, "\non temporary state created by earlier top-level operations, such as mutation")
+    print(io, "\nor `@eval`. To make this file revisable, derive each generated definition")
+    print(io, "\ndirectly from stable inputs rather than from state built by preceding")
+    print(io, "\noperations. (`mode = :sigs` does not replay all assignments and side effects.)")
+    print(io, "\n\ncaused by: ")
+    cause = ex.exc
+    while cause isa ReviseEvalException
+        cause = cause.exc
+    end
+    showerror(io, cause)
+    stacktrace = captured_stacktrace(ex)
+    stacktrace === nothing || Base.show_backtrace(io, stacktrace)
+end
+
 struct GitRepoException <: Exception
     filename::String
 end

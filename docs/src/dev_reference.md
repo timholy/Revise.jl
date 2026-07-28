@@ -55,6 +55,7 @@ Revise.PkgData
 Revise.WatchList
 Revise.TaskThunk
 Revise.ReviseEvalException
+Revise.SignatureExtractionError
 MethodSummary
 ```
 
