@@ -5305,6 +5305,51 @@ do_test("@require path switch") && @testset "@require path switch" begin
     @test Revise.basedir(pkgdata) == newdir
 end
 
+do_test("Unchanged files across a path switch") && @testset "Unchanged files across a path switch" begin
+    # A package directory can change while most of its files stay as they are: a
+    # `Pkg.develop`ed copy of a release, or a new release that edits only part of its
+    # source. `switch_basepath` revises the files that differ and leaves the rest alone,
+    # because extracting signatures re-executes macro expansions that define types or
+    # constants, which fails once those definitions exist.
+    mod = Module(:PathSwitch)
+    Core.eval(mod, :(using Base))
+    id = Base.PkgId(Base.UUID("00000000-0000-0000-0000-000000000679"), "PathSwitch")
+    olddir, newdir = mktempdir(), mktempdir()
+    mkpath(joinpath(olddir, "src"))
+    mkpath(joinpath(newdir, "src"))
+
+    samefile, changedfile = joinpath("src", "same.jl"), joinpath("src", "changed.jl")
+    write(joinpath(olddir, samefile), "f() = 1\n")
+    write(joinpath(newdir, samefile), "f() = 1\n")
+    write(joinpath(olddir, changedfile), "g() = 1\n")
+    write(joinpath(newdir, changedfile), "g() = 2\n")
+
+    pkgdata = Revise.PkgData(id, olddir)
+    for (file, ex) in ((samefile, :(f() = 1)), (changedfile, :(g() = 1)))
+        mei = Revise.ModuleExprsInfos(mod)
+        mei[mod][Revise.RelocatableExpr(ex)] = nothing
+        push!(pkgdata, file=>Revise.FileInfo(mei))
+    end
+
+    try
+        Revise.switch_basepath(pkgdata, newdir)
+        @test Revise.basedir(pkgdata) == newdir
+        @test (pkgdata, changedfile) ∈ Revise.revision_queue
+        @test (pkgdata, samefile) ∉ Revise.revision_queue
+        # Signatures are extracted only for the file that is queued.
+        @test Revise.fileinfo(pkgdata, changedfile).extracted[]
+        @test !Revise.fileinfo(pkgdata, samefile).extracted[]
+        # Both files are watched at the new location, queued or not.
+        watchlist = Revise.watched_files[joinpath(newdir, "src")]
+        @test haskey(watchlist.trackedfiles, "same.jl")
+        @test haskey(watchlist.trackedfiles, "changed.jl")
+    finally
+        filter!(pr -> first(pr) !== pkgdata, Revise.revision_queue)
+        delete!(Revise.watched_files, joinpath(olddir, "src"))
+        delete!(Revise.watched_files, joinpath(newdir, "src"))
+    end
+end
+
 do_test("Switching environments") && @testset "Switching environments" begin
     old_project = Base.active_project()
 

@@ -639,22 +639,40 @@ function watch_manifest(mfile::String)
     end
 end
 
+"""
+    same_contents(file1, file2)
+
+Return `true` if both paths are files with identical contents.
+"""
+function same_contents(file1::AbstractString, file2::AbstractString)
+    (isfile(file1) && isfile(file2)) || return false
+    filesize(file1) == filesize(file2) || return false
+    return read(file1) == read(file2)
+end
+
 function switch_basepath(pkgdata::PkgData, newpath::String)
+    oldpath = basedir(pkgdata)
     # Stop all associated watching tasks
     for dir in unique_dirs(srcfiles(pkgdata))
         @debug "Pkg" _group="unwatch" dir=dir
-        @lock revise_lock delete!(watched_files, joinpath(basedir(pkgdata), dir))
+        @lock revise_lock delete!(watched_files, joinpath(oldpath, dir))
         # Note: if the file is revised, the task(s) will run one more time.
         # However, because we've removed the directory from the watch list this will be a no-op,
         # and then the tasks will be dropped.
     end
     # Revise code as needed
-    files = String[]
+    watchfiles = String[]
     mustnotify = false
     for file in srcfiles(pkgdata)
         # issue #678: `@require` blocks are tracked under a synthetic filename with no
         # file on disk; reading or watching it as a real path would error.
         is_requires_file(file) && continue
+        push!(watchfiles, file)
+        # A file that is byte-identical in the new directory defines what the module
+        # already contains, so there is nothing to revise. Skipping it also avoids the
+        # signature extraction below, which re-executes macro expansions that define
+        # types or constants; those error when the definition is already present.
+        same_contents(joinpath(oldpath, file), joinpath(newpath, file)) && continue
         fi = try
             maybe_parse_from_cache!(pkgdata, file)
         catch
@@ -662,7 +680,7 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
             # Get the source-text from the package source instead
             fi = fileinfo(pkgdata, file)
             if isempty(fi.mod_exs_infos) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
-                filep = joinpath(basedir(pkgdata), file)
+                filep = joinpath(oldpath, file)
                 src = read(filep, String)
                 topmod = first(keys(fi.mod_exs_infos))
                 if !parse_and_maybe_eval_source!(fi.mod_exs_infos, src, filep, topmod; mapexpr=fi.mapexpr).success
@@ -676,7 +694,6 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
         end
         maybe_extract_sigs_or_queue_error!(pkgdata, file, fi)
         @lock revise_lock push!(revision_queue, (pkgdata, file))
-        push!(files, file)
         mustnotify = true
     end
     mustnotify && notify(revision_event)
@@ -684,7 +701,7 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
     pkgdata.info.basedir = newpath
     # Restart watching, if applicable
     if has_writable_paths(pkgdata)
-        init_watching(pkgdata, files)
+        init_watching(pkgdata, watchfiles)
     end
     return nothing
 end
