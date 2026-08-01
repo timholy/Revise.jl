@@ -639,11 +639,7 @@ function watch_manifest(mfile::String)
     end
 end
 
-"""
-    same_contents(file1, file2)
-
-Return `true` if both paths are files with identical contents.
-"""
+# Return `true` if both paths are files with identical contents.
 function same_contents(file1::AbstractString, file2::AbstractString)
     (isfile(file1) && isfile(file2)) || return false
     filesize(file1) == filesize(file2) || return false
