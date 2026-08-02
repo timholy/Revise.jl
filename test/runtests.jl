@@ -3778,6 +3778,100 @@ end
         end
     end
 
+    if Revise.__bpart__[] && do_test("struct revision (round-trip duplicates)")
+        @testset "struct revision (round-trip duplicates)" begin
+            # A field rename that is later reverted. Methods with keyword or optional
+            # arguments taking the revised type live in a file that never changes, so
+            # they are re-evaluated only through `redefine_bindings!`. That used to
+            # evaluate their defining expression once per method it defines, stacking
+            # shadowed duplicate definitions; the next revision then deleted only the
+            # dispatchable copy, resurrecting a method whose signature referenced the
+            # previous generation of the type.
+            testdir = newtestdir()
+            try
+                dn = joinpath(testdir, "StructRoundTrip", "src")
+                mkpath(dn)
+                pkg_code_v1 = """
+                    module StructRoundTrip
+                    struct State; cache::Dict{Symbol,Int}; end
+                    State() = State(Dict{Symbol,Int}())
+                    getcache(s::State) = s.cache
+                    include("methods.jl")
+                    end
+                    """
+                write(joinpath(dn, "StructRoundTrip.jl"), pkg_code_v1)
+                write(joinpath(dn, "methods.jl"), """
+                    kwfun(s::State, x::Int; skip::Bool=false) = length(getcache(s)) + x
+                    optfun(s::State, x::Int=0) = length(getcache(s)) + x
+                    # Deliberately self-contained: these bodies never dispatch on `State`,
+                    # so a leftover duplicate of them stays executable end-to-end. Calling
+                    # one with an outdated object then silently returns a stale result
+                    # instead of raising the MethodError that flags stale data.
+                    kwtag(s::State; prefix::Symbol=:field) = (prefix, fieldnames(typeof(s))[1])
+                    opttag(s::State, x::Int=1) = (fieldnames(typeof(s))[1], x)
+                    """)
+                sleep(mtimedelay)
+                @eval using StructRoundTrip
+                sleep(mtimedelay)
+                s1 = StructRoundTrip.State()
+                @test StructRoundTrip.kwfun(s1, 1) == 1
+                @test StructRoundTrip.optfun(s1) == 0
+                @test StructRoundTrip.kwtag(s1) == (:field, :cache)
+                @test StructRoundTrip.opttag(s1) == (:cache, 1)
+
+                # Revision 2: rename the field (methods.jl stays untouched)
+                pkg_code_v2 = replace(pkg_code_v1,
+                    "cache::Dict" => "cache2::Dict",
+                    "s.cache" => "s.cache2")
+                write(joinpath(dn, "StructRoundTrip.jl"), pkg_code_v2)
+                @yry()
+                s2 = @invokelatest(StructRoundTrip.State())
+                @test @invokelatest(StructRoundTrip.kwfun(s2, 1)) == 1
+                @test @invokelatest(StructRoundTrip.optfun(s2)) == 0
+                @test @invokelatest(StructRoundTrip.kwtag(s2)) == (:field, :cache2)
+                @test @invokelatest(StructRoundTrip.opttag(s2)) == (:cache2, 1)
+                @test_throws MethodError @invokelatest(StructRoundTrip.kwfun(s1, 1))
+                @test_throws MethodError @invokelatest(StructRoundTrip.kwfun(s1, 1; skip=true))
+                @test_throws MethodError @invokelatest(StructRoundTrip.optfun(s1))
+                @test_throws MethodError @invokelatest(StructRoundTrip.optfun(s1, 1))
+                @test_throws MethodError @invokelatest(StructRoundTrip.kwtag(s1))
+                @test_throws MethodError @invokelatest(StructRoundTrip.opttag(s1))
+                @test length(methods(StructRoundTrip.kwfun)) == 1
+                @test length(methods(StructRoundTrip.optfun)) == 2
+                @test length(methods(StructRoundTrip.kwtag)) == 1
+                @test length(methods(StructRoundTrip.opttag)) == 2
+
+                # Revision 3: revert to the original definition
+                write(joinpath(dn, "StructRoundTrip.jl"), pkg_code_v1)
+                @yry()
+                s3 = @invokelatest(StructRoundTrip.State())
+                @test @invokelatest(StructRoundTrip.kwfun(s3, 1; skip=true)) == 1
+                @test @invokelatest(StructRoundTrip.optfun(s3, 1)) == 1
+                @test @invokelatest(StructRoundTrip.kwtag(s3)) == (:field, :cache)
+                @test @invokelatest(StructRoundTrip.opttag(s3)) == (:cache, 1)
+                # The round-1 generation must be fully retired: no duplicate
+                # definition may survive to serve the outdated type. A survivor of
+                # the self-contained methods would not throw here but silently run
+                # stale code, returning `:cache2` for a field that no longer exists
+                @test_throws MethodError @invokelatest(StructRoundTrip.kwtag(s2))
+                @test_throws MethodError @invokelatest(StructRoundTrip.kwtag(s2; prefix=:x))
+                @test_throws MethodError @invokelatest(StructRoundTrip.opttag(s2))
+                @test_throws MethodError @invokelatest(StructRoundTrip.opttag(s2, 2))
+                @test_throws MethodError @invokelatest(StructRoundTrip.kwfun(s2, 1))
+                @test_throws MethodError @invokelatest(StructRoundTrip.kwfun(s2, 1; skip=true))
+                @test_throws MethodError @invokelatest(StructRoundTrip.optfun(s2))
+                @test_throws MethodError @invokelatest(StructRoundTrip.optfun(s2, 1))
+                @test length(methods(StructRoundTrip.kwfun)) == 1
+                @test length(methods(StructRoundTrip.optfun)) == 2
+                @test length(methods(StructRoundTrip.kwtag)) == 1
+                @test length(methods(StructRoundTrip.opttag)) == 2
+            finally
+                rm_precompile("StructRoundTrip")
+                pop!(LOAD_PATH)
+            end
+        end
+    end
+
     if Revise.__bpart__[] && do_test("struct revision (issue #1022)")
         @testset "struct revision (issue #1022)" begin
             # Editing only the default value of a `@kwdef` struct (or any other change
