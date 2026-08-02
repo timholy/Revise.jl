@@ -4904,22 +4904,29 @@ end
     do_test("Methods at REPL") && @testset "Methods at REPL" begin
         if isdefined(Base, :active_repl) && !isnothing(Base.active_repl)
             hp = Base.active_repl.interface.modes[1].hist
-            # The element type of `hp.history` changed from `String` to
-            # `REPL.History.HistEntry` in Julia 1.14; wrap accordingly.
-            push_hist! = if isdefined(REPL, :History) && isdefined(REPL.History, :HistEntry)
-                (h, s) -> push!(h.history, REPL.History.HistEntry(
-                    :julia, Dates.now(), s, UInt32(length(h.history) + 1)))
+            # REPL history changed from `Vector{String}` to `HistoryFile` in Julia
+            # 1.14. Work with its in-memory records so test entries are not persisted.
+            history = if isdefined(REPL, :History) &&
+                    isdefined(REPL.History, :HistoryFile) &&
+                    hp.history isa REPL.History.HistoryFile
+                hp.history.records
             else
-                (h, s) -> push!(h.history, s)
+                hp.history
+            end
+            push_hist! = if isdefined(REPL, :History) && isdefined(REPL.History, :HistEntry)
+                (h, s) -> push!(h, REPL.History.HistEntry(
+                    :julia, Dates.now(), s, UInt32(length(h) + 1)))
+            else
+                (h, s) -> push!(h, s)
             end
             fstr = "__fREPL__(x::Int16) = 0"
-            histidx = length(hp.history) + 1 - hp.start_idx
+            histidx = length(history) + 1 - hp.start_idx
             ex = Base.parse_input_line(fstr; filename="REPL[$histidx]")
             f = Core.eval(Main, ex)
             if ex.head === :toplevel
                 ex = ex.args[end]
             end
-            push_hist!(hp, fstr)
+            push_hist!(history, fstr)
             m = first(methods(f))
             @test !isempty(signatures_at(String(m.file), m.line))
             @test isequal(Revise.RelocatableExpr(definition(m)), Revise.RelocatableExpr(ex))
@@ -4927,20 +4934,20 @@ end
 
             # Test that revisions work (https://github.com/timholy/CodeTracking.jl/issues/38)
             fstr = "__fREPL__(x::Int16) = 1"
-            histidx = length(hp.history) + 1 - hp.start_idx
+            histidx = length(history) + 1 - hp.start_idx
             ex = Base.parse_input_line(fstr; filename="REPL[$histidx]")
             f = Core.eval(Main, ex)
             if ex.head === :toplevel
                 ex = ex.args[end]
             end
-            push_hist!(hp, fstr)
+            push_hist!(history, fstr)
             m = first(methods(f))
             @test isequal(Revise.RelocatableExpr(definition(m)), Revise.RelocatableExpr(ex))
             @test definition(String, m)[1] == fstr
             @test !isempty(signatures_at(String(m.file), m.line))
 
-            pop!(hp.history)
-            pop!(hp.history)
+            pop!(history)
+            pop!(history)
         else
             @warn "REPL tests skipped"
         end
