@@ -33,6 +33,7 @@ Revise.queue_errors
 Revise.duplicated_signatures
 Revise.included_files
 Revise.watched_manifests
+Revise.rewritten_caches
 ```
 
 The following are specific to user callbacks (see [`Revise.add_callback`](@ref)) and
@@ -98,6 +99,7 @@ Revise.remove_callback
 
 ```@docs
 Revise.revise_file_now
+Revise.cache_snapshot_is_valid
 ```
 
 Revise pins its own method dispatch to the world age captured at initialization, so that

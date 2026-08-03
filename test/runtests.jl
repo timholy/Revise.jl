@@ -4101,6 +4101,46 @@ end
         end
     end
 
+    do_test("Rewritten precompile cache") && @testset "Rewritten precompile cache" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "RewrittenCache", "src")
+        mkpath(dn)
+        write(joinpath(dn, "RewrittenCache.jl"), """
+            module RewrittenCache
+            include("f.jl")
+            end
+            """)
+        write(joinpath(dn, "f.jl"), "f(x; b::Int=2) = x + b\n")
+        sleep(mtimedelay)
+        @eval using RewrittenCache
+        @latestworld
+        id = Base.PkgId(RewrittenCache)
+        pkgdata = Revise.pkgdatas[id]
+        @test pkgdata.cachebuildid != 0
+        @test Revise.cache_snapshot_is_valid(pkgdata)
+        sleep(mtimedelay)
+        write(joinpath(dn, "f.jl"), "f(x; a::Int=10, b::Int=2) = x + a + b\n")
+        sleep(mtimedelay)
+        # Stands in for a `using` or `Pkg.precompile` in a separate process: the cache
+        # path depends on the project and compile flags, not on the source, so this
+        # overwrites the source snapshot Revise would otherwise diff the edit against.
+        Base.compilecache(id)
+        @test_logs (:warn, r"no longer the one this session loaded") match_mode=:any yry()
+        @latestworld
+        @test id ∈ Revise.rewritten_caches
+        # The edit is applied even though no baseline survived to compare it with
+        @test RewrittenCache.f(1; a=5) == 8
+        # Further edits keep revising, and the warning is not repeated
+        sleep(mtimedelay)
+        write(joinpath(dn, "f.jl"), "f(x; a::Int=10, b::Int=2) = x + a + b + 100\n")
+        logs, _ = collect_test_logs(yry; min_level=Base.CoreLogging.Warn)
+        @latestworld
+        @test !any(r -> occursin("no longer the one this session loaded", string(r.message)), logs)
+        @test RewrittenCache.f(1; a=5) == 108
+        rm_precompile("RewrittenCache")
+        pop!(LOAD_PATH)
+    end
+
     # issue #738
     do_test("stale_load") && @testset "stale_load" begin
         testdir = newtestdir()

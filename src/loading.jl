@@ -76,6 +76,7 @@ function parse_pkg_files(id::PkgId)
         if cachefile_includes_reqs_buildid !== nothing
             cachefile, includes, reqs, buildid = cachefile_includes_reqs_buildid
             pkgdata.requirements = reqs
+            pkgdata.cachebuildid = buildid
             if isdefined(Base, :maybe_loaded_precompile) && (mod′ = Base.maybe_loaded_precompile(id, buildid); mod′ isa Module)
                 root = mod′
             elseif isdefined(Base, :loaded_precompiles) && haskey(Base.loaded_precompiles, id => buildid)

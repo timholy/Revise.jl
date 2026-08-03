@@ -329,6 +329,9 @@ end
 A structure holding the data required to handle a particular package.
 `path` is the top-level directory defining the package,
 and `fileinfos` holds the [`Revise.FileInfo`](@ref) for each file defining the package.
+`cachebuildid` is the build id of the precompile cache this session loaded the package
+from, and identifies the source snapshot the `FileInfo`s read from that cache (see
+[`Revise.rewritten_caches`](@ref)); it is zero for packages not loaded from a cache.
 
 For the `PkgData` associated with `Main` (e.g., for files loaded with [`includet`](@ref)),
 the corresponding `path` entry will be empty.
@@ -337,9 +340,10 @@ mutable struct PkgData
     info::PkgFiles
     fileinfos::Vector{FileInfo}
     requirements::Vector{PkgId}
+    cachebuildid::UInt128        # build id of the precompile cache this session loaded (0 if none)
 end
 
-PkgData(id::PkgId, path) = PkgData(PkgFiles(id, path), FileInfo[], PkgId[])
+PkgData(id::PkgId, path) = PkgData(PkgFiles(id, path), FileInfo[], PkgId[], zero(UInt128))
 PkgData(id::PkgId, ::Nothing) = PkgData(id, "")
 function PkgData(id::PkgId)
     bp = basepath(id)

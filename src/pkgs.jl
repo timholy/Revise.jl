@@ -100,8 +100,45 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
     end
     return maybe_parse_from_cache!(pkgdata, file, fileinfo(pkgdata, file))
 end
+"""
+    Revise.cache_snapshot_is_valid(pkgdata) -> Bool
+
+Whether the source snapshot stored in `pkgdata`'s precompile cache still describes the
+code this session loaded. Every precompilation mints a new build id, so a cache whose
+build id has changed, or that has gone missing, was rebuilt or removed by another
+process, and its snapshot is unusable as a revision baseline. The first such observation
+records the package in [`Revise.rewritten_caches`](@ref) and warns.
+"""
+function cache_snapshot_is_valid(pkgdata::PkgData)
+    pkgdata.cachebuildid == 0 && return true   # not loaded from a cache; nothing to compare against
+    id = PkgId(pkgdata)
+    @lock revise_lock begin
+        id ∈ rewritten_caches && return false
+        cachedata = pkg_fileinfo(id)   # re-reads the header of the cache file on disk
+        if cachedata !== nothing
+            _, _, _, buildid = cachedata
+            buildid == pkgdata.cachebuildid && return true
+        end
+        push!(rewritten_caches, id)
+    end
+    @warn """The precompile cache for $(id.name) is no longer the one this session loaded; another process rebuilt or removed it.
+        Revise compares edits against the source snapshot stored in that cache, and no snapshot of the running code remains.
+        Edited files of $(id.name) are therefore evaluated in full rather than by difference; definitions that the edits removed cannot be identified and stay in force.
+        Restart Julia for a session guaranteed to match the source."""
+    return false
+end
+
 function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString, fi::FileInfo)
     if (isempty(fi.mod_exs_infos) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
+        if !isempty(fi.cachefile) && !cache_snapshot_is_valid(pkgdata)
+            # No trustworthy baseline: leave `mod_exs_infos` empty so that every expression
+            # in the current source counts as new. `cacheexprs` come from `@require` blocks
+            # this session evaluated, not from the cache, so they remain valid.
+            add_modexs!(fi, fi.cacheexprs)
+            empty!(fi.cacheexprs)
+            fi.parsed[] = true
+            return fi
+        end
         # Source was never parsed, get it from the precompile cache
         src = read_from_cache(pkgdata, file, fi)
         filep = joinpath(basedir(pkgdata), file)

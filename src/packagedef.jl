@@ -356,6 +356,19 @@ haspkgdata(id::PkgId) = @lock revise_lock haskey(pkgdatas, id)
 allpkgdatas() = @lock revise_lock collect(values(pkgdatas))
 
 """
+    Revise.rewritten_caches
+
+Set of packages whose precompile cache file was rebuilt or removed by another process
+after this session loaded the package. The path of a cache file is determined by the
+active project and the compile flags rather than by the source, so a `using` or
+`Pkg.precompile` in a separate process overwrites the very file this session recorded.
+Its stored source snapshot then describes neither the running code nor any state this
+session held, so it is not used as a revision baseline; edits to the affected files are
+evaluated in full instead.
+"""
+const rewritten_caches = Set{PkgId}()
+
+"""
     Revise.included_files
 
 Global variable, `included_files` gets populated by callbacks we register with `include`.
