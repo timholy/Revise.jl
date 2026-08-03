@@ -1262,12 +1262,25 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
             end
         end
     end
-    for (; reeval, mod, exs_infos, rex, pkgdata, file) in reeval_infos
+    # Delete every method before evaluating anything: one expression can own several
+    # methods (keyword methods, optional-argument methods, constructors), and
+    # evaluating it once per method would leave shadowed duplicate definitions behind.
+    # Those duplicates keep the pre-revision types in their signatures and become
+    # dispatchable again as soon as a later revision deletes the copy shadowing them.
+    for (; reeval) in reeval_infos
         reeval isa Method || continue
         with_logger(_debug_logger) do
             @debug "ReevalDeleteMethod" _group="Action" time=time() deltainfo=(reeval.sig, MethodSummary(reeval))
             # ensure that "old data" doesn't get run with "old methods"
             try Base.delete_method(reeval) catch end
+        end
+    end
+    evaluated_rexes = Set{Tuple{Module,RelocatableExpr}}()
+    for (; reeval, mod, exs_infos, rex, pkgdata, file) in reeval_infos
+        reeval isa Method || continue
+        (mod, rex) in evaluated_rexes && continue
+        push!(evaluated_rexes, (mod, rex))
+        with_logger(_debug_logger) do
             @debug "ReevalMethod" _group="Action" time=time() deltainfo=(reeval, reeval.module, rex)
             try
                 newexinfos, _, _ = eval_with_signatures(mod, rex.ex; mode=:eval)
