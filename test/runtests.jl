@@ -4107,38 +4107,78 @@ end
         mkpath(dn)
         write(joinpath(dn, "RewrittenCache.jl"), """
             module RewrittenCache
-            include("f.jl")
+            include("a.jl")
+            include("b.jl")
+            include("c.jl")
             end
             """)
-        write(joinpath(dn, "f.jl"), "f(x; b::Int=2) = x + b\n")
+        write(joinpath(dn, "a.jl"), "afun() = 1\n")
+        write(joinpath(dn, "b.jl"), "bfun() = 1\n")
+        write(joinpath(dn, "c.jl"), "cfun() = 1\n")
         sleep(mtimedelay)
         @eval using RewrittenCache
         @latestworld
-        id = Base.PkgId(RewrittenCache)
+        M = RewrittenCache
+        id = Base.PkgId(M)
         pkgdata = Revise.pkgdatas[id]
         @test pkgdata.cachebuildid != 0
         @test Revise.cache_snapshot_is_valid(pkgdata)
+
+        # Where a handle can be held on the cache, it keeps the snapshot readable across a
+        # rebuild and the rebuild is a non-event. Drop it afterwards to exercise the
+        # platforms that cannot hold one.
+        held = pkgdata.cacheio
+        @test (held !== nothing) == Revise.can_hold_cache()
+        if held !== nothing
+            sleep(mtimedelay)
+            write(joinpath(dn, "a.jl"), "afun() = 2\n")
+            sleep(mtimedelay)
+            # Stands in for a `using` or `Pkg.precompile` in a separate process: the cache
+            # path depends on the project and compile flags, not on the source, so this
+            # replaces the file Revise recorded.
+            Base.compilecache(id)
+            @yry()
+            @test Revise.cache_snapshot_is_valid(pkgdata)   # read through the held handle
+            @test M.afun() == 2
+            @test isempty(Revise.rewritten_caches)
+            pkgdata.cacheio = nothing
+        end
+
+        # A rebuild from unchanged source carries the same snapshot: still a non-event.
         sleep(mtimedelay)
-        write(joinpath(dn, "f.jl"), "f(x; a::Int=10, b::Int=2) = x + a + b\n")
-        sleep(mtimedelay)
-        # Stands in for a `using` or `Pkg.precompile` in a separate process: the cache
-        # path depends on the project and compile flags, not on the source, so this
-        # overwrites the source snapshot Revise would otherwise diff the edit against.
         Base.compilecache(id)
-        @test_logs (:warn, r"no longer the one this session loaded") match_mode=:any yry()
-        @latestworld
-        @test id ∈ Revise.rewritten_caches
-        # The edit is applied even though no baseline survived to compare it with
-        @test RewrittenCache.f(1; a=5) == 8
-        # Further edits keep revising, and the warning is not repeated
+        @test !Revise.cache_snapshot_is_valid(pkgdata)      # the build id did change
+        @test Revise.cached_source_is_current(pkgdata, Revise.fileinfo(pkgdata, "src/b.jl"))
         sleep(mtimedelay)
-        write(joinpath(dn, "f.jl"), "f(x; a::Int=10, b::Int=2) = x + a + b + 100\n")
-        logs, _ = collect_test_logs(yry; min_level=Base.CoreLogging.Warn)
+        write(joinpath(dn, "b.jl"), "bfun() = 2\n")
+        @yry()
+        @test M.bfun() == 2
+        @test isempty(Revise.rewritten_caches)
+        @test isempty(Revise.queue_errors)
+
+        # An edit that a rebuild sweeps into the cache leaves no baseline for that file:
+        # no revision is attempted, and the loss is reported rather than guessed at.
+        # (A file already revised once holds its baseline in memory and is unaffected;
+        # c.jl has not been revised, so the cache is still its only baseline.)
+        sleep(mtimedelay)
+        write(joinpath(dn, "c.jl"), "cfun() = 2\n")
+        sleep(mtimedelay)
+        Base.compilecache(id)
+        @test !Revise.cached_source_is_current(pkgdata, Revise.fileinfo(pkgdata, "src/c.jl"))
+        @test_logs (:warn, r"source it held for one or more edited files is gone") match_mode=:any yry()
         @latestworld
-        @test !any(r -> occursin("no longer the one this session loaded", string(r.message)), logs)
-        @test RewrittenCache.f(1; a=5) == 108
-        # A clean revision does not clear the flag, so the prompt stays yellow
-        @test id ∈ Revise.rewritten_caches
+        @test M.cfun() == 1                                 # left as the session had it
+        @test id in Revise.rewritten_caches
+        err, _ = Revise.queue_errors[(pkgdata, "src/c.jl")]
+        @test err isa Revise.StaleCacheError
+        @test occursin("cannot be revised", sprint(showerror, err))
+        # a.jl and b.jl kept their baselines, so they still revise normally
+        sleep(mtimedelay)
+        write(joinpath(dn, "a.jl"), "afun() = 42\n")
+        @yry()
+        @test M.afun() == 42
+        empty!(Revise.rewritten_caches)
+        empty!(Revise.queue_errors)
         rm_precompile("RewrittenCache")
         pop!(LOAD_PATH)
     end
@@ -5482,7 +5522,7 @@ do_test("@require path switch") && @testset "@require path switch" begin
     # empty `mod_exs_infos` plus an unprocessed `cacheexpr` and no cache file, which
     # drives `switch_basepath` into its read-from-disk fallback.
     reqfile = joinpath("src", "Issue678.jl") * Revise.requires_suffix
-    fi = Revise.FileInfo(Revise.ModuleExprsInfos(), identity, "", "",
+    fi = Revise.FileInfo(Revise.ModuleExprsInfos(), identity, "", "", nothing,
                          Tuple{Module,Expr}[(mod, :(g() = 42))], Ref(false), Ref(false))
     push!(pkgdata, reqfile=>fi)
     @test Revise.is_requires_file(reqfile)

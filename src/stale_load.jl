@@ -195,7 +195,9 @@ function queue_changed_files!(id::PkgId)
                 continue
             end
             cached = try
-                read_from_cache(pkgdata, file)
+                # A snapshot that is no longer the one this session loaded says nothing
+                # about what needs revising, so treat it as absent.
+                cached_source_is_current(pkgdata, fi) ? read_from_cache(pkgdata, file) : nothing
             catch
                 nothing  # queue it; revision will surface the problem
             end
