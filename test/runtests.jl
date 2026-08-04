@@ -4183,6 +4183,55 @@ end
         pop!(LOAD_PATH)
     end
 
+    # `Revise.hold_cache!` keeps a precompile cache's source snapshot readable by holding a
+    # handle open on the file. That is sound only where replacing the file by rename both
+    # succeeds while the handle is open — otherwise Revise would break the *other* process's
+    # precompilation — and leaves the handle reading the original bytes.
+    # `Revise.can_hold_cache()` records where those two things are known to hold; this
+    # measures them. Where it says no, they are `@test_broken`: an "Unexpected Pass" in CI
+    # means the platform supports the handle after all and the test in `can_hold_cache` can
+    # be relaxed to admit it.
+    do_test("Cache handle across a rebuild") && @testset "Cache handle across a rebuild" begin
+        if VERSION >= v"1.11.0-DEV.683"   # older Julia cannot read a cache through a handle at all
+            testdir = newtestdir()
+            dn = joinpath(testdir, "CacheHandle", "src")
+            mkpath(dn)
+            write(joinpath(dn, "CacheHandle.jl"), "module CacheHandle\nchfun() = 1\nend\n")
+            id = Base.identify_package("CacheHandle")
+            ret = Base.compilecache(id)
+            cachefile = ret isa Tuple ? ret[1] : ret
+            io = open(cachefile, "r")
+            local rebuilt, preserved
+            try
+                srcname = first(Revise.pkg_fileinfo(id, cachefile, io)[2]).filename
+                readsrc() = (seekstart(io); Base.isvalid_cache_header(io);
+                             Base.read_dependency_src(io, cachefile, srcname))
+                before = readsrc()
+                sleep(mtimedelay)
+                write(joinpath(dn, "CacheHandle.jl"), "module CacheHandle\nchfun() = 2\nend\n")
+                sleep(mtimedelay)
+                rebuilt = try
+                    Base.compilecache(id)          # the replacing rename, with our handle open
+                    true
+                catch
+                    false
+                end
+                preserved = rebuilt && (try readsrc() == before catch; false end)
+            finally
+                close(io)
+            end
+            @info "cache handle across a rebuild" Sys.KERNEL rebuilt preserved Revise.can_hold_cache()
+            if Revise.can_hold_cache()
+                @test rebuilt
+                @test preserved
+            else
+                @test_broken rebuilt && preserved
+            end
+            rm_precompile("CacheHandle")
+            pop!(LOAD_PATH)
+        end
+    end
+
     # issue #738
     do_test("stale_load") && @testset "stale_load" begin
         testdir = newtestdir()
