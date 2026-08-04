@@ -4137,6 +4137,8 @@ end
         @latestworld
         @test !any(r -> occursin("no longer the one this session loaded", string(r.message)), logs)
         @test RewrittenCache.f(1; a=5) == 108
+        # A clean revision does not clear the flag, so the prompt stays yellow
+        @test id ∈ Revise.rewritten_caches
         rm_precompile("RewrittenCache")
         pop!(LOAD_PATH)
     end

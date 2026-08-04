@@ -124,7 +124,7 @@ function cache_snapshot_is_valid(pkgdata::PkgData)
     @warn """The precompile cache for $(id.name) is no longer the one this session loaded; another process rebuilt or removed it.
         Revise compares edits against the source snapshot stored in that cache, and no snapshot of the running code remains.
         Edited files of $(id.name) are therefore evaluated in full rather than by difference; definitions that the edits removed cannot be identified and stay in force.
-        Restart Julia for a session guaranteed to match the source."""
+        Revision is best-effort from here on, so your prompt color will be yellow for the rest of this session. Restart Julia for a session guaranteed to match the source."""
     return false
 end
 

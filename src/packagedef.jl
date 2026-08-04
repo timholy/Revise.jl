@@ -364,7 +364,9 @@ active project and the compile flags rather than by the source, so a `using` or
 `Pkg.precompile` in a separate process overwrites the very file this session recorded.
 Its stored source snapshot then describes neither the running code nor any state this
 session held, so it is not used as a revision baseline; edits to the affected files are
-evaluated in full instead.
+evaluated in full instead. Revision of these packages is best-effort, and nothing short
+of a restart can undo that, so a non-empty `rewritten_caches` keeps the prompt yellow for
+the rest of the session.
 """
 const rewritten_caches = Set{PkgId}()
 
@@ -1818,7 +1820,10 @@ function _revise(; throw::Bool=false)
         # "Method overwriting is not permitted during Module precompilation" (issue #889).
         dupworld = Base.get_world_counter()
         warn_duplicated_signatures(update_duplicated_signatures!(dupworld), dupworld)
-        if isempty(queue_errors) && isempty(duplicated_signatures)
+        # A package in `rewritten_caches` keeps the prompt yellow for the rest of the
+        # session: revision of such a package is best-effort (see `cache_snapshot_is_valid`)
+        # and only a restart can restore a session that provably matches the source.
+        if isempty(queue_errors) && isempty(duplicated_signatures) && isempty(rewritten_caches)
             maybe_set_prompt_color(:ok)
         else
             maybe_set_prompt_color(:warn)

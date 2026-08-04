@@ -353,5 +353,6 @@ Revise recorded, and with it the snapshot of the code the session is running.
 Revise detects this, because a cache's build id changes with every precompilation, and
 warns. Edited files of that package are then evaluated in full rather than by difference:
 their current definitions are applied, but definitions that the edits *removed* cannot be
-identified and remain in force. Restart Julia if you need a session guaranteed to match
-the source.
+identified and remain in force. Revision of that package is best-effort from then on, so
+the prompt stays yellow for the rest of the session. Restart Julia if you need a session
+guaranteed to match the source.
