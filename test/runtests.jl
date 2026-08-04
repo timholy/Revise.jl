@@ -4148,7 +4148,7 @@ end
         sleep(mtimedelay)
         Base.compilecache(id)
         @test !Revise.cache_snapshot_is_valid(pkgdata)      # the build id did change
-        @test Revise.cached_source_is_current(pkgdata, Revise.fileinfo(pkgdata, "src/b.jl"))
+        @test Revise.cached_source_is_current(pkgdata, Revise.fileinfo(pkgdata, joinpath("src", "b.jl")))
         sleep(mtimedelay)
         write(joinpath(dn, "b.jl"), "bfun() = 2\n")
         @yry()
@@ -4164,12 +4164,12 @@ end
         write(joinpath(dn, "c.jl"), "cfun() = 2\n")
         sleep(mtimedelay)
         Base.compilecache(id)
-        @test !Revise.cached_source_is_current(pkgdata, Revise.fileinfo(pkgdata, "src/c.jl"))
+        @test !Revise.cached_source_is_current(pkgdata, Revise.fileinfo(pkgdata, joinpath("src", "c.jl")))
         @test_logs (:warn, r"source it held for one or more edited files is gone") match_mode=:any yry()
         @latestworld
         @test M.cfun() == 1                                 # left as the session had it
         @test id in Revise.rewritten_caches
-        err, _ = Revise.queue_errors[(pkgdata, "src/c.jl")]
+        err, _ = Revise.queue_errors[(pkgdata, joinpath("src", "c.jl"))]
         @test err isa Revise.StaleCacheError
         @test occursin("cannot be revised", sprint(showerror, err))
         # a.jl and b.jl kept their baselines, so they still revise normally
