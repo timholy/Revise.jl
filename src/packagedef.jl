@@ -356,6 +356,25 @@ haspkgdata(id::PkgId) = @lock revise_lock haskey(pkgdatas, id)
 allpkgdatas() = @lock revise_lock collect(values(pkgdatas))
 
 """
+    Revise.rewritten_caches
+
+Set of packages that have lost the source snapshot of at least one file because another
+process rebuilt or removed their precompile cache. The path of a cache file is determined
+by the active project and the compile flags rather than by the source, so a `using` or
+`Pkg.precompile` in a separate process overwrites the very file this session recorded.
+
+Revise compares an edit against the source the session loaded, so for a file whose
+snapshot is gone there is nothing to compare against and no revision is attempted: the
+file's definitions stay as they were, and each attempt raises a
+[`Revise.StaleCacheError`](@ref). Only a restart recovers them, so a non-empty
+`rewritten_caches` keeps the prompt yellow for the rest of the session. Files whose source
+was identical in both builds, and every other package, are unaffected; where
+[`Revise.hold_cache!`](@ref) applies, the snapshot survives the rebuild and nothing is
+lost at all.
+"""
+const rewritten_caches = Set{PkgId}()
+
+"""
     Revise.included_files
 
 Global variable, `included_files` gets populated by callbacks we register with `include`.
@@ -1465,7 +1484,7 @@ function errors(revision_errors=keys(queue_errors))
         pkgdata, file = item
         (err, bt) = queue_errors[(pkgdata, file)]
         fullpath = joinpath(basedir(pkgdata), file)
-        if (err isa ReviseEvalException ||
+        if (err isa ReviseEvalException || err isa StaleCacheError ||
             (err isa SignatureExtractionError && captured_stacktrace(err) !== nothing))
             @error "Failed to revise $fullpath" exception=(err, nothing)
         else
@@ -1805,7 +1824,10 @@ function _revise(; throw::Bool=false)
         # "Method overwriting is not permitted during Module precompilation" (issue #889).
         dupworld = Base.get_world_counter()
         warn_duplicated_signatures(update_duplicated_signatures!(dupworld), dupworld)
-        if isempty(queue_errors) && isempty(duplicated_signatures)
+        # A package in `rewritten_caches` keeps the prompt yellow for the rest of the
+        # session: revision of such a package is best-effort (see `cache_snapshot_is_valid`)
+        # and only a restart can restore a session that provably matches the source.
+        if isempty(queue_errors) && isempty(duplicated_signatures) && isempty(rewritten_caches)
             maybe_set_prompt_color(:ok)
         else
             maybe_set_prompt_color(:warn)
@@ -2202,7 +2224,9 @@ function get_def(method::Method; modified_files=revision_queue)
 end
 
 function get_def(method, pkgdata, filename)
-    maybe_extract_sigs!(maybe_parse_from_cache!(pkgdata, filename))
+    fi = try_parse_from_cache!(pkgdata, filename)
+    fi === nothing && return nothing
+    maybe_extract_sigs!(fi)
     return get(CodeTracking.method_info, MethodInfoKey(method), nothing)
 end
 
@@ -2226,7 +2250,8 @@ get_tracked_id(mod::Module; modified_files=revision_queue) =
 function get_expressions(id::PkgId, filename)
     get_tracked_id(id)
     pkgdata = @lock revise_lock pkgdatas[id]
-    fi = maybe_parse_from_cache!(pkgdata, filename)
+    fi = try_parse_from_cache!(pkgdata, filename)
+    fi === nothing && return nothing
     maybe_extract_sigs!(fi)
     return fi.mod_exs_infos
 end

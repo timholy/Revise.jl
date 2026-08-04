@@ -4101,6 +4101,173 @@ end
         end
     end
 
+    do_test("Rewritten precompile cache") && @testset "Rewritten precompile cache" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "RewrittenCache", "src")
+        mkpath(dn)
+        write(joinpath(dn, "RewrittenCache.jl"), """
+            module RewrittenCache
+            include("a.jl")
+            include("b.jl")
+            include("c.jl")
+            end
+            """)
+        write(joinpath(dn, "a.jl"), "afun() = 1\n")
+        write(joinpath(dn, "b.jl"), "bfun() = 1\n")
+        write(joinpath(dn, "c.jl"), "cfun() = 1\n")
+        sleep(mtimedelay)
+        @eval using RewrittenCache
+        @latestworld
+        M = RewrittenCache
+        id = Base.PkgId(M)
+        pkgdata = Revise.pkgdatas[id]
+        @test pkgdata.cachebuildid != 0
+        @test Revise.cache_snapshot_is_valid(pkgdata)
+
+        # Where a handle can be held on the cache, it keeps the snapshot readable across a
+        # rebuild and the rebuild is a non-event. Drop it afterwards to exercise the
+        # platforms that cannot hold one.
+        held = pkgdata.cacheio
+        @test (held !== nothing) == Revise.can_hold_cache()
+        if held !== nothing
+            sleep(mtimedelay)
+            write(joinpath(dn, "a.jl"), "afun() = 2\n")
+            sleep(mtimedelay)
+            # Stands in for a `using` or `Pkg.precompile` in a separate process: the cache
+            # path depends on the project and compile flags, not on the source, so this
+            # replaces the file Revise recorded.
+            Base.compilecache(id)
+            @yry()
+            @test Revise.cache_snapshot_is_valid(pkgdata)   # read through the held handle
+            @test M.afun() == 2
+            @test isempty(Revise.rewritten_caches)
+            pkgdata.cacheio = nothing
+        end
+
+        # A rebuild from unchanged source carries the same snapshot: still a non-event.
+        sleep(mtimedelay)
+        Base.compilecache(id)
+        @test !Revise.cache_snapshot_is_valid(pkgdata)      # the build id did change
+        @test Revise.cached_source_is_current(pkgdata, Revise.fileinfo(pkgdata, joinpath("src", "b.jl")))
+        sleep(mtimedelay)
+        write(joinpath(dn, "b.jl"), "bfun() = 2\n")
+        @yry()
+        @test M.bfun() == 2
+        @test isempty(Revise.rewritten_caches)
+        @test isempty(Revise.queue_errors)
+
+        # An edit that a rebuild sweeps into the cache leaves no baseline for that file:
+        # no revision is attempted, and the loss is reported rather than guessed at.
+        # (A file already revised once holds its baseline in memory and is unaffected;
+        # c.jl has not been revised, so the cache is still its only baseline.)
+        sleep(mtimedelay)
+        write(joinpath(dn, "c.jl"), "cfun() = 2\n")
+        sleep(mtimedelay)
+        Base.compilecache(id)
+        @test !Revise.cached_source_is_current(pkgdata, Revise.fileinfo(pkgdata, joinpath("src", "c.jl")))
+        @test_logs (:warn, r"source it held for one or more edited files is gone") match_mode=:any yry()
+        @latestworld
+        @test M.cfun() == 1                                 # left as the session had it
+        @test id in Revise.rewritten_caches
+        err, _ = Revise.queue_errors[(pkgdata, joinpath("src", "c.jl"))]
+        @test err isa Revise.StaleCacheError
+        @test occursin("cannot be revised", sprint(showerror, err))
+        # a.jl and b.jl kept their baselines, so they still revise normally
+        sleep(mtimedelay)
+        write(joinpath(dn, "a.jl"), "afun() = 42\n")
+        @yry()
+        @test M.afun() == 42
+        empty!(Revise.rewritten_caches)
+        empty!(Revise.queue_errors)
+        rm_precompile("RewrittenCache")
+        pop!(LOAD_PATH)
+    end
+
+    do_test("Queueing when the snapshot is gone") && @testset "Queueing when the snapshot is gone" begin
+        # `stale_load` decides what to revise by comparing each file against the source
+        # snapshot in the cache. A snapshot that is no longer the one the session loaded
+        # says nothing about what needs revising, so the file is queued rather than passed
+        # over for matching a cache the session never ran.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "QueueStale", "src")
+        mkpath(dn)
+        write(joinpath(dn, "QueueStale.jl"), "module QueueStale\nqfun() = 1\nend\n")
+        sleep(mtimedelay)
+        @eval using QueueStale
+        @latestworld
+        id = Base.PkgId(QueueStale)
+        pkgdata = Revise.pkgdatas[id]
+        pkgdata.cacheio = nothing        # as on a platform that cannot hold a handle
+        file = joinpath("src", "QueueStale.jl")
+        try
+            @test !Revise.queue_changed_files!(id)     # nothing differs from the snapshot
+            sleep(mtimedelay)
+            write(joinpath(dn, "QueueStale.jl"), "module QueueStale\nqfun() = 2\nend\n")
+            sleep(mtimedelay)
+            Base.compilecache(id)                      # sweeps the edit into the cache
+            filter!(pr -> first(pr) !== pkgdata, Revise.revision_queue)
+            # The source on disk now matches the cache, so comparing against it would find
+            # nothing to do...
+            @test read(joinpath(dn, "QueueStale.jl"), String) == Revise.read_from_cache(pkgdata, file)
+            # ...but that snapshot is not the one this session loaded, so the file is queued
+            @test Revise.queue_changed_files!(id)
+            @test (pkgdata, file) ∈ Revise.revision_queue
+        finally
+            filter!(pr -> first(pr) !== pkgdata, Revise.revision_queue)
+            rm_precompile("QueueStale")
+            pop!(LOAD_PATH)
+        end
+    end
+
+    # `Revise.hold_cache!` keeps a precompile cache's source snapshot readable by holding a
+    # handle open on the file. That is sound only where replacing the file by rename both
+    # succeeds while the handle is open — otherwise Revise would break the *other* process's
+    # precompilation — and leaves the handle reading the original bytes.
+    # `Revise.can_hold_cache()` records where those two things are known to hold; this
+    # measures them. Where it says no, they are `@test_broken`: an "Unexpected Pass" in CI
+    # means the platform supports the handle after all and the test in `can_hold_cache` can
+    # be relaxed to admit it.
+    do_test("Cache handle across a rebuild") && @testset "Cache handle across a rebuild" begin
+        if VERSION >= v"1.11.0-DEV.683"   # older Julia cannot read a cache through a handle at all
+            testdir = newtestdir()
+            dn = joinpath(testdir, "CacheHandle", "src")
+            mkpath(dn)
+            write(joinpath(dn, "CacheHandle.jl"), "module CacheHandle\nchfun() = 1\nend\n")
+            id = Base.identify_package("CacheHandle")
+            ret = Base.compilecache(id)
+            cachefile = ret isa Tuple ? ret[1] : ret
+            io = open(cachefile, "r")
+            local rebuilt, preserved
+            try
+                srcname = first(Revise.pkg_fileinfo(id, cachefile, io)[2]).filename
+                readsrc() = (seekstart(io); Base.isvalid_cache_header(io);
+                             Base.read_dependency_src(io, cachefile, srcname))
+                before = readsrc()
+                sleep(mtimedelay)
+                write(joinpath(dn, "CacheHandle.jl"), "module CacheHandle\nchfun() = 2\nend\n")
+                sleep(mtimedelay)
+                rebuilt = try
+                    Base.compilecache(id)          # the replacing rename, with our handle open
+                    true
+                catch
+                    false
+                end
+                preserved = rebuilt && (try readsrc() == before catch; false end)
+            finally
+                close(io)
+            end
+            @info "cache handle across a rebuild" Sys.KERNEL rebuilt preserved Revise.can_hold_cache()
+            if Revise.can_hold_cache()
+                @test rebuilt
+                @test preserved
+            else
+                @test_broken rebuilt && preserved
+            end
+            rm_precompile("CacheHandle")
+            pop!(LOAD_PATH)
+        end
+    end
+
     # issue #738
     do_test("stale_load") && @testset "stale_load" begin
         testdir = newtestdir()
@@ -5440,7 +5607,7 @@ do_test("@require path switch") && @testset "@require path switch" begin
     # empty `mod_exs_infos` plus an unprocessed `cacheexpr` and no cache file, which
     # drives `switch_basepath` into its read-from-disk fallback.
     reqfile = joinpath("src", "Issue678.jl") * Revise.requires_suffix
-    fi = Revise.FileInfo(Revise.ModuleExprsInfos(), identity, "", "",
+    fi = Revise.FileInfo(Revise.ModuleExprsInfos(), identity, "", "", nothing,
                          Tuple{Module,Expr}[(mod, :(g() = 42))], Ref(false), Ref(false))
     push!(pkgdata, reqfile=>fi)
     @test Revise.is_requires_file(reqfile)
@@ -5488,6 +5655,44 @@ do_test("Unchanged files across a path switch") && @testset "Unchanged files acr
         @test haskey(watchlist.trackedfiles, "changed.jl")
     finally
         filter!(pr -> first(pr) !== pkgdata, Revise.revision_queue)
+        delete!(Revise.watched_files, joinpath(olddir, "src"))
+        delete!(Revise.watched_files, joinpath(newdir, "src"))
+    end
+end
+
+do_test("Path switch without a baseline") && @testset "Path switch without a baseline" begin
+    # A file whose cached source snapshot is gone has no baseline to compare the new
+    # location against, and the old location's source on disk is not one either. The file
+    # is queued so that `revise` reports the loss, rather than `switch_basepath` adopting
+    # the new source as though the session already held it.
+    mod = Module(:PathSwitchStale)
+    Core.eval(mod, :(using Base))
+    id = Base.PkgId(Base.UUID("00000000-0000-0000-0000-000000001115"), "PathSwitchStale")
+    olddir, newdir = mktempdir(), mktempdir()
+    mkpath(joinpath(olddir, "src"))
+    mkpath(joinpath(newdir, "src"))
+    file = joinpath("src", "stale.jl")
+    write(joinpath(olddir, file), "h() = 1\n")
+    write(joinpath(newdir, file), "h() = 2\n")
+
+    pkgdata = Revise.PkgData(id, olddir)
+    # An unparsed file whose only baseline was a cache that can no longer be read
+    push!(pkgdata, file=>Revise.FileInfo(mod, joinpath(olddir, "nonexistent.ji"), joinpath(olddir, file)))
+    pkgdata.cachebuildid = 0x0123    # nonzero: the session did load from a cache
+
+    try
+        @test !Revise.cached_source_is_current(pkgdata, Revise.fileinfo(pkgdata, file))
+        @test_logs (:warn, r"source it held for one or more edited files is gone") match_mode=:any Revise.switch_basepath(pkgdata, newdir)
+        @test Revise.basedir(pkgdata) == newdir
+        @test (pkgdata, file) ∈ Revise.revision_queue
+        # Nothing was adopted as a baseline
+        @test !Revise.fileinfo(pkgdata, file).parsed[]
+        @test !Revise.fileinfo(pkgdata, file).extracted[]
+        # The file is still watched at the new location
+        @test haskey(Revise.watched_files[joinpath(newdir, "src")].trackedfiles, "stale.jl")
+    finally
+        filter!(pr -> first(pr) !== pkgdata, Revise.revision_queue)
+        delete!(Revise.rewritten_caches, id)
         delete!(Revise.watched_files, joinpath(olddir, "src"))
         delete!(Revise.watched_files, joinpath(newdir, "src"))
     end

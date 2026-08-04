@@ -289,22 +289,23 @@ struct FileInfo
     mapexpr::Function                                  # transform applied to each top-level expression (identity if none)
     cachefile::String
     cachefilename::String                              # the source path as recorded inside `cachefile`; the lookup key for reading from the cache
+    cachesrcid::Union{Nothing,UInt64}                  # identifies the source text `cachefile` holds for this file (`nothing` if unknown)
     cacheexprs::Vector{Tuple{Module,Expr}}             # "unprocessed" exprs, used to support @require
     extracted::Base.RefValue{Bool}                     # true if signatures have been processed from mod_exs_infos
     parsed::Base.RefValue{Bool}                        # true if mod_exs_infos have been parsed from cachefile
 end
-FileInfo(mod_exs_infos::ModuleExprsInfos, cachefile="", cachefilename=""; mapexpr::Function=identity) =
-    FileInfo(mod_exs_infos, mapexpr, cachefile, cachefilename, Tuple{Module,Expr}[], Ref(false), Ref(false))
+FileInfo(mod_exs_infos::ModuleExprsInfos, cachefile="", cachefilename=""; mapexpr::Function=identity, cachesrcid=nothing) =
+    FileInfo(mod_exs_infos, mapexpr, cachefile, cachefilename, cachesrcid, Tuple{Module,Expr}[], Ref(false), Ref(false))
 
 """
-    FileInfo(mod::Module, cachefile="", cachefilename=""; mapexpr=identity)
+    FileInfo(mod::Module, cachefile="", cachefilename=""; mapexpr=identity, cachesrcid=nothing)
 
 Initialize an empty FileInfo for a file that is `include`d into `mod`.
 """
-FileInfo(mod::Module, cachefile::AbstractString="", cachefilename::AbstractString=""; mapexpr::Function=identity) =
-    FileInfo(ModuleExprsInfos(mod), cachefile, cachefilename; mapexpr)
+FileInfo(mod::Module, cachefile::AbstractString="", cachefilename::AbstractString=""; mapexpr::Function=identity, cachesrcid=nothing) =
+    FileInfo(ModuleExprsInfos(mod), cachefile, cachefilename; mapexpr, cachesrcid)
 
-FileInfo(fm::ModuleExprsInfos, fi::FileInfo) = FileInfo(fm, fi.mapexpr, fi.cachefile, fi.cachefilename, copy(fi.cacheexprs), Ref(fi.extracted[]), Ref(fi.parsed[]))
+FileInfo(fm::ModuleExprsInfos, fi::FileInfo) = FileInfo(fm, fi.mapexpr, fi.cachefile, fi.cachefilename, fi.cachesrcid, copy(fi.cacheexprs), Ref(fi.extracted[]), Ref(fi.parsed[]))
 
 function Base.show(io::IO, fi::FileInfo)
     print(io, "FileInfo(")
@@ -329,6 +330,12 @@ end
 A structure holding the data required to handle a particular package.
 `path` is the top-level directory defining the package,
 and `fileinfos` holds the [`Revise.FileInfo`](@ref) for each file defining the package.
+`cachebuildid` is the build id of the precompile cache this session loaded the package
+from, and identifies the source snapshot the `FileInfo`s read from that cache (see
+[`Revise.rewritten_caches`](@ref)); it is zero for packages not loaded from a cache.
+`cacheio` is a handle held open on that cache file, which on platforms where a rename
+does not disturb open handles keeps the snapshot readable even after another process
+replaces the file; it is `nothing` when no handle is held.
 
 For the `PkgData` associated with `Main` (e.g., for files loaded with [`includet`](@ref)),
 the corresponding `path` entry will be empty.
@@ -337,9 +344,11 @@ mutable struct PkgData
     info::PkgFiles
     fileinfos::Vector{FileInfo}
     requirements::Vector{PkgId}
+    cachebuildid::UInt128        # build id of the precompile cache this session loaded (0 if none)
+    cacheio::Union{Nothing,IOStream}   # handle held open on that cache file, where the platform allows it
 end
 
-PkgData(id::PkgId, path) = PkgData(PkgFiles(id, path), FileInfo[], PkgId[])
+PkgData(id::PkgId, path) = PkgData(PkgFiles(id, path), FileInfo[], PkgId[], zero(UInt128), nothing)
 PkgData(id::PkgId, ::Nothing) = PkgData(id, "")
 function PkgData(id::PkgId)
     bp = basepath(id)
@@ -457,6 +466,24 @@ function Base.showerror(io::IO, ex::ReviseEvalException; blame_revise::Bool=true
     if blame_revise
         println(io, "\nRevise evaluation error at ", ex.loc)
     end
+end
+
+"""
+    StaleCacheError(id::PkgId, file::String)
+
+Reports that `file` cannot be revised because the precompile cache of `id` no longer
+holds the source this session loaded it from, leaving nothing to compare the current
+source against. See [`Revise.rewritten_caches`](@ref).
+"""
+struct StaleCacheError <: Exception
+    id::PkgId
+    file::String
+end
+
+function Base.showerror(io::IO, err::StaleCacheError)
+    print(io, """
+        $(err.file) cannot be revised: the precompile cache of $(err.id.name) was rebuilt by another process, and the source this session loaded for this file is no longer recorded anywhere, so there is nothing to compare the current source against.
+        The definitions in this file remain as they were when the session loaded them. Restart Julia to pick up their current state.""")
 end
 
 """

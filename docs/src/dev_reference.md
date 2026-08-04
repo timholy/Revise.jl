@@ -33,6 +33,7 @@ Revise.queue_errors
 Revise.duplicated_signatures
 Revise.included_files
 Revise.watched_manifests
+Revise.rewritten_caches
 ```
 
 The following are specific to user callbacks (see [`Revise.add_callback`](@ref)) and
@@ -55,6 +56,7 @@ Revise.PkgData
 Revise.WatchList
 Revise.TaskThunk
 Revise.ReviseEvalException
+Revise.StaleCacheError
 Revise.SignatureExtractionError
 MethodSummary
 ```
@@ -98,6 +100,9 @@ Revise.remove_callback
 
 ```@docs
 Revise.revise_file_now
+Revise.hold_cache!
+Revise.cache_snapshot_is_valid
+Revise.cached_source_is_current
 ```
 
 Revise pins its own method dispatch to the world age captured at initialization, so that

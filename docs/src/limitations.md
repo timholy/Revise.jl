@@ -340,3 +340,23 @@ No version restriction applies to [`includet`](@ref)/[`Revise.track`](@ref) (whi
 accept a leading `mapexpr` of their own) or to `include(mapexpr, filename)` statements
 *added* to an already-loaded package, since those transforms are discovered without
 the load-time record.
+
+### Precompilation by another process can discard Revise's baseline
+
+For a precompiled package, Revise reads the "before" state of a source file from the
+package's `*.ji` cache, and does so only when that file is first revised. The path of the
+cache is determined by the active project and the compile flags rather than by the source,
+so a `using` or `Pkg.precompile` in a *separate* process — running the test suite or a
+script in a fresh Julia while an interactive session stays open — replaces the very file
+Revise recorded.
+
+On platforms where an open handle stays attached to a file that has been renamed away,
+Revise holds one on each cache it watches, so the snapshot survives the rebuild and
+revision continues normally. Elsewhere, a rebuilt cache costs nothing as long as it was
+built from the same source; only a file whose content differs between the build the
+session loaded and the build now on disk loses its baseline. For such a file there is
+nothing left to compare an edit against, so Revise does not guess: it makes no attempt to
+revise it, raises a [`Revise.StaleCacheError`](@ref) naming the file, and turns the prompt
+yellow for the rest of the session. The file's definitions stay as the session loaded
+them; restart Julia to pick up their current state. Every other file, and every other
+package, continues to revise as usual.

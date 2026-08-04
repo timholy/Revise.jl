@@ -91,7 +91,53 @@ function read_from_cache(pkgdata::PkgData, file::AbstractString, fi::FileInfo)
     # up by the filename the cache was indexed with rather than one reconstructed from
     # `basedir` (which can diverge in form, e.g. across symlinks; see #1033).
     lookup = isempty(fi.cachefilename) ? filep : fi.cachefilename
-    Base.read_dependency_src(fi.cachefile, lookup)
+    io = pkgdata.cacheio
+    io === nothing && return Base.read_dependency_src(fi.cachefile, lookup)
+    seekstart(io)
+    iszero(Base.isvalid_cache_header(io)) && throw(ArgumentError("invalid header in cache file $(fi.cachefile)"))
+    return Base.read_dependency_src(io, fi.cachefile, lookup)
+end
+
+# Whether this platform and Julia version support keeping the snapshot alive with an open
+# handle. On Windows a held handle can block the other process from replacing the file, and
+# reading a cache through a handle needs the header API of Julia 1.11+.
+can_hold_cache() = !Sys.iswindows() && VERSION >= v"1.11.0-DEV.683"
+
+"""
+    Revise.hold_cache!(pkgdata)
+
+Keep a handle open on `pkgdata`'s precompile cache file, so that the source snapshot it
+holds stays readable for as long as the session runs.
+
+Julia replaces a cache file by renaming a freshly built one over it. On platforms where
+that leaves existing handles attached to the original file, a handle opened here still
+reads the snapshot this session loaded even after another process rebuilds the cache;
+[`Revise.cache_snapshot_is_valid`](@ref) then finds the cache intact and revision
+proceeds normally. Where a held handle would instead block the other process from
+replacing the file, no handle is taken and the rebuild is handled by detection.
+"""
+function hold_cache!(pkgdata::PkgData)
+    can_hold_cache() || return pkgdata
+    pkgdata.cacheio === nothing || return pkgdata
+    isempty(srcfiles(pkgdata)) && return pkgdata
+    cachefile = fileinfo(pkgdata, 1).cachefile
+    (isempty(cachefile) || cachefile == basesrccache) && return pkgdata
+    pkgdata.cacheio = try
+        open(cachefile, "r")
+    catch
+        nothing
+    end
+    return pkgdata
+end
+
+# Identifies the source text a precompile cache holds for one file, so that a cache
+# rebuilt from unchanged source is recognized as still carrying the same snapshot.
+# Julia 1.11+ records a size and a content hash; 1.10 records only the source file's
+# mtime, so on that version a file merely touched between two builds reads as changed.
+@static if VERSION >= v"1.11.0-DEV.683"    # https://github.com/JuliaLang/julia/pull/49866
+    cache_src_id(inc) = hash(inc.fsize, UInt64(inc.hash))
+else
+    cache_src_id(inc) = hash(inc.mtime)
 end
 
 function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
@@ -100,8 +146,72 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
     end
     return maybe_parse_from_cache!(pkgdata, file, fileinfo(pkgdata, file))
 end
+"""
+    Revise.cache_snapshot_is_valid(pkgdata) -> Bool
+
+Whether the precompile cache Revise reads `pkgdata`'s source snapshots from is still the
+one this session loaded. Every precompilation mints a new build id, so a cache whose
+build id has changed, or that has gone missing, was rebuilt or removed by another
+process. A handle held by [`Revise.hold_cache!`](@ref) keeps the original readable, in
+which case the check passes and nothing is lost; otherwise the individual files that
+changed between the two builds lose their baseline (see
+[`Revise.cached_source_is_current`](@ref)).
+"""
+function cache_snapshot_is_valid(pkgdata::PkgData)
+    pkgdata.cachebuildid == 0 && return true   # not loaded from a cache; nothing to compare against
+    cachedata = current_cachedata(pkgdata)
+    cachedata === nothing && return false
+    _, _, _, buildid = cachedata
+    return buildid == pkgdata.cachebuildid
+end
+
+# Header of the cache Revise can still read for this package: through the held handle when
+# there is one, since that reports the file the handle is attached to rather than whatever
+# now occupies the path.
+function current_cachedata(pkgdata::PkgData)
+    io = pkgdata.cacheio
+    io === nothing && return pkg_fileinfo(PkgId(pkgdata))
+    return pkg_fileinfo(PkgId(pkgdata), fileinfo(pkgdata, 1).cachefile, io)
+end
+
+"""
+    Revise.cached_source_is_current(pkgdata, fi) -> Bool
+
+Whether the source snapshot Revise can still read for the file described by `fi` is the
+one this session loaded. A cache rebuilt from unchanged source carries the same snapshot
+and remains a valid baseline; only the files whose content differs between the build this
+session loaded and the build now on disk lose theirs.
+"""
+function cached_source_is_current(pkgdata::PkgData, fi::FileInfo)
+    cache_snapshot_is_valid(pkgdata) && return true
+    fi.cachesrcid === nothing && return false     # nothing recorded to compare against
+    cachedata = current_cachedata(pkgdata)
+    cachedata === nothing && return false
+    _, includes, _, _ = cachedata
+    for inc in includes
+        inc.filename == fi.cachefilename && return cache_src_id(inc) == fi.cachesrcid
+    end
+    return false
+end
+
+# Record the loss and warn once per package, then let the caller report the individual
+# files. A package listed here keeps the prompt yellow for the rest of the session.
+function note_rewritten_cache(id::PkgId)
+    isnew = @lock revise_lock (id ∈ rewritten_caches ? false : (push!(rewritten_caches, id); true))
+    isnew || return nothing
+    @warn """The precompile cache of $(id.name) was rebuilt by another process after this session loaded it, and the source it held for one or more edited files is gone.
+        Revise compares an edit against the source the session loaded, so for those files there is nothing to compare against and no revision is attempted; each one is reported separately.
+        Other files of $(id.name), and every other package, continue to revise normally. Your prompt color will be yellow for the rest of this session; restart Julia to pick up the current state of the affected files."""
+    return nothing
+end
+
 function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString, fi::FileInfo)
     if (isempty(fi.mod_exs_infos) && !fi.parsed[]) && (!isempty(fi.cachefile) || !isempty(fi.cacheexprs))
+        if !isempty(fi.cachefile) && !cached_source_is_current(pkgdata, fi)
+            id = PkgId(pkgdata)
+            note_rewritten_cache(id)
+            throw(StaleCacheError(id, joinpath(basedir(pkgdata), file)))
+        end
         # Source was never parsed, get it from the precompile cache
         src = read_from_cache(pkgdata, file, fi)
         filep = joinpath(basedir(pkgdata), file)
@@ -118,6 +228,18 @@ function maybe_parse_from_cache!(pkgdata::PkgData, file::AbstractString, fi::Fil
         fi.parsed[] = true
     end
     return fi
+end
+
+# Reading the cache to look up where something was defined is best-effort: a file whose
+# snapshot is gone has no definitions to report. The loss is raised where it matters,
+# when the file is actually being revised.
+function try_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
+    try
+        return maybe_parse_from_cache!(pkgdata, file)
+    catch err
+        err isa StaleCacheError || rethrow()
+        return nothing
+    end
 end
 
 function add_modexs!(fi::FileInfo, modexs::Vector{Tuple{Module,Expr}})
@@ -169,8 +291,8 @@ function maybe_extract_sigs_for_meths(meths)
             for file in srcfiles(pkgdata)
                 fi = fileinfo(pkgdata, file)
                 if is_not_populated(fi)
-                    fi = maybe_parse_from_cache!(pkgdata, file)
-                    instantiate_sigs!(fi.mod_exs_infos)
+                    fi = try_parse_from_cache!(pkgdata, file)
+                    fi === nothing || instantiate_sigs!(fi.mod_exs_infos)
                 end
             end
         end
@@ -185,8 +307,8 @@ function maybe_extract_sigs_for_types(types)
         for file in srcfiles(pkgdata)
             fi = fileinfo(pkgdata, file)
             if is_not_populated(fi)
-                fi = maybe_parse_from_cache!(pkgdata, file)
-                instantiate_sigs!(fi.mod_exs_infos)
+                fi = try_parse_from_cache!(pkgdata, file)
+                fi === nothing || instantiate_sigs!(fi.mod_exs_infos)
             end
         end
     end
@@ -233,7 +355,7 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
             # subsequent diff vacuous and leaving the session stale.)
             maybe_parse_from_cache!(pkgdata, incrp, fi)
             pkgdata.fileinfos[stale_idx] = FileInfo(fi.mod_exs_infos, mapexpr, fi.cachefile, fi.cachefilename,
-                                                    fi.cacheexprs, fi.extracted, fi.parsed)
+                                                    fi.cachesrcid, fi.cacheexprs, fi.extracted, fi.parsed)
             # Re-diff the file under the new transform so the session catches up with
             # the new effective source.
             if eval_now
@@ -525,6 +647,7 @@ function watch_package(id::PkgId)
         pkgdata = parse_pkg_files(id)
         if has_writable_paths(pkgdata)
             init_watching(pkgdata, srcfiles(pkgdata))
+            hold_cache!(pkgdata)
         end
         pkgdatas[id] = pkgdata
         pkgdata
@@ -671,7 +794,14 @@ function switch_basepath(pkgdata::PkgData, newpath::String)
         same_contents(joinpath(oldpath, file), joinpath(newpath, file)) && continue
         fi = try
             maybe_parse_from_cache!(pkgdata, file)
-        catch
+        catch err
+            if err isa StaleCacheError
+                # No baseline to diff the new location against, and the old source on disk
+                # is not one either. Queue the file so `revise` reports the loss.
+                @lock revise_lock push!(revision_queue, (pkgdata, file))
+                mustnotify = true
+                continue
+            end
             # https://github.com/JuliaLang/julia/issues/42404
             # Get the source-text from the package source instead
             fi = fileinfo(pkgdata, file)

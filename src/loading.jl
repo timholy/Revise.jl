@@ -3,15 +3,23 @@ function pkg_fileinfo(id::PkgId)
     origin === nothing && return nothing
     cachepath = origin.cachepath
     cachepath === nothing && return nothing
+    return pkg_fileinfo(id, cachepath, nothing)
+end
+
+# `io`, when given, is a handle already open on `cachepath` (see `Revise.hold_cache!`);
+# it is rewound and left open, and reports the file it is attached to rather than
+# whatever now occupies `cachepath`.
+function pkg_fileinfo(id::PkgId, cachepath::AbstractString, io::Union{Nothing,IOStream})
     local checksum
     provides, includes_requires, required_modules = try
         ret = @static if VERSION ≥ v"1.11.0-DEV.683" # https://github.com/JuliaLang/julia/pull/49866
-            io = open(cachepath, "r")
-            checksum = Base.isvalid_cache_header(io)
-            iszero(checksum) && (close(io); return nothing)
+            ownio = io === nothing
+            iou = ownio ? open(cachepath, "r") : (seekstart(io); io)
+            checksum = Base.isvalid_cache_header(iou)
+            iszero(checksum) && (ownio && close(iou); return nothing)
             provides, (_, includes_srcfiles_only, requires), required_modules, _... =
-                Base.parse_cache_header(io, cachepath)
-            close(io)
+                Base.parse_cache_header(iou, cachepath)
+            ownio && close(iou)
             provides, (includes_srcfiles_only, requires), required_modules
         else
             checksum = UInt64(0) # Buildid prior to v"1.12.0-DEV.764", and the `srcfiles_only` API does not take `io`
@@ -76,6 +84,7 @@ function parse_pkg_files(id::PkgId)
         if cachefile_includes_reqs_buildid !== nothing
             cachefile, includes, reqs, buildid = cachefile_includes_reqs_buildid
             pkgdata.requirements = reqs
+            pkgdata.cachebuildid = buildid
             if isdefined(Base, :maybe_loaded_precompile) && (mod′ = Base.maybe_loaded_precompile(id, buildid); mod′ isa Module)
                 root = mod′
             elseif isdefined(Base, :loaded_precompiles) && haskey(Base.loaded_precompiles, id => buildid)
@@ -106,7 +115,7 @@ function parse_pkg_files(id::PkgId)
                 # from the *.ji cachefile. Keep `chi.filename` itself: that is the exact key
                 # the cache is indexed by, and reconstructing it from `fname` is unreliable
                 # when path forms diverge (e.g. symlinks, see #1033).
-                push!(pkgdata, fname=>FileInfo(mod, cachefile, chi.filename; mapexpr))
+                push!(pkgdata, fname=>FileInfo(mod, cachefile, chi.filename; mapexpr, cachesrcid=cache_src_id(chi)))
             end
             if mapexprs !== nothing && length(matched_mapexprs) != length(mapexprs)
                 unmatched = [key for key in keys(mapexprs) if key ∉ matched_mapexprs]
