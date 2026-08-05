@@ -916,12 +916,18 @@ function eval_with_signatures(mod::Module, ex::Expr; mode::Symbol=:eval, kwargs.
     return exinfos, exinfo.includes, thk
 end
 
-function instantiate_sigs!(mod_exs_infos::ModuleExprsInfos; mode::Symbol=:sigs, kwargs...)
+# `includes`, when supplied, collects the `include` statements encountered, which the
+# caller must register (they are not evaluated here).
+function instantiate_sigs!(mod_exs_infos::ModuleExprsInfos; mode::Symbol=:sigs,
+                           includes::Union{Nothing,Vector{Tuple{Module,Function,String}}}=nothing,
+                           kwargs...)
     for (mod, exs_infos) in mod_exs_infos
         for rex in keys(exs_infos)
             is_doc_expr(rex.ex) && continue
             try
-                exs_infos[rex], _, _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
+                exinfos, incs, _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
+                exs_infos[rex] = exinfos
+                includes === nothing || append!(includes, incs)
             catch err
                 if (mode !== :sigs || get(kwargs, :always_rethrow, false) ||
                     err isa InterruptException || err isa SignatureExtractionError)
@@ -1196,6 +1202,126 @@ function delete_for_revision(
             end
         end
         @warn("$filep no longer exists, deleted all methods")
+    end
+    return nothing
+end
+
+# The current source of `pkgdata`'s file at index `idx`: the pending parse when the
+# file is part of the revision under way, otherwise the stored expressions (reading
+# the precompile-cache snapshot if that has not been parsed yet).
+function source_view(pkgdata::PkgData, file::AbstractString, idx::Int,
+                     current::Dict{Tuple{String,Int},ModuleExprsInfos})
+    mod_exs_infos = get(current, (String(file)::String, idx), nothing)
+    mod_exs_infos === nothing || return mod_exs_infos
+    fi = fileinfo(pkgdata, idx)
+    if file != "." && !is_requires_file(file)
+        maybe_parse_from_cache!(pkgdata, file, fi)
+    end
+    return fi.mod_exs_infos
+end
+
+# Inclusions removed by the revision, as `(pkgdata, file, idx, unwatch)` tuples.
+# For files in `parsed`, use the pending parse rather than the stored `FileInfo`.
+#
+# Inclusions are identified by `(path, module)` (see `include_targets`), so a file
+# included into several modules loses only the inclusions the source dropped.
+# Removal is transitive: files included only by a removed inclusion are also
+# removed.
+function orphaned_includes(pkgdata::PkgData, parsed)
+    orphans = Tuple{PkgData,String,Int,Bool}[]
+    current = Dict{Tuple{String,Int},ModuleExprsInfos}()
+    candidates = Set{Tuple{String,Module}}()
+    for (pd, file, idx, mod_exs_infos_new, mod_exs_infos_old, _) in parsed
+        pd === pkgdata || continue
+        isa(mod_exs_infos_new, ModuleExprsInfos) || continue
+        current[(file, idx)] = mod_exs_infos_new
+        union!(candidates, setdiff(include_targets(pkgdata, file, mod_exs_infos_old),
+                                   include_targets(pkgdata, file, mod_exs_infos_new)))
+    end
+    isempty(candidates) && return orphans
+    gone = Set{Tuple{String,Module}}()
+    while !isempty(candidates)
+        live = Set{Tuple{String,Module}}()
+        for (i, file) in enumerate(srcfiles(pkgdata))
+            (file, includemodule(pkgdata, i)) ∈ gone && continue
+            union!(live, include_targets(pkgdata, file, source_view(pkgdata, file, i, current)))
+        end
+        newly = Tuple{String,Module,Int}[]
+        for target in candidates
+            (target ∈ gone || target ∈ live) && continue
+            path, mod = target
+            for idx in fileindices(pkgdata, path)
+                includemodule(pkgdata, idx) === mod && push!(newly, (path, mod, idx))
+            end
+        end
+        isempty(newly) && break
+        candidates = Set{Tuple{String,Module}}()
+        for (path, mod, idx) in newly
+            push!(gone, (path, mod))
+            union!(candidates, include_targets(pkgdata, path, source_view(pkgdata, path, idx, current)))
+            push!(orphans, (pkgdata, path, idx, false))
+        end
+    end
+    # Stop watching a path only after every inclusion of it has been removed.
+    norphaned = Dict{String,Int}()
+    for (_, path, _, _) in orphans
+        norphaned[path] = get(norphaned, path, 0) + 1
+    end
+    for (i, (pd, path, idx, _)) in enumerate(orphans)
+        orphans[i] = (pd, path, idx, norphaned[path] == length(fileindices(pkgdata, path)))
+    end
+    return orphans
+end
+
+# Return the removed inclusions for every package represented in `parsed`. Detection
+# is static and therefore conservative (see `include_targets`); if scanning a
+# package fails, keep all its files and log the error (or rethrow it under `throw`).
+function orphaned_includes(parsed; throw::Bool=false)
+    orphans = Tuple{PkgData,String,Int,Bool}[]
+    seen = PkgData[]
+    for (pkgdata, _, _, _, _, _) in parsed
+        any(pd -> pd === pkgdata, seen) && continue
+        push!(seen, pkgdata)
+        try
+            append!(orphans, orphaned_includes(pkgdata, parsed))
+        catch err
+            (throw || isa(err, InterruptException)) && rethrow()
+            @error "scan for removed `include`s failed for $(PkgId(pkgdata)); keeping its files tracked" exception=(err, catch_backtrace())
+        end
+    end
+    return orphans
+end
+
+# Delete definitions contributed by one inclusion and clear its stored expressions.
+# Stop watching the path only when `unwatch` indicates this was its last inclusion.
+function delete_orphaned_include!(
+        pkgdata::PkgData, file::AbstractString, idx::Int, unwatch::Bool,
+        reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
+        predictions::TypePredictions,
+    )
+    fi = fileinfo(pkgdata, idx)
+    maybe_parse_from_cache!(pkgdata, file, fi)
+    maybe_extract_sigs!(fi)
+    mod_exs_infos_old = fi.mod_exs_infos
+    mod_exs_infos_new = ModuleExprsInfos(first(keys(mod_exs_infos_old)))
+    delete_missing!(mod_exs_infos_old, mod_exs_infos_new, reeval_list, handled_types, world, predictions)
+    pkgdata.fileinfos[idx] = FileInfo(mod_exs_infos_new, fi)
+    unwatch && unwatch_file!(pkgdata, file)
+    @warn "$(joinpath(basedir(pkgdata), file)) is no longer `include`d into $(first(keys(mod_exs_infos_old))), deleted its methods"
+    return nothing
+end
+
+# Remove inclusions from their `PkgData`. Descending indices keep remaining ones valid.
+function deregister_orphaned_includes!(orphans)
+    seen = PkgData[]
+    for (pkgdata, _, _, _) in orphans
+        any(pd -> pd === pkgdata, seen) && continue
+        push!(seen, pkgdata)
+        indices = sort!(Int[idx for (pd, _, idx, _) in orphans if pd === pkgdata]; rev=true)
+        for idx in indices
+            deleteat!(srcfiles(pkgdata), idx)
+            deleteat!(pkgdata.fileinfos, idx)
+        end
     end
     return nothing
 end
@@ -1700,6 +1826,15 @@ function _revise(; throw::Bool=false)
             end
         end
 
+        # Do not evaluate files whose inclusions are being removed.
+        orphans = orphaned_includes(parsed; throw)
+        if !isempty(orphans)
+            filter!(parsed) do entry
+                pkgdata, file, idx = entry[1], entry[2], entry[3]
+                !any(o -> o[1] === pkgdata && o[2] == file && o[3] == idx, orphans)
+            end
+        end
+
         # Apply the deletions
         for (pkgdata, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
             try
@@ -1710,6 +1845,19 @@ function _revise(; throw::Bool=false)
                     push!(finished, (pkgdata, file))
                     push!(finished_idx, idx)
                 end
+            catch err
+                throw && Base.throw(err)
+                interrupt |= isa(err, InterruptException)
+                push!(revision_errors, (pkgdata, file))
+                queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+            end
+        end
+        # Keep failed deletions registered so `queue_errors` can retry them.
+        deleted_orphans = empty(orphans)
+        for (pkgdata, file, idx, unwatch) in orphans
+            try
+                delete_orphaned_include!(pkgdata, file, idx, unwatch, reeval_list, handled_types, world, predictions)
+                push!(deleted_orphans, (pkgdata, file, idx, unwatch))
             catch err
                 throw && Base.throw(err)
                 interrupt |= isa(err, InterruptException)
@@ -1765,6 +1913,9 @@ function _revise(; throw::Bool=false)
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())
             end
         end
+
+        # Evaluation above relies on stable `pkgdata.fileinfos` indices.
+        isempty(deleted_orphans) || deregister_orphaned_includes!(deleted_orphans)
 
         # Keep `Base.pkgorigins` version in sync with revised source (issue #684)
         for pkgdata in unique!(first.(finished))

@@ -319,18 +319,17 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
         inc = joinpath(splitdir(file)[1], inc)
         incrp = relpath(inc, pkgdata)
         hasinclude = false
-        # An entry for the same path and destination module whose `mapexpr` differs:
-        # the `include(mapexpr, ...)` statement was edited (or its closure was
-        # recreated when the including statement was re-evaluated), so that entry
-        # describes a transform that is no longer in the source.
+        # Each `(path, module)` inclusion has its own entry (issue #730). A differing
+        # `mapexpr` for that pair makes the old entry stale.
         stale_idx = 0
         for (i, srcfile) in enumerate(srcfiles(pkgdata))
             srcfile == incrp || continue
             fi = pkgdata.fileinfos[i]
+            first(keys(fi.mod_exs_infos)) === mod || continue
             if fi.mapexpr === mapexpr
                 hasinclude = true
                 break
-            elseif stale_idx == 0 && first(keys(fi.mod_exs_infos)) === mod
+            elseif stale_idx == 0
                 stale_idx = i
             end
         end
@@ -378,7 +377,10 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
                 if eval_now
                     # Pin to Revise's frozen world (issue #552); `frozen`'s runtime dispatch
                     # also reduces latency.
-                    frozen(instantiate_sigs!, fi.mod_exs_infos; mode=:eval)
+                    nested = Tuple{Module,Function,String}[]
+                    frozen(instantiate_sigs!, fi.mod_exs_infos; mode=:eval, includes=nested)
+                    # Register files included by this newly registered file.
+                    isempty(nested) || maybe_add_includes_to_pkgdata!(pkgdata, incrp, nested; eval_now)
                 end
             end
             # Add to watchlist
@@ -386,6 +388,111 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
             yield()
         end
     end
+end
+
+# Does `f` name `include` in surface syntax? Both the bare name and a qualified
+# `Mod.include` are accepted; the lowered-code counterpart is `is_some_include`.
+function is_include_callee(@nospecialize(f))
+    f === :include && return true
+    isexpr(f, :.) || return false
+    f = f::Expr
+    length(f.args) == 2 || return false
+    name = f.args[2]
+    return isa(name, QuoteNode) && name.value === :include
+end
+
+# Collect the `include` calls within `ex` whose path is a string literal, as
+# `(path, modarg)` pairs. `modarg` is the expression in the position where a
+# destination module may appear — the first argument of `include(x, path)` (which
+# holds a mapexpr in the other reading of that form) or the second of
+# `include(mapexpr, mod, path)` — and `nothing` for the one-argument form.
+# Quoted code is skipped: it names no file until it is evaluated.
+function collect_includes!(incs::Vector{Tuple{String,Any}}, @nospecialize(ex))
+    isa(ex, Expr) || return incs
+    ex.head === :quote && return incs
+    if ex.head === :call && !isempty(ex.args) && is_include_callee(ex.args[1])
+        args = ex.args
+        if length(args) == 2
+            isa(args[2], String) && push!(incs, (args[2], nothing))
+        elseif length(args) == 3
+            isa(args[3], String) && push!(incs, (args[3], args[2]))
+        elseif length(args) == 4
+            isa(args[4], String) && push!(incs, (args[4], args[3]))
+        end
+    end
+    for arg in ex.args
+        collect_includes!(incs, arg)
+    end
+    return incs
+end
+
+# Resolve `x` as a literal module reference (a bare or dotted name) in `mod`,
+# returning `nothing` if it does not name a `Module`. Bindings resolve at the
+# latest world: the modules named postdate Revise's frozen world.
+function resolve_module_literal(mod::Module, @nospecialize(x))
+    if isa(x, Module)
+        return x
+    elseif isa(x, Symbol)
+        @invokelatest(isdefinedglobal(mod, x)) || return nothing
+        val = @invokelatest(getglobal(mod, x))
+        return isa(val, Module) ? val : nothing
+    elseif isexpr(x, :.)
+        x = x::Expr
+        length(x.args) == 2 || return nothing
+        name = x.args[2]
+        isa(name, QuoteNode) || return nothing
+        isa(name.value, Symbol) || return nothing
+        base = resolve_module_literal(mod, x.args[1])
+        base === nothing && return nothing
+        return resolve_module_literal(base, name.value::Symbol)
+    end
+    return nothing
+end
+
+"""
+    Revise.include_targets(pkgdata, file, mod_exs_infos) -> targets::Set{Tuple{String,Module}}
+
+Return the `(path, module)` inclusions found statically in `mod_exs_infos`.
+Paths are relative to `pkgdata`.
+
+Only literal paths and destination-module names are recognized. An unresolved
+two-argument form is treated as `include(mapexpr, path)` in the current module.
+"""
+function include_targets(pkgdata::PkgData, file::AbstractString, mod_exs_infos::ModuleExprsInfos)
+    targets = Set{Tuple{String,Module}}()
+    dir = splitdir(String(file)::String)[1]
+    incs = Tuple{String,Any}[]
+    for (mod, exs_infos) in mod_exs_infos
+        empty!(incs)
+        for rex in keys(exs_infos)
+            collect_includes!(incs, rex.ex)
+        end
+        for (inc, modarg) in incs
+            destmod = modarg === nothing ? mod : something(resolve_module_literal(mod, modarg), mod)
+            push!(targets, (relpath(joinpath(dir, inc), pkgdata), destmod))
+        end
+    end
+    return targets
+end
+
+# The module `pkgdata`'s file at index `idx` is `include`d into; with its path, this
+# is what `include_targets` reports.
+includemodule(pkgdata::PkgData, idx::Int) = first(keys(fileinfo(pkgdata, idx).mod_exs_infos))
+
+# Stop watching `file` (relative to `pkgdata`). Only correct once nothing tracked
+# reads that path: the watch is per path, while `pkgdata` has one entry per inclusion.
+function unwatch_file!(pkgdata::PkgData, file::AbstractString)
+    dir, basename = splitdir(String(file)::String)
+    dirfull = joinpath(basedir(pkgdata), dir)
+    @lock revise_lock begin
+        wl = get(watched_files, dirfull, nothing)
+        if isa(wl, WatchList)
+            delete!(wl.trackedfiles, basename)
+            delete!(wl.file_ctimes, basename)
+            delete!(wl.file_hashes, basename)
+        end
+    end
+    return nothing
 end
 
 # Is `file` (relative to `pkgdata`) registered with a directory watcher? A live

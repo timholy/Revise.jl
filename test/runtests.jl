@@ -5944,6 +5944,237 @@ do_test("Missing-file grace") && !Revise.watching_files[] && @testset "Missing-f
     pop!(LOAD_PATH)
 end
 
+## Removing and restoring an `include` (issue #1104)
+do_test("Removed include") && @testset "Removed include" begin
+    testdir = newtestdir()
+    dn = joinpath(testdir, "RemovedInclude", "src")
+    mkpath(dn)
+    write(joinpath(dn, "RemovedInclude.jl"), """
+        module RemovedInclude
+        include("child.jl")
+        include("kept.jl")
+        end
+        """)
+    write(joinpath(dn, "child.jl"), """
+        child() = 1
+        include("grandchild.jl")
+        """)
+    write(joinpath(dn, "grandchild.jl"), "grandchild() = 2")
+    write(joinpath(dn, "kept.jl"), "kept() = 3")
+    sleep(mtimedelay)
+    @eval using RemovedInclude
+    sleep(mtimedelay)
+    @test RemovedInclude.child() == 1
+    @test RemovedInclude.grandchild() == 2
+    @test RemovedInclude.kept() == 3
+    pkgdata = Revise.pkgdatas[Base.PkgId(RemovedInclude)]
+
+    # Drop one `include`. The removal is transitive: "grandchild.jl" was included
+    # only by the file that is also being removed.
+    write(joinpath(dn, "RemovedInclude.jl"), """
+        module RemovedInclude
+        include("kept.jl")
+        end
+        """)
+    logs, _ = Test.collect_test_logs() do
+        yry()
+    end
+    @latestworld
+    @test_throws MethodError RemovedInclude.child()
+    @test_throws MethodError RemovedInclude.grandchild()
+    @test RemovedInclude.kept() == 3
+    @test any(r -> occursin("no longer `include`d into RemovedInclude, deleted its methods", r.message), logs)
+    @test !Revise.hasfile(pkgdata, joinpath("src", "child.jl"))
+    @test !Revise.hasfile(pkgdata, joinpath("src", "grandchild.jl"))
+    @test !Revise.iswatched(pkgdata, joinpath("src", "child.jl"))
+    @test !Revise.iswatched(pkgdata, joinpath("src", "grandchild.jl"))
+    @test Revise.hasfile(pkgdata, joinpath("src", "kept.jl"))
+    @test Revise.iswatched(pkgdata, joinpath("src", "kept.jl"))
+
+    # A file that is no longer included is not revised into the module
+    write(joinpath(dn, "child.jl"), """
+        child() = 10
+        include("grandchild.jl")
+        """)
+    @yry(expect_revision=false)
+    @test_throws MethodError RemovedInclude.child()
+
+    # Restoring the `include` brings the file, and what it includes, back
+    write(joinpath(dn, "RemovedInclude.jl"), """
+        module RemovedInclude
+        include("child.jl")
+        include("kept.jl")
+        end
+        """)
+    @yry()
+    @latestworld
+    @test RemovedInclude.child() == 10
+    @test RemovedInclude.grandchild() == 2
+    @test Revise.hasfile(pkgdata, joinpath("src", "child.jl"))
+    @test Revise.hasfile(pkgdata, joinpath("src", "grandchild.jl"))
+    @test Revise.iswatched(pkgdata, joinpath("src", "child.jl"))
+    @test Revise.iswatched(pkgdata, joinpath("src", "grandchild.jl"))
+
+    rm_precompile("RemovedInclude")
+    pop!(LOAD_PATH)
+end
+
+## Removing one of several `(path, module)` inclusions
+do_test("Removed include, still included") && @testset "Removed include, still included" begin
+    testdir = newtestdir()
+    dn = joinpath(testdir, "SharedInclude", "src")
+    mkpath(dn)
+    write(joinpath(dn, "SharedInclude.jl"), """
+        module SharedInclude
+        module A
+        include("shared.jl")
+        end
+        module B
+        include("shared.jl")
+        end
+        end
+        """)
+    write(joinpath(dn, "shared.jl"), "shared() = 2")
+    sleep(mtimedelay)
+    @eval using SharedInclude
+    sleep(mtimedelay)
+    @test SharedInclude.A.shared() == 2
+    @test SharedInclude.B.shared() == 2
+    pkgdata = Revise.pkgdatas[Base.PkgId(SharedInclude)]
+
+    write(joinpath(dn, "SharedInclude.jl"), """
+        module SharedInclude
+        module A
+        end
+        module B
+        include("shared.jl")
+        end
+        end
+        """)
+    @yry()
+    @latestworld
+    @test_throws MethodError SharedInclude.A.shared()
+    @test SharedInclude.B.shared() == 2
+    @test Revise.iswatched(pkgdata, joinpath("src", "shared.jl"))   # B still includes it
+
+    rm_precompile("SharedInclude")
+    pop!(LOAD_PATH)
+end
+
+## Moving an `include` between modules (issues #730, #1104)
+do_test("Moved include") && @testset "Moved include" begin
+    testdir = newtestdir()
+    dn = joinpath(testdir, "MovedInclude", "src")
+    mkpath(dn)
+    write(joinpath(dn, "MovedInclude.jl"), """
+        module MovedInclude
+        module Inner
+        end
+        include("impl.jl")
+        end
+        """)
+    write(joinpath(dn, "impl.jl"), "impl() = 1")
+    sleep(mtimedelay)
+    @eval using MovedInclude
+    sleep(mtimedelay)
+    @test MovedInclude.impl() == 1
+    pkgdata = Revise.pkgdatas[Base.PkgId(MovedInclude)]
+
+    write(joinpath(dn, "MovedInclude.jl"), """
+        module MovedInclude
+        module Inner
+        include("impl.jl")
+        end
+        end
+        """)
+    @yry()
+    @latestworld
+    @test_throws MethodError MovedInclude.impl()
+    @test MovedInclude.Inner.impl() == 1
+    @test Revise.iswatched(pkgdata, joinpath("src", "impl.jl"))
+
+    # The file now belongs to `Inner`, and edits go there
+    write(joinpath(dn, "impl.jl"), "impl() = 2")
+    @yry()
+    @latestworld
+    @test MovedInclude.Inner.impl() == 2
+    @test_throws MethodError MovedInclude.impl()
+
+    rm_precompile("MovedInclude")
+    pop!(LOAD_PATH)
+end
+
+## Computed include paths remain tracked (issue #1104)
+do_test("Computed include path") && @testset "Computed include path" begin
+    testdir = newtestdir()
+    dn = joinpath(testdir, "ComputedInclude", "src")
+    mkpath(dn)
+    write(joinpath(dn, "ComputedInclude.jl"), """
+        module ComputedInclude
+        for f in ("impl.jl",)
+            include(f)
+        end
+        end
+        """)
+    write(joinpath(dn, "impl.jl"), "impl() = 1")
+    sleep(mtimedelay)
+    @eval using ComputedInclude
+    sleep(mtimedelay)
+    @test ComputedInclude.impl() == 1
+    pkgdata = Revise.pkgdatas[Base.PkgId(ComputedInclude)]
+
+    write(joinpath(dn, "ComputedInclude.jl"), """
+        module ComputedInclude
+        const files = ("impl.jl",)
+        for f in files
+            include(f)
+        end
+        end
+        """)
+    @yry()
+    @test ComputedInclude.impl() == 1
+    @test Revise.iswatched(pkgdata, joinpath("src", "impl.jl"))
+
+    rm_precompile("ComputedInclude")
+    pop!(LOAD_PATH)
+end
+
+## Removing an include with a literal destination module (issue #1104)
+do_test("Removed include, module argument") && @testset "Removed include, module argument" begin
+    testdir = newtestdir()
+    dn = joinpath(testdir, "ModArgInclude", "src")
+    mkpath(dn)
+    write(joinpath(dn, "ModArgInclude.jl"), """
+        module ModArgInclude
+        module Sub
+        end
+        Base.include(Sub, "impl.jl")
+        end
+        """)
+    write(joinpath(dn, "impl.jl"), "impl() = 1")
+    sleep(mtimedelay)
+    @eval using ModArgInclude
+    sleep(mtimedelay)
+    @test ModArgInclude.Sub.impl() == 1
+    pkgdata = Revise.pkgdatas[Base.PkgId(ModArgInclude)]
+    @test Revise.hasfile(pkgdata, joinpath("src", "impl.jl"))
+
+    write(joinpath(dn, "ModArgInclude.jl"), """
+        module ModArgInclude
+        module Sub
+        end
+        end
+        """)
+    @yry()
+    @latestworld
+    @test_throws MethodError ModArgInclude.Sub.impl()
+    @test !Revise.hasfile(pkgdata, joinpath("src", "impl.jl"))
+    @test !Revise.iswatched(pkgdata, joinpath("src", "impl.jl"))
+
+    rm_precompile("ModArgInclude")
+    pop!(LOAD_PATH)
+end
+
 do_test("New files & Requires.jl") && @testset "New files & Requires.jl" begin
     # Issue #107
     testdir = newtestdir()
