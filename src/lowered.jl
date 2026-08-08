@@ -60,6 +60,46 @@ function is_defaultctors(@nospecialize(f))
     return false
 end
 
+# Keep synchronized with `Base._fieldtypes_constrain_typevars` until Revise can require it.
+function _fieldtypes_constrain_typevars(tvars::Array{Any,1}, fts::Core.SimpleVector)
+    nparams = length(tvars)
+    n = length(fts)
+    i = nparams
+    while i !== 0
+        @inbounds tv = tvars[i]::TypeVar
+        constrained = false
+        j = 1
+        while j !== n + 1
+            ft = fts[j]
+            if Base.has_typevar(ft, tv)
+                constrained = true
+                break
+            end
+            j += 1
+        end
+        if !constrained
+            j = i + 1
+            remaining = nparams - i
+            while remaining !== 0
+                @inbounds tv2 = tvars[j]::TypeVar
+                if Base.has_typevar(tv2.ub, tv)
+                    constrained = true
+                    break
+                end
+                if tv2 === tv
+                    constrained = false
+                    break
+                end
+                j += 1
+                remaining = remaining - 1
+            end
+        end
+        constrained || return false
+        i -= 1
+    end
+    return true
+end
+
 is_define_method_ref(@nospecialize(f)) = isdefined(LoweredCodeUtils, :is_define_method_ref) &&
     getfield(LoweredCodeUtils, :is_define_method_ref)(f)
 is_methoddef(@nospecialize(stmt)) = isdefined(LoweredCodeUtils, :ismethod) ?
@@ -533,12 +573,16 @@ function _methods_by_execution!(
                         ft = uT.types
                         sig1 = Tuple{Base.rewrap_unionall(Type{uT}, T), Any[Any for _ in 1:length(ft)]...}
                         push!(signatures, MethodInfoKey(nothing, sig1))
-                        sig2 = Base.rewrap_unionall(Tuple{Type{T}, ft...}, T)
-                        while T isa UnionAll
-                            sig2 isa UnionAll || (sig2 = sig1; break) # sig2 doesn't define all parameters, so drop it
-                            T = T.body
+                        tvars = Any[]
+                        ua = T
+                        while ua isa UnionAll
+                            push!(tvars, ua.var)
+                            ua = ua.body
                         end
-                        sig1 == sig2 || push!(signatures, MethodInfoKey(nothing, sig2))
+                        if _fieldtypes_constrain_typevars(tvars, ft)
+                            sig2 = Base.rewrap_unionall(Tuple{Type{T}, ft...}, T)
+                            sig1 == sig2 || push!(signatures, MethodInfoKey(nothing, sig2))
+                        end
                         for sig in signatures
                             add_signature!(exinfo, sig, lnn)
                         end

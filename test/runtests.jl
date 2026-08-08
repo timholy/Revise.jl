@@ -237,6 +237,35 @@ end
         end
         @test isempty(logs)
         @test isdefined(ReviseTestPrivate, :nolineinfo)
+
+        @static if isdefined(Base, :_defaultctors)
+            let ex = :(struct PartiallyConstrainedCtor{T,S}
+                    value::T
+                end)
+                exinfos, _, _ = Revise.eval_with_signatures(TypeInfoTracking, ex; mode=:eval)
+                siginfos = Revise.SigInfo[x for x in exinfos if x isa Revise.SigInfo]
+                world = Base.get_world_counter()
+                @test length(siginfos) == 1
+                @test all(siginfos) do siginfo
+                    !isempty(Base._methods_by_ftype(siginfo.sig, siginfo.mt, -1, world))
+                end
+            end
+
+            let ex = :(struct TransitivelyConstrainedCtor{T,S<:T}
+                    value::S
+                end)
+                exinfos, _, _ = Revise.eval_with_signatures(TypeInfoTracking, ex; mode=:eval)
+                siginfos = Revise.SigInfo[x for x in exinfos if x isa Revise.SigInfo]
+                world = Base.get_world_counter()
+                # Julia's method matcher chooses `T = S` through the `S <: T` bound, so both
+                # the generic inner constructor (`TransitivelyConstrainedCtor{T}(value)`) and
+                # field-inferred outer constructor (`TransitivelyConstrainedCtor(value::T) where T`) exist.
+                @test length(siginfos) == 2
+                @test all(siginfos) do siginfo
+                    !isempty(Base._methods_by_ftype(siginfo.sig, siginfo.mt, -1, world))
+                end
+            end
+        end
     end
 
     do_test("Comparison and line numbering") && @testset "Comparison and line numbering" begin
