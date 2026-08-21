@@ -2,6 +2,9 @@ name = "Revise"
 uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
 version = "3.16.3"
 
+[workspace]
+projects = ["docs", "test"]
+
 [deps]
 CRC32c = "8bf52ea8-c179-5cab-976a-9e18b702a9bc"
 CodeTracking = "da1fd8a2-8d9e-5ec2-8556-3022fb5608a2"
@@ -49,6 +52,3 @@ UnsafeArrays = "c4a57d5a-5b31-53a6-b365-19f8c011fbd6"
 
 [targets]
 test = ["CatIndices", "Distributed", "EndpointRanges", "EponymTuples", "Example", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Pkg", "Random", "Requires", "RoundingIntegers", "Test", "UnsafeArrays"]
-
-[workspace]
-projects = ["docs", "test"]

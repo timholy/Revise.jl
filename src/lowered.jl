@@ -60,7 +60,7 @@ function is_defaultctors(@nospecialize(f))
     return false
 end
 
-# Keep synchronized with `Base._fieldtypes_constrain_typevars` until Revise can require it.
+# Keep this fallback synchronized until Revise can require the Base implementation.
 function _fieldtypes_constrain_typevars(tvars::Array{Any,1}, fts::Core.SimpleVector)
     nparams = length(tvars)
     n = length(fts)
@@ -569,17 +569,26 @@ function _methods_by_execution!(
                     lnn = lookup(frame, callstmt.args[3])
                     if T isa Type && lnn isa LineNumberNode
                         empty!(signatures)
-                        uT = Base.unwrap_unionall(T)::DataType
-                        ft = uT.types
+                        @static if isdefinedglobal(Base, :_defaultctor_typeinfo)
+                            uT, tvars, ft = Base._defaultctor_typeinfo(T)
+                        else
+                            uT = Base.unwrap_unionall(T)::DataType
+                            tvars = Any[]
+                            ua = T
+                            while ua isa UnionAll
+                                push!(tvars, ua.var)
+                                ua = ua.body
+                            end
+                            ft = ccall(:jl_get_fieldtypes, Any, (Any,), uT)::Core.SimpleVector
+                        end
                         sig1 = Tuple{Base.rewrap_unionall(Type{uT}, T), Any[Any for _ in 1:length(ft)]...}
                         push!(signatures, MethodInfoKey(nothing, sig1))
-                        tvars = Any[]
-                        ua = T
-                        while ua isa UnionAll
-                            push!(tvars, ua.var)
-                            ua = ua.body
+                        @static if isdefinedglobal(Base, :_fieldtypes_constrain_typevars)
+                            constrains_all = Base._fieldtypes_constrain_typevars(tvars, ft)
+                        else
+                            constrains_all = _fieldtypes_constrain_typevars(tvars, ft)
                         end
-                        if _fieldtypes_constrain_typevars(tvars, ft)
+                        if constrains_all
                             sig2 = Base.rewrap_unionall(Tuple{Type{T}, ft...}, T)
                             sig1 == sig2 || push!(signatures, MethodInfoKey(nothing, sig2))
                         end
