@@ -135,7 +135,10 @@ end
 # Julia 1.11+ records a size and a content hash; 1.10 records only the source file's
 # mtime, so on that version a file merely touched between two builds reads as changed.
 @static if VERSION >= v"1.11.0-DEV.683"    # https://github.com/JuliaLang/julia/pull/49866
-    cache_src_id(inc) = hash(inc.fsize, UInt64(inc.hash))
+    # The seed `hash` takes is a `UInt`, which is 32 bits wide on a 32 bit platform, while
+    # the content hash the cache header records is always a `UInt64` — so it is truncated
+    # rather than passed through, which only has to identify the snapshot.
+    cache_src_id(inc) = hash(inc.fsize, inc.hash % UInt)
 else
     cache_src_id(inc) = hash(inc.mtime)
 end
