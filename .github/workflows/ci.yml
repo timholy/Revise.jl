@@ -13,7 +13,7 @@ permissions:
 
 jobs:
   test:
-    name: Test Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ github.event_name }}
+    name: Test Julia ${{ matrix.version }} - ${{ matrix.os }} - ${{ matrix.arch }} - ${{ github.event_name }}
     runs-on: ${{ matrix.os }}
     continue-on-error: ${{ matrix.allow_failure }}
     strategy:
@@ -27,11 +27,19 @@ jobs:
           - ubuntu-latest
           - macOS-latest
           - windows-latest
+        arch:
+          - x64
         allow_failure: [false]
         include:
           - version: 'nightly'
             os: ubuntu-latest
+            arch: x64
             allow_failure: true
+          # 32-bit run: catches `UInt`/`UInt64` conflations and other word-size assumptions
+          - version: '1'
+            os: ubuntu-latest
+            arch: x86
+            allow_failure: false
     env:
       REVISE_PRECOMPILE_ERROR: true
     steps:
@@ -39,6 +47,7 @@ jobs:
     - uses: julia-actions/setup-julia@latest
       with:
         version: ${{ matrix.version }}
+        arch: ${{ matrix.arch }}
         show-versioninfo: ${{ matrix.version == 'nightly' }}
     - uses: julia-actions/cache@v3
     - uses: julia-actions/julia-buildpkg@latest
