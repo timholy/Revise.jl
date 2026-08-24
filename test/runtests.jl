@@ -5718,6 +5718,49 @@ do_test("Unchanged files across a path switch") && @testset "Unchanged files acr
     end
 end
 
+do_test("Version switch warning") && @testset "Version switch warning" begin
+    # A Pkg operation can point the manifest of a *loaded* package at a different
+    # registered version (issue #1111: adding PlotlyJS downgraded a loaded JSON from
+    # 1.x to 0.21). Revise follows the switch, but not every cross-version change can
+    # be applied to a running session (e.g., Julia refuses to redeclare a `public`
+    # name as `export`ed), so the switch itself is announced up front to make any
+    # errors that follow attributable.
+    mod = Module(:VersionSwitch)
+    Core.eval(mod, :(using Base))
+    id = Base.PkgId(Base.UUID("00000000-0000-0000-0000-000000001111"), "VersionSwitch")
+    olddir, newdir, patchdir = mktempdir(), mktempdir(), mktempdir()
+    for (dir, version, body) in ((olddir, "1.7.1", "f() = 1\n"),
+                                 (newdir, "0.21.4", "f() = 2\n"),
+                                 (patchdir, "0.21.4", "f() = 3\n"))
+        mkpath(joinpath(dir, "src"))
+        write(joinpath(dir, "Project.toml"), """
+            name = "VersionSwitch"
+            uuid = "00000000-0000-0000-0000-000000001111"
+            version = "$version"
+            """)
+        write(joinpath(dir, "src", "VersionSwitch.jl"), body)
+    end
+    file = joinpath("src", "VersionSwitch.jl")
+    pkgdata = Revise.PkgData(id, olddir)
+    mei = Revise.ModuleExprsInfos(mod)
+    mei[mod][Revise.RelocatableExpr(:(f() = 1))] = nothing
+    push!(pkgdata, file=>Revise.FileInfo(mei))
+    try
+        @test_logs (:warn, r"VersionSwitch changed from version 1\.7\.1 to 0\.21\.4 while loaded") match_mode=:any Revise.switch_basepath(pkgdata, newdir)
+        @test Revise.basedir(pkgdata) == newdir
+        @test (pkgdata, file) ∈ Revise.revision_queue
+        # A switch that keeps the version (e.g., `Pkg.develop` of a copy of the
+        # loaded release) stays quiet.
+        @test_logs min_level=Base.CoreLogging.Warn Revise.switch_basepath(pkgdata, patchdir)
+        @test Revise.basedir(pkgdata) == patchdir
+    finally
+        filter!(pr -> first(pr) !== pkgdata, Revise.revision_queue)
+        for dir in (olddir, newdir, patchdir)
+            delete!(Revise.watched_files, joinpath(dir, "src"))
+        end
+    end
+end
+
 do_test("Path switch without a baseline") && @testset "Path switch without a baseline" begin
     # A file whose cached source snapshot is gone has no baseline to compare the new
     # location against, and the old location's source on disk is not one either. The file
