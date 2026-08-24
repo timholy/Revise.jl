@@ -1148,7 +1148,14 @@ function revise_file_queued(pkgdata::PkgData, file)
             # Check to see if we're still watching this file
             stillwatching = haskey(watched_files, dirfull)
             if PkgId(pkgdata) != NOPACKAGE
-                push!(revision_queue, (pkgdata, relpath(file, pkgdata)))
+                relfile = relpath(file, pkgdata)
+                if hasfile(pkgdata, relfile)
+                    push!(revision_queue, (pkgdata, relfile))
+                else
+                    # The file was dropped from `pkgdata` (its `include` was removed),
+                    # so there is nothing left to revise: stop watching it.
+                    stillwatching = false
+                end
             end
         end
     end
@@ -1231,8 +1238,12 @@ function orphaned_includes(pkgdata::PkgData, parsed)
     orphans = Tuple{PkgData,String,Int,Bool}[]
     current = Dict{Tuple{String,Int},ModuleExprsInfos}()
     candidates = Set{Tuple{String,Module}}()
-    for (pd, file, idx, mod_exs_infos_new, mod_exs_infos_old, _) in parsed
+    for (pd, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
         pd === pkgdata || continue
+        # A file that is missing from disk keeps its registration pending its return
+        # (see `delete_for_revision`), and its empty parse names no inclusions: the
+        # files it includes stay tracked.
+        fileok || continue
         isa(mod_exs_infos_new, ModuleExprsInfos) || continue
         current[(file, idx)] = mod_exs_infos_new
         union!(candidates, setdiff(include_targets(pkgdata, file, mod_exs_infos_old),
@@ -1950,8 +1961,14 @@ function _revise(; throw::Bool=false)
         else
             empty!(revision_queue)
             # Files missing within the grace period stay queued so the next
-            # `revise` revisits them (and `revise_first` keeps firing).
+            # `revise` revisits them (and `revise_first` keeps firing). A file that
+            # this revision untracked (its `include` was removed) has nothing to
+            # revisit.
             for pkgfile in deferred_missing
+                if isempty(fileindices(pkgfile[1], pkgfile[2]))
+                    delete!(missing_file_times, pkgfile)
+                    continue
+                end
                 push!(revision_queue, pkgfile)
             end
         end

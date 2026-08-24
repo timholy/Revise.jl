@@ -5996,6 +5996,9 @@ do_test("Removed include") && @testset "Removed include" begin
         child() = 10
         include("grandchild.jl")
         """)
+    # A per-file watcher (`Revise.watching_files[]`) must not queue it either.
+    sleep(1.0)
+    @test all(((pd, f),) -> Revise.hasfile(pd, f), Revise.revision_queue)
     @yry(expect_revision=false)
     @test_throws MethodError RemovedInclude.child()
 
@@ -6172,6 +6175,105 @@ do_test("Removed include, module argument") && @testset "Removed include, module
     @test !Revise.iswatched(pkgdata, joinpath("src", "impl.jl"))
 
     rm_precompile("ModArgInclude")
+    pop!(LOAD_PATH)
+end
+
+## An `include` removed while the file it named is also gone from disk (issue #1104)
+do_test("Removed include, missing file") && @testset "Removed include, missing file" begin
+    testdir = newtestdir()
+    dn = joinpath(testdir, "GoneInclude", "src")
+    mkpath(dn)
+    write(joinpath(dn, "GoneInclude.jl"), """
+        module GoneInclude
+        include("gone.jl")
+        f() = 1
+        end
+        """)
+    write(joinpath(dn, "gone.jl"), "gone() = 2")
+    sleep(mtimedelay)
+    @eval using GoneInclude
+    sleep(mtimedelay)
+    @test GoneInclude.gone() == 2
+    pkgdata = Revise.pkgdatas[Base.PkgId(GoneInclude)]
+
+    rm(joinpath(dn, "gone.jl"))
+    write(joinpath(dn, "GoneInclude.jl"), """
+        module GoneInclude
+        f() = 1
+        end
+        """)
+    # Queue both files as the watcher would on seeing the deletion and the edit,
+    # so that one `revise` both untracks "gone.jl" and finds it queued.
+    sleep(mtimedelay)
+    @lock Revise.revise_lock begin
+        push!(Revise.revision_queue, (pkgdata, joinpath("src", "gone.jl")))
+        push!(Revise.revision_queue, (pkgdata, joinpath("src", "GoneInclude.jl")))
+    end
+    logs, _ = Test.collect_test_logs() do
+        revise()
+    end
+    @latestworld
+    @test_throws MethodError GoneInclude.gone()
+    @test any(r -> occursin("no longer `include`d into GoneInclude", r.message), logs)
+    @test !Revise.hasfile(pkgdata, joinpath("src", "gone.jl"))
+    # A file missing within `missing_file_grace` is normally left queued for the next
+    # `revise`, but an untracked one has nothing to revisit and would break the sort.
+    @test all(((pd, f),) -> Revise.hasfile(pd, f), Revise.revision_queue)
+    @test Revise.pkgfileless((pkgdata, joinpath("src", "GoneInclude.jl")),
+                             (pkgdata, joinpath("src", "gone.jl")))
+    @test !Revise.pkgfileless((pkgdata, joinpath("src", "gone.jl")),
+                              (pkgdata, joinpath("src", "GoneInclude.jl")))
+
+    rm_precompile("GoneInclude")
+    pop!(LOAD_PATH)
+end
+
+## A file missing from disk keeps the files it `include`s (issue #1104)
+do_test("Missing file keeps its includes") && @testset "Missing file keeps its includes" begin
+    testdir = newtestdir()
+    dn = joinpath(testdir, "MissingParent", "src")
+    mkpath(dn)
+    write(joinpath(dn, "MissingParent.jl"), """
+        module MissingParent
+        include("mid.jl")
+        end
+        """)
+    write(joinpath(dn, "mid.jl"), """
+        mid() = 1
+        include("leaf.jl")
+        """)
+    write(joinpath(dn, "leaf.jl"), "leaf() = 2")
+    sleep(mtimedelay)
+    @eval using MissingParent
+    sleep(mtimedelay)
+    @test MissingParent.mid() == 1
+    @test MissingParent.leaf() == 2
+    pkgdata = Revise.pkgdatas[Base.PkgId(MissingParent)]
+
+    old_grace = Revise.missing_file_grace[]
+    Revise.missing_file_grace[] = 0.0
+    try
+        rm(joinpath(dn, "mid.jl"))
+        # Queue the deleted file as the watcher would, so the revision does not
+        # depend on the timing of a filesystem event.
+        sleep(mtimedelay)
+        @lock Revise.revise_lock push!(Revise.revision_queue, (pkgdata, joinpath("src", "mid.jl")))
+        logs, _ = Test.collect_test_logs() do
+            revise()
+        end
+        @latestworld
+        @test_throws MethodError MissingParent.mid()
+        @test any(r -> occursin("no longer exists, deleted all methods", r.message), logs)
+        # A file that vanished has no source, which is not the same as source that
+        # dropped an `include`: what it included stays tracked.
+        @test MissingParent.leaf() == 2
+        @test Revise.hasfile(pkgdata, joinpath("src", "leaf.jl"))
+        @test Revise.iswatched(pkgdata, joinpath("src", "leaf.jl"))
+    finally
+        Revise.missing_file_grace[] = old_grace
+    end
+
+    rm_precompile("MissingParent")
     pop!(LOAD_PATH)
 end
 
