@@ -434,7 +434,14 @@ end
 function pkgfileless((pkgdata1,file1)::Tuple{PkgData,String}, (pkgdata2,file2)::Tuple{PkgData,String})
     # implements a partial order
     PkgId(pkgdata1) ∈ pkgdata2.requirements && return true
-    PkgId(pkgdata1) == PkgId(pkgdata2) && return fileindex(pkgdata1, file1) < fileindex(pkgdata2, file2)
+    if PkgId(pkgdata1) == PkgId(pkgdata2)
+        i1, i2 = fileindex(pkgdata1, file1), fileindex(pkgdata2, file2)
+        # A queued file can be untracked by the time `revise` sorts the queue (its
+        # `include` was removed); order it last, where `revise` skips it.
+        i1 === nothing && return false
+        i2 === nothing && return true
+        return i1 < i2
+    end
     return false
 end
 

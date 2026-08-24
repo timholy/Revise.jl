@@ -341,6 +341,15 @@ accept a leading `mapexpr` of their own) or to `include(mapexpr, filename)` stat
 *added* to an already-loaded package, since those transforms are discovered without
 the load-time record.
 
+### A removed `include` is recognized only for literal paths
+
+When an `include` statement disappears from a revised file, Revise deletes the
+definitions the included file contributed to that module and stops tracking the
+inclusion; restoring the statement registers the file again. Revise recognizes
+only string-literal paths and literal destination-module names, as in
+`Base.include(Sub, "file.jl")`. Computed paths (for example, from a loop, variable,
+or constant) are not recognized.
+
 ### Precompilation by another process can discard Revise's baseline
 
 For a precompiled package, Revise reads the "before" state of a source file from the
