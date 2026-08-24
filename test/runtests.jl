@@ -502,6 +502,35 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("__revise_mode__ override") && @testset "__revise_mode__ override" begin
+        # `__revise_mode__` bindings postdate Revise's frozen world and must still be
+        # honored when revision runs in that world (issue #1116)
+        testdir = newtestdir()
+        fn = joinpath(testdir, "revisemode.jl")
+        write(fn, """
+            module ReviseModeOverride
+            __revise_mode__ = :evalassign
+            flag = 1
+            end
+            """)
+        sleep(mtimedelay)
+        includet(fn)
+        @latestworld
+        @test ReviseModeOverride.flag == 1
+        sleep(mtimedelay)
+        write(fn, """
+            module ReviseModeOverride
+            __revise_mode__ = :evalassign
+            flag = 2
+            end
+            """)
+        @yry()
+        # Under the default `:evalmeth` mode the assignment would not be re-evaluated
+        @test ReviseModeOverride.flag == 2
+
+        pop!(LOAD_PATH)
+    end
+
     do_test("Display") && @testset "Display" begin
         io = IOBuffer()
         show(io, Revise.RelocatableExpr(:(@inbounds x[2])))

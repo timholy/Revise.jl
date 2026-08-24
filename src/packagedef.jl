@@ -893,13 +893,19 @@ function eval_new!(exs_infos_new::ExprsInfos, exs_infos_old::ExprsInfos, mod::Mo
     return exs_infos_new, includes
 end
 
+# A module's `__revise_mode__` binding postdates Revise's frozen world, so with
+# world-partitioned bindings (Julia 1.12+) it must be read in the latest world even
+# though revision itself runs under `frozen` (issue #1116).
+function revise_mode(mod::Module, default::Symbol)
+    @invokelatest(isdefinedglobal(mod, :__revise_mode__)) || return default
+    return (@invokelatest getglobal(mod, :__revise_mode__))::Symbol
+end
+
 function eval_new!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos; mode::Symbol=:eval)
     includes = Vector{Tuple{Module,Function,String}}()
     for (mod, exs_infos_new) in mod_exs_infos_new
         # Allow packages to override the supplied mode
-        if isdefined(mod, :__revise_mode__)
-            mode = getfield(mod, :__revise_mode__)::Symbol
-        end
+        mode = revise_mode(mod, mode)
         exs_infos_old = get(mod_exs_infos_old, mod, empty_exs_infos)
         _, _includes = eval_new!(exs_infos_new, exs_infos_old, mod; mode)
         append!(includes, _includes)
@@ -1888,11 +1894,8 @@ function _revise(; throw::Bool=false)
                 for (mod, exs_infos_new) in mod_exs_infos_new
                     mod ∈ modsremaining || continue
                     try
-                        mode = defaultmode
                         # Allow packages to override the supplied mode
-                        if isdefinedglobal(mod, :__revise_mode__)
-                            mode = getglobal(mod, :__revise_mode__)::Symbol
-                        end
+                        mode = revise_mode(mod, defaultmode)
                         mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
                         exs_infos_old = get(fi.mod_exs_infos, mod, empty_exs_infos)
                         for rex in keys(exs_infos_new)
