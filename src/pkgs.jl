@@ -881,6 +881,23 @@ end
 
 function switch_basepath(pkgdata::PkgData, newpath::String)
     oldpath = basedir(pkgdata)
+    # issue #1111: a Pkg operation can switch a *loaded* package to a different
+    # registered version (e.g., adding a package whose compat requirements force a
+    # downgrade of another). Revise follows the manifest, and most cross-version
+    # changes apply like ordinary revisions; a few cannot be applied (e.g., Julia
+    # refuses to redeclare a `public` name as `export`ed), and a failed evaluation
+    # leaves prior deletions in place, so the running package can end up partially
+    # updated. Announce the version switch up front so that any warnings or errors
+    # that follow are attributable to it.
+    if isdefined(Base, :get_pkgversion_from_path)
+        oldv = Base.get_pkgversion_from_path(oldpath)
+        newv = Base.get_pkgversion_from_path(newpath)
+        if oldv !== nothing && newv !== nothing && oldv != newv
+            @warn """$(PkgId(pkgdata).name) changed from version $oldv to $newv while loaded. \
+                Revise will attempt to update the running session to the new version; \
+                if errors follow, the update could not be fully applied and you should restart Julia."""
+        end
+    end
     # Stop all associated watching tasks
     for dir in unique_dirs(srcfiles(pkgdata))
         @debug "Pkg" _group="unwatch" dir=dir

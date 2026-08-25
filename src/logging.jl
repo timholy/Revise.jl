@@ -35,7 +35,9 @@ function CoreLogging.handle_message(logger::ReviseLogger, level, msg, _module,
             showerror(stderr, ex, bt; backtrace = bt!==nothing)
             println(stderr, "\nwhile evaluating\n", kwargs[:ex], "\nin module ", kwargs[:mod])
         else
-            show(stderr, rec)
+            # `show` ends with a newline only for records that carry an exception;
+            # normalize so the record always occupies its own line(s) on stderr.
+            println(stderr, chomp(sprint(show, rec)))
         end
     end
 end
