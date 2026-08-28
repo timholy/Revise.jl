@@ -76,7 +76,9 @@ your methods and/or data. `__revise_mode__` must be a `Symbol` taking one of the
 - `:evalassign`: evaluate method definitions and assignment statements. A top-level expression
   `a = Int[]` would be evaluated, but `push!(a, 1)` would not because the latter is not an assignment.
 - `:sigs`: do not implement any changes, only scan method definitions for their signatures so that
-  their location can be updated as changes to the file(s) are made.
+  their location can be updated as changes to the file(s) are made. `using`, `import`, and `export`
+  statements added by a revision are still executed, because a signature may be written in terms of
+  a name the new statement brings into scope.
 
 If you're using `includet` from the REPL, you can enter `__revise_mode__ = :eval` to set
 it throughout `Main`. `__revise_mode__` can be set independently in each module.

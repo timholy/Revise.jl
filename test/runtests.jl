@@ -1033,6 +1033,180 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Revise mode :sigs") && @testset "Revise mode :sigs" begin
+        testdir = newtestdir()
+        # Sibling helper packages, so the test depends on nothing outside `testdir`.
+        # `SigsHelper2` is not loaded until a revision adds a `using` for it.
+        for (helper, def) in (("SigsHelper1", "export dmean\ndmean(x) = sum(x)/length(x)"),
+                              ("SigsHelper2", "export DiagLike\nstruct DiagLike end"))
+            hn = joinpath(testdir, helper, "src")
+            mkpath(hn)
+            write(joinpath(hn, helper*".jl"), "module $helper\n$def\nend\n")
+        end
+        dn = joinpath(testdir, "SigsMode", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "SigsMode.jl")
+        write(fn, """
+            module SigsMode
+            __revise_mode__ = :sigs
+            using SigsHelper1: dmean
+            f(x) = dmean(x)
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using SigsMode
+        @test SigsMode.f([1,2,3]) == 2.0
+        @test whereis(only(methods(SigsMode.f))) == (fn, 4)
+        sleep(mtimedelay)
+        write(fn, """
+            module SigsMode
+            __revise_mode__ = :sigs
+
+            using SigsHelper1: dmean
+            using SigsHelper2: DiagLike
+            export h
+
+            f(x) = dmean(x)
+            h(x::DiagLike) = 1
+            end
+            """)
+        @yry()
+        @test isempty(Revise.queue_errors)
+        # Revised namespace statements take effect before later expressions.
+        @eval using SigsHelper2
+        @test SigsMode.DiagLike === SigsHelper2.DiagLike
+        @test :h ∈ names(SigsMode)
+        # `:sigs` updates signatures without installing method bodies.
+        @test length(methods(getglobal(SigsMode, :h))) == 0
+        @test SigsMode.f([1,2,3]) == 2.0
+        @test whereis(only(methods(SigsMode.f))) == (fn, 8)
+
+        rm_precompile("SigsMode")
+        rm_precompile("SigsHelper1")
+        rm_precompile("SigsHelper2")
+        pop!(LOAD_PATH)
+    end
+
+    do_test("Signature instantiation") && @testset "Signature instantiation" begin
+        # Cataloging loaded source must not execute namespace statements.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "SigsUnloaded", "src")
+        mkpath(dn)
+        write(joinpath(dn, "SigsUnloaded.jl"), """
+            module SigsUnloaded
+            struct Marker end
+            end
+            """)
+        sleep(mtimedelay)
+        host = Core.eval(Main, :(module SigsHost
+                                 q(x::Int) = 1
+                                 end))
+        src = """
+            using SigsUnloaded
+            q(x::Int) = 1
+            """
+        fn = joinpath(testdir, "sigs_host.jl")
+        write(fn, src)
+        mexs = Revise.ModuleExprsInfos(host)
+        parse_source!(mexs, src, fn, host)
+        Revise.instantiate_sigs!(mexs)
+        @test !isdefined(host, :SigsUnloaded)
+        @test !any(id -> id.name == "SigsUnloaded", keys(Base.loaded_modules))
+        @test any(k -> k.sig === Tuple{typeof(host.q),Int}, keys(CodeTracking.method_info))
+
+        pop!(LOAD_PATH)
+    end
+
+    do_test("Retract removed bindings") && isdefined(Base, :delete_binding) &&
+            @testset "Retract removed bindings" begin
+        # Issue #1107: remove the binding with its defining statement.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "RetractGlobals", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "RetractGlobals.jl")
+        write(fn, """
+            module RetractGlobals
+            module Sub
+            export tag
+            tag() = :sub
+            end
+            using .Sub: tag
+            using .Sub
+            const SETTING = 17
+            const CHANGED = 1
+            const MOVING = :was_in_root
+            const view = "shadow"
+            read_setting() = SETTING
+            include("more.jl")
+            end
+            """)
+        write(joinpath(dn, "more.jl"), "\n")
+        sleep(mtimedelay)
+        @eval using RetractGlobals
+        @test RetractGlobals.SETTING == 17
+        @test RetractGlobals.view == "shadow"
+        sleep(mtimedelay)
+        write(fn, """
+            module RetractGlobals
+            module Sub
+            export tag
+            tag() = :sub
+            end
+            using .Sub
+            const CHANGED = 2
+            include("more.jl")
+            end
+            """)
+        write(joinpath(dn, "more.jl"), "const MOVING = :now_in_more\n")
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test !isdefined(RetractGlobals, :SETTING)
+        @test isempty(methods(RetractGlobals.read_setting))
+        @test RetractGlobals.CHANGED == 2
+        @test RetractGlobals.MOVING === :now_in_more
+        @test RetractGlobals.view === Base.view
+        @test RetractGlobals.tag() === :sub
+
+        rm_precompile("RetractGlobals")
+        pop!(LOAD_PATH)
+    end
+
+    do_test("Import switch (issue #1106)") && isdefined(Base, :delete_binding) &&
+            @testset "Import switch (issue #1106)" begin
+        # Issue #1106: replace a conflicting explicit import.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "ImportSwitch", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "ImportSwitch.jl")
+        importswitch_src(which) = """
+            module ImportSwitch
+            module A
+            export tag
+            tag() = :A
+            end
+            module B
+            export tag
+            tag() = :B
+            end
+            using .$which: tag
+            call_tag() = tag()
+            end
+            """
+        write(fn, importswitch_src("A"))
+        sleep(mtimedelay)
+        @eval using ImportSwitch
+        @test ImportSwitch.call_tag() === :A
+        sleep(mtimedelay)
+        write(fn, importswitch_src("B"))
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test ImportSwitch.tag === ImportSwitch.B.tag
+        @test ImportSwitch.call_tag() === :B
+
+        rm_precompile("ImportSwitch")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Multiple definitions") && @testset "Multiple definitions" begin
         # This simulates a copy/paste/save "error" from one file to another
         # ref https://github.com/timholy/CodeTracking.jl/issues/55
@@ -4978,8 +5152,11 @@ end
 
         write(joinpath(dn, modname*".jl"), s527_old)
 
-        sleep(mtimedelay)
-        @test !Distributed.remotecall_eval(Main, favorite_proc, :(Revise.revision_queue |> isempty))
+        # The worker's queue fills when its watcher task delivers the event; wait for
+        # it (with `event_timeout` slack for slow FSEvents delivery on macOS CI).
+        @test timedwait(event_timeout; pollint=0.05) do
+            !Distributed.remotecall_eval(Main, favorite_proc, :(Revise.revision_queue |> isempty))
+        end === :ok
         @test Distributed.remotecall_eval(Main, boring_proc, :(Revise.revision_queue |> isempty))
 
         Distributed.remotecall_eval(Main, [favorite_proc, boring_proc], :(Revise.revise()))

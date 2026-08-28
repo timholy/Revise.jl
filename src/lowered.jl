@@ -118,13 +118,30 @@ function matches_eval(stmt::Expr)
            (isa(f, GlobalRef) && f.name === :eval) || is_quotenode_egal(f, Core.eval)
 end
 
+is_namespace_head(head::Symbol) = head === :export || head === :import || head === :using
+
+# On Julia 1.13+, `using`/`import` statements lower to calls to these `Base` functions
+# rather than surviving as `Expr(:using)`/`Expr(:import)` statements (`export` still
+# lowers unwrapped).
+@static if isdefined(Base, :_eval_import) && isdefined(Base, :_eval_using)
+    function is_namespace_call(@nospecialize(f))
+        if isa(f, GlobalRef)
+            return f.mod === Base && (f.name === :_eval_import || f.name === :_eval_using)
+        end
+        return f === Base._eval_import || f === Base._eval_using ||
+               is_quotenode_egal(f, Base._eval_import) || is_quotenode_egal(f, Base._eval_using)
+    end
+else
+    is_namespace_call(@nospecialize(f)) = false
+end
+
 function categorize_stmt(@nospecialize(stmt), code::Vector{Any})
     ismeth, haseval, isinclude, isnamespace, istoplevel = false, false, false, false, false
     if isa(stmt, Expr)
         haseval = matches_eval(stmt)
         ismeth = stmt.head === :method || (stmt.head === :thunk && defines_function(only(stmt.args)))
         istoplevel = stmt.head === :toplevel
-        isnamespace = stmt.head === :export || stmt.head === :import || stmt.head === :using
+        isnamespace = is_namespace_head(stmt.head)
         isinclude = false
         if stmt.head === :call && length(stmt.args) >= 1
             callee = stmt.args[1]
@@ -133,6 +150,7 @@ function categorize_stmt(@nospecialize(stmt), code::Vector{Any})
             end
             isinclude = is_some_include(callee)
             ismeth = is_defaultctors(callee) || is_define_method_ref(callee)
+            isnamespace |= is_namespace_call(callee)
         end
     end
     return ismeth, haseval, isinclude, isnamespace, istoplevel
@@ -222,11 +240,11 @@ end
 @noinline minimal_evaluation!(@nospecialize(predicate), frame::Frame, mode::Symbol) =
     minimal_evaluation!(predicate, moduleof(frame), frame.framecode.src, mode)
 
-function minimal_evaluation!(frame::Frame, mode::Symbol)
+function minimal_evaluation!(frame::Frame, mode::Symbol; eval_namespace::Bool=mode!==:sigs)
     minimal_evaluation!(frame, mode) do @nospecialize(stmt), code::Vector{Any}
         ismeth, haseval, isinclude, isnamespace, istoplevel = categorize_stmt(stmt, code)
-        isreq = ismeth | isinclude | istoplevel
-        return mode === :sigs ? (isreq, haseval) : (isreq | isnamespace, haseval)
+        isreq = ismeth | isinclude | istoplevel | (isnamespace & eval_namespace)
+        return (isreq, haseval)
     end
 end
 
@@ -239,7 +257,8 @@ end
 """
     methods_by_execution!(
         [interp::Interpreter=JuliaInterpreter.Compiled(),] exinfo::ExInfo, mod::Module, ex::Expr;
-        mode::Symbol = :eval, disablebp::Bool = true, skip_include::Bool = mode!==:eval, always_rethrow::Bool = false
+        mode::Symbol = :eval, disablebp::Bool = true, skip_include::Bool = mode!==:eval,
+        eval_namespace::Bool = mode!==:sigs, always_rethrow::Bool = false
     )
 
 Evaluate or analyze `ex` in the context of `mod`.
@@ -277,13 +296,17 @@ The other keyword arguments are more straightforward:
   They are restored on exit.
 - `skip_include` prevents execution of `include` statements, instead inserting them into `exinfo`'s
   cache. This defaults to `true` unless `mode` is `:eval`.
+- `eval_namespace` controls whether `using`/`import`/`export` statements are executed. It defaults
+  to `true` except in `:sigs` mode. Set it for revised source whose signatures depend on new
+  namespace statements. Leave it unset when cataloging loaded source to avoid loading packages.
 - `always_rethrow`, if true, causes an error to be thrown if evaluating `ex` triggered an error.
   If false, the error is logged with `@error`. `InterruptException`s are always rethrown.
   This is primarily useful for debugging.
 """
 function methods_by_execution!(
         interp::Interpreter, exinfo::ExInfo, mod::Module, ex::Expr;
-        mode::Symbol = :eval, disablebp::Bool = true, always_rethrow::Bool = false, kwargs...
+        mode::Symbol = :eval, disablebp::Bool = true, eval_namespace::Bool = mode!==:sigs,
+        always_rethrow::Bool = false, kwargs...
     )
     mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
     lwr = Meta.lower(mod, ex)
@@ -292,7 +315,10 @@ function methods_by_execution!(
         throw(LoweringException(lwr))
     end
     if lwr.head !== :thunk
-        mode === :sigs && return Pair{Any,Union{Nothing,Expr}}(nothing, nothing)
+        # A namespace statement can survive lowering unwrapped (e.g. a bare `export foo`).
+        if mode === :sigs && !(eval_namespace && is_namespace_head(lwr.head))
+            return Pair{Any,Union{Nothing,Expr}}(nothing, nothing)
+        end
         return Pair{Any,Union{Nothing,Expr}}(Core.eval(mod, lwr), nothing)
     end
     # Interpret user code at the latest world (JuliaInterpreter dispatches it at `frame.world`),
@@ -301,7 +327,7 @@ function methods_by_execution!(
     frame = Frame(mod, lwr.args[1]::CodeInfo; world=Base.get_world_counter())
     mode === :eval || LoweredCodeUtils.rename_framemethods!(interp, frame)
     # Determine whether we need interpreted mode
-    isrequired, evalassign = minimal_evaluation!(frame, mode)
+    isrequired, evalassign = minimal_evaluation!(frame, mode; eval_namespace)
     # LoweredCodeUtils.print_with_code(stdout, frame.framecode.src, isrequired)
     if !any(isrequired) && (mode === :eval || !evalassign)
         # We can evaluate the entire expression in compiled mode
@@ -330,7 +356,7 @@ function methods_by_execution!(
             foreach(disable, active_bp_refs)
         end
         ret = try
-            _methods_by_execution!(interp, exinfo, frame, isrequired; mode, kwargs...)
+            _methods_by_execution!(interp, exinfo, frame, isrequired; mode, eval_namespace, kwargs...)
         catch err
             (always_rethrow || isa(err, InterruptException)) && (@isdefined(active_bp_refs) && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame))
@@ -353,7 +379,7 @@ methods_by_execution!(exinfo::ExInfo, mod::Module, ex::Expr; kwargs...) =
 
 function _methods_by_execution!(
         interp::Interpreter, exinfo::ExInfo, frame::Frame, isrequired::AbstractVector{Bool};
-        mode::Symbol = :eval, skip_include::Bool = true
+        mode::Symbol = :eval, skip_include::Bool = true, eval_namespace::Bool = mode!==:sigs
     )
     isok(lnn::LineTypes) = !iszero(lnn.line) || lnn.file !== :none   # might fail either one, but accept anything
 
@@ -385,7 +411,7 @@ function _methods_by_execution!(
                 local value
                 for ex in stmt.args
                     ex isa Expr || continue
-                    value, _ = methods_by_execution!(interp, exinfo, mod, ex; mode, disablebp=false, skip_include)
+                    value, _ = methods_by_execution!(interp, exinfo, mod, ex; mode, disablebp=false, skip_include, eval_namespace)
                 end
                 isassign(frame, pc) && @isdefined(value) && assign_this!(frame, value)
                 pc = next_or_nothing!(frame)
@@ -612,7 +638,7 @@ function _methods_by_execution!(
                         end
                         newex = unwrap(newex)
                         push!(exinfo.exprstack, newex)
-                        value, _ = methods_by_execution!(interp, exinfo, newmod, newex; mode, skip_include, disablebp=false)
+                        value, _ = methods_by_execution!(interp, exinfo, newmod, newex; mode, skip_include, eval_namespace, disablebp=false)
                         pop!(exinfo.exprstack)
                     end
                     assign_this!(frame, value)
