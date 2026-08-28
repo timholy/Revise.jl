@@ -580,7 +580,7 @@ function delete_missing!(
                     # prediction: a textually identical signature may dispatch on a
                     # type that is itself being redefined, in which case the new
                     # method is distinct from the old one and the old one must go.
-                    handle_method_deletion!(exinfo, rex, world)
+                    handle_method_deletion!(exinfo, rex, reeval_list, world)
                 elseif __bpart__[]
                     typeinfo = exinfo::TypeInfo
                     oldtype = prediction_preserves_type(predictions, typeinfo, world)
@@ -843,7 +843,8 @@ function predict_changes!(
     return predictions
 end
 
-function handle_method_deletion!(siginfo::SigInfo, rex::RelocatableExpr, world::UInt)
+function handle_method_deletion!(siginfo::SigInfo, rex::RelocatableExpr,
+                                 reeval_list::IdSet{Union{Method,Type}}, world::UInt)
     mt, sig = siginfo
     ret = Base._methods_by_ftype(sig, mt, -1, world)
     isempty(ret) && return nothing
@@ -853,7 +854,7 @@ function handle_method_deletion!(siginfo::SigInfo, rex::RelocatableExpr, world::
         locdefs = get(CodeTracking.method_info, MethodInfoKey(siginfo), nothing)
         if isa(locdefs, Vector{Tuple{LineNumberNode,Expr}})
             if length(locdefs) > 1
-                # Just delete this reference but keep the method
+                # Re-evaluate the surviving definition if the removed duplicate was live.
                 line = firstline(rex)
                 ld = map(pr->linediff(line, pr[1]), locdefs)
                 idx = argmin(ld)
@@ -862,7 +863,10 @@ function handle_method_deletion!(siginfo::SigInfo, rex::RelocatableExpr, world::
                     # method's recorded location comes from a macro rather than the source
                     # file (e.g. `@views @timing function ... end`), so line matching can't
                     # identify the reference to drop. Drop the last one, matching `eval_rex`. (#668)
+                    # Skip re-evaluation when the surviving entry cannot be identified.
                     idx = length(locdefs)
+                else
+                    push!(reeval_list, m)
                 end
                 deleteat!(locdefs, idx)
                 return nothing
@@ -2169,8 +2173,9 @@ function _revise(; throw::Bool=false)
                 current === oldtype && continue
                 handle_type_deletion!(typeinfo, reeval_list, handled_types, world)
             end
-            redefine_bindings!(revision_errors, reeval_list, world)
         end
+        # `reeval_list` also includes surviving duplicate definitions (issue #1105).
+        isempty(reeval_list) || redefine_bindings!(revision_errors, reeval_list, world)
 
         # Error handling
         if interrupt
