@@ -5152,8 +5152,11 @@ end
 
         write(joinpath(dn, modname*".jl"), s527_old)
 
-        sleep(mtimedelay)
-        @test !Distributed.remotecall_eval(Main, favorite_proc, :(Revise.revision_queue |> isempty))
+        # The worker's queue fills when its watcher task delivers the event; wait for
+        # it (with `event_timeout` slack for slow FSEvents delivery on macOS CI).
+        @test timedwait(event_timeout; pollint=0.05) do
+            !Distributed.remotecall_eval(Main, favorite_proc, :(Revise.revision_queue |> isempty))
+        end === :ok
         @test Distributed.remotecall_eval(Main, boring_proc, :(Revise.revision_queue |> isempty))
 
         Distributed.remotecall_eval(Main, [favorite_proc, boring_proc], :(Revise.revise()))
