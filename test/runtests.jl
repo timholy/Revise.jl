@@ -1117,6 +1117,96 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Retract removed bindings") && isdefined(Base, :delete_binding) &&
+            @testset "Retract removed bindings" begin
+        # Issue #1107: remove the binding with its defining statement.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "RetractGlobals", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "RetractGlobals.jl")
+        write(fn, """
+            module RetractGlobals
+            module Sub
+            export tag
+            tag() = :sub
+            end
+            using .Sub: tag
+            using .Sub
+            const SETTING = 17
+            const CHANGED = 1
+            const MOVING = :was_in_root
+            const view = "shadow"
+            read_setting() = SETTING
+            include("more.jl")
+            end
+            """)
+        write(joinpath(dn, "more.jl"), "\n")
+        sleep(mtimedelay)
+        @eval using RetractGlobals
+        @test RetractGlobals.SETTING == 17
+        @test RetractGlobals.view == "shadow"
+        sleep(mtimedelay)
+        write(fn, """
+            module RetractGlobals
+            module Sub
+            export tag
+            tag() = :sub
+            end
+            using .Sub
+            const CHANGED = 2
+            include("more.jl")
+            end
+            """)
+        write(joinpath(dn, "more.jl"), "const MOVING = :now_in_more\n")
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test !isdefined(RetractGlobals, :SETTING)
+        @test isempty(methods(RetractGlobals.read_setting))
+        @test RetractGlobals.CHANGED == 2
+        @test RetractGlobals.MOVING === :now_in_more
+        @test RetractGlobals.view === Base.view
+        @test RetractGlobals.tag() === :sub
+
+        rm_precompile("RetractGlobals")
+        pop!(LOAD_PATH)
+    end
+
+    do_test("Import switch (issue #1106)") && isdefined(Base, :delete_binding) &&
+            @testset "Import switch (issue #1106)" begin
+        # Issue #1106: replace a conflicting explicit import.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "ImportSwitch", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "ImportSwitch.jl")
+        importswitch_src(which) = """
+            module ImportSwitch
+            module A
+            export tag
+            tag() = :A
+            end
+            module B
+            export tag
+            tag() = :B
+            end
+            using .$which: tag
+            call_tag() = tag()
+            end
+            """
+        write(fn, importswitch_src("A"))
+        sleep(mtimedelay)
+        @eval using ImportSwitch
+        @test ImportSwitch.call_tag() === :A
+        sleep(mtimedelay)
+        write(fn, importswitch_src("B"))
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test ImportSwitch.tag === ImportSwitch.B.tag
+        @test ImportSwitch.call_tag() === :B
+
+        rm_precompile("ImportSwitch")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Multiple definitions") && @testset "Multiple definitions" begin
         # This simulates a copy/paste/save "error" from one file to another
         # ref https://github.com/timholy/CodeTracking.jl/issues/55

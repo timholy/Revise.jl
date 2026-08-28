@@ -670,6 +670,140 @@ else
     retract_dropped_exports!(::Module, ::ExprsInfos, ::ExprsInfos) = nothing
 end
 
+# Retract globals removed from a file (issues #1106 and #1107). Requires
+# `Base.delete_binding` (Julia 1.12+); the fallback is a no-op.
+@static if isdefined(Base, :delete_binding)
+    function retract_removed_bindings!(
+            mod_exs_infos_old::ModuleExprsInfos, mod_exs_infos_new::ModuleExprsInfos,
+            world::UInt, defaultmode::Symbol,
+        )
+        for (mod, exs_infos_old) in mod_exs_infos_old
+            exs_infos_new = get(mod_exs_infos_new, mod, empty_exs_infos)
+            mode = revise_mode(mod, defaultmode)
+            # Retract assignments only when the mode can re-evaluate them.
+            retract_assigns = mode === :eval || mode === :evalassign
+            removed = Set{Symbol}()
+            for rex in keys(exs_infos_old)
+                haskey(exs_infos_new, rex) && continue
+                add_imported_names!(removed, rex.ex)
+                retract_assigns && add_assigned_names!(removed, rex.ex)
+            end
+            isempty(removed) && continue
+            # Preserve bindings from unchanged statements.
+            kept, reestablished = Set{Symbol}(), Set{Symbol}()
+            for rex in keys(exs_infos_new)
+                names = haskey(exs_infos_old, rex) ? kept : reestablished
+                add_imported_names!(names, rex.ex)
+                retract_assigns && add_assigned_names!(names, rex.ex)
+            end
+            with_logger(_debug_logger) do
+                for name in removed
+                    name in kept && continue
+                    Base.invoke_in_world(world, isdefinedglobal, mod, name) || continue
+                    @debug "DeleteBinding" _group="Action" time=time() deltainfo=(mod, name)
+                    Base.delete_binding(mod, name)
+                    name in reestablished && continue
+                    # Restore an implicit import shadowed by the removed binding.
+                    src = implicit_export_source(mod, name)
+                    if src !== nothing
+                        Core.eval(mod, Expr(:using, Expr(:(:), Expr(:., fullname(src)...), Expr(:., name))))
+                    end
+                end
+            end
+        end
+        return nothing
+    end
+
+    # Collect names explicitly bound by `import` and `using` statements.
+    function add_imported_names!(names::Set{Symbol}, @nospecialize(ex))
+        isa(ex, Expr) || return names
+        if ex.head === :import || ex.head === :using
+            for a in ex.args
+                if isexpr(a, :(:))
+                    aargs = (a::Expr).args
+                    for i in 2:length(aargs)
+                        add_import_binding!(names, aargs[i])
+                    end
+                elseif ex.head === :import
+                    add_import_binding!(names, a)
+                end
+            end
+        elseif ex.head === :block || ex.head === :toplevel
+            for a in ex.args
+                add_imported_names!(names, a)
+            end
+        end
+        return names
+    end
+
+    function add_import_binding!(names::Set{Symbol}, @nospecialize(a))
+        if isexpr(a, :as)
+            b = (a::Expr).args[2]
+            b isa Symbol && push!(names, b)
+        elseif isexpr(a, :.)
+            b = last((a::Expr).args)
+            b isa Symbol && push!(names, b)
+        end
+        return names
+    end
+
+    # Collect top-level assignment targets without descending into local scopes.
+    function add_assigned_names!(names::Set{Symbol}, @nospecialize(ex))
+        isa(ex, Expr) || return names
+        if is_doc_expr(ex)
+            return add_assigned_names!(names, ex.args[4])
+        end
+        head = ex.head
+        if head === :block || head === :toplevel || head === :const || head === :global
+            for a in ex.args
+                if a isa Symbol
+                    (head === :const || head === :global) && push!(names, a)
+                else
+                    add_assigned_names!(names, a)
+                end
+            end
+        elseif head === :(=)
+            lhs = ex.args[1]
+            # `:call` and `:where` targets define methods.
+            if !(isexpr(lhs, :call) || isexpr(lhs, :where))
+                add_assignment_target!(names, lhs)
+                rhs = ex.args[2]
+                isexpr(rhs, :(=)) && add_assigned_names!(names, rhs)   # chained `a = b = …`
+            end
+        end
+        return names
+    end
+
+    function add_assignment_target!(names::Set{Symbol}, @nospecialize(lhs))
+        if lhs isa Symbol
+            push!(names, lhs)
+        elseif isexpr(lhs, :(::), 2)
+            add_assignment_target!(names, (lhs::Expr).args[1])
+        elseif isexpr(lhs, :tuple) || isexpr(lhs, :parameters)
+            for a in (lhs::Expr).args
+                add_assignment_target!(names, a)
+            end
+        elseif isexpr(lhs, :curly)
+            a = (lhs::Expr).args[1]
+            a isa Symbol && push!(names, a)
+        end
+        return names
+    end
+
+    # Return the module supplying an implicit binding, if any.
+    function implicit_export_source(mod::Module, n::Symbol)
+        for used in ccall(:jl_module_usings, Any, (Any,), mod)::Vector{Any}
+            used isa Module || continue
+            Base.isexported(used, n) || continue
+            isdefined(used, n) || continue
+            return used
+        end
+        return nothing
+    end
+else
+    retract_removed_bindings!(::ModuleExprsInfos, ::ModuleExprsInfos, ::UInt, ::Symbol) = nothing
+end
+
 # `true` if diffing old against new will delete at least one expression that defined
 # a type. This gates the prediction pass: when no type deletion is pending, there is
 # nothing for a prediction to save.
@@ -901,6 +1035,9 @@ function revise_mode(mod::Module, default::Symbol)
     @invokelatest(isdefinedglobal(mod, :__revise_mode__)) || return default
     return (@invokelatest getglobal(mod, :__revise_mode__))::Symbol
 end
+
+# Avoid re-evaluating assignments accumulated in `Main`.
+default_revise_mode(pkgdata::PkgData) = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
 
 function eval_new!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos; mode::Symbol=:eval)
     includes = Vector{Tuple{Module,Function,String}}()
@@ -1278,6 +1415,7 @@ function delete_for_revision(
     )
     if mod_exs_infos_new !== nothing
         delete_missing!(mod_exs_infos_old, mod_exs_infos_new::ModuleExprsInfos, reeval_list, handled_types, world, predictions)
+        retract_removed_bindings!(mod_exs_infos_old, mod_exs_infos_new::ModuleExprsInfos, world, default_revise_mode(pkgdata))
     end
     if !fileok && any(!isempty, values(mod_exs_infos_old))
         filep = pkgdata.info.files[idx]
@@ -1396,6 +1534,7 @@ function delete_orphaned_include!(
     mod_exs_infos_old = fi.mod_exs_infos
     mod_exs_infos_new = ModuleExprsInfos(first(keys(mod_exs_infos_old)))
     delete_missing!(mod_exs_infos_old, mod_exs_infos_new, reeval_list, handled_types, world, predictions)
+    retract_removed_bindings!(mod_exs_infos_old, mod_exs_infos_new, world, default_revise_mode(pkgdata))
     pkgdata.fileinfos[idx] = FileInfo(mod_exs_infos_new, fi)
     unwatch && unwatch_file!(pkgdata, file)
     @warn "$(joinpath(basedir(pkgdata), file)) is no longer `include`d into $(first(keys(mod_exs_infos_old))), deleted its methods"
@@ -1962,7 +2101,7 @@ function _revise(; throw::Bool=false)
 
         # Do the evaluation
         for ((pkgdata, file), i, mod_exs_infos_new) in zip(finished, finished_idx, mod_exs_infos)
-            defaultmode = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
+            defaultmode = default_revise_mode(pkgdata)
             fi = fileinfo(pkgdata, i)
             modsremaining = Set(keys(mod_exs_infos_new))
             changed, err = true, nothing
