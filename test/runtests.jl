@@ -2937,6 +2937,49 @@ end
         rm_precompile("DupWarn")
     end
 
+    do_test("Duplicate rollback (issue #1105)") && @testset "Duplicate rollback (issue #1105)" begin
+        # Removing either duplicate must restore the survivor's body.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "DupRollback", "src"); mkpath(dn)
+        fn = joinpath(dn, "DupRollback.jl")
+        write(fn, "module DupRollback\nanswer() = 1\nend\n")
+        sleep(mtimedelay)
+        @eval using DupRollback
+        sleep(mtimedelay)   # allow watch_file to arm under `watching_files[]`
+        @test DupRollback.answer() == 1
+        key = Revise.MethodInfoKey(nothing, first(methods(DupRollback.answer)).sig)
+
+        # Remove the later definition.
+        write(fn, "module DupRollback\nanswer() = 1\nanswer() = 2\nend\n")
+        sleep(mtimedelay)
+        @test_logs (:warn, r"defined in more than one location") match_mode=:any yry()
+        @latestworld
+        @test DupRollback.answer() == 2
+        write(fn, "module DupRollback\nanswer() = 1\nend\n")
+        sleep(mtimedelay)
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test DupRollback.answer() == 1
+        @test !haskey(Revise.duplicated_signatures, key)
+        @test length(CodeTracking.method_info[key]) == 1
+
+        # Remove the first definition.
+        write(fn, "module DupRollback\nanswer() = 1\nanswer() = 2\nend\n")
+        sleep(mtimedelay)
+        @test_logs (:warn, r"defined in more than one location") match_mode=:any yry()
+        @latestworld
+        @test DupRollback.answer() == 2
+        write(fn, "module DupRollback\nanswer() = 2\nend\n")
+        sleep(mtimedelay)
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test DupRollback.answer() == 2
+        @test !haskey(Revise.duplicated_signatures, key)
+        @test length(CodeTracking.method_info[key]) == 1
+
+        rm_precompile("DupRollback")
+    end
+
     do_test("Duplicate method warning exclusions") && @testset "Duplicate method warning exclusions" begin
         # The warning is scoped to precompilable packages: `includet`/`Main` scripts and
         # `__precompile__(false)` packages never precompile, so duplicate methods there are
