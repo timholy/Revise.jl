@@ -124,23 +124,22 @@ string `"1"` (e.g., `JULIA_REVISE_INCLUDE=1` in a bash script).
     Most users should avoid setting `JULIA_REVISE_INCLUDE`.
     Try `includet` instead.
 
-### Enabling struct revision
+### Disabling struct revision
 
-On Julia 1.12+, Revise can automatically revise `struct` definitions in a
-running session.  This feature requires scanning the global method table and
-type hierarchy at startup, which can be slow so it's disabled by default. If you
-would like to enable it you can set the `revise_structs` preference to `true`
-via [Preferences.jl](https://github.com/JuliaPackaging/Preferences.jl).
+On Julia 1.12+, Revise automatically revises `struct` definitions in a running
+session; see [Limitations](@ref) for details. When a changed definition
+requires deleting a type, Revise scans the session's method tables and type
+hierarchy to find dependents, which can make such revisions slower than
+ordinary ones. To disable struct revision (so that struct changes once again
+require a session restart), set the `revise_structs` preference to `false` via
+[Preferences.jl](https://github.com/JuliaPackaging/Preferences.jl).
 
 Add the following to the `LocalPreferences.toml` file in your active project:
 
 ```toml
 [Revise]
-revise_structs = true
+revise_structs = false
 ```
-
-!!! warning
-    The default for this preference may change in the future.
 
 ## Configurations for fixing errors
 

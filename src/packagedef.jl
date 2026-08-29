@@ -2896,7 +2896,7 @@ function __init__()
     for pkg in silenced
         push!(silence_pkgs, pkg)
     end
-    __bpart__[] = Base.VERSION >= v"1.12.0-DEV.2047" && Preferences.@load_preference("revise_structs", false)
+    __bpart__[] = Base.VERSION >= v"1.12.0-DEV.2047" && Preferences.@load_preference("revise_structs", true)
     polling = get(ENV, "JULIA_REVISE_POLL", "0")
     if polling == "1"
         polling_files[] = watching_files[] = true

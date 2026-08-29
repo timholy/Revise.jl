@@ -12,6 +12,11 @@ cleanups, or minor enhancements.
 
 ## [Revise 3.17]
 
+- **Struct revision is on by default** (Julia 1.12+): the automatic revision of
+  `struct` definitions introduced in Revise 3.13 no longer requires opting in.
+  To disable it, set the `revise_structs` preference to `false` (see the
+  "Disabling struct revision" section of the documentation).
+
 - **`include(mapexpr, file)` support**: revising a file that was included with a
   transform now re-applies the same transform to each top-level expression, instead of
   silently dropping it. For files included while a package loads, discovering the

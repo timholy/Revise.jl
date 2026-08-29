@@ -26,10 +26,10 @@ Precompile the package when convenient to establish a fresh checkpoint.
 # Limitations
 
 - Revision is subject to the usual restrictions; in particular, redefining a
-  `struct` requires Julia 1.12+ with struct revision enabled (see the
-  `revise_structs` preference). Errors during revision are logged and can be
-  inspected with [`Revise.errors`](@ref); pass `throw=true` to raise them
-  instead.
+  `struct` requires Julia 1.12+ with struct revision enabled (the default
+  there; see the `revise_structs` preference). Errors during revision are
+  logged and can be inspected with [`Revise.errors`](@ref); pass `throw=true`
+  to raise them instead.
 - On Julia 1.10, only `pkg` itself may be stale: dependencies whose sources
   have also been edited must be `stale_load`ed first (in dependency order) or
   freshly precompiled. On Julia 1.11+, edited dependencies are loaded from
