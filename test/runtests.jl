@@ -2945,6 +2945,7 @@ end
         write(fn, "module DupRollback\nanswer() = 1\nend\n")
         sleep(mtimedelay)
         @eval using DupRollback
+        sleep(mtimedelay)   # allow watch_file to arm under `watching_files[]`
         @test DupRollback.answer() == 1
         key = Revise.MethodInfoKey(nothing, first(methods(DupRollback.answer)).sig)
 
