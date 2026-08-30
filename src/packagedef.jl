@@ -1329,8 +1329,25 @@ function revise_file_queued(pkgdata::PkgData, file)
         file = joinpath(basedir(pkgdata), file)
     end
 
-    dirfull, _ = splitdir(file)
+    dirfull, filebase = splitdir(file)
     fileexists(f) = file_exists(f) || isdir(f)
+    # Baseline recorded by `init_watching`. In per-file (polling) mode a change
+    # that lands between `init_watching` and this task's first `wait_changed`
+    # would otherwise be lost forever: `poll_file` takes its own baseline when
+    # the poll starts, and the buffered directory monitor that closes this
+    # startup gap for the notification path is unavailable here. So before
+    # blocking, compare the file's ctime against the recorded baseline and
+    # treat a mismatch as a change that already happened.
+    stored_ctime() = @lock revise_lock begin
+        wl = get(watched_files, dirfull, nothing)
+        wl === nothing ? nothing : get(wl.file_ctimes, filebase, nothing)
+    end
+    record_ctime!() = @lock revise_lock begin
+        wl = get(watched_files, dirfull, nothing)
+        if wl !== nothing && haskey(wl.trackedfiles, filebase)
+            wl.file_ctimes[filebase] = ctime(file)
+        end
+    end
     try
         stillwatching = true
         while stillwatching
@@ -1349,12 +1366,18 @@ function revise_file_queued(pkgdata::PkgData, file)
                     break
                 end
             end
-            try
-                wait_changed(file)  # will block here until the file changes
-            catch e
-                # issue #459
-                (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+            prev = stored_ctime()
+            if prev === nothing || prev == 0.0 || ctime(file) == prev
+                try
+                    wait_changed(file)  # will block here until the file changes
+                catch e
+                    # issue #459
+                    (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+                end
             end
+            # Keep the baseline current so the pre-block check above only fires
+            # for genuinely missed changes, never for the one just delivered.
+            record_ctime!()
 
             @lock revise_lock begin
                 if file in keys(user_callbacks_by_file)

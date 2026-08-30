@@ -49,3 +49,43 @@ end
 
     rm(testdir; force=true, recursive=true)
 end
+
+@testset "Polling startup gap" begin
+    testdir = randtmp()
+    mkdir(testdir)
+    push!(LOAD_PATH, testdir)
+    dn = joinpath(testdir, "PollGap", "src")
+    mkpath(dn)
+    srcfile = joinpath(dn, "PollGap.jl")
+    write(srcfile, """
+__precompile__(false)
+
+module PollGap
+
+f() = 1
+
+end
+""")
+    sleep(0.5) # let the source file age a bit
+    @eval using PollGap
+    @test PollGap.f() == 1
+    # Edit immediately, with no yield since loading: the per-file poll tasks
+    # scheduled by init_watching have not run yet, so poll_file would baseline
+    # on the already-edited file. The change must instead be caught by
+    # comparing against the ctime recorded at init_watching time.
+    write(srcfile, """
+__precompile__(false)
+
+module PollGap
+
+f() = 2
+
+end
+""")
+    yry()
+    sleep(7)
+    yry()
+    @test PollGap.f() == 2
+
+    rm(testdir; force=true, recursive=true)
+end
