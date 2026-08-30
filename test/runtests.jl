@@ -3671,7 +3671,7 @@ end
     end
 
     # Struct revision tests require __bpart__[] = true. Enable it based on the Julia version
-    # alone: the LocalPreferences setting (which defaults to false for end users) should not
+    # alone: an ambient LocalPreferences setting of `revise_structs = false` should not
     # suppress these tests on CI.
     if Base.VERSION >= v"1.12.0-DEV.2047"
         Revise.__bpart__[] = true
