@@ -16,6 +16,16 @@ cleanups, or minor enhancements.
   `struct` definitions introduced in Revise 3.13 no longer requires opting in.
   To disable it, set the `revise_structs` preference to `false` (see the
   "Disabling struct revision" section of the documentation).
+  (https://github.com/timholy/Revise.jl/pull/1128)
+
+- **Revise notifies about changing package versions** (experimental): Pkg
+  operations may change package versions, and such indirect changes differ from
+  the intentional editor-based changes Revise typically tracks. The can be more
+  difficult updates than most, sometimes requiring coordinated changes across
+  packages. For this reason, Revise now warns when making such changes
+  (https://github.com/timholy/Revise.jl/pull/1124).
+
+## [Revise 3.16]
 
 - **`include(mapexpr, file)` support**: revising a file that was included with a
   transform now re-applies the same transform to each top-level expression, instead of
@@ -24,8 +34,6 @@ cleanups, or minor enhancements.
   `Revise.track` also accept a leading `mapexpr` on all supported Julia versions.
   (https://github.com/timholy/Revise.jl/issues/634,
   https://github.com/timholy/Revise.jl/issues/820)
-
-## [Revise 3.16]
 
 - **Load a package from a stale precompile cache**: `Revise.stale_load("MyPackage")`
   loads a package from its most recent loadable cache even if the source files have
