@@ -1134,6 +1134,7 @@ end
             using .Sub
             const SETTING = 17
             const CHANGED = 1
+            global TO_CONST::Int = 42
             const MOVING = :was_in_root
             const view = "shadow"
             read_setting() = SETTING
@@ -1144,6 +1145,8 @@ end
         sleep(mtimedelay)
         @eval using RetractGlobals
         @test RetractGlobals.SETTING == 17
+        @test RetractGlobals.TO_CONST == 42
+        @test !isconst(RetractGlobals, :TO_CONST)
         @test RetractGlobals.view == "shadow"
         sleep(mtimedelay)
         write(fn, """
@@ -1154,6 +1157,7 @@ end
             end
             using .Sub
             const CHANGED = 2
+            const TO_CONST = 42
             include("more.jl")
             end
             """)
@@ -1163,6 +1167,8 @@ end
         @test !isdefined(RetractGlobals, :SETTING)
         @test isempty(methods(RetractGlobals.read_setting))
         @test RetractGlobals.CHANGED == 2
+        @test RetractGlobals.TO_CONST == 42
+        @test isconst(RetractGlobals, :TO_CONST)
         @test RetractGlobals.MOVING === :now_in_more
         @test RetractGlobals.view === Base.view
         @test RetractGlobals.tag() === :sub
