@@ -1177,6 +1177,54 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Global binding invalidation") && Base.VERSION >= v"1.14.0-DEV" &&
+            @testset "Global binding invalidation" begin
+        # Julia 1.14 propagates local-inference binding dependencies to compiled callers.
+        # Requires JuliaLang/julia#61756 + JuliaLang/julia#62359
+        testdir = newtestdir()
+        dn = joinpath(testdir, "BindingInvalidation", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "BindingInvalidation.jl")
+        src = """
+            module BindingInvalidation
+            global StringType = String
+            struct Info
+                a::StringType
+                b::String
+                c::AbstractString
+            end
+            struct Container
+                info::Info
+            end
+            observe(x::Info) = begin
+                print(devnull,
+                    x.a, fieldtype(Info, :a),
+                    x.b, fieldtype(Info, :b),
+                    x.c, fieldtype(Info, :c),
+                    StringType)
+                StringType
+            end
+            inner(container::Container) = observe(container.info)
+            outer(x) = inner(Container(Info("a", string(x), "c")))
+            end
+            """
+        write(fn, src)
+        sleep(mtimedelay)
+        @eval using BindingInvalidation
+        @test BindingInvalidation.outer("x") === String
+        sleep(mtimedelay)
+        write(fn, replace(src,
+            "global StringType = String" => "const StringType = AbstractString"))
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test BindingInvalidation.StringType === AbstractString
+        @test isconst(BindingInvalidation, :StringType)
+        @test BindingInvalidation.outer("x") === AbstractString
+
+        rm_precompile("BindingInvalidation")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Import switch (issue #1106)") && isdefined(Base, :delete_binding) &&
             @testset "Import switch (issue #1106)" begin
         # Issue #1106: replace a conflicting explicit import.
