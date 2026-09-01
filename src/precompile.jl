@@ -39,6 +39,7 @@ function _precompile_()
     @warnpcfail precompile(Tuple{typeof(revise)})
     @warnpcfail precompile(Tuple{typeof(revise_first), Expr})
     @warnpcfail precompile(Tuple{typeof(includet), String})
+    @warnpcfail precompile(Tuple{typeof(_includet), typeof(identity), Module, String})
     @warnpcfail precompile(Tuple{typeof(track), Module, String})
     # setindex! doesn't fully precompile, but it's still beneficial to do it
     # (it shaves off a bit of the time)

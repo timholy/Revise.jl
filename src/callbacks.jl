@@ -46,10 +46,12 @@ You can use the return value `key` to remove the callback later
 (`Revise.remove_callback`) or to update it using another call
 to `Revise.add_callback` with `key=key`.
 """
-function add_callback(f, files, modules=nothing; all=false, key=gensym())
+add_callback(f, files, modules=nothing; kwargs...) = frozen(_add_callback, f, files, modules; kwargs...)
+
+function _add_callback(f, files, modules; all=false, key=gensym())
     fix_trailing(path) = isdir(path) ? joinpath(path, "") : path   # insert a trailing '/' if missing, see https://github.com/timholy/Revise.jl/issues/470#issuecomment-633298553
 
-    remove_callback(key)
+    _remove_callback(key)
 
     files = map(fix_trailing, map(abspath, files))
     init_watching(files)
@@ -94,7 +96,9 @@ end
 Remove a callback previously installed by a call to `Revise.add_callback(...)`.
 See its docstring for details.
 """
-function remove_callback(key)
+remove_callback(key) = frozen(_remove_callback, key)
+
+function _remove_callback(key)
     @lock revise_lock begin
         for cbs in values(user_callbacks_by_file)
             delete!(cbs, key)
@@ -157,9 +161,11 @@ end
 This will print "update" every time `"/tmp/watched.txt"` or any of the code defining
 `Pkg1` or `Pkg2` gets updated.
 """
-function entr(f::Function, files, modules=nothing; all=false, postpone=false, pause=0.02)
+entr(f::Function, files, modules=nothing; kwargs...) = frozen(_entr, f, files, modules; kwargs...)
+
+function _entr(f::Function, files, modules; all=false, postpone=false, pause=0.02)
     yield()
-    postpone || f()
+    postpone || Base.invokelatest(f)  # `f` is user code, typically newer than Revise's frozen world
     # `entr` runs `f` on a trailing-edge debounce: a change schedules `f` for
     # `pause` seconds later, and any further change before then pushes the
     # deadline out. A burst of changes no more than `pause` apart therefore
@@ -197,7 +203,7 @@ function entr(f::Function, files, modules=nothing; all=false, postpone=false, pa
     # extend itself, so spawn one only when `dtask` is empty. Pairing this with
     # the task clearing `dtask` as it commits to exit (both under `lk`) means a
     # change racing an expiring task either extends it or spawns its successor.
-    key = add_callback(files, modules; all=all) do
+    key = _add_callback(files, modules; all) do
         @lock lk begin
             deadline[] = time() + pause
             if dtask[] === nothing
@@ -216,7 +222,7 @@ function entr(f::Function, files, modules=nothing; all=false, postpone=false, pa
         isa(e, InterruptException) || rethrow(e)
     finally
         stopped[] = true
-        remove_callback(key)
+        _remove_callback(key)
     end
     nothing
 end

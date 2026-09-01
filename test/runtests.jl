@@ -7555,17 +7555,61 @@ do_test("Frozen world") && @testset "Frozen world" begin
     # `f`, or invalidations from later-loaded packages propagate to the caller and
     # recompiling it re-infers `f`'s entire call graph in the latest world (issue #1134).
     # Any static call to `f` shows up as an `:invoke` of a Revise method.
-    src, _ = only(code_typed(Revise.frozen, (typeof(Revise._revise),); optimize=true))
-    static_revise_calls = Method[]
-    for stmt in src.code
-        Meta.isexpr(stmt, :invoke) || continue
+    # Any static call to `f` shows up as an `:invoke` of a Revise method.
+    function invoke_target(stmt)
+        Meta.isexpr(stmt, :invoke) || return nothing
         target = stmt.args[1]
         target isa Core.CodeInstance && (target = target.def)
         isdefined(Core, :ABIOverride) && target isa Core.ABIOverride && (target = target.def)
-        target isa Core.MethodInstance || continue
-        target.def.module === Revise && push!(static_revise_calls, target.def)
+        return target isa Core.MethodInstance ? target : nothing
     end
+    src, _ = only(code_typed(Revise.frozen, (typeof(Revise._revise),); optimize=true))
+    static_revise_calls = [mi.def for mi in filter(!isnothing, map(invoke_target, src.code)) if mi.def.module === Revise]
     @test isempty(static_revise_calls)
+
+    # The same requirement applies to every entry point that user code or Julia calls in
+    # the latest world: each must reach the revision engine only through `frozen` (or
+    # `invokelatest`). Follow static `:invoke`s transitively through Revise's own methods
+    # from each entry point and check that the closure never reaches engine code.
+    ourmods = (Revise, Revise.JuliaInterpreter, Revise.LoweredCodeUtils, Revise.CodeTracking)
+    function static_invoke_closure!(seen, codes)
+        for (src, _) in codes, stmt in src.code
+            mi = invoke_target(stmt)
+            mi === nothing && continue
+            mi in seen && continue
+            push!(seen, mi)
+            Base.moduleroot(mi.def.module) in ourmods || continue
+            static_invoke_closure!(seen, Base.code_typed_by_type(mi.specTypes; optimize=true))
+        end
+        return seen
+    end
+    engine_names = ("_revise", "_track", "_includet", "_entr", "_add_callback", "_errors", "_retry",
+                    "_add_require", "eval_require_now", "watch_package", "revise_file_now",
+                    "instantiate_sigs!", "methods_by_execution!", "parse_and_maybe_eval_source!",
+                    "init_watching")
+    function is_engine(m::Method)
+        Base.moduleroot(m.module) in (Revise.JuliaInterpreter, Revise.LoweredCodeUtils) && return true
+        name = String(m.name)
+        return any(n -> name == n || startswith(name, "#" * n * "#"), engine_names)
+    end
+    entries = [
+        (revise, ()), (revise, (Module,)),
+        (Revise.track, (Module,)), (Revise.track, (Module, String)), (Revise.track, (String,)),
+        (includet, (String,)), (includet, (typeof(identity), Module, String)),
+        (entr, (typeof(identity), Vector{String})), (entr, (typeof(identity), Vector{String}, Vector{Module})),
+        (Revise.errors, ()), (Revise.retry, ()),
+        (Revise.add_callback, (typeof(identity), Vector{String})), (Revise.remove_callback, (Symbol,)),
+        (Revise.add_require, (String, Module, String, String, Expr)),
+        (Revise.watch_package_callback, (Base.PkgId,)),
+        (Revise.revise_first, (Expr,)),
+    ]
+    leaks = Dict{Any,Vector{Method}}()
+    for (f, argtypes) in entries
+        seen = static_invoke_closure!(Set{Core.MethodInstance}(), code_typed(f, argtypes; optimize=true))
+        leaked = [mi.def for mi in seen if is_engine(mi.def)]
+        isempty(leaked) || (leaks[(f, argtypes)] = leaked)
+    end
+    @test isempty(leaks)
 end
 
 do_test("Frozen world user-code frame") && @testset "Frozen world user-code frame" begin

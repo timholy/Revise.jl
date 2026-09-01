@@ -491,6 +491,13 @@ const silence_pkgs = Set{String}()
 # Revise's machinery mid-operation (issue #552). User code is still evaluated at the latest
 # world: JuliaInterpreter threads the latest world through each `Frame`. `worldage[]` is
 # `nothing` until `__init__` runs, in which case `frozen` degrades to `invokelatest`.
+#
+# Every entry point that user code or Julia itself calls in the latest world (`revise`,
+# `track`, `includet`, `entr`, `errors`, `retry`, `add_callback`, `remove_callback`,
+# `add_require`, `watch_package_callback`) is a thin shim `f(args...) = frozen(_f, args...)`
+# whose `_f` body does the work. Inside a pinned body, anything supplied by user code
+# (callbacks, `mapexpr`, exception display) must be reached via `invokelatest`. The
+# "Frozen world" testset checks that no entry point has static edges into the engine.
 const worldage = Ref{Union{Nothing,UInt}}(nothing)
 
 # Both branches must reach `f` through a runtime dispatch. A direct call `f(args...)` would
@@ -1841,7 +1848,9 @@ Report the errors represented in [`Revise.queue_errors`](@ref).
 Errors are automatically reported the first time they are encountered, but this function
 can be used to report errors again.
 """
-function errors(revision_errors=keys(queue_errors))
+errors(revision_errors=keys(queue_errors)) = frozen(_errors, revision_errors)
+
+function _errors(revision_errors)
     printed = Set{eltype(revision_errors)}()
     for item in revision_errors
         item in printed && continue
@@ -1863,7 +1872,9 @@ end
 
 Attempt to perform previously-failed revisions. This can be useful in cases of order-dependent errors.
 """
-function retry()
+retry() = frozen(_retry)
+
+function _retry()
     @lock revise_lock begin
         for k in keys(queue_errors)
             push!(revision_queue, k)
@@ -2436,7 +2447,9 @@ they will not be automatically tracked.
 Multi-file code that needs all of its files tracked is better organized as a package loaded with
 `using`/`import`, which Revise tracks recursively and which gives you a proper module namespace.
 """
-function includet(mapexpr::Function, mod::Module, file::AbstractString)
+includet(mapexpr::Function, mod::Module, file::AbstractString) = frozen(_includet, mapexpr, mod, file)
+
+function _includet(mapexpr::Function, mod::Module, file::AbstractString)
     prev = Base.source_path(nothing)
     file = if prev === nothing
         abspath(file)
@@ -2772,9 +2785,11 @@ function revise_first(ex)
 
         if isa(exu, Expr)
             exu.head === :call && length(exu.args) == 1 && exu.args[1] === :exit && return ex
-            lhsrhs = LoweredCodeUtils.get_lhs_rhs(exu)
-            if lhsrhs !== nothing
-                lhs, _ = lhsrhs
+            # `Revise.active[] = ...` must not trigger a revision. This is surface syntax,
+            # so a plain `:(=)` check suffices; using `LoweredCodeUtils.get_lhs_rhs` here
+            # would give this latest-world function static edges into that package.
+            if isexpr(exu, :(=), 2)
+                lhs = exu.args[1]
                 if isexpr(lhs, :ref) && length(lhs.args) == 1
                     arg1 = lhs.args[1]
                     isexpr(arg1, :(.), 2) && arg1.args[1] === :Revise && is_quotenode_egal(arg1.args[2], :active) && return ex

@@ -15,7 +15,9 @@ usual package callback never fires and any source edits made since the image was
 built go unnoticed. Calling `Revise.track` on such a package starts watching it and
 applies any pending edits.
 """
-function track(mod::Module; modified_files=revision_queue, revise_throw::Bool=!isinteractive())
+track(mod::Module; kwargs...) = frozen(_track, mod; kwargs...)
+
+function _track(mod::Module; modified_files=revision_queue, revise_throw::Bool=!isinteractive())
     id = pkgidid_for_mod(mod)
     modname = nameof(mod)
     ret = _track(id, modname; modified_files=modified_files)
