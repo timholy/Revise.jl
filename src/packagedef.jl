@@ -179,6 +179,27 @@ function nonnotifying_path(path::AbstractString)
     return fstype == "9p" || fstype == "drvfs"
 end
 
+# Matches the default polling interval of `Base.poll_file`.
+const saved_state_poll_interval = 5.007
+
+"""
+    poll_from_saved_state(file, prev_ctime)
+
+Block until `file`'s ctime differs from `prev_ctime`, the value recorded by
+`init_watching`.
+
+This exists because `poll_file` samples its own baseline when the poll starts: a change
+that landed between `init_watching` and the first poll becomes the baseline, and the poll
+then waits for the *next* change. Seeding the comparison with the recorded ctime leaves no
+window in which a change can be adopted as the starting state.
+"""
+function poll_from_saved_state(file, prev_ctime)
+    while ctime(file) == prev_ctime
+        sleep(saved_state_poll_interval)
+    end
+    return nothing
+end
+
 function wait_changed(file)
     poll = polling_files[] || nonnotifying_path(file)
     try
@@ -1331,13 +1352,12 @@ function revise_file_queued(pkgdata::PkgData, file)
 
     dirfull, filebase = splitdir(file)
     fileexists(f) = file_exists(f) || isdir(f)
-    # Baseline recorded by `init_watching`. In per-file (polling) mode a change
-    # that lands between `init_watching` and this task's first `wait_changed`
-    # would otherwise be lost forever: `poll_file` takes its own baseline when
-    # the poll starts, and the buffered directory monitor that closes this
-    # startup gap for the notification path is unavailable here. So before
-    # blocking, compare the file's ctime against the recorded baseline and
-    # treat a mismatch as a change that already happened.
+    # `init_watching` saved the file's ctime before scheduling this task.
+    # The file may have changed before this task starts. `poll_file` would
+    # then use the changed file as its starting point and wait for another
+    # change, so on the polling path start from the saved value instead.
+    # (The notification path has no such gap: `init_watching` registers a
+    # buffered `watch_folder` that queues changes from that moment on.)
     stored_ctime() = @lock revise_lock begin
         wl = get(watched_files, dirfull, nothing)
         wl === nothing ? nothing : get(wl.file_ctimes, filebase, nothing)
@@ -1367,16 +1387,18 @@ function revise_file_queued(pkgdata::PkgData, file)
                 end
             end
             prev = stored_ctime()
-            if prev === nothing || prev == 0.0 || ctime(file) == prev
-                try
+            try
+                if (polling_files[] || nonnotifying_path(file)) &&
+                        prev !== nothing && prev != 0.0
+                    poll_from_saved_state(file, prev)
+                else
                     wait_changed(file)  # will block here until the file changes
-                catch e
-                    # issue #459
-                    (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
                 end
+            catch e
+                # issue #459
+                (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
             end
-            # Keep the baseline current so the pre-block check above only fires
-            # for genuinely missed changes, never for the one just delivered.
+            # Save the ctime observed after this change so it is not queued again.
             record_ctime!()
 
             @lock revise_lock begin
