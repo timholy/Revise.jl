@@ -117,7 +117,8 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         if pkgdata === nothing
             pkgdata = PkgData(id, compilerdir)
         end
-        track_subdir_from_git!(pkgdata, compilerdir; modified_files=modified_files)
+        # Core.Compiler's files are not in `juliaf2m`
+        track_subdir_from_git!(pkgdata, compilerdir; modified_files=modified_files, default_mod=Core.Compiler)
         # insertion into pkgdatas is done by track_subdir_from_git!
     else
         # issue #685: a package compiled into a system image (e.g. with
@@ -172,8 +173,18 @@ _fixpath(lnn; kwargs...) = LineNumberNode(lnn.line, Symbol(fixpath(String(lnn.fi
 fixpath(lnn::LineNumberNode; kwargs...) = _fixpath(lnn; kwargs...)
 fixpath(lnn::Core.LineInfoNode; kwargs...) = _fixpath(lnn; kwargs...)
 
+# The parent module for source files that `juliaf2m` does not list. `juliaf2m` maps
+# only Julia's own sources, so any other file belongs to `pkgdata`'s own package and
+# its top-level module is the package module.
+function default_parent_module(pkgdata::PkgData)
+    id = PkgId(pkgdata)
+    Base.root_module_exists(id) || error("cannot determine the parent module for ", id.name, "; pass `default_mod`")
+    return Base.root_module(id)
+end
+
 # For tracking subdirectories of Julia itself (base/compiler, stdlibs)
-function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue)
+function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit=Base.GIT_VERSION_INFO.commit, modified_files=revision_queue,
+                                default_mod::Module=default_parent_module(pkgdata))
     # diff against files at the same commit used to build Julia
     repo, repo_path = git_repo(subdir)
     if repo == nothing
@@ -197,7 +208,7 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
                 end
                 rethrow(err)
             end
-            fmod = get(juliaf2m, fullpath, Core.Compiler)  # Core.Compiler is not cached
+            fmod = get(juliaf2m, fullpath, default_mod)
             # The top-level Compiler.jl file `include`s every other Compiler source file
             # and defines the `Compiler` baremodule itself. We can't usefully parse/track
             # it as a normal source file: in Julia 1.12+ its parent module is `Base` (via
@@ -227,7 +238,14 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
             else
                 instantiate_sigs!(fi.mod_exs_infos)
             end
-            push!(pkgdata, rpath=>fi)
+            # Re-tracking a file that is already registered replaces its `FileInfo`;
+            # a duplicate entry would revise the file twice per change.
+            i = fileindex(pkgdata, rpath)
+            if i === nothing
+                push!(pkgdata, rpath=>fi)
+            else
+                pkgdata.fileinfos[i] = fi
+            end
         end
     end
     if !isempty(pkgdata.fileinfos)

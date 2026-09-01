@@ -5364,6 +5364,10 @@ end
             end
             @yry()
             @test Revise.hasfile(pkgdata, mainjl)
+            # Re-tracking a file already registered replaces its entry rather than duplicating it,
+            # and the package's own module is the parent for files git-tracking parses.
+            @test length(Revise.fileindices(pkgdata, relpath(mainjl, pkgdata))) == 1
+            @test !isdefined(Core.Compiler, Symbol(modname))
             @test startswith(logs[end].message, "skipping src/extra.jl") || startswith(logs[end-1].message, "skipping src/extra.jl")
             rm_precompile("ModuleWithNewFile")
             pop!(LOAD_PATH)
