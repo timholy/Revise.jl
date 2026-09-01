@@ -517,8 +517,15 @@ const requires_suffix = "__@require__"
 is_requires_file(file::AbstractString) = endswith(file, requires_suffix)
 
 # This is used by Requires.jl: therefore even if it appears unused by Revise.jl,
-# it cannot be removed as long as we support integration with Requires.jl
-function add_require(sourcefile::String, modcaller::Module, idmod::String, ::String, expr::Expr)
+# it cannot be removed as long as we support integration with Requires.jl.
+# Requires.jl calls it from the loading package's `__init__` (or from a later package-load
+# callback), i.e. in the latest world. Like Revise's other entry points, run it in Revise's
+# frozen world so that method definitions made by packages loaded after Revise cannot force
+# recompilation of Revise's machinery (issue #1134).
+add_require(sourcefile::String, modcaller::Module, idmod::String, id::String, expr::Expr) =
+    frozen(_add_require, sourcefile, modcaller, idmod, id, expr)
+
+function _add_require(sourcefile::String, modcaller::Module, idmod::String, ::String, expr::Expr)
     id = PkgId(modcaller)
     # If this fires when the module is first being loaded (because the dependency
     # was already loaded), Revise may not yet have the pkgdata for this package.

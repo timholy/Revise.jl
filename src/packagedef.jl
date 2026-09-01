@@ -490,12 +490,17 @@ const silence_pkgs = Set{String}()
 # so that revising a method Revise itself calls (e.g. via `track(Base)`) cannot invalidate
 # Revise's machinery mid-operation (issue #552). User code is still evaluated at the latest
 # world: JuliaInterpreter threads the latest world through each `Frame`. `worldage[]` is
-# `nothing` until `__init__` runs, in which case `frozen` degrades to a plain call.
+# `nothing` until `__init__` runs, in which case `frozen` degrades to `invokelatest`.
 const worldage = Ref{Union{Nothing,UInt}}(nothing)
 
+# Both branches must reach `f` through a runtime dispatch. A direct call `f(args...)` would
+# give the *caller's* compiled code inference edges into everything `f` calls; a package
+# loaded later that invalidates any of that would then invalidate the caller too, and
+# recompiling the caller re-infers `f`'s whole call graph in the latest world -- the very
+# cost the world pin exists to avoid (issue #1134).
 @inline function frozen(f, args...; kwargs...)
     w = worldage[]
-    return w === nothing ? f(args...; kwargs...) : Base.invoke_in_world(w, f, args...; kwargs...)
+    return w === nothing ? Base.invokelatest(f, args...; kwargs...) : Base.invoke_in_world(w, f, args...; kwargs...)
 end
 
 """

@@ -7545,6 +7545,23 @@ do_test("Frozen world") && @testset "Frozen world" begin
     finally
         Revise.worldage[] = saved
     end
+
+    # The pin protects execution only if it also protects *compilation*: a caller of
+    # `frozen(f, ...)` compiled in the latest world must carry no inference edges into
+    # `f`, or invalidations from later-loaded packages propagate to the caller and
+    # recompiling it re-infers `f`'s entire call graph in the latest world (issue #1134).
+    # Any static call to `f` shows up as an `:invoke` of a Revise method.
+    src, _ = only(code_typed(Revise.frozen, (typeof(Revise._revise),); optimize=true))
+    static_revise_calls = Method[]
+    for stmt in src.code
+        Meta.isexpr(stmt, :invoke) || continue
+        target = stmt.args[1]
+        target isa Core.CodeInstance && (target = target.def)
+        isdefined(Core, :ABIOverride) && target isa Core.ABIOverride && (target = target.def)
+        target isa Core.MethodInstance || continue
+        target.def.module === Revise && push!(static_revise_calls, target.def)
+    end
+    @test isempty(static_revise_calls)
 end
 
 do_test("Frozen world user-code frame") && @testset "Frozen world user-code frame" begin
