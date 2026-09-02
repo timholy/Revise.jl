@@ -179,6 +179,27 @@ function nonnotifying_path(path::AbstractString)
     return fstype == "9p" || fstype == "drvfs"
 end
 
+# Matches the default polling interval of `Base.poll_file`.
+const saved_state_poll_interval = 5.007
+
+"""
+    poll_from_saved_state(file, prev_ctime)
+
+Block until `file`'s ctime differs from `prev_ctime`, the value recorded by
+`init_watching`.
+
+This exists because `poll_file` samples its own baseline when the poll starts: a change
+that landed between `init_watching` and the first poll becomes the baseline, and the poll
+then waits for the *next* change. Seeding the comparison with the recorded ctime leaves no
+window in which a change can be adopted as the starting state.
+"""
+function poll_from_saved_state(file, prev_ctime)
+    while ctime(file) == prev_ctime
+        sleep(saved_state_poll_interval)
+    end
+    return nothing
+end
+
 function wait_changed(file)
     poll = polling_files[] || nonnotifying_path(file)
     try
@@ -1336,13 +1357,29 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
 
 This is used only on platforms (like BSD) which cannot use [`Revise.revise_dir_queued`](@ref).
 """
-function revise_file_queued(pkgdata::PkgData, file)
-    if !isabspath(file)
-        file = joinpath(basedir(pkgdata), file)
-    end
+function revise_file_queued(pkgdata::PkgData, filename)
+    # `file` is captured by closures below, so it must be assigned exactly once
+    # (a second assignment would force it into a `Core.Box`).
+    file = isabspath(filename) ? filename : joinpath(basedir(pkgdata), filename)
 
-    dirfull, _ = splitdir(file)
+    dirfull, filebase = splitdir(file)
     fileexists(f) = file_exists(f) || isdir(f)
+    # `init_watching` saved the file's ctime before scheduling this task.
+    # The file may have changed before this task starts. `poll_file` would
+    # then use the changed file as its starting point and wait for another
+    # change, so on the polling path start from the saved value instead.
+    # (The notification path has no such gap: `init_watching` registers a
+    # buffered `watch_folder` that queues changes from that moment on.)
+    stored_ctime() = @lock revise_lock begin
+        wl = get(watched_files, dirfull, nothing)
+        wl === nothing ? nothing : get(wl.file_ctimes, filebase, nothing)
+    end
+    record_ctime!() = @lock revise_lock begin
+        wl = get(watched_files, dirfull, nothing)
+        if wl !== nothing && haskey(wl.trackedfiles, filebase)
+            wl.file_ctimes[filebase] = ctime(file)
+        end
+    end
     try
         stillwatching = true
         while stillwatching
@@ -1350,10 +1387,8 @@ function revise_file_queued(pkgdata::PkgData, file)
                 status = await_watched_path(fileexists, file, dirfull)
                 if status !== :reappeared
                     if status === :gone
-                        let file=file
-                            with_logger(SimpleLogger(stderr)) do
-                                @warn "$file is not an existing file, Revise is not watching (watching resumes if it reappears)"
-                            end
+                        with_logger(SimpleLogger(stderr)) do
+                            @warn "$file is not an existing file, Revise is not watching (watching resumes if it reappears)"
                         end
                         relinquish_watch(dirfull, file)
                     end
@@ -1361,12 +1396,20 @@ function revise_file_queued(pkgdata::PkgData, file)
                     break
                 end
             end
+            prev = stored_ctime()
             try
-                wait_changed(file)  # will block here until the file changes
+                if (polling_files[] || nonnotifying_path(file)) &&
+                        prev !== nothing && prev != 0.0
+                    poll_from_saved_state(file, prev)
+                else
+                    wait_changed(file)  # will block here until the file changes
+                end
             catch e
                 # issue #459
                 (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
             end
+            # Save the ctime observed after this change so it is not queued again.
+            record_ctime!()
 
             @lock revise_lock begin
                 if file in keys(user_callbacks_by_file)

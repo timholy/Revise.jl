@@ -84,6 +84,7 @@ then call themselves on the same directory or file to wait for the next set of c
 ```@docs
 Revise.revise_dir_queued
 Revise.revise_file_queued
+Revise.poll_from_saved_state
 ```
 
 The following functions support user callbacks, and are used in the implementation of `entr`
