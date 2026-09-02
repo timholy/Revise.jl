@@ -1214,14 +1214,16 @@ init_watching(files) = init_watching((@lock revise_lock pkgdatas[NOPACKAGE]), fi
 const watch_reappear_grace = Ref(5.0)
 
 # Block while a watched path is missing. `exists(path)` reports whether it is
-# currently present; `watchkey` is its entry in `watched_files`. Returns:
+# currently present; `stillwatched()` whether it is still registered in
+# `watched_files`. Returns:
 #   :reappeared — came back within the grace period (resume watching)
-#   :removed    — no longer in the watch list, e.g. the package moved (stop quietly)
+#   :removed    — no longer registered, e.g. the package moved or the file was
+#                 untracked by a `revise` (stop quietly)
 #   :gone       — stayed missing past the grace period (stop and warn)
-function await_watched_path(exists, path::AbstractString, watchkey::AbstractString)
+function await_watched_path(exists, stillwatched, path::AbstractString)
     waited = 0.0
     while !exists(path)
-        @lock revise_lock haskey(watched_files, watchkey) || return :removed
+        stillwatched() || return :removed
         waited ≥ watch_reappear_grace[] && return :gone
         sleep(0.1)
         waited += 0.1
@@ -1300,11 +1302,12 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
 """
 @noinline function revise_dir_queued(dirname::AbstractString)
     @assert isabspath(dirname)
+    dirwatched() = @lock revise_lock haskey(watched_files, dirname)
     try
         stillwatching = true
         while stillwatching
             if !isdir(dirname)
-                status = await_watched_path(isdir, dirname, dirname)
+                status = await_watched_path(isdir, dirwatched, dirname)
                 if status !== :reappeared
                     if status === :gone
                         with_logger(SimpleLogger(stderr)) do
@@ -1380,11 +1383,17 @@ function revise_file_queued(pkgdata::PkgData, filename)
             wl.file_ctimes[filebase] = ctime(file)
         end
     end
+    # A `revise` that finds the file's `include` removed untracks it; the watch
+    # then ends without the "not an existing file" warning.
+    filewatched() = @lock revise_lock begin
+        wl = get(watched_files, dirfull, nothing)
+        wl !== nothing && haskey(wl.trackedfiles, filebase)
+    end
     try
         stillwatching = true
         while stillwatching
             if !fileexists(file)
-                status = await_watched_path(fileexists, file, dirfull)
+                status = await_watched_path(fileexists, filewatched, file)
                 if status !== :reappeared
                     if status === :gone
                         with_logger(SimpleLogger(stderr)) do

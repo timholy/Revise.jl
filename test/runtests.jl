@@ -6573,6 +6573,23 @@ do_test("Removed include, missing file") && @testset "Removed include, missing f
                              (pkgdata, joinpath("src", "gone.jl")))
     @test !Revise.pkgfileless((pkgdata, joinpath("src", "gone.jl")),
                               (pkgdata, joinpath("src", "GoneInclude.jl")))
+    # The per-file watcher (`watching_files[]` mode) finds "gone.jl" untracked and
+    # must end quietly, rather than warning once `watch_reappear_grace` expires
+    # (possibly during a later testset's stderr capture).
+    old_grace = Revise.watch_reappear_grace[]
+    Revise.watch_reappear_grace[] = 0.0
+    warnfile = randtmp()
+    try
+        open(warnfile, "w") do io
+            redirect_stderr(io) do
+                sleep(0.5)
+            end
+        end
+        @test !occursin("is not an existing file", read(warnfile, String))
+    finally
+        Revise.watch_reappear_grace[] = old_grace
+        rm(warnfile; force=true)
+    end
 
     rm_precompile("GoneInclude")
     pop!(LOAD_PATH)
@@ -7327,24 +7344,25 @@ do_test("watch reappearance") && @testset "watch reappearance" begin
     dir = mktempdir()
     key = dir
     Revise.watched_files[key] = Revise.WatchList()
+    watched() = haskey(Revise.watched_files, key)
     old_grace = Revise.watch_reappear_grace[]
     try
         # Present: resume immediately.
-        @test Revise.await_watched_path(isdir, dir, key) === :reappeared
+        @test Revise.await_watched_path(isdir, watched, dir) === :reappeared
         # Missing but reappears within the grace period: resume.
         rm(dir; recursive=true)
         recreate = @async (sleep(0.3); mkdir(dir))
         Revise.watch_reappear_grace[] = 5.0
-        @test Revise.await_watched_path(isdir, dir, key) === :reappeared
+        @test Revise.await_watched_path(isdir, watched, dir) === :reappeared
         wait(recreate)
         # Missing past the grace period: give up (and the caller warns).
         rm(dir; recursive=true)
         Revise.watch_reappear_grace[] = 0.2
-        @test Revise.await_watched_path(isdir, dir, key) === :gone
+        @test Revise.await_watched_path(isdir, watched, dir) === :gone
         # Missing and no longer registered (package moved/removed): give up quietly.
         Revise.watch_reappear_grace[] = 5.0
         delete!(Revise.watched_files, key)
-        @test Revise.await_watched_path(isdir, dir, key) === :removed
+        @test Revise.await_watched_path(isdir, watched, dir) === :removed
     finally
         Revise.watch_reappear_grace[] = old_grace
         haskey(Revise.watched_files, key) && delete!(Revise.watched_files, key)
