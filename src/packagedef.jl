@@ -1345,10 +1345,10 @@ This is generally called via a [`Revise.TaskThunk`](@ref).
 
 This is used only on platforms (like BSD) which cannot use [`Revise.revise_dir_queued`](@ref).
 """
-function revise_file_queued(pkgdata::PkgData, file)
-    if !isabspath(file)
-        file = joinpath(basedir(pkgdata), file)
-    end
+function revise_file_queued(pkgdata::PkgData, filename)
+    # `file` is captured by closures below, so it must be assigned exactly once
+    # (a second assignment would force it into a `Core.Box`).
+    file = isabspath(filename) ? filename : joinpath(basedir(pkgdata), filename)
 
     dirfull, filebase = splitdir(file)
     fileexists(f) = file_exists(f) || isdir(f)
@@ -1375,10 +1375,8 @@ function revise_file_queued(pkgdata::PkgData, file)
                 status = await_watched_path(fileexists, file, dirfull)
                 if status !== :reappeared
                     if status === :gone
-                        let file=file
-                            with_logger(SimpleLogger(stderr)) do
-                                @warn "$file is not an existing file, Revise is not watching (watching resumes if it reappears)"
-                            end
+                        with_logger(SimpleLogger(stderr)) do
+                            @warn "$file is not an existing file, Revise is not watching (watching resumes if it reappears)"
                         end
                         relinquish_watch(dirfull, file)
                     end
