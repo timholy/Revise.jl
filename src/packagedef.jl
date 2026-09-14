@@ -2313,9 +2313,12 @@ and can lead to long recompilation times.
 """
 revise(mod::Module; force::Bool=true) = frozen(_revise, mod; force)
 
+# The key under which `track(mod, file)` stores `mod` (see #689 for `Main`)
+tracked_pkgid(mod::Module) = Base.moduleroot(mod) == Main ? PkgId(mod, string(mod)) : PkgId(mod)
+
 function _revise(mod::Module; force::Bool=true)
     mod == Main && error("cannot revise(Main)")
-    id = PkgId(mod)
+    id = tracked_pkgid(mod)
     pkgdata = @lock revise_lock pkgdatas[id]
     @lock revise_lock for file in pkgdata.info.files
         push!(revision_queue, (pkgdata, file))
@@ -2377,7 +2380,7 @@ track(mapexpr::Function, file::AbstractString; kwargs...) =
 function _track(mod::Module, file::AbstractString; mode=:sigs, mapexpr::Function=identity, kwargs...)
     isfile(file) || error(file, " is not a file")
     # Determine whether we're already tracking this file
-    id = Base.moduleroot(mod) == Main ? PkgId(mod, string(mod)) : PkgId(mod)  # see #689 for `Main`
+    id = tracked_pkgid(mod)
     pkgdata = getpkgdata(id)
     if pkgdata !== nothing
         relfile = relpath(abspath_no_normalize(file), pkgdata)
