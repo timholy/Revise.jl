@@ -7324,6 +7324,21 @@ do_test("@includet uses caller's module (issue #682)") && @testset "@includet us
     @test Base.invokelatest(module682.f_682) == 2
 end
 
+do_test("revise(mod) on a tracked submodule of Main") && @testset "revise(mod) on a tracked submodule of Main" begin
+    testdir = newtestdir()
+
+    srcfile = joinpath(testdir, "revise_mod.jl")
+    write(srcfile, "f_revise_mod() = 1")
+
+    mod = @eval module ReviseModTracked end
+    includet(mod, srcfile)
+    @test Base.invokelatest(mod.f_revise_mod) == 1
+
+    write(srcfile, "f_revise_mod() = 2")
+    Revise.revise(mod)
+    @test Base.invokelatest(mod.f_revise_mod) == 2
+end
+
 do_test("misc - coverage") && !isinteractive() && @testset "misc - coverage" begin
     @test Revise.ReviseEvalException("undef", UndefVarError(:foo)).loc isa String
     @test !Revise.throwto_repl(UndefVarError(:foo))   # this causes an error in interactive
