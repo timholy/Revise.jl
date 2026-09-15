@@ -1,4 +1,4 @@
-module DistributedExt
+module ReviseDistributedExt
 
 import Distributed: myid, workers, remotecall
 
