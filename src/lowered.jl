@@ -377,6 +377,21 @@ end
 methods_by_execution!(exinfo::ExInfo, mod::Module, ex::Expr; kwargs...) =
     methods_by_execution!(Compiled(), exinfo, mod, ex; kwargs...)
 
+# `step_expr!` returns a `BreakpointRef` when execution hits a breakpoint, or when
+# `JuliaInterpreter.break_on(:error)`/`break_on(:throw)` is active and a statement throws.
+# `disablebp` only disables breakpoint instances; `break_on` is a global toggle it does not
+# touch, so a `BreakpointRef` can still reach the evaluation loops below. They cannot pause,
+# so it is never a valid program counter here: rethrow the error it carries (what would have
+# propagated had `break_on` been inactive), or fail if it carries none.
+function throw_if_breakpoint(pc)
+    if pc isa JuliaInterpreter.BreakpointRef
+        err = pc.err
+        err === nothing && error("unexpected breakpoint while evaluating: ", pc)
+        throw(err)
+    end
+    return pc
+end
+
 function _methods_by_execution!(
         interp::Interpreter, exinfo::ExInfo, frame::Frame, isrequired::AbstractVector{Bool};
         mode::Symbol = :eval, skip_include::Bool = true, eval_namespace::Bool = mode!==:sigs
@@ -442,7 +457,7 @@ function _methods_by_execution!(
                         end
                     end
                     @assert is_methoddef1(stmt)
-                    pc = mode !== :sigs ? step_expr!(interp, frame, stmt, true) :
+                    pc = mode !== :sigs ? throw_if_breakpoint(step_expr!(interp, frame, stmt, true)) :
                         next_or_nothing!(frame)
                 else
                     pc, pc3 = ret
@@ -540,7 +555,7 @@ function _methods_by_execution!(
                     if isa(callstmt, Expr) && callstmt.head === :call
                         @goto call_dispatch
                     end
-                    pc = step_expr!(interp, frame, stmt, true)
+                    pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
                 end
             elseif head === :call
                 callstmt = stmt
@@ -561,7 +576,7 @@ function _methods_by_execution!(
                         assign_this!(frame, existing)
                         pc = next_or_nothing!(frame)
                     else
-                        pc = step_expr!(interp, frame, stmt, true)
+                        pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
                         # (guarded: an assignment form would store to the slot instead)
                         groupresult = isassigned(frame.framedata.ssavalues, pc0) ?
                             frame.framedata.ssavalues[pc0] : nothing
@@ -581,7 +596,7 @@ function _methods_by_execution!(
                         # whose `:method` statements are skipped because `define=false`).
                         pc = next_or_nothing!(frame)
                     else
-                        pc = step_expr!(interp, frame, stmt, true)
+                        pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
                     end
                 elseif mode === :sigs && @static(isdefined(Core, :declare_const) ? true : false) && f === Core.declare_const &&
                        length(callstmt.args) >= 3 && skip_declare_const(interp, frame, callstmt)
@@ -625,7 +640,7 @@ function _methods_by_execution!(
                     if mode === :sigs
                         pc = next_or_nothing!(frame)
                     else # also execute this call
-                        pc = step_expr!(interp, frame, stmt, true)
+                        pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
                     end
                 elseif f === Core.eval
                     # an @eval or eval block: this may contain method definitions, so intercept it.
@@ -682,16 +697,16 @@ function _methods_by_execution!(
                     pc = next_or_nothing!(frame)
                 else
                     # A :call Expr we don't want to intercept
-                    pc = step_expr!(interp, frame, stmt, true)
+                    pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
                 end
             else
                 # An Expr we don't want to intercept
                 frame.pc = pc
-                pc = step_expr!(interp, frame, stmt, true)
+                pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
             end
         else
             # A statement we don't want to intercept
-            pc = step_expr!(interp, frame, stmt, true)
+            pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
         end
         pc === nothing && break
     end
@@ -1022,7 +1037,7 @@ function predict_typebodies!(predictions::TypePredictions, mod::Module, ex::Expr
                     callstmt = isa(rhs, Expr) && rhs.head === :call ? rhs : nothing
                 end
                 if callstmt === nothing
-                    pc = step_expr!(interp, frame, stmt, true)
+                    pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
                 else
                     f = lookup(frame, callstmt.args[1])
                     if @static(isdefined(Core, :resolve_typegroup) ? true : false) && f === Core.resolve_typegroup && length(callstmt.args) >= 5
@@ -1049,12 +1064,12 @@ function predict_typebodies!(predictions::TypePredictions, mod::Module, ex::Expr
                         assign_this!(frame, nothing)
                         pc = next_or_nothing!(frame)
                     else
-                        pc = step_expr!(interp, frame, stmt, true)
+                        pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
                     end
                 end
             end
         else
-            pc = step_expr!(interp, frame, stmt, true)
+            pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
         end
         pc === nothing && break
     end
