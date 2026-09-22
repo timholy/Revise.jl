@@ -3467,6 +3467,44 @@ end
         @test any(str -> endswith(str, "callee_error.jl:12"), lines)
         @test_throws UndefVarError CalleeError.foo(0.1f0)
 
+        # `JuliaInterpreter.break_on(:error)` (e.g. left on by Debugger.jl) makes `step_expr!`
+        # return a `BreakpointRef` instead of throwing. Revise cannot pause at it, so the
+        # original error must surface, not a failure on the `BreakpointRef` being used as a pc.
+        file = joinpath(testdir, "breakon.jl")
+        goodsrc = """
+            module BreakOn
+            for T in (Int, Float64)
+                @eval fbreakon(x::\$T) = 1
+            end
+            end
+            """
+        write(file, goodsrc)
+        sleep(mtimedelay)
+        includet(file)
+        @test BreakOn.fbreakon(1) == 1
+        sleep(mtimedelay)
+        write(file, replace(goodsrc, "Float64" => "Flaot64"))   # typo in a statement Revise itself steps
+        JuliaInterpreter.break_on(:error)
+        err = try
+            timedwait(() -> !isempty(Revise.revision_queue), event_timeout; pollint=0.02)
+            revise(throw=true)
+            nothing
+        catch err
+            err
+        finally
+            JuliaInterpreter.break_off(:error)
+        end
+        @test err isa Revise.ReviseEvalException
+        @test err.exc isa UndefVarError
+        @test occursin("Flaot64", sprint(showerror, err))
+        # Revision must work again once `break_on` is off. Use content that differs from the
+        # originally-tracked source: an errored revision leaves the stored expressions
+        # untouched, so restoring the identical text would be seen as "no change".
+        write(file, replace(goodsrc, "= 1" => "= 2"))
+        @yry()
+        @test BreakOn.fbreakon(1) == 2
+        @test BreakOn.fbreakon(1.0) == 2
+
         # Issue #877 (lowering errors)
         file = joinpath(testdir, "goodbadfile.jl")
         write(file, """
