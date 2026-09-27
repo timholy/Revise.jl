@@ -837,6 +837,25 @@ else
     retract_removed_bindings!(::ModuleExprsInfos, ::ModuleExprsInfos, ::UInt, ::Symbol) = nothing
 end
 
+# A pending binding retraction: `(pkgdata, file, idx, mod_exs_infos_old, mod_exs_infos_new)`.
+const Retraction = Tuple{PkgData,String,Int,ModuleExprsInfos,ModuleExprsInfos}
+
+# Retract now, or append to `retractions` when the caller runs retractions only after
+# every file's deletions. Deleting methods or types can extract signatures from files not
+# yet parsed (see `record_invalidations_for_type_deletion!`); that evaluates their
+# signatures in the latest world, where an import retracted earlier in the batch is
+# unbound even if the revised source re-imports it.
+function retract_or_defer!(retractions::Union{Nothing,Vector{Retraction}}, pkgdata::PkgData,
+                           file::AbstractString, idx::Int, mod_exs_infos_old::ModuleExprsInfos,
+                           mod_exs_infos_new::ModuleExprsInfos, world::UInt)
+    if retractions === nothing
+        retract_removed_bindings!(mod_exs_infos_old, mod_exs_infos_new, world, default_revise_mode(pkgdata))
+    else
+        push!(retractions, (pkgdata, String(file)::String, idx, mod_exs_infos_old, mod_exs_infos_new))
+    end
+    return nothing
+end
+
 # `true` if diffing old against new will delete at least one expression that defined
 # a type. This gates the prediction pass: when no type deletion is pending, there is
 # nothing for a prediction to save.
@@ -1479,11 +1498,11 @@ function delete_for_revision(
         pkgdata::PkgData, file::AbstractString, idx::Int,
         @nospecialize(mod_exs_infos_new), mod_exs_infos_old::ModuleExprsInfos, fileok::Bool,
         reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
-        predictions::TypePredictions,
+        predictions::TypePredictions; retractions::Union{Nothing,Vector{Retraction}}=nothing,
     )
     if mod_exs_infos_new !== nothing
         delete_missing!(mod_exs_infos_old, mod_exs_infos_new::ModuleExprsInfos, reeval_list, handled_types, world, predictions)
-        retract_removed_bindings!(mod_exs_infos_old, mod_exs_infos_new::ModuleExprsInfos, world, default_revise_mode(pkgdata))
+        retract_or_defer!(retractions, pkgdata, file, idx, mod_exs_infos_old, mod_exs_infos_new::ModuleExprsInfos, world)
     end
     if !fileok && any(!isempty, values(mod_exs_infos_old))
         filep = pkgdata.info.files[idx]
@@ -1594,7 +1613,7 @@ end
 function delete_orphaned_include!(
         pkgdata::PkgData, file::AbstractString, idx::Int, unwatch::Bool,
         reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
-        predictions::TypePredictions,
+        predictions::TypePredictions; retractions::Union{Nothing,Vector{Retraction}}=nothing,
     )
     fi = fileinfo(pkgdata, idx)
     maybe_parse_from_cache!(pkgdata, file, fi)
@@ -1602,7 +1621,7 @@ function delete_orphaned_include!(
     mod_exs_infos_old = fi.mod_exs_infos
     mod_exs_infos_new = ModuleExprsInfos(first(keys(mod_exs_infos_old)))
     delete_missing!(mod_exs_infos_old, mod_exs_infos_new, reeval_list, handled_types, world, predictions)
-    retract_removed_bindings!(mod_exs_infos_old, mod_exs_infos_new, world, default_revise_mode(pkgdata))
+    retract_or_defer!(retractions, pkgdata, file, idx, mod_exs_infos_old, mod_exs_infos_new, world)
     pkgdata.fileinfos[idx] = FileInfo(mod_exs_infos_new, fi)
     unwatch && unwatch_file!(pkgdata, file)
     @warn "$(joinpath(basedir(pkgdata), file)) is no longer `include`d into $(first(keys(mod_exs_infos_old))), deleted its methods"
@@ -2141,10 +2160,11 @@ function _revise(; throw::Bool=false)
         end
 
         # Apply the deletions
+        retractions = Retraction[]
         for (pkgdata, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
             try
                 delete_for_revision(pkgdata, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok,
-                                    reeval_list, handled_types, world, predictions)
+                                    reeval_list, handled_types, world, predictions; retractions)
                 if mod_exs_infos_new !== nothing
                     push!(mod_exs_infos, mod_exs_infos_new)
                     push!(finished, (pkgdata, file))
@@ -2161,13 +2181,26 @@ function _revise(; throw::Bool=false)
         deleted_orphans = empty(orphans)
         for (pkgdata, file, idx, unwatch) in orphans
             try
-                delete_orphaned_include!(pkgdata, file, idx, unwatch, reeval_list, handled_types, world, predictions)
+                delete_orphaned_include!(pkgdata, file, idx, unwatch, reeval_list, handled_types, world, predictions; retractions)
                 push!(deleted_orphans, (pkgdata, file, idx, unwatch))
             catch err
                 throw && Base.throw(err)
                 interrupt |= isa(err, InterruptException)
                 push!(revision_errors, (pkgdata, file))
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+            end
+        end
+        # Retract bindings only after all deletions (see `retract_or_defer!`).
+        for (pkgdata, file, idx, mod_exs_infos_old, mod_exs_infos_new) in retractions
+            try
+                retract_removed_bindings!(mod_exs_infos_old, mod_exs_infos_new, world, default_revise_mode(pkgdata))
+            catch err
+                throw && Base.throw(err)
+                interrupt |= isa(err, InterruptException)
+                push!(revision_errors, (pkgdata, file))
+                queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+                keep = [!(pd === pkgdata && f == file && i == idx) for ((pd, f), i) in zip(finished, finished_idx)]
+                finished, finished_idx, mod_exs_infos = finished[keep], finished_idx[keep], mod_exs_infos[keep]
             end
         end
 
@@ -2295,7 +2328,7 @@ function _revise(; throw::Bool=false)
         tracking_Main_includes[] && queue_includes(Main)
 
         process_user_callbacks!(; throw)
-    end
+    end   # @lock revise_lock
 
     nothing
 end

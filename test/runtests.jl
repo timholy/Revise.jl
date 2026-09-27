@@ -1261,6 +1261,46 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Retracted import during type deletion") && isdefined(Base, :delete_binding) &&
+            @testset "Retracted import during type deletion" begin
+        # Extending an explicit import list deletes and later re-binds the imported
+        # names. A type edit in the same revision extracts signatures from not-yet-parsed
+        # files, which must still see the imported names.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "ImportAndStruct", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "ImportAndStruct.jl")
+        mainsrc(names) = """
+            module ImportAndStruct
+            module Sub
+            struct Factor end
+            other() = 1
+            end
+            using .Sub: $names
+            include("a.jl")
+            include("b.jl")
+            end
+            """
+        write(fn, mainsrc("Factor"))
+        write(joinpath(dn, "a.jl"), "solve(::Factor) = 1\n")
+        bfile = joinpath(dn, "b.jl")
+        write(bfile, "struct S\n    x::Int\nend\n")
+        sleep(mtimedelay)
+        @eval using ImportAndStruct
+        @test ImportAndStruct.solve(ImportAndStruct.Factor()) == 1
+        sleep(mtimedelay)
+        write(fn, mainsrc("Factor, other"))
+        write(bfile, "struct S{T}\n    x::T\nend\n")
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test ImportAndStruct.S isa UnionAll
+        @test ImportAndStruct.other() == 1
+        @test ImportAndStruct.solve(ImportAndStruct.Factor()) == 1
+
+        rm_precompile("ImportAndStruct")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Multiple definitions") && @testset "Multiple definitions" begin
         # This simulates a copy/paste/save "error" from one file to another
         # ref https://github.com/timholy/CodeTracking.jl/issues/55
