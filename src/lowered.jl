@@ -405,6 +405,7 @@ function _methods_by_execution!(
     # plain access would be a backdated-const read (warning now, error in future Julia).
     modinclude = @invokelatest(isdefinedglobal(mod, :include)) ? @invokelatest(getglobal(mod, :include)) : nothing
     signatures = MethodInfoKey[]  # temporary for method signature storage
+    new_types = mode === :sigs ? IdSet{Type}() : nothing
     pc = frame.pc
     while true
         JuliaInterpreter.is_leaf(frame) || (@warn("not a leaf"); break)
@@ -576,10 +577,18 @@ function _methods_by_execution!(
                         assign_this!(frame, existing)
                         pc = next_or_nothing!(frame)
                     else
+                        oldtypes = mode === :sigs ? lookup(interp, frame, callstmt.args[5]) : nothing
                         pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
                         # (guarded: an assignment form would store to the slot instead)
                         groupresult = isassigned(frame.framedata.ssavalues, pc0) ?
                             frame.framedata.ssavalues[pc0] : nothing
+                        if mode === :sigs && groupresult isa Tuple
+                            for typ in groupresult
+                                if typ isa Type && !any(@nospecialize(old) -> old === typ, oldtypes)
+                                    push!(new_types, Base.unwrap_unionall(typ))
+                                end
+                            end
+                        end
                     end
                     if __bpart__[]
                         analyze_typegroup_result!(exinfo, groupresult)
@@ -596,7 +605,9 @@ function _methods_by_execution!(
                         # whose `:method` statements are skipped because `define=false`).
                         pc = next_or_nothing!(frame)
                     else
+                        typ = mode === :sigs ? typebody_partial(interp, frame, callstmt) : nothing
                         pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
+                        typ === nothing || push!(new_types, Base.unwrap_unionall(typ))
                     end
                 elseif mode === :sigs && @static(isdefined(Core, :declare_const) ? true : false) && f === Core.declare_const &&
                        length(callstmt.args) >= 3 && skip_declare_const(interp, frame, callstmt)
@@ -637,7 +648,9 @@ function _methods_by_execution!(
                             add_signature!(exinfo, sig, lnn)
                         end
                     end
-                    if mode === :sigs
+                    # Macro expansion can create fresh types even in :sigs mode. These
+                    # need constructors; reused types must keep their existing methods.
+                    if mode === :sigs && !(T isa Type && Base.unwrap_unionall(T) in new_types)
                         pc = next_or_nothing!(frame)
                     else # also execute this call
                         pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
