@@ -1765,13 +1765,8 @@ end
             """)
         sleep(mtimedelay)
         write(joinpath(dn, "file.jl"), "struct Ord2 end")
-        # TODO: remove also the log messages check when this test is fixed
-        @test_logs (:error, r"Failed to revise") (:warn, r"The running code does not match the saved version") yry()
-        @latestworld
-        @test_broken Order2.f(Order2.Ord2()) == 1
-        # Resolve it with retry
-        Revise.retry()
-        @latestworld
+        @yry()
+        @test isempty(Revise.queue_errors)
         @test Order2.f(Order2.Ord2()) == 1
 
         # Cross-module dependencies
@@ -1801,6 +1796,144 @@ end
 
         rm_precompile("Order1")
         rm_precompile("Order2")
+        pop!(LOAD_PATH)
+    end
+
+    # A file newly `include`d by a revision is evaluated at its position in the
+    # package's include order relative to the other files of the same revision.
+    do_test("New include order") && @testset "New include order" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "IncOrder", "src")
+        mkpath(dn)
+        write(joinpath(dn, "IncOrder.jl"), """
+            module IncOrder
+            include("types.jl")
+            include("mid.jl")
+            include("later.jl")
+            end
+            """)
+        write(joinpath(dn, "types.jl"), "abstract type Pen end")
+        write(joinpath(dn, "mid.jl"), "# a comment")
+        write(joinpath(dn, "later.jl"), "total(p::Pen, x) = penalty(p, x)")
+        sleep(mtimedelay)
+        @eval using IncOrder
+        sleep(mtimedelay)
+
+        # The new file uses a struct that an earlier-included file gains in the same
+        # revision.
+        write(joinpath(dn, "types.jl"), """
+            abstract type Pen end
+            struct PowerPen <: Pen
+                p::Int
+            end
+            """)
+        write(joinpath(dn, "powerpen.jl"), "penalty(pen::PowerPen, x) = x^pen.p")
+        write(joinpath(dn, "IncOrder.jl"), """
+            module IncOrder
+            include("types.jl")
+            include("powerpen.jl")
+            include("mid.jl")
+            include("later.jl")
+            end
+            """)
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test IncOrder.total(IncOrder.PowerPen(2), 3) == 9
+
+        # A later-included file changed in the same revision uses a struct the new file
+        # defines.
+        write(joinpath(dn, "logpen.jl"), "struct LogPen <: Pen end")
+        write(joinpath(dn, "later.jl"), """
+            total(p::Pen, x) = penalty(p, x)
+            penalty(::LogPen, x) = log(x)
+            """)
+        write(joinpath(dn, "IncOrder.jl"), """
+            module IncOrder
+            include("types.jl")
+            include("powerpen.jl")
+            include("logpen.jl")
+            include("mid.jl")
+            include("later.jl")
+            end
+            """)
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test IncOrder.total(IncOrder.LogPen(), 1.0) == 0.0
+
+        # The new `include` is in a non-root file, and the file that depends on the
+        # new file is included later by the root.
+        write(joinpath(dn, "abspen.jl"), "struct AbsPen <: Pen end")
+        write(joinpath(dn, "mid.jl"), """
+            # a comment
+            include("abspen.jl")
+            """)
+        write(joinpath(dn, "later.jl"), """
+            total(p::Pen, x) = penalty(p, x)
+            penalty(::LogPen, x) = log(x)
+            penalty(::AbsPen, x) = abs(x)
+            """)
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test IncOrder.total(IncOrder.AbsPen(), -2) == 2
+
+        # A new file that fails to evaluate keeps its own record empty, so retrying
+        # evaluates it from the start. The rest of the file that `include`s it is
+        # still evaluated.
+        write(joinpath(dn, "sqpen.jl"), "penalty(::SqPen, x) = x^2")
+        write(joinpath(dn, "IncOrder.jl"), """
+            module IncOrder
+            include("types.jl")
+            include("powerpen.jl")
+            include("logpen.jl")
+            include("mid.jl")
+            include("later.jl")
+            include("sqpen.jl")
+            unrelated() = 1
+            end
+            """)
+        @test_logs (:error, r"Failed to revise.*sqpen\.jl") (:warn, r"The running code does not match the saved version") match_mode=:any yry()
+        @latestworld
+        @test IncOrder.unrelated() == 1
+        @test any(k -> k[2] == joinpath("src", "sqpen.jl"), keys(Revise.queue_errors))
+        write(joinpath(dn, "types.jl"), """
+            abstract type Pen end
+            struct PowerPen <: Pen
+                p::Int
+            end
+            struct SqPen <: Pen end
+            """)
+        @yry()
+        @test_throws MethodError IncOrder.total(IncOrder.SqPen(), 3)
+        Revise.retry()
+        @latestworld
+        @test isempty(Revise.queue_errors)
+        @test IncOrder.total(IncOrder.SqPen(), 3) == 9
+
+        # An edit to a new file that failed to evaluate triggers its evaluation.
+        write(joinpath(dn, "cubepen.jl"), "penalty(::CubePen, x) = x^3")
+        write(joinpath(dn, "IncOrder.jl"), """
+            module IncOrder
+            include("types.jl")
+            include("powerpen.jl")
+            include("logpen.jl")
+            include("mid.jl")
+            include("later.jl")
+            include("sqpen.jl")
+            include("cubepen.jl")
+            unrelated() = 1
+            end
+            """)
+        @test_logs (:error, r"Failed to revise.*cubepen\.jl") (:warn, r"The running code does not match the saved version") match_mode=:any yry()
+        @latestworld
+        write(joinpath(dn, "cubepen.jl"), """
+            struct CubePen <: Pen end
+            penalty(::CubePen, x) = x^3
+            """)
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test IncOrder.total(IncOrder.CubePen(), 2) == 8
+
+        rm_precompile("IncOrder")
         pop!(LOAD_PATH)
     end
 
