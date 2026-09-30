@@ -6343,7 +6343,14 @@ do_test("File vanishes during scan (issue #1142)") && @testset "File vanishes du
     t0 = time()
     try
         while time() - t0 < 1
-            wf.file_ctimes[file] = ctime(fullpath)
+            # Forcing the stored ctime to match sends the scan down the
+            # content-hash path; the file may vanish under this read too.
+            wf.file_ctimes[file] = try
+                ctime(fullpath)
+            catch err
+                Revise.vanished_error(err) || rethrow()
+                0.0
+            end
             Revise.scan_changed_files(dir, wf, tracked, Set([file]))
         end
         @test true   # no exception escaped the scan loop
