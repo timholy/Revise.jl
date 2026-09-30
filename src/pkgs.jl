@@ -669,13 +669,17 @@ end
 # file, so call it only on event-named files, not in the per-directory sweep.
 # Returns `nothing` if the file no longer exists: editors that save by
 # delete-and-recreate can remove the file between the caller's existence check
-# and this read, and that must not kill the watcher task (issue #1142). Other
+# and this read, and that must not kill the watcher task (issue #1142). Windows
+# reports a file whose deletion is pending as EACCES rather than ENOENT. Other
 # errors propagate.
 function filehash(path::AbstractString)
     try
         return open(crc32c, path)
     catch err
-        (err isa SystemError && err.errnum == Libc.ENOENT) && return nothing
+        if err isa SystemError
+            err.errnum == Libc.ENOENT && return nothing
+            Sys.iswindows() && err.errnum == Libc.EACCES && return nothing
+        end
         rethrow()
     end
 end

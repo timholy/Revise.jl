@@ -6318,8 +6318,14 @@ do_test("File vanishes during scan (issue #1142)") && @testset "File vanishes du
     writer = Threads.@spawn begin
         n = 0
         while !stop[]
-            rm(fullpath; force=true)
-            write(fullpath, "f() = $n")
+            try
+                rm(fullpath; force=true)
+                write(fullpath, "f() = $n")
+            catch err
+                # On Windows the scanner's open handle can make the delete or
+                # recreate itself fail transiently; the stressor just retries.
+                err isa Union{Base.IOError,SystemError} || rethrow()
+            end
             n += 1
         end
     end
