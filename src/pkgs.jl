@@ -667,7 +667,18 @@ end
 
 # Content hash for disambiguating events whose ctime is unchanged. Reads the
 # file, so call it only on event-named files, not in the per-directory sweep.
-filehash(path::AbstractString) = open(crc32c, path)
+# Returns `nothing` if the file no longer exists: editors that save by
+# delete-and-recreate can remove the file between the caller's existence check
+# and this read, and that must not kill the watcher task (issue #1142). Other
+# errors propagate.
+function filehash(path::AbstractString)
+    try
+        return open(crc32c, path)
+    catch err
+        (err isa SystemError && err.errnum == Libc.ENOENT) && return nothing
+        rethrow()
+    end
+end
 
 # Scan the `tracked` `name=>PkgId` pairs of directory `dirname`, returning those
 # whose files should be queued for revision. `changed` is the set of entry names
@@ -711,14 +722,17 @@ function scan_changed_files(dirname::AbstractString, wf::WatchList, tracked, cha
         queueit = current_ctime != @lock revise_lock get(wf.file_ctimes, file, current_ctime - 1)
         if !queueit && changed !== nothing && file in changed
             h = filehash(fullpath)
-            queueit = h != @lock revise_lock get(wf.file_hashes, file, h + 1)
+            # A vanished file (`nothing`) counts as changed
+            queueit = h === nothing || h != @lock revise_lock get(wf.file_hashes, file, h + 1)
         end
         if queueit
             push!(latestfiles, file=>id)
             h = filehash(fullpath)
             @lock revise_lock begin
                 wf.file_ctimes[file] = current_ctime
-                wf.file_hashes[file] = h
+                # If the file vanished mid-scan, drop the stale hash so the
+                # recreated file compares as changed on its next event.
+                h === nothing ? delete!(wf.file_hashes, file) : (wf.file_hashes[file] = h)
             end
         end
     end

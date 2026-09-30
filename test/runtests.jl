@@ -6299,6 +6299,43 @@ do_test("Event-named files bypass the ctime filter") && @testset "Event-named fi
     @test Revise.scan_changed_files(dir, wf, tracked, nothing) == [file=>id]
 end
 
+do_test("File vanishes during scan (issue #1142)") && @testset "File vanishes during scan (issue #1142)" begin
+    # Editors that save by delete-and-recreate can remove the file between the
+    # scan's existence check and the content hash; the watcher task must survive.
+    dir = randtmp()
+    mkdir(dir)
+    push!(to_remove, dir)
+    file = "tracked.jl"
+    fullpath = joinpath(dir, file)
+    @test Revise.filehash(fullpath) === nothing
+    write(fullpath, "f() = 1")
+    @test Revise.filehash(fullpath) isa UInt32
+    id = Base.PkgId("FakePkg")
+    wf = Revise.WatchList()
+    push!(wf, file=>id)
+    tracked = collect(wf.trackedfiles)
+    stop = Ref(false)
+    writer = Threads.@spawn begin
+        n = 0
+        while !stop[]
+            rm(fullpath; force=true)
+            write(fullpath, "f() = $n")
+            n += 1
+        end
+    end
+    t0 = time()
+    try
+        while time() - t0 < 1
+            wf.file_ctimes[file] = ctime(fullpath)
+            Revise.scan_changed_files(dir, wf, tracked, Set([file]))
+        end
+        @test true   # no exception escaped the scan loop
+    finally
+        stop[] = true
+        wait(writer)
+    end
+end
+
 ## A missing tracked file is often transient: code generators delete a whole
 ## directory and rewrite it over several seconds (issue #945). Within
 ## `missing_file_grace`, a `revise()` must neither delete the file's methods nor
