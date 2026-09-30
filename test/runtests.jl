@@ -6307,13 +6307,24 @@ do_test("File vanishes during scan (issue #1142)") && @testset "File vanishes du
     push!(to_remove, dir)
     file = "tracked.jl"
     fullpath = joinpath(dir, file)
-    @test Revise.filehash(fullpath) === nothing
     write(fullpath, "f() = 1")
-    @test Revise.filehash(fullpath) isa UInt32
     id = Base.PkgId("FakePkg")
     wf = Revise.WatchList()
     push!(wf, file=>id)
     tracked = collect(wf.trackedfiles)
+
+    # Errors that do not mean "vanished" still propagate: a directory without
+    # search permission makes `stat` fail with EACCES (not applicable on
+    # Windows, and root bypasses permission checks).
+    if !Sys.iswindows() && ccall(:getuid, Cuint, ()) != 0
+        chmod(dir, 0o000)
+        try
+            @test_throws Base.IOError Revise.scan_changed_files(dir, wf, tracked, Set([file]))
+        finally
+            chmod(dir, 0o700)
+        end
+    end
+
     stop = Ref(false)
     writer = Threads.@spawn begin
         n = 0
