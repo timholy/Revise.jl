@@ -105,6 +105,7 @@ Revise.hold_cache!
 Revise.cache_snapshot_is_valid
 Revise.cached_source_is_current
 Revise.include_targets
+Revise.maybe_add_includes_to_pkgdata!
 ```
 
 Revise pins its own method dispatch to the world age captured at initialization, so that
