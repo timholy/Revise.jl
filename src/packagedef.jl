@@ -2109,19 +2109,22 @@ RevisionPass(revision_errors, reeval_list, handled_types, world, predictions, th
 function include_order(pkgdata::PkgData, current::Dict{Tuple{String,Int},ModuleExprsInfos})
     order = Int[]
     visited = Set{Int}()
-    function visit(idx::Int)
-        idx in visited && return
-        push!(visited, idx)
-        push!(order, idx)
-        file = srcfiles(pkgdata)[idx]
-        for (path, mod) in ordered_include_targets(pkgdata, file, source_view(pkgdata, file, idx, current))
-            for j in fileindices(pkgdata, path)
-                includemodule(pkgdata, j) === mod && visit(j)
-            end
-        end
-    end
     for idx in eachindex(pkgdata.fileinfos)
-        visit(idx)
+        include_order!(order, visited, pkgdata, current, idx)
+    end
+    return order
+end
+
+function include_order!(order::Vector{Int}, visited::Set{Int}, pkgdata::PkgData,
+                        current::Dict{Tuple{String,Int},ModuleExprsInfos}, idx::Int)
+    idx in visited && return order
+    push!(visited, idx)
+    push!(order, idx)
+    file = srcfiles(pkgdata)[idx]
+    for (path, mod) in ordered_include_targets(pkgdata, file, source_view(pkgdata, file, idx, current))
+        for j in fileindices(pkgdata, path)
+            includemodule(pkgdata, j) === mod && include_order!(order, visited, pkgdata, current, j)
+        end
     end
     return order
 end
