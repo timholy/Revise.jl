@@ -2061,12 +2061,28 @@ end
 # pass `include`s it (a first-time file, or one whose record could not be trusted);
 # every expression of such a file is evaluated (`:eval`), whatever the package's
 # revision mode.
-struct RevisionEntry
-    pkgdata::PkgData
-    file::String
-    idx::Int
-    mod_exs_infos::ModuleExprsInfos
-    included::Bool
+#
+# `pending` holds, per module, the expressions not yet evaluated successfully, in
+# source order; a module is dropped once all of its expressions succeed. `round` is
+# the last round of `evaluate_worklist!` that attempted the entry (0 if none), and
+# `err` and `bt` describe the most recent failure.
+mutable struct RevisionEntry
+    const pkgdata::PkgData
+    const file::String
+    const idx::Int
+    const mod_exs_infos::ModuleExprsInfos
+    const included::Bool
+    const pending::Dict{Module,Vector{RelocatableExpr}}
+    round::Int
+    err::Any
+    bt::Any
+end
+function RevisionEntry(pkgdata::PkgData, file::AbstractString, idx::Int, mod_exs_infos::ModuleExprsInfos, included::Bool)
+    pending = Dict{Module,Vector{RelocatableExpr}}()
+    for (mod, exs_infos) in mod_exs_infos
+        pending[mod] = collect(keys(exs_infos))
+    end
+    return RevisionEntry(pkgdata, String(file), idx, mod_exs_infos, included, pending, 0, nothing, nothing)
 end
 
 # The evaluation stage of `_revise`: the files to evaluate, in order, and the
@@ -2079,10 +2095,11 @@ mutable struct RevisionPass
     const world::UInt
     const predictions::TypePredictions
     const throw::Bool
+    round::Int
     interrupt::Bool
 end
 RevisionPass(revision_errors, reeval_list, handled_types, world, predictions, throw) =
-    RevisionPass(RevisionEntry[], revision_errors, reeval_list, handled_types, world, predictions, throw, false)
+    RevisionPass(RevisionEntry[], revision_errors, reeval_list, handled_types, world, predictions, throw, 0, false)
 
 # The files of `pkgdata` in `include` order, as indices into `pkgdata.fileinfos`, found
 # statically from the current sources (`current` holds the pending parses of files in
@@ -2147,33 +2164,38 @@ function schedule_include!(pass::RevisionPass, pkgdata::PkgData, file::AbstractS
         @error "scan for the include order of $(PkgId(pkgdata)) failed; evaluating $file now" exception=(err, catch_backtrace())
         q = p + 1
     end
-    if q == p + 1
-        evaluate_entry!(pass, entry, p)
-    else
-        insert!(pass.worklist, q, entry)
-    end
+    inline = all(j -> isempty(pass.worklist[j].pending), p+1:q-1)
+    insert!(pass.worklist, q, entry)
+    inline && evaluate_entry!(pass, entry, q)
     return nothing
 end
 
-# Evaluate the new and changed expressions of one file. `p` is the entry's position in
-# the worklist, after which the files it newly `include`s are scheduled.
+# Evaluate the pending expressions of one file, in source order within each module,
+# stopping at the first failure in a module (its later expressions may depend on the
+# failed one) but going on to the file's other modules. Repeats while a module
+# succeeds, since modules of one file can depend on one another in either order.
+# Returns whether any expression succeeded. `p` is the entry's position in the
+# worklist, after which the files it newly `include`s are scheduled.
 function evaluate_entry!(pass::RevisionPass, entry::RevisionEntry, p::Int)
-    (; pkgdata, file, idx, included) = entry
+    (; pkgdata, file, idx, included, pending) = entry
     mod_exs_infos_new = entry.mod_exs_infos
     defaultmode = default_revise_mode(pkgdata)
     fi = fileinfo(pkgdata, idx)
-    modsremaining = Set(keys(mod_exs_infos_new))
-    changed, err = true, nothing
+    entry.round = pass.round
+    progress = false
+    changed = true
     while changed
         changed = false
         for (mod, exs_infos_new) in mod_exs_infos_new
-            mod ∈ modsremaining || continue
+            rexes = get(pending, mod, nothing)
+            rexes === nothing && continue
             try
                 # Allow packages to override the supplied mode
                 mode = included ? :eval : revise_mode(mod, defaultmode)
                 mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
                 exs_infos_old = get(fi.mod_exs_infos, mod, empty_exs_infos)
-                for rex in keys(exs_infos_new)
+                while !isempty(rexes)
+                    rex = first(rexes)
                     exinfos, includes = eval_rex(rex, exs_infos_old, mod; mode)
                     if exinfos !== nothing
                         exs_infos_new[rex] = exinfos
@@ -2182,25 +2204,59 @@ function evaluate_entry!(pass::RevisionPass, entry::RevisionEntry, p::Int)
                         maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true,
                             revise=(pd, incrp, i) -> schedule_include!(pass, pd, incrp, i, p))
                     end
+                    popfirst!(rexes)
+                    progress = true
                 end
-                delete!(modsremaining, mod)
+                delete!(pending, mod)
                 changed = true
             catch e
-                err = e
+                entry.err, entry.bt = e, catch_backtrace()
+                pass.interrupt |= isa(e, InterruptException)
             end
         end
     end
-    if isempty(modsremaining) || isa(err, LoweringException)   # fix #877
-        pkgdata.fileinfos[idx] = FileInfo(mod_exs_infos_new, fi)
+    return progress
+end
+
+# Evaluate every entry of the worklist. An expression can fail because it uses a
+# definition that a file later in the worklist supplies in this same pass (all
+# deletions precede evaluation, so nothing is lost by waiting); after a round in which
+# some expression succeeded, the failed expressions are tried again. Rounds end when
+# one makes no progress. Only then are the results recorded: the stored expressions
+# and `queue_errors` for files whose expressions all succeeded, and the errors of the
+# rest.
+function evaluate_worklist!(pass::RevisionPass)
+    worklist = pass.worklist
+    progress = true
+    while progress && !pass.interrupt
+        pass.round += 1
+        progress = false
+        p = 0
+        while p < length(worklist)
+            p += 1
+            entry = worklist[p]
+            # Skip entries already attempted this round (evaluated inline by
+            # `schedule_include!`).
+            (isempty(entry.pending) || entry.round == pass.round) && continue
+            progress |= evaluate_entry!(pass, entry, p)
+        end
+        all(entry -> isempty(entry.pending), worklist) && break
     end
-    if isempty(modsremaining)
-        realias_orphaned_bindings!(mod_exs_infos_new, fi.mod_exs_infos)  # issue #239
-        delete!(queue_errors, (pkgdata, file))
-    else
-        pass.throw && Base.throw(err)
-        pass.interrupt |= isa(err, InterruptException)
-        push!(pass.revision_errors, (pkgdata, file))
-        queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+    for entry in worklist
+        (; pkgdata, file, idx, pending, err) = entry
+        mod_exs_infos_new = entry.mod_exs_infos
+        fi = fileinfo(pkgdata, idx)
+        if isempty(pending) || isa(err, LoweringException)   # fix #877
+            pkgdata.fileinfos[idx] = FileInfo(mod_exs_infos_new, fi)
+        end
+        if isempty(pending)
+            realias_orphaned_bindings!(mod_exs_infos_new, fi.mod_exs_infos)  # issue #239
+            delete!(queue_errors, (pkgdata, file))
+        else
+            pass.throw && Base.throw(err)
+            push!(pass.revision_errors, (pkgdata, file))
+            queue_errors[(pkgdata, file)] = (err, entry.bt)
+        end
     end
     return nothing
 end
@@ -2363,11 +2419,7 @@ function _revise(; throw::Bool=false)
         for ((pkgdata, file), i, mod_exs_infos_new) in zip(finished, finished_idx, mod_exs_infos)
             push!(pass.worklist, RevisionEntry(pkgdata, file, i, mod_exs_infos_new, false))
         end
-        p = 0
-        while p < length(pass.worklist)
-            p += 1
-            evaluate_entry!(pass, pass.worklist[p], p)
-        end
+        evaluate_worklist!(pass)
         interrupt |= pass.interrupt
 
         # Evaluation above relies on stable `pkgdata.fileinfos` indices.

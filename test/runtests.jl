@@ -1765,13 +1765,8 @@ end
             """)
         sleep(mtimedelay)
         write(joinpath(dn, "file.jl"), "struct Ord2 end")
-        # TODO: remove also the log messages check when this test is fixed
-        @test_logs (:error, r"Failed to revise") (:warn, r"The running code does not match the saved version") yry()
-        @latestworld
-        @test_broken Order2.f(Order2.Ord2()) == 1
-        # Resolve it with retry
-        Revise.retry()
-        @latestworld
+        @yry()
+        @test isempty(Revise.queue_errors)
         @test Order2.f(Order2.Ord2()) == 1
 
         # Cross-module dependencies
