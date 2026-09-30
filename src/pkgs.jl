@@ -669,6 +669,34 @@ end
 # file, so call it only on event-named files, not in the per-directory sweep.
 filehash(path::AbstractString) = open(crc32c, path)
 
+# Whether `err` came from a filesystem call on a file that vanished after its
+# existence was checked (editors that save by delete-and-recreate open this
+# window; issue #1142). `open` throws `SystemError`, `stat` throws `IOError`.
+# Windows reports a file whose deletion is pending as EACCES rather than
+# ENOENT, so only there is EACCES treated as vanished.
+function vanished_error(err)
+    if err isa SystemError
+        return err.errnum == Libc.ENOENT || (Sys.iswindows() && err.errnum == Libc.EACCES)
+    elseif err isa Base.IOError
+        return err.code == Base.UV_ENOENT || (Sys.iswindows() && Base.uverrorname(err.code) == "EACCES")
+    end
+    return false
+end
+
+# Record that `file` is missing and return whether to queue it. The
+# disappearance is queued only once (stored ctime 0.0 marks it as already
+# queued); a sibling-file event must not requeue a persistently missing file.
+# The stored value reverts to a real ctime when the file reappears, and the
+# dropped hash makes the reappeared content compare as changed.
+function queue_missing!(wf::WatchList, file::AbstractString)
+    return @lock revise_lock begin
+        queueit = get(wf.file_ctimes, file, NaN) != 0.0
+        wf.file_ctimes[file] = 0.0
+        delete!(wf.file_hashes, file)
+        queueit
+    end
+end
+
 # Scan the `tracked` `name=>PkgId` pairs of directory `dirname`, returning those
 # whose files should be queued for revision. `changed` is the set of entry names
 # reported by the filesystem events (`nothing` if unknown).
@@ -687,42 +715,46 @@ function scan_changed_files(dirname::AbstractString, wf::WatchList, tracked, cha
     latestfiles = Pair{String,PkgId}[]
     for (file, id) in tracked
         fullpath = joinpath(dirname, file)
-        if isdir(fullpath)
-            # Detected a modification in a directory that we're watching in
-            # itself (not as a container for watched files)
-            push!(latestfiles, file=>id)
-            continue
-        elseif !file_exists(fullpath)
-            # File may have been deleted. But check again after a very brief pause.
-            sleep(0.1)
-            if !file_exists(fullpath)
-                # Queue the disappearance only once (stored ctime 0.0 marks it
-                # as already queued); a sibling-file event must not requeue a
-                # persistently missing file. The stored value reverts to a real
-                # ctime when the file reappears.
-                if (@lock revise_lock get(wf.file_ctimes, file, NaN)) != 0.0
-                    push!(latestfiles, file=>id)
-                    @lock revise_lock wf.file_ctimes[file] = 0.0
-                end
-                continue
-            end
+        queueit = try
+            scan_tracked_file!(wf, fullpath, file, changed)
+        catch err
+            # The file vanished between the existence check and a later
+            # filesystem call; treat it like one that was already missing
+            # rather than letting the exception kill the watcher task.
+            vanished_error(err) || rethrow()
+            queue_missing!(wf, file)
         end
-        current_ctime = ctime(fullpath)
-        queueit = current_ctime != @lock revise_lock get(wf.file_ctimes, file, current_ctime - 1)
-        if !queueit && changed !== nothing && file in changed
-            h = filehash(fullpath)
-            queueit = h != @lock revise_lock get(wf.file_hashes, file, h + 1)
-        end
-        if queueit
-            push!(latestfiles, file=>id)
-            h = filehash(fullpath)
-            @lock revise_lock begin
-                wf.file_ctimes[file] = current_ctime
-                wf.file_hashes[file] = h
-            end
-        end
+        queueit && push!(latestfiles, file=>id)
     end
     return latestfiles
+end
+
+# Whether the tracked `file` at `fullpath` should be queued, updating the
+# stored ctime and hash when it is.
+function scan_tracked_file!(wf::WatchList, fullpath::AbstractString, file::AbstractString, changed::Union{Nothing,Set{String}})
+    if isdir(fullpath)
+        # Detected a modification in a directory that we're watching in
+        # itself (not as a container for watched files)
+        return true
+    elseif !file_exists(fullpath)
+        # File may have been deleted. But check again after a very brief pause.
+        sleep(0.1)
+        file_exists(fullpath) || return queue_missing!(wf, file)
+    end
+    current_ctime = ctime(fullpath)
+    queueit = current_ctime != @lock revise_lock get(wf.file_ctimes, file, current_ctime - 1)
+    if !queueit && changed !== nothing && file in changed
+        h = filehash(fullpath)
+        queueit = h != @lock revise_lock get(wf.file_hashes, file, h + 1)
+    end
+    if queueit
+        h = filehash(fullpath)
+        @lock revise_lock begin
+            wf.file_ctimes[file] = current_ctime
+            wf.file_hashes[file] = h
+        end
+    end
+    return queueit
 end
 
 function watch_files_via_dir(dirname::AbstractString)

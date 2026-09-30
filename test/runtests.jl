@@ -6299,6 +6299,67 @@ do_test("Event-named files bypass the ctime filter") && @testset "Event-named fi
     @test Revise.scan_changed_files(dir, wf, tracked, nothing) == [file=>id]
 end
 
+do_test("File vanishes during scan (issue #1142)") && @testset "File vanishes during scan (issue #1142)" begin
+    # Editors that save by delete-and-recreate can remove the file between the
+    # scan's existence check and the content hash; the watcher task must survive.
+    dir = randtmp()
+    mkdir(dir)
+    push!(to_remove, dir)
+    file = "tracked.jl"
+    fullpath = joinpath(dir, file)
+    write(fullpath, "f() = 1")
+    id = Base.PkgId("FakePkg")
+    wf = Revise.WatchList()
+    push!(wf, file=>id)
+    tracked = collect(wf.trackedfiles)
+
+    # Errors that do not mean "vanished" still propagate: a directory without
+    # search permission makes `stat` fail with EACCES (not applicable on
+    # Windows, and root bypasses permission checks).
+    if !Sys.iswindows() && ccall(:getuid, Cuint, ()) != 0
+        chmod(dir, 0o000)
+        try
+            @test_throws Base.IOError Revise.scan_changed_files(dir, wf, tracked, Set([file]))
+        finally
+            chmod(dir, 0o700)
+        end
+    end
+
+    stop = Ref(false)
+    writer = Threads.@spawn begin
+        n = 0
+        while !stop[]
+            try
+                rm(fullpath; force=true)
+                write(fullpath, "f() = $n")
+            catch err
+                # On Windows the scanner's open handle can make the delete or
+                # recreate itself fail transiently; the stressor just retries.
+                err isa Union{Base.IOError,SystemError} || rethrow()
+            end
+            n += 1
+        end
+    end
+    t0 = time()
+    try
+        while time() - t0 < 1
+            # Forcing the stored ctime to match sends the scan down the
+            # content-hash path; the file may vanish under this read too.
+            wf.file_ctimes[file] = try
+                ctime(fullpath)
+            catch err
+                Revise.vanished_error(err) || rethrow()
+                0.0
+            end
+            Revise.scan_changed_files(dir, wf, tracked, Set([file]))
+        end
+        @test true   # no exception escaped the scan loop
+    finally
+        stop[] = true
+        wait(writer)
+    end
+end
+
 ## A missing tracked file is often transient: code generators delete a whole
 ## directory and rewrite it over several seconds (issue #945). Within
 ## `missing_file_grace`, a `revise()` must neither delete the file's methods nor
