@@ -266,6 +266,108 @@ end
                 end
             end
         end
+
+        @static if isdefined(Core, :_defaultctors) || isdefined(Base, :_defaultctors)
+            @testset "Default constructors for macro-generated types" begin
+                local mod = private_module()
+                Core.eval(mod, quote
+                    macro anonymous_interface(empty)
+                        # A leading `#` would let LoweredCodeUtils reuse the loaded name.
+                        N = Symbol("AnonymousInterface", gensym())
+                        if empty
+                            return esc(quote
+                                Base.@kwdef struct $N end
+                                Base.convert(::Type{$N}, ::NamedTuple{(),Tuple{}}) = $N()
+                                $N
+                            end)
+                        end
+                        return esc(quote
+                            Base.@kwdef struct $N
+                                value::Int
+                            end
+                            Base.convert(::Type{$N}, nt::NamedTuple) = $N(; nt...)
+                            $N
+                        end)
+                    end
+                end)
+                for empty in (false, true)
+                    lnn = LineNumberNode(@__LINE__, Symbol(@__FILE__))
+                    # The block makes ExprSplitter lower the macro expansion as a thunk.
+                    ex = Expr(:block, lnn, Expr(:macrocall, Symbol("@anonymous_interface"), lnn, empty))
+                    loaded = Core.eval(mod, ex)
+                    args = empty ? () : (7,)
+                    nt = empty ? NamedTuple() : (value=7,)
+                    @test @invokelatest(hasmethod(loaded, Tuple{map(typeof, args)...}))
+                    @test @invokelatest(convert(loaded, nt)) === @invokelatest(loaded(args...))
+
+                    exinfos, _, _ = Revise.eval_with_signatures(mod, ex; mode=:sigs)
+                    generated = only(x.typname.wrapper for x in exinfos if x isa Revise.TypeInfo)
+                    @test generated !== loaded
+                    @test startswith(string(nameof(generated)), "AnonymousInterface")
+                    @test @invokelatest(hasmethod(generated, Tuple{map(typeof, args)...}))
+                    if empty
+                        @test @invokelatest(convert(generated, nt)) === @invokelatest(generated())
+                    else
+                        # :sigs does not install the keyword constructor, only defaultctors.
+                        @test @invokelatest(generated(args...)).value == 7
+                    end
+                    siginfos = Revise.SigInfo[x for x in exinfos if x isa Revise.SigInfo]
+                    defaultsigs = empty ? [Tuple{Type{generated}}] :
+                        [Tuple{Type{generated},Any}, Tuple{Type{generated},Int}]
+                    @test all(sig -> any(si -> si.sig == sig, siginfos), defaultsigs)
+                    world = Base.get_world_counter()
+                    @test all(siginfos) do siginfo
+                        !isempty(Base._methods_by_ftype(siginfo.sig, siginfo.mt, -1, world))
+                    end
+                end
+            end
+
+            @testset "Default constructors for reused loaded types" begin
+                local mod = private_module()
+                exprs = [:(struct LoadedEmpty end),
+                         :(struct LoadedField
+                             value::Int
+                         end),
+                         :(struct LoadedParametric{T}
+                             value::T
+                         end)]
+                foreach(ex -> Core.eval(mod, ex), exprs)
+                Core.eval(mod, quote
+                    LoadedEmpty(::Nothing) = LoadedEmpty()
+                    LoadedField(value::Int) = invoke(LoadedField, Tuple{Any}, value + 1)
+                    LoadedField(::Nothing) = LoadedField(7)
+                    LoadedParametric(value::T) where T = LoadedParametric{T}(value + one(value))
+                    LoadedParametric(::Nothing) = LoadedParametric(7)
+                end)
+                types = [getglobal(mod, name) for name in (:LoadedEmpty, :LoadedField, :LoadedParametric)]
+                ctors = [types; types[3]{Int}]
+                loaded_methods = [collect(@invokelatest(methods(T))) for T in ctors]
+                @test @invokelatest(types[1](nothing)) === @invokelatest(types[1]())
+                @test @invokelatest(types[2](nothing)).value == 8
+                @test @invokelatest(types[3](nothing)).value == 8
+                for _ in 1:2
+                    for (ex, T) in zip(exprs, types)
+                        world = Base.get_world_counter()
+                        exinfos, _, _ = Revise.eval_with_signatures(mod, ex; mode=:sigs)
+                        @test Base.get_world_counter() == world
+                        @test @invokelatest(getglobal(mod, nameof(T))) === T
+                        siginfos = Revise.SigInfo[x for x in exinfos if x isa Revise.SigInfo]
+                        @test !isempty(siginfos)
+                        @test all(siginfos) do siginfo
+                            !isempty(Base._methods_by_ftype(siginfo.sig, siginfo.mt, -1, world))
+                        end
+                    end
+                    @test all(zip(ctors, loaded_methods)) do (T, oldmethods)
+                        newmethods = collect(@invokelatest(methods(T)))
+                        length(newmethods) == length(oldmethods) &&
+                            all(old -> any(new -> new === old, newmethods), oldmethods)
+                    end
+                    @test @invokelatest(types[1](nothing)) === @invokelatest(types[1]())
+                    @test @invokelatest(types[2](nothing)).value == 8
+                    @test @invokelatest(types[3](nothing)).value == 8
+                end
+            end
+        end
     end
 
     do_test("Comparison and line numbering") && @testset "Comparison and line numbering" begin
