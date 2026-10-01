@@ -718,8 +718,12 @@ function _methods_by_execution!(
                     if !haskey(m.docs, sig)
                         # The existing key may differ from `sig` only in `TypeVar` names
                         # (e.g., when it was created during precompilation); reuse it.
-                        i = findfirst(k -> same_type_modulo_typevar_names(k, sig), m.order)
-                        i === nothing || (sig = m.order[i])
+                        for k in m.order
+                            if same_type_modulo_typevar_names(k, sig)
+                                sig = k
+                                break
+                            end
+                        end
                     end
                     if haskey(m.docs, sig)
                         currentstr = m.docs[sig]::Base.Docs.DocStr
