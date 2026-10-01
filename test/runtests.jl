@@ -300,8 +300,11 @@ end
                     @test @invokelatest(hasmethod(loaded, Tuple{map(typeof, args)...}))
                     @test @invokelatest(convert(loaded, nt)) === @invokelatest(loaded(args...))
 
+                    oldnames = @invokelatest names(mod; all=true)
                     exinfos, _, _ = Revise.eval_with_signatures(mod, ex; mode=:sigs)
-                    generated = only(x.typname.wrapper for x in exinfos if x isa Revise.TypeInfo)
+                    newnames = setdiff(@invokelatest(names(mod; all=true)), oldnames)
+                    generated_name = only(n for n in newnames if startswith(string(n), "AnonymousInterface"))
+                    generated = @invokelatest getglobal(mod, generated_name)
                     @test generated !== loaded
                     @test startswith(string(nameof(generated)), "AnonymousInterface")
                     @test @invokelatest(hasmethod(generated, Tuple{map(typeof, args)...}))
