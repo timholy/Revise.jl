@@ -2103,6 +2103,39 @@ end
         @test get_docstring(ds) == "g"
 
         rm_precompile("FirstDocstring")
+
+        # A signature containing a `UnionAll` parameter
+        same = Revise.same_type_modulo_typevar_names
+        @test same(Tuple{Int, AbstractVector{var"#s1"} where var"#s1"<:Integer},
+                   Tuple{Int, AbstractVector{var"#s2"} where var"#s2"<:Integer})
+        @test !same(Union{Tuple{Any}, Tuple{T}} where T<:Float64, Union{Tuple{Any}, Tuple{T}} where T)
+        @test !same(Union{Tuple{Any}, Tuple{T}} where T, Tuple{Any})
+        @test !same(Tuple{T,T} where T, Tuple{T,S} where {T,S})
+        dn = joinpath(testdir, "UnionAllDocstring", "src")
+        mkpath(dn)
+        write(joinpath(dn, "UnionAllDocstring.jl"), """
+            module UnionAllDocstring
+            "f1" f(::AbstractVector{<:Integer}) = 1
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using UnionAllDocstring
+        sleep(mtimedelay)
+        ds = @doc(UnionAllDocstring.f)
+        @test get_docstring(ds) == "f1"
+        for str in ("f2", "f3")
+            write(joinpath(dn, "UnionAllDocstring.jl"), """
+                module UnionAllDocstring
+                "$str" f(::AbstractVector{<:Integer}) = 1
+                end
+                """)
+            @yry()
+            ds = @doc(UnionAllDocstring.f)
+            @test get_docstring(ds) == str
+            @test length(Base.Docs.meta(UnionAllDocstring)[Base.Docs.Binding(UnionAllDocstring, :f)].docs) == 1
+        end
+
+        rm_precompile("UnionAllDocstring")
         pop!(LOAD_PATH)
     end
 
