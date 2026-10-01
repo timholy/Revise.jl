@@ -392,6 +392,41 @@ function throw_if_breakpoint(pc)
     return pc
 end
 
+# Structural identity of types up to renaming of `TypeVar`s. `===` compares `TypeVar`
+# names, which are generated (e.g., `#s1` for `AbstractVector{<:Integer}`) and need not
+# match between sessions; `==` is too weak, since distinct signatures can be equal as types
+# (e.g., `Union{Tuple{Any}, Tuple{T}} where T<:Float64` and `Tuple{Any}`).
+same_type_modulo_typevar_names(@nospecialize(a), @nospecialize(b)) =
+    same_type_modulo_typevar_names(a, b, Pair{TypeVar,TypeVar}[])
+function same_type_modulo_typevar_names(@nospecialize(a), @nospecialize(b), env::Vector{Pair{TypeVar,TypeVar}})
+    same(@nospecialize(x), @nospecialize(y)) = same_type_modulo_typevar_names(x, y, env)
+    a === b && return true
+    if a isa TypeVar && b isa TypeVar
+        for i in lastindex(env):-1:firstindex(env)
+            va, vb = env[i]
+            (va === a || vb === b) && return va === a && vb === b
+        end
+        return false
+    elseif a isa UnionAll && b isa UnionAll
+        same(a.var.lb, b.var.lb) && same(a.var.ub, b.var.ub) || return false
+        push!(env, a.var => b.var)
+        ret = same(a.body, b.body)
+        pop!(env)
+        return ret
+    elseif a isa Union && b isa Union
+        return same(a.a, b.a) && same(a.b, b.b)
+    elseif a isa DataType && b isa DataType
+        a.name === b.name && length(a.parameters) == length(b.parameters) || return false
+        return all(i -> same(a.parameters[i], b.parameters[i]), eachindex(a.parameters))
+    elseif a isa Core.TypeofVararg && b isa Core.TypeofVararg
+        isdefined(a, :T) == isdefined(b, :T) && isdefined(a, :N) == isdefined(b, :N) || return false
+        isdefined(a, :T) && !same(a.T, b.T) && return false
+        isdefined(a, :N) && !same(a.N, b.N) && return false
+        return true
+    end
+    return false
+end
+
 function _methods_by_execution!(
         interp::Interpreter, exinfo::ExInfo, frame::Frame, isrequired::AbstractVector{Bool};
         mode::Symbol = :eval, skip_include::Bool = true, eval_namespace::Bool = mode!==:sigs
@@ -693,6 +728,16 @@ function _methods_by_execution!(
                         Base.Docs.initmeta(dmod)
                     end
                     m = get!(Base.Docs.meta(dmod), b, Base.Docs.MultiDoc())::Base.Docs.MultiDoc
+                    if !haskey(m.docs, sig)
+                        # The existing key may differ from `sig` only in `TypeVar` names
+                        # (e.g., when it was created during precompilation); reuse it.
+                        for k in m.order
+                            if same_type_modulo_typevar_names(k, sig)
+                                sig = k
+                                break
+                            end
+                        end
+                    end
                     if haskey(m.docs, sig)
                         currentstr = m.docs[sig]::Base.Docs.DocStr
                         redefine = currentstr.text != str.text
