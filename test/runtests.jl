@@ -2111,6 +2111,8 @@ end
         @test !same(Union{Tuple{Any}, Tuple{T}} where T<:Float64, Union{Tuple{Any}, Tuple{T}} where T)
         @test !same(Union{Tuple{Any}, Tuple{T}} where T, Tuple{Any})
         @test !same(Tuple{T,T} where T, Tuple{T,S} where {T,S})
+        @test same(Tuple{Vararg{T,N}} where {T,N}, Tuple{Vararg{S,M}} where {S,M})
+        @test !same(Tuple{Vararg{Int}}, Tuple{Vararg{Integer}})
         dn = joinpath(testdir, "UnionAllDocstring", "src")
         mkpath(dn)
         write(joinpath(dn, "UnionAllDocstring.jl"), """
