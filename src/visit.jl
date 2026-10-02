@@ -14,17 +14,14 @@ function old_methods_with(oldtypename::Core.TypeName)
     meths = Ref{Union{Nothing,Set{Method}}}(nothing)
     methodtable = @static isdefinedglobal(Core, :methodtable) ? Core.methodtable : Core.GlobalMethods
     Base.visit(methodtable) do method
-        sigt = Base.unwrap_unionall(method.sig)
-        if sigt isa DataType
-            for i = 1:length(sigt.parameters)
-                if is_with_oldtypename(sigt.parameters[i], oldtypename)
-                    if meths[] === nothing
-                        meths[] = Set{Method}()
-                    end
-                    push!(meths[]::Set{Method}, method)
-                    break
-                end
+        # Walk the whole signature, `where` binders included: the old type may only
+        # appear in a static parameter's bound (`f(::P) where {P<:OldType}`), which
+        # `Base.unwrap_unionall` does not expose on every Julia version.
+        if is_with_oldtypename(method.sig, oldtypename)
+            if meths[] === nothing
+                meths[] = Set{Method}()
             end
+            push!(meths[]::Set{Method}, method)
         end
     end
     return meths[]
