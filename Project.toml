@@ -30,25 +30,4 @@ JuliaInterpreter = "0.11"
 LoweredCodeUtils = "3.7"
 OrderedCollections = "1, 2"
 Preferences = "1.5.0"
-Requires = "~1.0, ^1.1.1"
 julia = "1.10"
-
-[extras]
-CatIndices = "aafaddc9-749c-510e-ac4f-586e18779b91"
-Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
-EndpointRanges = "340492b5-2a47-5f55-813d-aca7ddf97656"
-EponymTuples = "97e2ac4a-e175-5f49-beb1-4d6866a6cdc3"
-Example = "7876af07-990d-54b4-ab0e-23690620f79a"
-IndirectArrays = "9b13fd28-a010-5f03-acff-a1bbcff69959"
-InteractiveUtils = "b77e0a4c-d291-57a0-90e8-8db25a27a240"
-MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
-MappedArrays = "dbb5928d-eab1-5f90-85c2-b9b0edb7c900"
-Pkg = "44cfe95a-1eb2-52ea-b672-e2afdf69b78f"
-Random = "9a3f8284-a2c9-5f02-9a11-845980a1fd5c"
-Requires = "ae029012-a4dd-5104-9daa-d747884805df"
-RoundingIntegers = "d5f540fe-1c90-5db3-b776-2e2f362d9394"
-Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
-UnsafeArrays = "c4a57d5a-5b31-53a6-b365-19f8c011fbd6"
-
-[targets]
-test = ["CatIndices", "Distributed", "EndpointRanges", "EponymTuples", "Example", "IndirectArrays", "InteractiveUtils", "MacroTools", "MappedArrays", "Pkg", "Random", "Requires", "RoundingIntegers", "Test", "UnsafeArrays"]
