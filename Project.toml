@@ -1,6 +1,6 @@
 name = "Revise"
 uuid = "295af30f-e4ad-537b-8983-00126c2a3abe"
-version = "3.17.1"
+version = "3.17.2"
 
 [workspace]
 projects = ["docs", "test"]
@@ -26,8 +26,8 @@ DistributedExt = "Distributed"
 [compat]
 CodeTracking = "3"
 Distributed = "1"
-JuliaInterpreter = "0.11"
-LoweredCodeUtils = "3.7"
+JuliaInterpreter = "0.12"
+LoweredCodeUtils = "3.10"
 OrderedCollections = "1, 2"
 Preferences = "1.5.0"
 julia = "1.10"
