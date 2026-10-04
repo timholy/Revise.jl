@@ -7,6 +7,19 @@ to prevent stacktraces from containing lots of lines pointing to Revise's own co
 If you're trying to debug a Revise error, you'd probably prefer to see the entire stacktrace.
 You can uncomment the obvious commented-out line in [`Revise.trim_toplevel!`](@ref).
 
+Revise also catches many errors so that your session keeps running despite a failed
+revision. To make these errors propagate instead, set
+
+```julia
+Revise.rethrow_errors[] = true
+```
+
+in the running session. The next failure is then thrown from [`revise`](@ref) (or from
+whatever command triggered the revision) with its original backtrace.
+See [`Revise.rethrow_errors`](@ref) for details.
+Errors caught during revision are also recorded in the "Error" group of the logs described below,
+whether or not `rethrow_errors` is set.
+
 ## The logging framework
 
 If Revise isn't behaving the way you expect it to, it can be useful to examine the

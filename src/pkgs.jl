@@ -276,7 +276,7 @@ function maybe_extract_sigs_or_queue_error!(pkgdata::PkgData, file::AbstractStri
     try
         maybe_extract_sigs!(fi)
     catch err
-        isa(err, InterruptException) && rethrow(err)
+        handle_caught(err, catch_backtrace(), "ExtractSigsFailed"; throw=isa(err, InterruptException), file)
         @lock revise_lock queue_errors[(pkgdata, file)] = (err, catch_backtrace())
     end
     return fi

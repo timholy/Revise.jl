@@ -3941,6 +3941,86 @@ end
         @test r954(1) == 1
     end
 
+    do_test("rethrow_errors") && @testset "rethrow_errors" begin
+        @test Revise.rethrow_errors[] == false
+        rlogger = Revise.debug_logger()
+        empty!(rlogger.logs)
+        testdir = newtestdir()
+        dn = joinpath(testdir, "RethrowErrors", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "RethrowErrors.jl")
+        write(fn, """
+            module RethrowErrors
+            include("types.jl")
+            f() = 1
+            end
+            """)
+        write(joinpath(dn, "types.jl"), "# a comment")
+        sleep(mtimedelay)
+        @eval using RethrowErrors
+        sleep(mtimedelay)
+        badsrc(fval) = """
+            module RethrowErrors
+            include("types.jl")
+            f() = $fval
+            struct Bad
+                x::UndefinedTypeRethrowErrors
+            end
+            end
+            """
+        try
+            # Off: the error is recorded and the rest of the file is revised.
+            write(fn, badsrc(2))
+            @test_logs (:error, r"Failed to revise.*RethrowErrors\.jl") (:warn, r"The running code does not match the saved version") match_mode=:any yry()
+            @test @invokelatest(RethrowErrors.f()) == 2
+            err, _ = Revise.queue_errors[(Revise.pkgdatas[Base.PkgId(RethrowErrors)], joinpath("src", "RethrowErrors.jl"))]
+            @test occursin("UndefinedTypeRethrowErrors", sprint(showerror, err))
+            recs = filter(r -> r.group == "Error" && r.message == "EvalFailed", rlogger.logs)
+            @test !isempty(recs)
+            @test last(recs).kwargs[:exception][1] === err
+
+            # On: the same failure is thrown from `revise`, with its original backtrace.
+            Revise.rethrow_errors[] = true
+            write(fn, badsrc(3))
+            @test timedwait(() -> !isempty(Revise.revision_queue), event_timeout; pollint=0.02) === :ok
+            sleep(0.02)
+            ex = try
+                revise()
+                nothing
+            catch e
+                e
+            end
+            @test ex isa CapturedException
+            @test occursin("UndefinedTypeRethrowErrors", sprint(showerror, ex))
+            @test any(((sf, _),) -> sf.func === :evaluate_entry!, ex.processed_bt)
+            # Successful expressions are applied, as they are with the switch off.
+            @test @invokelatest(RethrowErrors.f()) == 3
+            @test_throws "UndefinedTypeRethrowErrors" revise()
+
+            # A failure that a later retry round resolves does not throw. The root file
+            # is evaluated before "types.jl", so `g` fails in the first round.
+            empty!(rlogger.logs)
+            write(fn, """
+                module RethrowErrors
+                include("types.jl")
+                f() = 4
+                g(::Ord) = 1
+                end
+                """)
+            write(joinpath(dn, "types.jl"), "struct Ord end")
+            @yry()
+            @test isempty(Revise.queue_errors)
+            @test @invokelatest(RethrowErrors.g(@invokelatest(RethrowErrors.Ord()))) == 1
+            @test any(r -> r.group == "Error" && r.message == "EvalFailed", rlogger.logs)
+        finally
+            Revise.rethrow_errors[] = false
+            Revise.debug_logger(; min_level=Info)
+            empty!(Revise.queue_errors)
+            rm_precompile("RethrowErrors")
+            pop!(LOAD_PATH)
+        end
+    end
+
     do_test("Retry on InterruptException") && @testset "Retry on InterruptException" begin
         function check_revision_interrupt(logs)
             rec = logs[1]
@@ -6259,6 +6339,15 @@ do_test("Manifest re-extraction errors") && @testset "Manifest re-extraction err
     # Debugging and non-`:sigs` modes preserve their original exception behavior.
     @test_throws ErrorException Revise.instantiate_sigs!(mkfi().mod_exs_infos; always_rethrow=true)
     @test_throws Revise.ReviseEvalException Revise.instantiate_sigs!(mkfi().mod_exs_infos; mode=:eval)
+    # `rethrow_errors` acts like `always_rethrow=true`, including in the resilient helper.
+    try
+        Revise.rethrow_errors[] = true
+        @test_throws "issue 706 sigs failure" Revise.instantiate_sigs!(mkfi().mod_exs_infos)
+        @test_throws ErrorException Revise.maybe_extract_sigs_or_queue_error!(pkgdata, file, mkfi())
+        @test !haskey(Revise.queue_errors, (pkgdata, file))
+    finally
+        Revise.rethrow_errors[] = false
+    end
 
     # The resilient helper records the contextual error instead of throwing.
     @test (Revise.maybe_extract_sigs_or_queue_error!(pkgdata, file, mkfi()); true)

@@ -150,6 +150,8 @@ with the following relevant fields:
     any changes.
   + "Bindings": "propagating" consequences of rebinding event(s), where dependent types
     or methods need to be re-evaluated.
+  + "Error": an error that Revise caught. The `exception` keyword holds `(err, backtrace)`.
+    See also [`Revise.rethrow_errors`](@ref).
 - `message`: a string containing more information. Some examples:
   + For entries in the "Action" group, `message` can be `"Eval"` when modifying
     old methods or defining new ones, "DeleteMethod" when deleting a method,
