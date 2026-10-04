@@ -4008,7 +4008,12 @@ end
                 end
                 """)
             write(joinpath(dn, "types.jl"), "struct Ord end")
-            @yry()
+            # The root file is still queued from the failures above, so wait for
+            # "types.jl" specifically: both files must be revised in the same pass.
+            @test timedwait(() -> any(((_, file),) -> file == joinpath("src", "types.jl"), Revise.revision_queue),
+                            event_timeout; pollint=0.02) === :ok
+            sleep(0.02)
+            revise()
             @test isempty(Revise.queue_errors)
             @test @invokelatest(RethrowErrors.g(@invokelatest(RethrowErrors.Ord()))) == 1
             @test any(r -> r.group == "Error" && r.message == "EvalFailed", rlogger.logs)
