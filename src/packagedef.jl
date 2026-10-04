@@ -1671,6 +1671,15 @@ end
 
 function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reeval_list::IdSet{Union{Method,Type}}, world::UInt)
     reeval_infos = ReevalInfo[]
+    # Names of the types in `reeval_list`, all of which are bound at `world`. A `TypeInfo`
+    # outside this set cannot match; skipping it avoids reading, at `world`, a binding
+    # created later in this revision (a backdated-const access).
+    reeval_typenames = Set{Tuple{Module,Symbol}}()
+    for reeval in reeval_list
+        reeval isa Type || continue
+        dt = Base.unwrap_unionall(reeval)
+        dt isa DataType && push!(reeval_typenames, (dt.name.module, dt.name.name))
+    end
 
     # N.B. This traverse could become expensive when Revise tracked code becomes large
     # We could optimize this part by preparing a `CodeTracking.ex_info` cache that incorporates
@@ -1695,6 +1704,7 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
                             end
                         else exinfo::TypeInfo
                             typeinfo = exinfo
+                            (typeinfo.typname.module, typeinfo.typname.name) in reeval_typenames || continue
                             if Base.invoke_in_world(world, isdefinedglobal, typeinfo.typname.module, typeinfo.typname.name)
                                 typ = Base.invoke_in_world(world, getglobal, typeinfo.typname.module, typeinfo.typname.name)
                                 if typ isa Type && typ in reeval_list
