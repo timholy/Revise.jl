@@ -2322,6 +2322,61 @@ end
         pop!(LOAD_PATH)
     end
 
+    if Revise.__bpart__[] && do_test("Struct redefinition plus new struct")
+        @testset "Struct redefinition plus new struct" begin
+            # Re-evaluating code that depends on a redefined struct must not read
+            # the binding of a struct added in the same revision at the
+            # pre-revision world (a backdated-const access, reported with
+            # "access to binding ... in a world prior to its definition world").
+            testdir = newtestdir()
+            dn = joinpath(testdir, "RedefPlusNew", "src")
+            mkpath(dn)
+            write(joinpath(dn, "RedefPlusNew.jl"), """
+                module RedefPlusNew
+                struct Est
+                    a::Float64
+                end
+                f(e::Est) = e.a
+                end
+                """)
+            sleep(mtimedelay)
+            @eval using RedefPlusNew
+            sleep(mtimedelay)
+            @test RedefPlusNew.f(RedefPlusNew.Est(1.0)) == 1.0
+            write(joinpath(dn, "RedefPlusNew.jl"), """
+                module RedefPlusNew
+                abstract type AbstractEst end
+                struct Est <: AbstractEst
+                    a::Float64
+                end
+                f(e::Est) = e.a
+                struct Grp{T}
+                    a::T
+                end
+                g(x::Grp) = x.a
+                end
+                """)
+            errfile, errio = mktemp()
+            try
+                redirect_stderr(errio) do
+                    yry()
+                end
+            finally
+                close(errio)
+            end
+            @latestworld
+            stderrtxt = read(errfile, String)
+            rm(errfile; force=true)
+            @test !occursin("world prior to its definition world", stderrtxt)
+            @test RedefPlusNew.Est <: RedefPlusNew.AbstractEst
+            @test RedefPlusNew.f(RedefPlusNew.Est(2.0)) == 2.0
+            @test RedefPlusNew.g(RedefPlusNew.Grp(3.0)) == 3.0
+
+            rm_precompile("RedefPlusNew")
+            pop!(LOAD_PATH)
+        end
+    end
+
     do_test("doc expr signature") && @testset "Docstring attached to signatures" begin
         md = Revise.ModuleExprsInfos(Main)
         parse_source!(md, """
