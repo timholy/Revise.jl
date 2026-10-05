@@ -3161,6 +3161,46 @@ end
         Base.delete_method(first(methods(Base.revisefoo)))
     end
 
+    do_test("Module-local eval") && isdefined(Core, :EvalInto) && @testset "Module-local eval" begin
+        testdir = newtestdir()
+        dn = joinpath(testdir, "LocalEval", "src")
+        mkpath(dn)
+        write(joinpath(dn, "LocalEval.jl"), """
+            __precompile__(false)
+            module LocalEval
+            for T in (Int, Float64)
+                eval(:(localeval(::\$T) = \$T))
+            end
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using LocalEval
+        sleep(mtimedelay)
+        @test LocalEval.localeval(1) === Int
+        @test LocalEval.localeval(1.0) === Float64
+        @test isa(definition(@which LocalEval.localeval(1.0)), Expr)
+        write(joinpath(dn, "LocalEval.jl"), """
+            __precompile__(false)
+            module LocalEval
+            for T in (Int,)
+                eval(:(localeval(::\$T) = \$T))
+            end
+            end
+            """)
+        @yry()
+        @test LocalEval.localeval(1) === Int
+        @test_throws MethodError LocalEval.localeval(1.0)
+
+        # `eval` of a non-expression has nothing to intercept
+        mod = private_module()
+        Core.eval(mod, :(const evalsym = 1))
+        for ex in (:(evalcopy1 = eval(:evalsym)), :(evalcopy2 = Core.eval(@__MODULE__, :evalsym)))
+            Revise.methods_by_execution(mod, ex)
+        end
+        @test (@invokelatest mod.evalcopy1) == 1
+        @test (@invokelatest mod.evalcopy2) == 1
+    end
+
     do_test("Method deletion specificity") && @testset "Method deletion specificity" begin
         ex1 = :(methspecificity(x::Int) = 1)
         ex2 = :(methspecificity(x::Integer) = 2)
