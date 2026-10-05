@@ -89,6 +89,7 @@ function apply_mapexpr!(mapexpr::Function, ex::Expr, filename::AbstractString)
         try
             return Base.invokelatest(mapexpr, a)
         catch err
+            rethrow_errors[] && rethrow()
             bt = trim_toplevel!(catch_backtrace())
             loc = location_string((lnn.file, lnn.line))
             throw(ReviseEvalException(loc, err, Any[(sf, 1) for sf in stacktrace(bt)]))
@@ -119,6 +120,7 @@ function process_ex!(mod_exprs_sigs::ModuleExprsInfos, ex::Expr, filename::Abstr
             try
                 lastval = Core.eval(mod, ex)
             catch err
+                rethrow_errors[] && rethrow()
                 bt = trim_toplevel!(catch_backtrace())
                 lnn = firstline(ex)
                 loc = location_string((lnn.file, lnn.line))

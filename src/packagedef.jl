@@ -338,6 +338,52 @@ Locking is covered by `revise_lock`.
 """
 const missing_file_grace = Ref(5.0)
 
+"""
+    Revise.rethrow_errors
+
+A `Ref{Bool}` (default `false`) controlling how Revise handles errors it catches.
+
+By default, Revise catches errors that arise while parsing, deleting, or
+evaluating revised code, records them in [`Revise.queue_errors`](@ref), reports
+them, and keeps the session running. Setting `Revise.rethrow_errors[] = true`
+(which takes effect immediately in a running session) makes those catch sites
+rethrow instead, so that the first failure propagates to the caller of
+[`revise`](@ref) (or `includet`, `Revise.track`, ...) with its original
+backtrace. This is intended for debugging Revise itself.
+
+Two kinds of failure are thrown only once the stage of revision that produced them
+is complete: evaluation of revised expressions, where a failed expression is retried
+as long as other expressions in the same revision succeed (it may use a definition
+from a file evaluated later), and re-evaluation of methods and types after a binding
+changes. These are thrown wrapped in a `CapturedException` that carries the original
+backtrace, so turning this on does not change which expressions these stages
+successfully revise.
+
+Independent of this setting, Revise records each error caught at these sites in the
+"Error" group of [`Revise.debug_logger`](@ref), along with its backtrace.
+"""
+const rethrow_errors = Ref(false)
+
+# Record an error caught by Revise in the "Error" group of the debug log. `kwargs`
+# are added to the log record.
+function log_caught(err, bt, msg::AbstractString; kwargs...)
+    with_logger(_debug_logger) do
+        @debug msg _group="Error" time=time() exception=(err, bt) kwargs...
+    end
+    return nothing
+end
+
+# Log a caught error and rethrow it if `throw` or `rethrow_errors[]` is true.
+# Must be called from within a `catch` block.
+function handle_caught(err, bt, msg::AbstractString; throw::Bool=false, kwargs...)
+    log_caught(err, bt, msg; kwargs...)
+    (throw || rethrow_errors[]) && rethrow()
+    return nothing
+end
+
+# Throw an error recorded in an earlier `catch` block, if `rethrow_errors[]` is true.
+throw_deferred(err, bt) = rethrow_errors[] && Base.throw(CapturedException(err, bt))
+
 # When a queued file is missing at revision time, records when `revise` first
 # noticed the absence; the entry is removed when the file reappears. Locking is
 # covered by `revise_lock`.
@@ -1129,7 +1175,7 @@ function instantiate_sigs!(mod_exs_infos::ModuleExprsInfos; mode::Symbol=:sigs,
                 exs_infos[rex] = exinfos
                 includes === nothing || append!(includes, incs)
             catch err
-                if (mode !== :sigs || get(kwargs, :always_rethrow, false) ||
+                if (mode !== :sigs || get(kwargs, :always_rethrow, false) || rethrow_errors[] ||
                     err isa InterruptException || err isa SignatureExtractionError)
                     rethrow()
                 end
@@ -1601,7 +1647,7 @@ function orphaned_includes(parsed; throw::Bool=false)
         try
             append!(orphans, orphaned_includes(pkgdata, parsed))
         catch err
-            (throw || isa(err, InterruptException)) && rethrow()
+            handle_caught(err, catch_backtrace(), "OrphanScanFailed"; throw = throw || isa(err, InterruptException))
             @error "scan for removed `include`s failed for $(PkgId(pkgdata)); keeping its files tracked" exception=(err, catch_backtrace())
         end
     end
@@ -1717,6 +1763,7 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
             end
         end
     end
+    failures = Tuple{Any,Any}[]   # `(err, bt)`; the first is thrown at the end under `rethrow_errors[]`
     for (; reeval, mod, exs_infos, rex, pkgdata, file) in reeval_infos
         reeval isa Type || continue
         with_logger(_debug_logger) do
@@ -1728,9 +1775,11 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
                 # Re-evaluation failed, likely due to type incompatibility
                 # Clear exs_infos cache for this `rex` so that we will retry evaluation when methods become compatible
                 delete!(exs_infos, rex)
-                @debug "ReevalTypeFailed" _group="Action" time=time() deltainfo=(reeval,mod,rex,err)
+                bt = catch_backtrace()
+                log_caught(err, bt, "ReevalTypeFailed"; deltainfo=(reeval,mod,rex))
                 push!(revision_errors, (pkgdata, file))
-                queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+                queue_errors[(pkgdata, file)] = (err, bt)
+                push!(failures, (err, bt))
             end
         end
     end
@@ -1744,7 +1793,11 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
         with_logger(_debug_logger) do
             @debug "ReevalDeleteMethod" _group="Action" time=time() deltainfo=(reeval.sig, MethodSummary(reeval))
             # ensure that "old data" doesn't get run with "old methods"
-            try Base.delete_method(reeval) catch end
+            try
+                Base.delete_method(reeval)
+            catch err
+                handle_caught(err, catch_backtrace(), "ReevalDeleteMethodFailed"; deltainfo=(reeval.sig, MethodSummary(reeval)))
+            end
         end
     end
     evaluated_rexes = Set{Tuple{Module,RelocatableExpr}}()
@@ -1761,12 +1814,15 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
                 # Re-evaluation failed, likely due to type incompatibility
                 # Clear exs_infos cache for this `rex` so that we will retry evaluation when methods become compatible
                 delete!(exs_infos, rex)
-                @debug "ReevalMethodFailed" _group="Action" time=time() deltainfo=(reeval,mod,rex,err)
+                bt = catch_backtrace()
+                log_caught(err, bt, "ReevalMethodFailed"; deltainfo=(reeval,mod,rex))
                 push!(revision_errors, (pkgdata, file))
-                queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+                queue_errors[(pkgdata, file)] = (err, bt)
+                push!(failures, (err, bt))
             end
         end
     end
+    isempty(failures) || throw_deferred(first(failures)...)
     return revision_errors
 end
 
@@ -1857,7 +1913,7 @@ function realias_orphaned_bindings!(mod_exs_infos_new::ModuleExprsInfos,
                     @debug "RealiasOrphan" _group="Action" time=time() deltainfo=(mod, n, src)
                     push!(repaired, (mod, n, src))
                 catch err
-                    @debug "RealiasOrphanFailed" _group="Action" time=time() deltainfo=(mod, n, err)
+                    handle_caught(err, catch_backtrace(), "RealiasOrphanFailed"; deltainfo=(mod, n))
                 end
             end
         end
@@ -2173,7 +2229,7 @@ function schedule_include!(pass::RevisionPass, pkgdata::PkgData, file::AbstractS
             q = j + 1
         end
     catch err
-        (pass.throw || isa(err, InterruptException)) && rethrow()
+        handle_caught(err, catch_backtrace(), "IncludeOrderScanFailed"; throw = pass.throw || isa(err, InterruptException))
         @error "scan for the include order of $(PkgId(pkgdata)) failed; evaluating $file now" exception=(err, catch_backtrace())
         q = p + 1
     end
@@ -2223,7 +2279,9 @@ function evaluate_entry!(pass::RevisionPass, entry::RevisionEntry, p::Int)
                 delete!(pending, mod)
                 changed = true
             catch e
+                # Retried in later rounds; see `evaluate_worklist!`.
                 entry.err, entry.bt = e, catch_backtrace()
+                log_caught(e, entry.bt, "EvalFailed"; mod, file)
                 pass.interrupt |= isa(e, InterruptException)
             end
         end
@@ -2270,6 +2328,10 @@ function evaluate_worklist!(pass::RevisionPass)
             push!(pass.revision_errors, (pkgdata, file))
             queue_errors[(pkgdata, file)] = (err, entry.bt)
         end
+    end
+    for entry in worklist
+        (isempty(entry.pending) || entry.err === nothing) && continue
+        throw_deferred(entry.err, entry.bt)
     end
     return nothing
 end
@@ -2357,7 +2419,7 @@ function _revise(; throw::Bool=false)
                     pending_type_deletion |= __bpart__[] && has_pending_type_deletion(mod_exs_infos_new, mod_exs_infos_old)
                     push!(parsed, (pkgdata, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok))
                 catch err
-                    throw && Base.throw(err)
+                    handle_caught(err, catch_backtrace(), "ParseFailed"; throw, file)
                     interrupt |= isa(err, InterruptException)
                     push!(revision_errors, (pkgdata, file))
                     queue_errors[(pkgdata, file)] = (err, catch_backtrace())
@@ -2394,7 +2456,7 @@ function _revise(; throw::Bool=false)
                     push!(finished_idx, idx)
                 end
             catch err
-                throw && Base.throw(err)
+                handle_caught(err, catch_backtrace(), "DeleteFailed"; throw, file)
                 interrupt |= isa(err, InterruptException)
                 push!(revision_errors, (pkgdata, file))
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())
@@ -2407,7 +2469,7 @@ function _revise(; throw::Bool=false)
                 delete_orphaned_include!(pkgdata, file, idx, unwatch, reeval_list, handled_types, world, predictions; retractions)
                 push!(deleted_orphans, (pkgdata, file, idx, unwatch))
             catch err
-                throw && Base.throw(err)
+                handle_caught(err, catch_backtrace(), "DeleteOrphanFailed"; throw, file)
                 interrupt |= isa(err, InterruptException)
                 push!(revision_errors, (pkgdata, file))
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())
@@ -2418,7 +2480,7 @@ function _revise(; throw::Bool=false)
             try
                 retract_removed_bindings!(mod_exs_infos_old, mod_exs_infos_new, world, default_revise_mode(pkgdata))
             catch err
-                throw && Base.throw(err)
+                handle_caught(err, catch_backtrace(), "RetractFailed"; throw, file)
                 interrupt |= isa(err, InterruptException)
                 push!(revision_errors, (pkgdata, file))
                 queue_errors[(pkgdata, file)] = (err, catch_backtrace())

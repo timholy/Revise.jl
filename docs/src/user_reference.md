@@ -24,6 +24,7 @@ Revise.stale_load
 Revise.debug_logger
 Revise.actions
 Revise.diffs
+Revise.rethrow_errors
 ```
 
 ### Prevent Revise from watching specific packages

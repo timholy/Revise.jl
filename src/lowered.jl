@@ -299,8 +299,10 @@ The other keyword arguments are more straightforward:
 - `eval_namespace` controls whether `using`/`import`/`export` statements are executed. It defaults
   to `true` except in `:sigs` mode. Set it for revised source whose signatures depend on new
   namespace statements. Leave it unset when cataloging loaded source to avoid loading packages.
-- `always_rethrow`, if true, causes an error to be thrown if evaluating `ex` triggered an error.
-  If false, the error is logged with `@error`. `InterruptException`s are always rethrown.
+- `always_rethrow`, if true, causes an error triggered by evaluating `ex` to be rethrown
+  unchanged. If false, the error is wrapped in a [`Revise.ReviseEvalException`](@ref) that records
+  the source location. `InterruptException`s are always rethrown unchanged, as are all
+  errors when [`Revise.rethrow_errors`](@ref) is set.
   This is primarily useful for debugging.
 """
 function methods_by_execution!(
@@ -335,7 +337,7 @@ function methods_by_execution!(
             ret = try
                 Core.eval(mod, ex)
             catch err
-                (always_rethrow || isa(err, InterruptException)) && rethrow(err)
+                (always_rethrow || rethrow_errors[] || isa(err, InterruptException)) && rethrow(err)
                 loc = location_string(whereis(frame))
                 bt = trim_toplevel!(catch_backtrace())
                 throw(ReviseEvalException(loc, err, Any[(sf, 1) for sf in stacktrace(bt)]))
@@ -358,7 +360,7 @@ function methods_by_execution!(
         ret = try
             _methods_by_execution!(interp, exinfo, frame, isrequired; mode, eval_namespace, kwargs...)
         catch err
-            (always_rethrow || isa(err, InterruptException)) && (@isdefined(active_bp_refs) && foreach(enable, active_bp_refs); rethrow(err))
+            (always_rethrow || rethrow_errors[] || isa(err, InterruptException)) && (@isdefined(active_bp_refs) && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame))
             sfs = []  # crafted for interaction with Base.show_backtrace
             frame = JuliaInterpreter.leaf(frame)
