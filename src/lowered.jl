@@ -110,12 +110,27 @@ is_define_method_call_4arg(@nospecialize(stmt)) =
     isdefined(LoweredCodeUtils, :is_define_method_call_4arg) &&
     getfield(LoweredCodeUtils, :is_define_method_call_4arg)(stmt)
 
-function matches_eval(stmt::Expr)
+function matches_eval(stmt::Expr, code::Vector{Any})
     stmt.head === :call || return false
     f = stmt.args[1]
+    # e.g. a module's own `eval`, which Julia 1.12+ lowering reads into an SSA value
+    while isa(f, Core.SSAValue) || isa(f, JuliaInterpreter.SSAValue)
+        f = code[f.id]
+    end
     return f === :eval ||
            (callee_matches(f, Base, :getproperty) && is_quotenode_egal(stmt.args[end], :eval)) ||
            (isa(f, GlobalRef) && f.name === :eval) || is_quotenode_egal(f, Core.eval)
+end
+
+# The module and expression of an `eval` call to intercept: `Core.eval(mod, ex)` (as from
+# `@eval`), or `eval(ex)` with a module's own `eval`, which is a `Core.EvalInto` on Julia 1.12+.
+function eval_call_operands(interp::Interpreter, frame::Frame, @nospecialize(f), callstmt::Expr)
+    if f === Core.eval
+        return Pair{Module,Any}(lookup(interp, frame, callstmt.args[2]), lookup(interp, frame, callstmt.args[3]))
+    elseif @static(isdefined(Core, :EvalInto) ? true : false) && f isa Core.EvalInto && length(callstmt.args) == 2
+        return Pair{Module,Any}(f.m, lookup(interp, frame, callstmt.args[2]))
+    end
+    return nothing
 end
 
 is_namespace_head(head::Symbol) = head === :export || head === :import || head === :using
@@ -138,7 +153,7 @@ end
 function categorize_stmt(@nospecialize(stmt), code::Vector{Any})
     ismeth, haseval, isinclude, isnamespace, istoplevel = false, false, false, false, false
     if isa(stmt, Expr)
-        haseval = matches_eval(stmt)
+        haseval = matches_eval(stmt, code)
         ismeth = stmt.head === :method || (stmt.head === :thunk && defines_function(only(stmt.args)))
         istoplevel = stmt.head === :toplevel
         isnamespace = is_namespace_head(stmt.head)
@@ -690,19 +705,23 @@ function _methods_by_execution!(
                     else # also execute this call
                         pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
                     end
-                elseif f === Core.eval
+                elseif (operands = eval_call_operands(interp, frame, f, callstmt)) !== nothing
                     # an @eval or eval block: this may contain method definitions, so intercept it.
-                    evalmod = lookup(interp, frame, callstmt.args[2])::Module
-                    evalex = lookup(interp, frame, callstmt.args[3])
+                    evalmod, evalex = operands
                     local value = nothing
-                    for (newmod, newex) in ExprSplitter(evalmod, evalex)
-                        if is_doc_expr(newex)
-                            newex = newex.args[4]
+                    if evalex isa Expr
+                        for (newmod, newex) in ExprSplitter(evalmod, evalex)
+                            if is_doc_expr(newex)
+                                newex = newex.args[4]::Expr
+                            end
+                            newex = unwrap(newex)::Expr
+                            push!(exinfo.exprstack, newex)
+                            value, _ = methods_by_execution!(interp, exinfo, newmod, newex; mode, skip_include, eval_namespace, disablebp=false)
+                            pop!(exinfo.exprstack)
                         end
-                        newex = unwrap(newex)
-                        push!(exinfo.exprstack, newex)
-                        value, _ = methods_by_execution!(interp, exinfo, newmod, newex; mode, skip_include, eval_namespace, disablebp=false)
-                        pop!(exinfo.exprstack)
+                    else
+                        # e.g. `eval(sym)`: nothing to split, and it cannot define methods
+                        value = Core.eval(evalmod, evalex)
                     end
                     assign_this!(frame, value)
                     pc = next_or_nothing!(frame)
@@ -982,7 +1001,7 @@ end
 # via `lines_required!`, their dependencies) run.
 function predict_predicate(@nospecialize(stmt), code::Vector{Any})
     isa(stmt, Expr) || return (false, false)
-    haseval = matches_eval(stmt)
+    haseval = matches_eval(stmt, code)
     isreq = haseval | (stmt.head === :toplevel) | is_typebody_stmt(stmt, code) |
             is_resolve_typegroup_stmt(stmt, code)
     return (isreq, haseval)
@@ -1107,13 +1126,12 @@ function predict_typebodies!(predictions::TypePredictions, mod::Module, ex::Expr
                         pc = next_or_nothing!(frame)
                     elseif @static(isdefined(Core, :declare_const) ? true : false) && f === Core.declare_const
                         pc = next_or_nothing!(frame)
-                    elseif f === Core.eval
-                        evalmod = lookup(interp, frame, callstmt.args[2])
-                        evalex = lookup(interp, frame, callstmt.args[3])
-                        if evalmod isa Module && evalex isa Expr
+                    elseif (operands = eval_call_operands(interp, frame, f, callstmt)) !== nothing
+                        evalmod, evalex = operands
+                        if evalex isa Expr
                             for (newmod, newex) in ExprSplitter(evalmod, evalex)
                                 if is_doc_expr(newex)
-                                    newex = newex.args[4]
+                                    newex = newex.args[4]::Expr
                                 end
                                 newex = unwrap(newex)
                                 newex isa Expr && predict_typebodies!(predictions, newmod, newex)
