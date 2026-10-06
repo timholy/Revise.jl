@@ -5717,6 +5717,60 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Distributed") && @testset "Distributed revised type parameter bound" begin
+        # Revising a struct must also re-evaluate, on the workers, the type whose
+        # type-parameter bound names it (`Finalise{R <: Progress}`) and the methods
+        # that construct it.
+        newproc = only(addprocs(1))
+        Revise.init_worker(newproc)
+        dirname = randtmp()
+        mkdir(dirname)
+        @everywhere push_LOAD_PATH!(dirname) = push!(LOAD_PATH, dirname)
+        for p in (myid(), newproc)
+            remotecall_wait(push_LOAD_PATH!, p, dirname)
+        end
+        push!(to_remove, dirname)
+        modname = "ReviseDistributedBound"
+        dn = joinpath(dirname, modname, "src")
+        mkpath(dn)
+        write(joinpath(dn, modname*".jl"), """
+            module ReviseDistributedBound
+            struct Progress{T}
+                a::T
+            end
+            struct Finalise{R <: Progress, A}
+                progress::R
+                accept::A
+            end
+            make(x) = Finalise(Progress(x), 2)
+            end
+            """)
+        sleep(mtimedelay)
+        using ReviseDistributedBound
+        sleep(mtimedelay)
+        @everywhere using ReviseDistributedBound
+        @test !hasfield(typeof(remotecall_fetch(ReviseDistributedBound.make, newproc, 1.0f0).progress), :b)
+        write(joinpath(dn, modname*".jl"), """
+            module ReviseDistributedBound
+            struct Progress{T}
+                a::T
+                b::T
+            end
+            struct Finalise{R <: Progress, A}
+                progress::R
+                accept::A
+            end
+            make(x) = Finalise(Progress(x, x), 2)
+            end
+            """)
+        @yry()
+        @test ReviseDistributedBound.make(1.0f0).progress.b == 1.0f0
+        @test remotecall_fetch(ReviseDistributedBound.make, newproc, 1.0f0).progress.b == 1.0f0
+        rmprocs(newproc; waitfor=10)
+        rm_precompile("ReviseDistributedBound")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Distributed on worker") && @testset "Distributed on worker" begin
         # https://github.com/timholy/Revise.jl/pull/527
         favorite_proc, boring_proc = addprocs(2)
