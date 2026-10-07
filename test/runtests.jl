@@ -1282,6 +1282,64 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Retract import shared across files") && isdefined(Base, :delete_binding) &&
+            @testset "Retract import shared across files" begin
+        # An import dropped from one file stays bound while another file still has it.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "SharedImport", "src")
+        mkpath(dn)
+        fn = joinpath(dn, "SharedImport.jl")
+        write(fn, """
+            module SharedImport
+            module Sub
+            export foo, bar
+            foo() = 1
+            bar() = 2
+            module Alt
+            foo() = 3
+            end
+            end
+            include("a.jl")
+            include("b.jl")
+            include("c.jl")
+            end
+            """)
+        write(joinpath(dn, "a.jl"), "using .Sub: foo, bar\nusea() = foo()\n")
+        write(joinpath(dn, "b.jl"), "using .Sub: foo\nuseb() = foo()\n")
+        write(joinpath(dn, "c.jl"), "using .Sub: bar\nusec() = bar()\n")
+        sleep(mtimedelay)
+        @eval using SharedImport
+        sleep(mtimedelay)
+        # Drop the import from a revised file
+        write(joinpath(dn, "a.jl"), "usea() = 0\n")
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test SharedImport.useb() == 1
+        @test SharedImport.usec() == 2
+        # Drop a file's inclusion while another file re-adds the import
+        write(joinpath(dn, "a.jl"), "using .Sub: foo\nusea() = foo()\n")
+        write(fn, replace(read(fn, String), "include(\"b.jl\")\n" => ""))
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test SharedImport.usea() == 1
+        @test SharedImport.usec() == 2
+        # Switch an import's source across files
+        write(joinpath(dn, "a.jl"), "usea() = foo()\n")
+        write(joinpath(dn, "c.jl"), "using .Sub: bar\nusing .Sub.Alt: foo\nusec() = bar()\n")
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test SharedImport.usea() == 3
+        # Drop the last inclusion that imports the names
+        write(fn, replace(read(fn, String), "include(\"c.jl\")\n" => ""))
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test !isdefined(SharedImport, :foo)
+        @test !isdefined(SharedImport, :bar)
+
+        rm_precompile("SharedImport")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Global binding invalidation") && Base.VERSION >= v"1.14.0-DEV" &&
             @testset "Global binding invalidation" begin
         # Julia 1.14 propagates local-inference binding dependencies to compiled callers.

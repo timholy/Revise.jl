@@ -749,13 +749,21 @@ else
     retract_dropped_exports!(::Module, ::ExprsInfos, ::ExprsInfos) = nothing
 end
 
+# Bindings to retract after revising the inclusion `idx` of `file`.
+struct Retraction
+    pkgdata::PkgData
+    file::String
+    idx::Int
+    mod_exs_infos_old::ModuleExprsInfos
+    mod_exs_infos_new::ModuleExprsInfos
+end
+
 # Retract globals removed from a file (issues #1106 and #1107). Requires
 # `Base.delete_binding` (Julia 1.12+); the fallback is a no-op.
 @static if isdefined(Base, :delete_binding)
-    function retract_removed_bindings!(
-            mod_exs_infos_old::ModuleExprsInfos, mod_exs_infos_new::ModuleExprsInfos,
-            world::UInt, defaultmode::Symbol,
-        )
+    function retract_removed_bindings!(r::Retraction, world::UInt, batch::Vector{Retraction} = Retraction[])
+        (; pkgdata, idx, mod_exs_infos_old, mod_exs_infos_new) = r
+        defaultmode = default_revise_mode(pkgdata)
         for (mod, exs_infos_old) in mod_exs_infos_old
             exs_infos_new = get(mod_exs_infos_new, mod, empty_exs_infos)
             mode = revise_mode(mod, defaultmode)
@@ -775,6 +783,9 @@ end
                 add_imported_names!(names, rex.ex)
                 retract_assigns && add_assigned_names!(names, rex.ex)
             end
+            # Other files may bind the same names, e.g. each with its own `using Pkg: foo`.
+            all(in(kept), removed) ||
+                add_names_bound_elsewhere!(kept, reestablished, pkgdata, idx, mod, batch, retract_assigns)
             with_logger(_debug_logger) do
                 for name in removed
                     name in kept && continue
@@ -788,6 +799,33 @@ end
                         Core.eval(mod, Expr(:using, Expr(:(:), Expr(:., fullname(src)...), Expr(:., name))))
                     end
                 end
+            end
+        end
+        return nothing
+    end
+
+    # Add the names that `pkgdata`'s other inclusions bind in `mod`. Files with a pending
+    # retraction in `batch` still store their old expressions; diff those against the new.
+    function add_names_bound_elsewhere!(
+            kept::Set{Symbol}, reestablished::Set{Symbol}, pkgdata::PkgData, idx::Int,
+            mod::Module, batch::Vector{Retraction}, retract_assigns::Bool,
+        )
+        for (j, fi) in enumerate(pkgdata.fileinfos)
+            j == idx && continue
+            try
+                maybe_parse_from_cache!(pkgdata, srcfiles(pkgdata)[j], fi)
+            catch err
+                err isa StaleCacheError || rethrow()
+                continue
+            end
+            exs_infos_old = get(fi.mod_exs_infos, mod, empty_exs_infos)
+            k = findfirst(r -> r.pkgdata === pkgdata && r.idx == j, batch)
+            exs_infos_new = k === nothing ? exs_infos_old :
+                get(batch[k].mod_exs_infos_new, mod, empty_exs_infos)
+            for rex in keys(exs_infos_new)
+                names = haskey(exs_infos_old, rex) ? kept : reestablished
+                add_imported_names!(names, rex.ex)
+                retract_assigns && add_assigned_names!(names, rex.ex)
             end
         end
         return nothing
@@ -880,11 +918,8 @@ end
         return nothing
     end
 else
-    retract_removed_bindings!(::ModuleExprsInfos, ::ModuleExprsInfos, ::UInt, ::Symbol) = nothing
+    retract_removed_bindings!(::Retraction, ::UInt, ::Vector{Retraction} = Retraction[]) = nothing
 end
-
-# A pending binding retraction: `(pkgdata, file, idx, mod_exs_infos_old, mod_exs_infos_new)`.
-const Retraction = Tuple{PkgData,String,Int,ModuleExprsInfos,ModuleExprsInfos}
 
 # Retract now, or append to `retractions` when the caller runs retractions only after
 # every file's deletions. Deleting methods or types can extract signatures from files not
@@ -894,10 +929,11 @@ const Retraction = Tuple{PkgData,String,Int,ModuleExprsInfos,ModuleExprsInfos}
 function retract_or_defer!(retractions::Union{Nothing,Vector{Retraction}}, pkgdata::PkgData,
                            file::AbstractString, idx::Int, mod_exs_infos_old::ModuleExprsInfos,
                            mod_exs_infos_new::ModuleExprsInfos, world::UInt)
+    r = Retraction(pkgdata, String(file)::String, idx, mod_exs_infos_old, mod_exs_infos_new)
     if retractions === nothing
-        retract_removed_bindings!(mod_exs_infos_old, mod_exs_infos_new, world, default_revise_mode(pkgdata))
+        retract_removed_bindings!(r, world)
     else
-        push!(retractions, (pkgdata, String(file)::String, idx, mod_exs_infos_old, mod_exs_infos_new))
+        push!(retractions, r)
     end
     return nothing
 end
@@ -2476,9 +2512,10 @@ function _revise(; throw::Bool=false)
             end
         end
         # Retract bindings only after all deletions (see `retract_or_defer!`).
-        for (pkgdata, file, idx, mod_exs_infos_old, mod_exs_infos_new) in retractions
+        for r in retractions
+            (; pkgdata, file, idx) = r
             try
-                retract_removed_bindings!(mod_exs_infos_old, mod_exs_infos_new, world, default_revise_mode(pkgdata))
+                retract_removed_bindings!(r, world, retractions)
             catch err
                 handle_caught(err, catch_backtrace(), "RetractFailed"; throw, file)
                 interrupt |= isa(err, InterruptException)
