@@ -810,20 +810,23 @@ end
             kept::Set{Symbol}, reestablished::Set{Symbol}, pkgdata::PkgData, idx::Int,
             mod::Module, batch::Vector{Retraction}, retract_assigns::Bool,
         )
-        for (j, fi) in enumerate(pkgdata.fileinfos)
+        current = Dict{Tuple{String,Int},ModuleExprsInfos}()
+        for r in batch
+            r.pkgdata === pkgdata && (current[(r.file, r.idx)] = r.mod_exs_infos_new)
+        end
+        for (j, file) in enumerate(srcfiles(pkgdata))
             j == idx && continue
-            try
-                maybe_parse_from_cache!(pkgdata, srcfiles(pkgdata)[j], fi)
+            mod_exs_infos_new = try
+                source_view(pkgdata, file, j, current)
             catch err
                 err isa StaleCacheError || rethrow()
                 continue
             end
-            exs_infos_old = get(fi.mod_exs_infos, mod, empty_exs_infos)
-            k = findfirst(r -> r.pkgdata === pkgdata && r.idx == j, batch)
-            exs_infos_new = k === nothing ? exs_infos_old :
-                get(batch[k].mod_exs_infos_new, mod, empty_exs_infos)
+            exs_infos_old = get(fileinfo(pkgdata, j).mod_exs_infos, mod, empty_exs_infos)
+            exs_infos_new = get(mod_exs_infos_new, mod, empty_exs_infos)
+            unchanged = exs_infos_new === exs_infos_old
             for rex in keys(exs_infos_new)
-                names = haskey(exs_infos_old, rex) ? kept : reestablished
+                names = (unchanged || haskey(exs_infos_old, rex)) ? kept : reestablished
                 add_imported_names!(names, rex.ex)
                 retract_assigns && add_assigned_names!(names, rex.ex)
             end
