@@ -294,6 +294,14 @@ Global variable, a set of `Manifest.toml` files from the active projects used du
 const watched_manifests = Set{String}()
 
 """
+    Revise.extensions_stale
+
+Global variable, set when the active manifest changes so that the next [`revise`](@ref)
+loads newly declared package extensions (see `load_new_extensions`).
+"""
+const extensions_stale = Threads.Atomic{Bool}(false)
+
+"""
     Revise.revision_queue
 
 Global variable, `revision_queue` holds `(pkgdata,filename)` pairs that we need to revise, meaning
@@ -2350,6 +2358,7 @@ function _revise(; throw::Bool=false)
 
     # Restore relinquished watches before draining the revision queue.
     rearm_watching()
+    new_extensions = Threads.atomic_xchg!(extensions_stale, false)
 
     @lock revise_lock begin
         have_queue_errors = !isempty(queue_errors)
@@ -2577,6 +2586,8 @@ function _revise(; throw::Bool=false)
 
         process_user_callbacks!(; throw)
     end   # @lock revise_lock
+    # Outside `revise_lock`, which must not be held while taking `require_lock` (see `update_pkgversion!`)
+    new_extensions && load_new_extensions(; throw)
 
     nothing
 end
@@ -3133,8 +3144,8 @@ function revise_first(ex)
             end
         end
     end
-    # Check for queued revisions, and if so call `revise` first before executing the expression
-    return Expr(:toplevel, :($isempty($revision_queue) || $(Base.invokelatest)($revise)), ex)
+    # Check for queued revisions or new extensions, and if so call `revise` first before executing the expression
+    return Expr(:toplevel, :($isempty($revision_queue) && !$extensions_stale[] || $(Base.invokelatest)($revise)), ex)
 end
 
 steal_repl_backend(_...) = @warn """

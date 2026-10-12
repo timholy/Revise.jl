@@ -928,6 +928,23 @@ function watch_manifest(mfile::String)
         catch err
             @error "Error watching manifest" exception=(err, trim_toplevel!(catch_backtrace()))
         end
+        # Set only once a path switch has queued its files, so new extensions load against the switched code
+        extensions_stale[] = true
+    end
+end
+
+# Base registers a package's extensions only when the package loads; repeat that for
+# packages already loaded.
+function load_new_extensions(; throw::Bool=false)
+    ids = @lock revise_lock collect(keys(pkgdatas))
+    @lock Base.require_lock for id in ids
+        try
+            Base.insert_extension_triggers(id)
+            Base.run_extension_callbacks(id)
+        catch err
+            throw && rethrow()
+            @error "Error loading new extensions of $(id.name)" exception=(err, trim_toplevel!(catch_backtrace()))
+        end
     end
 end
 

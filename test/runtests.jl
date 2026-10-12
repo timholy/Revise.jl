@@ -6356,6 +6356,75 @@ do_test("Switching free/dev") && @testset "Switching free/dev" begin
     push!(to_remove, depot)
 end
 
+do_test("New extensions") && @testset "New extensions" begin
+    depot = mktempdir()
+    old_depots = copy(DEPOT_PATH)
+    empty!(DEPOT_PATH)
+    push!(DEPOT_PATH, depot)
+    old_project = Base.ACTIVE_PROJECT[]
+    Base.ACTIVE_PROJECT[] = joinpath(depot, "environments", "v$(VERSION.major).$(VERSION.minor)", "Project.toml")
+    mkpath(dirname(Base.ACTIVE_PROJECT[]))
+    write(Base.ACTIVE_PROJECT[], "[deps]")
+    names = ("NewExtParent", "NewExtTrigA", "NewExtTrigB")
+    cd(depot) do
+        foreach(Pkg.generate, names)
+    end
+    parentpath = joinpath(depot, "NewExtParent")
+    write(joinpath(parentpath, "src", "NewExtParent.jl"), """
+        module NewExtParent
+        function f end
+        end
+        """)
+    for name in names[2:end]
+        write(joinpath(depot, name, "src", "$name.jl"), """
+            module $name
+            struct T end
+            end
+            """)
+    end
+    Pkg.develop([PackageSpec(path=joinpath(depot, name)) for name in names])
+    sleep(mtimedelay)
+    @eval using NewExtParent, NewExtTrigA
+    sleep(mtimedelay)
+
+    # Declare an extension whose trigger is already loaded and one whose trigger is not
+    uuid(name) = Pkg.Types.read_project(joinpath(depot, name, "Project.toml")).uuid
+    open(joinpath(parentpath, "Project.toml"), "a") do io
+        write(io, """
+
+            [weakdeps]
+            NewExtTrigA = "$(uuid("NewExtTrigA"))"
+            NewExtTrigB = "$(uuid("NewExtTrigB"))"
+
+            [extensions]
+            NewExtA = "NewExtTrigA"
+            NewExtB = "NewExtTrigB"
+            """)
+    end
+    mkpath(joinpath(parentpath, "ext"))
+    for (ext, trigger) in ("NewExtA" => "NewExtTrigA", "NewExtB" => "NewExtTrigB")
+        write(joinpath(parentpath, "ext", "$ext.jl"), """
+            module $ext
+            using NewExtParent, $trigger
+            NewExtParent.f(::$trigger.T) = $(repr(ext))
+            end
+            """)
+    end
+    Pkg.resolve()
+    @test timedwait(() -> Revise.extensions_stale[], event_timeout) === :ok
+    revise()
+    @test Base.invokelatest(NewExtParent.f, NewExtTrigA.T()) == "NewExtA"
+    @test Base.get_extension(NewExtParent, :NewExtB) === nothing
+    @eval using NewExtTrigB
+    @test Base.invokelatest(NewExtParent.f, NewExtTrigB.T()) == "NewExtB"
+
+    empty!(DEPOT_PATH)
+    append!(DEPOT_PATH, old_depots)
+    Base.ACTIVE_PROJECT[] = old_project
+
+    push!(to_remove, depot)
+end
+
 do_test("pkgversion update") && @testset "pkgversion update" begin
     # issue #684: Julia caches a package's version in `Base.pkgorigins` at load
     # time (and on 1.12+ `pkgversion` returns that cached value). When developing
