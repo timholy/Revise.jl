@@ -82,6 +82,20 @@ function apply_worker_action(p, mod::Module, expr)
     return nothing
 end
 
+# Record `expr` for replay and evaluate it in `mod` on every current worker, from the master.
+function replay_on_workers(mod::Module, expr)
+    record_worker_replay!(mod, expr)
+    for get_workers in workers_functions
+        if @invokelatest is_master_worker(get_workers)
+            for p in @invokelatest get_workers()
+                @invokelatest(is_master_worker(p)) && continue
+                apply_worker_action(p, mod, expr)  # don't error if `mod` isn't defined on the worker
+            end
+        end
+    end
+    return nothing
+end
+
 ## END abstract Distributed API
 
 """
@@ -1119,15 +1133,7 @@ function eval_rex(rex_new::RelocatableExpr, exs_infos_old::ExprsInfos, mod::Modu
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end
-            record_worker_replay!(mod, thunk)
-            for get_workers in workers_functions
-                if @invokelatest is_master_worker(get_workers)
-                    for p in @invokelatest get_workers()
-                        @invokelatest(is_master_worker(p)) && continue
-                        apply_worker_action(p, mod, thunk)  # don't error if `mod` isn't defined on the worker
-                    end
-                end
-            end
+            replay_on_workers(mod, thunk)
         else
             exinfos = exs_infos_old[rex_old]
             # Update location info
@@ -1811,8 +1817,9 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
         with_logger(_debug_logger) do
             @debug "ReevalType" _group="Action" time=time() deltainfo=(reeval,mod,rex)
             try
-                newexinfos, _, _ = eval_with_signatures(mod, rex.ex; mode=:eval)
+                newexinfos, _, thunk = eval_with_signatures(mod, rex.ex; mode=:eval)
                 exs_infos[rex] = newexinfos
+                replay_on_workers(mod, isexpr(thunk, :thunk) ? thunk : rex.ex)
             catch err
                 # Re-evaluation failed, likely due to type incompatibility
                 # Clear exs_infos cache for this `rex` so that we will retry evaluation when methods become compatible
@@ -1836,6 +1843,8 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
             @debug "ReevalDeleteMethod" _group="Action" time=time() deltainfo=(reeval.sig, MethodSummary(reeval))
             # ensure that "old data" doesn't get run with "old methods"
             try
+                mt = isdefined(reeval, :external_mt) ? reeval.external_mt::Core.MethodTable : nothing
+                replay_on_workers(Main, :(delete_method_by_sig($mt, $(reeval.sig))))
                 Base.delete_method(reeval)
             catch err
                 handle_caught(err, catch_backtrace(), "ReevalDeleteMethodFailed"; deltainfo=(reeval.sig, MethodSummary(reeval)))
@@ -1850,8 +1859,9 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
         with_logger(_debug_logger) do
             @debug "ReevalMethod" _group="Action" time=time() deltainfo=(reeval, reeval.module, rex)
             try
-                newexinfos, _, _ = eval_with_signatures(mod, rex.ex; mode=:eval)
+                newexinfos, _, thunk = eval_with_signatures(mod, rex.ex; mode=:eval)
                 exs_infos[rex] = newexinfos
+                replay_on_workers(mod, isexpr(thunk, :thunk) ? thunk : rex.ex)
             catch err
                 # Re-evaluation failed, likely due to type incompatibility
                 # Clear exs_infos cache for this `rex` so that we will retry evaluation when methods become compatible
