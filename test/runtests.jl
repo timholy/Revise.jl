@@ -1310,6 +1310,19 @@ end
         sleep(mtimedelay)
         @eval using SharedImport
         sleep(mtimedelay)
+        # Rewriting an import within one file does not parse the package's other files
+        pkgdata = Revise.pkgdatas[Base.PkgId(SharedImport)]
+        write(joinpath(dn, "c.jl"), "using .Sub: bar, foo\nusec() = bar()\n")
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test SharedImport.useb() == 1
+        @test !Revise.fileinfo(pkgdata, "src/b.jl").parsed[]
+        write(joinpath(dn, "c.jl"), "using .Sub: bar\nusec() = bar()\n")
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test SharedImport.usea() == 1
+        @test SharedImport.useb() == 1
+        @test !Revise.fileinfo(pkgdata, "src/b.jl").parsed[]  # a.jl keeps `foo`
         # Drop the import from a revised file
         write(joinpath(dn, "a.jl"), "usea() = 0\n")
         @yry()

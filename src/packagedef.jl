@@ -784,8 +784,9 @@ end
                 retract_assigns && add_assigned_names!(names, rex.ex)
             end
             # Other files may bind the same names, e.g. each with its own `using Pkg: foo`.
-            all(in(kept), removed) ||
-                add_names_bound_elsewhere!(kept, reestablished, pkgdata, idx, mod, batch, retract_assigns)
+            # Skip the scan when this file rebinds them all, e.g. `const N = 1` -> `const N = 2`.
+            all(n -> n in kept || n in reestablished, removed) ||
+                add_names_bound_elsewhere!(kept, reestablished, removed, pkgdata, idx, mod, batch, retract_assigns)
             with_logger(_debug_logger) do
                 for name in removed
                     name in kept && continue
@@ -804,11 +805,12 @@ end
         return nothing
     end
 
-    # Add the names that `pkgdata`'s other inclusions bind in `mod`. Files with a pending
-    # retraction in `batch` still store their old expressions; diff those against the new.
+    # Add the names that `pkgdata`'s other inclusions bind in `mod`, stopping once all of
+    # `removed` is kept. Files with a pending retraction in `batch` still store their old
+    # expressions; diff those against the new.
     function add_names_bound_elsewhere!(
-            kept::Set{Symbol}, reestablished::Set{Symbol}, pkgdata::PkgData, idx::Int,
-            mod::Module, batch::Vector{Retraction}, retract_assigns::Bool,
+            kept::Set{Symbol}, reestablished::Set{Symbol}, removed::Set{Symbol}, pkgdata::PkgData,
+            idx::Int, mod::Module, batch::Vector{Retraction}, retract_assigns::Bool,
         )
         current = Dict{Tuple{String,Int},ModuleExprsInfos}()
         for r in batch
@@ -830,6 +832,7 @@ end
                 add_imported_names!(names, rex.ex)
                 retract_assigns && add_assigned_names!(names, rex.ex)
             end
+            all(in(kept), removed) && break
         end
         return nothing
     end
