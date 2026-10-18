@@ -33,6 +33,7 @@ Revise.queue_errors
 Revise.duplicated_signatures
 Revise.included_files
 Revise.watched_manifests
+Revise.extensions_stale
 Revise.rewritten_caches
 ```
 

@@ -202,6 +202,14 @@ yellow for the rest of the session. The file's definitions stay as the session l
 them; restart Julia to pick up their current state. Every other file, and every other
 package, continues to revise as usual.
 
+#### New package extensions load only after a manifest update
+
+Julia registers a package's [extensions](https://pkgdocs.julialang.org/v1/creating-packages/#Conditional-loading-of-code-in-packages-(Extensions))
+when the package loads. Revise registers an `[extensions]` entry added later once a Pkg
+operation updates the manifest (e.g., `pkg> resolve`); the extension then loads as soon as
+its triggers are loaded. Changing the triggers of an existing extension, or removing one,
+requires restarting Julia.
+
 ## Historical or Julia version-dependent limitations
 
 ### Prior to Julia 1.14
