@@ -15,6 +15,7 @@ LoweredCodeUtils = "6f1432cf-f94c-5a45-995e-cdbf5db27b0b"
 OrderedCollections = "bac558e1-5e72-5ebc-8fee-abe8a469f55d"
 Preferences = "21216c6a-2e73-6563-6e65-726566657250"
 REPL = "3fa0cd96-eef1-5676-8a61-b3b8758bbffb"
+Serialization = "9e88b42a-f829-5b0c-bbe9-9e923198166b"
 UUIDs = "cf7118a7-6976-5b1a-9a39-7adc72f591a4"
 
 [weakdeps]

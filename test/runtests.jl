@@ -5717,10 +5717,10 @@ end
         pop!(LOAD_PATH)
     end
 
-    do_test("Distributed") && @testset "Distributed revised type parameter bound" begin
+    do_test("Distributed") && Base.VERSION >= v"1.12.0-DEV.2047" && @testset "Distributed revised type parameter bound" begin
         # Revising a struct must also re-evaluate, on the workers, the type whose
         # type-parameter bound names it (`Finalise{R <: Progress}`) and the methods
-        # that construct it.
+        # that construct it, and delete the methods that construct the old type.
         newproc = only(addprocs(1))
         Revise.init_worker(newproc)
         dirname = randtmp()
@@ -5750,6 +5750,8 @@ end
         sleep(mtimedelay)
         @everywhere using ReviseDistributedBound
         @test !hasfield(typeof(remotecall_fetch(ReviseDistributedBound.make, newproc, 1.0f0).progress), :b)
+        old_finalise = ReviseDistributedBound.Finalise
+        Distributed.remotecall_eval(Main, newproc, :(global old_finalise = ReviseDistributedBound.Finalise))
         write(joinpath(dn, modname*".jl"), """
             module ReviseDistributedBound
             struct Progress{T}
@@ -5766,6 +5768,8 @@ end
         @yry()
         @test ReviseDistributedBound.make(1.0f0).progress.b == 1.0f0
         @test remotecall_fetch(ReviseDistributedBound.make, newproc, 1.0f0).progress.b == 1.0f0
+        @test isempty(methods(old_finalise))
+        @test Distributed.remotecall_eval(Main, newproc, :(length(methods(old_finalise)))) == 0
         rmprocs(newproc; waitfor=10)
         rm_precompile("ReviseDistributedBound")
         pop!(LOAD_PATH)
