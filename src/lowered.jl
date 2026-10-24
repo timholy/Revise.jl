@@ -435,6 +435,8 @@ function same_type_modulo_typevar_names(@nospecialize(a), @nospecialize(b), env:
     elseif a isa DataType && b isa DataType
         a.name === b.name && length(a.parameters) == length(b.parameters) || return false
         return all(i -> same(a.parameters[i], b.parameters[i]), eachindex(a.parameters))
+    elseif is_typeeq(a) && is_typeeq(b) # `Type{T}` is not a `DataType` on Julia 1.14+
+        return same(typeeq_parameter(a), typeeq_parameter(b))
     elseif a isa Core.TypeofVararg && b isa Core.TypeofVararg
         isdefined(a, :T) == isdefined(b, :T) && isdefined(a, :N) == isdefined(b, :N) || return false
         isdefined(a, :T) && !same(a.T, b.T) && return false
