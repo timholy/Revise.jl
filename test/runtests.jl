@@ -5833,6 +5833,11 @@ end
         @test !hasfield(typeof(remotecall_fetch(ReviseDistributedBound.make, newproc, 1.0f0).progress), :b)
         old_finalise = ReviseDistributedBound.Finalise
         Distributed.remotecall_eval(Main, newproc, :(global old_finalise = ReviseDistributedBound.Finalise))
+        # Revising while the worker is blocked must not wait for the worker; the worker
+        # applies the revision once it is free.
+        busy = 15.0
+        t0 = time()
+        remotecall(Libc.systemsleep, newproc, busy)
         write(joinpath(dn, modname*".jl"), """
             module ReviseDistributedBound
             struct Progress{T}
@@ -5847,6 +5852,7 @@ end
             end
             """)
         @yry()
+        @test time() - t0 < busy
         @test ReviseDistributedBound.make(1.0f0).progress.b == 1.0f0
         @test remotecall_fetch(ReviseDistributedBound.make, newproc, 1.0f0).progress.b == 1.0f0
         @test isempty(methods(old_finalise))
