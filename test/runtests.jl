@@ -2218,11 +2218,15 @@ end
         @test !same(Tuple{T,T} where T, Tuple{T,S} where {T,S})
         @test same(Tuple{Vararg{T,N}} where {T,N}, Tuple{Vararg{S,M}} where {S,M})
         @test !same(Tuple{Vararg{Int}}, Tuple{Vararg{Integer}})
+        @test same(Tuple{Type{var"#s1"}} where var"#s1"<:Integer,
+                   Tuple{Type{var"#s2"}} where var"#s2"<:Integer)
+        @test !same(Tuple{Type{Int}}, Tuple{Type{Integer}})
         dn = joinpath(testdir, "UnionAllDocstring", "src")
         mkpath(dn)
         write(joinpath(dn, "UnionAllDocstring.jl"), """
             module UnionAllDocstring
             "f1" f(::AbstractVector{<:Integer}) = 1
+            "g1" g(::Type{<:Integer}) = 1
             end
             """)
         sleep(mtimedelay)
@@ -2230,16 +2234,22 @@ end
         sleep(mtimedelay)
         ds = @doc(UnionAllDocstring.f)
         @test get_docstring(ds) == "f1"
-        for str in ("f2", "f3")
+        ds = @doc(UnionAllDocstring.g)
+        @test get_docstring(ds) == "g1"
+        for i in 2:3
             write(joinpath(dn, "UnionAllDocstring.jl"), """
                 module UnionAllDocstring
-                "$str" f(::AbstractVector{<:Integer}) = 1
+                "f$i" f(::AbstractVector{<:Integer}) = 1
+                "g$i" g(::Type{<:Integer}) = 1
                 end
                 """)
             @yry()
             ds = @doc(UnionAllDocstring.f)
-            @test get_docstring(ds) == str
+            @test get_docstring(ds) == "f$i"
             @test length(Base.Docs.meta(UnionAllDocstring)[Base.Docs.Binding(UnionAllDocstring, :f)].docs) == 1
+            ds = @doc(UnionAllDocstring.g)
+            @test get_docstring(ds) == "g$i"
+            @test length(Base.Docs.meta(UnionAllDocstring)[Base.Docs.Binding(UnionAllDocstring, :g)].docs) == 1
         end
 
         rm_precompile("UnionAllDocstring")
