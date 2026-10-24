@@ -5798,6 +5798,64 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Distributed") && Base.VERSION >= v"1.12.0-DEV.2047" && @testset "Distributed revised type parameter bound" begin
+        # Revising a struct must also re-evaluate, on the workers, the type whose
+        # type-parameter bound names it (`Finalise{R <: Progress}`) and the methods
+        # that construct it, and delete the methods that construct the old type.
+        newproc = only(addprocs(1))
+        Revise.init_worker(newproc)
+        dirname = randtmp()
+        mkdir(dirname)
+        @everywhere push_LOAD_PATH!(dirname) = push!(LOAD_PATH, dirname)
+        for p in (myid(), newproc)
+            remotecall_wait(push_LOAD_PATH!, p, dirname)
+        end
+        push!(to_remove, dirname)
+        modname = "ReviseDistributedBound"
+        dn = joinpath(dirname, modname, "src")
+        mkpath(dn)
+        write(joinpath(dn, modname*".jl"), """
+            module ReviseDistributedBound
+            struct Progress{T}
+                a::T
+            end
+            struct Finalise{R <: Progress, A}
+                progress::R
+                accept::A
+            end
+            make(x) = Finalise(Progress(x), 2)
+            end
+            """)
+        sleep(mtimedelay)
+        using ReviseDistributedBound
+        sleep(mtimedelay)
+        @everywhere using ReviseDistributedBound
+        @test !hasfield(typeof(remotecall_fetch(ReviseDistributedBound.make, newproc, 1.0f0).progress), :b)
+        old_finalise = ReviseDistributedBound.Finalise
+        Distributed.remotecall_eval(Main, newproc, :(global old_finalise = ReviseDistributedBound.Finalise))
+        write(joinpath(dn, modname*".jl"), """
+            module ReviseDistributedBound
+            struct Progress{T}
+                a::T
+                b::T
+            end
+            struct Finalise{R <: Progress, A}
+                progress::R
+                accept::A
+            end
+            make(x) = Finalise(Progress(x, x), 2)
+            end
+            """)
+        @yry()
+        @test ReviseDistributedBound.make(1.0f0).progress.b == 1.0f0
+        @test remotecall_fetch(ReviseDistributedBound.make, newproc, 1.0f0).progress.b == 1.0f0
+        @test isempty(methods(old_finalise))
+        @test Distributed.remotecall_eval(Main, newproc, :(length(methods(old_finalise)))) == 0
+        rmprocs(newproc; waitfor=10)
+        rm_precompile("ReviseDistributedBound")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Distributed on worker") && @testset "Distributed on worker" begin
         # https://github.com/timholy/Revise.jl/pull/527
         favorite_proc, boring_proc = addprocs(2)

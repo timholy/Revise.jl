@@ -3,6 +3,7 @@ Base.Experimental.@optlevel 1
 using FileWatching, REPL, UUIDs
 using LibGit2: LibGit2
 using CRC32c: crc32c
+using Serialization: serialize
 using Base: IdSet, PkgId
 using Base.Meta: isexpr
 using Core: CodeInfo, MethodTable
@@ -78,6 +79,50 @@ function apply_worker_action(p, mod::Module, expr)
     try
         @invokelatest remotecall_impl(Core.eval, p, mod, expr)
     catch
+    end
+    return nothing
+end
+
+# The workers that this process is the master of.
+function master_workers()
+    return [p for get_workers in workers_functions if @invokelatest(is_master_worker(get_workers))
+              for p in @invokelatest(get_workers()) if !@invokelatest(is_master_worker(p))]
+end
+
+# Record `expr` for replay and evaluate it in `mod` on every current worker, from the master.
+function replay_on_workers(mod::Module, expr::Expr)
+    record_worker_replay!(mod, expr)
+    for p in master_workers()
+        apply_worker_action(p, mod, expr)  # don't error if `mod` isn't defined on the worker
+    end
+    return nothing
+end
+
+# Each worker's world age before this revision changes anything there. It is `fetch`ed
+# only if bindings get redefined (see `delete_method_on_workers`).
+function worker_world_ages()
+    return [(p, @invokelatest(remotecall_impl(Base.get_world_counter, p)))
+            for p in master_workers() if !isempty(revision_queue)]
+end
+
+# Delete `m` on every worker. A worker has already redefined the types in `m.sig`, so it
+# deserializes the signature in its pre-revision world `ages` (see `worker_world_ages`),
+# where those names still resolve to the old types.
+function delete_method_on_workers(m::Method, ages::AbstractVector)
+    mt = if isdefined(m, :external_mt)
+        m.external_mt::MethodTable
+    else
+        nothing
+    end
+    record_worker_replay!(Main, :(delete_method_by_sig($mt, $(m.sig))))
+    io = IOBuffer()
+    serialize(io, m.sig)
+    sigbytes = take!(io)
+    for (p, age) in ages
+        try
+            apply_worker_action(p, Main, :(delete_method_by_sig($mt, $sigbytes, $(@invokelatest(fetch(age))::UInt))))
+        catch  # e.g. the worker has exited
+        end
     end
     return nothing
 end
@@ -1127,15 +1172,7 @@ function eval_rex(rex_new::RelocatableExpr, exs_infos_old::ExprsInfos, mod::Modu
             if !isexpr(thunk, :thunk)
                 thunk = ex
             end
-            record_worker_replay!(mod, thunk)
-            for get_workers in workers_functions
-                if @invokelatest is_master_worker(get_workers)
-                    for p in @invokelatest get_workers()
-                        @invokelatest(is_master_worker(p)) && continue
-                        apply_worker_action(p, mod, thunk)  # don't error if `mod` isn't defined on the worker
-                    end
-                end
-            end
+            replay_on_workers(mod, thunk)
         else
             exinfos = exs_infos_old[rex_old]
             # Update location info
@@ -1765,7 +1802,7 @@ struct ReevalInfo
     ) = new(reeval, mod, exs_infos, rex, pkgdata, file)
 end
 
-function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reeval_list::IdSet{Union{Method,Type}}, world::UInt)
+function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reeval_list::IdSet{Union{Method,Type}}, world::UInt, worker_ages::AbstractVector)
     reeval_infos = ReevalInfo[]
     # Names of the types in `reeval_list`, all of which are bound at `world`. A `TypeInfo`
     # outside this set cannot match; skipping it avoids reading, at `world`, a binding
@@ -1819,8 +1856,9 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
         with_logger(_debug_logger) do
             @debug "ReevalType" _group="Action" time=time() deltainfo=(reeval,mod,rex)
             try
-                newexinfos, _, _ = eval_with_signatures(mod, rex.ex; mode=:eval)
+                newexinfos, _, thunk = eval_with_signatures(mod, rex.ex; mode=:eval)
                 exs_infos[rex] = newexinfos
+                replay_on_workers(mod, isexpr(thunk, :thunk) ? thunk : rex.ex)
             catch err
                 # Re-evaluation failed, likely due to type incompatibility
                 # Clear exs_infos cache for this `rex` so that we will retry evaluation when methods become compatible
@@ -1844,6 +1882,7 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
             @debug "ReevalDeleteMethod" _group="Action" time=time() deltainfo=(reeval.sig, MethodSummary(reeval))
             # ensure that "old data" doesn't get run with "old methods"
             try
+                delete_method_on_workers(reeval, worker_ages)
                 Base.delete_method(reeval)
             catch err
                 handle_caught(err, catch_backtrace(), "ReevalDeleteMethodFailed"; deltainfo=(reeval.sig, MethodSummary(reeval)))
@@ -1858,8 +1897,9 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
         with_logger(_debug_logger) do
             @debug "ReevalMethod" _group="Action" time=time() deltainfo=(reeval, reeval.module, rex)
             try
-                newexinfos, _, _ = eval_with_signatures(mod, rex.ex; mode=:eval)
+                newexinfos, _, thunk = eval_with_signatures(mod, rex.ex; mode=:eval)
                 exs_infos[rex] = newexinfos
+                replay_on_workers(mod, isexpr(thunk, :thunk) ? thunk : rex.ex)
             catch err
                 # Re-evaluation failed, likely due to type incompatibility
                 # Clear exs_infos cache for this `rex` so that we will retry evaluation when methods become compatible
@@ -2410,6 +2450,7 @@ function _revise(; throw::Bool=false)
         reeval_list = IdSet{Union{Method,Type}}()
         handled_types = IdSet{Type}()
         world = Base.get_world_counter()
+        worker_ages = worker_world_ages()
 
         # Do all the deletion first. This ensures that a method that moved from one file to another
         # won't get redefined first and deleted second.
@@ -2576,7 +2617,7 @@ function _revise(; throw::Bool=false)
             end
         end
         # `reeval_list` also includes surviving duplicate definitions (issue #1105).
-        isempty(reeval_list) || redefine_bindings!(revision_errors, reeval_list, world)
+        isempty(reeval_list) || redefine_bindings!(revision_errors, reeval_list, world, worker_ages)
 
         # Error handling
         if interrupt
@@ -3224,6 +3265,13 @@ function init_worker(p::AbstractWorker)
         function delete_method_by_sig(mt::Union{Nothing, Core.MethodTable}, @nospecialize sig)
             m = whichtt(mt, sig)
             isa(m, Method) && Base.delete_method(m)
+        end
+        function delete_method_by_sig(mt::Union{Nothing, Core.MethodTable}, sigbytes::AbstractVector{UInt8}, world::Integer)
+            # Look up the loaded module by `PkgId`: `import Serialization` would require
+            # it to be resolvable from the worker's load path.
+            Serialization = Base.root_module(Base.PkgId(Base.UUID("9e88b42a-f829-5b0c-bbe9-9e923198166b"), "Serialization"))
+            sig = Base.invoke_in_world(UInt(world), Serialization.deserialize, IOBuffer(sigbytes))
+            delete_method_by_sig(mt, sig)
         end
     end)
     @invokelatest(is_master_worker(p)) && return nothing
