@@ -1699,8 +1699,8 @@ end
             @test MapExprPC.h() == 42        # same file, different transform, into the root
             # Revise recorded each inclusion's transform
             pkgdata = Revise.pkgdatas[Base.PkgId(MapExprPC)]
-            @test Revise.fileinfo(pkgdata, "src/b_pc.jl").mapexpr === MapExprPC.pcbump40
-            @test Revise.fileinfo(pkgdata, "src/MapExprPC.jl").mapexpr === identity
+            @test Revise.fileinfo(pkgdata, joinpath("src", "b_pc.jl")).mapexpr === MapExprPC.pcbump40
+            @test Revise.fileinfo(pkgdata, joinpath("src", "MapExprPC.jl")).mapexpr === identity
             # A file included twice with different transforms revises under each
             sleep(mtimedelay)
             write(joinpath(dn, "c_pc.jl"), "h() = 3\n")
@@ -1713,7 +1713,7 @@ end
             write(joinpath(dn, "MapExprPC.jl"), top_pc("pcbump50"))
             @yry()
             @test MapExprPC.g() == 52
-            idxs = Revise.fileindices(pkgdata, "src/b_pc.jl")
+            idxs = Revise.fileindices(pkgdata, joinpath("src", "b_pc.jl"))
             @test length(idxs) == 1
             @test pkgdata.fileinfos[only(idxs)].mapexpr === MapExprPC.pcbump50
             # ...and later revisions of the file use the new transform
@@ -2875,7 +2875,7 @@ end
         io = IOBuffer()
         if isdefined(Base, :methodloc_callback)
             print(io, methods(triggered))
-            @test occursin(filename * ":1", String(take!(io)))
+            @test occursin(basename(filename * ":1"), String(take!(io)))
         end
         write(filename, """
             # A comment to change the line numbers
