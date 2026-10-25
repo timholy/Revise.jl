@@ -4,11 +4,28 @@ This file describes only major changes, and does not include bug fixes,
 cleanups, or minor enhancements.
 
 <!-- links start -->
+[Revise 3.18]: https://github.com/timholy/Revise.jl/compare/v3.17.0...v3.18.0
 [Revise 3.17]: https://github.com/timholy/Revise.jl/compare/v3.16.0...v3.17.0
 [Revise 3.16]: https://github.com/timholy/Revise.jl/compare/v3.15.0...v3.16.0
 [Revise 3.15]: https://github.com/timholy/Revise.jl/compare/v3.14.5...v3.15.0
 [Revise 3.13]: https://github.com/timholy/Revise.jl/compare/v3.12.3...v3.13.0
 <!-- links end -->
+
+## [Revise 3.18]
+
+- **New package extensions load without a restart**: an `[extensions]` entry added
+  to a package after it was loaded (e.g., in a dev'd package) is registered once a
+  Pkg operation updates the manifest (e.g., `pkg> resolve`). The extension loads as
+  soon as its triggers are loaded. Changing the triggers of an existing extension,
+  or removing one, still requires a restart.
+  (https://github.com/timholy/Revise.jl/pull/1156)
+
+- **`Revise.rethrow_errors` debugging switch** (available since 3.17.3): Revise
+  catches errors so that a session survives a failed revision. Setting
+  `Revise.rethrow_errors[] = true` makes these errors propagate with their
+  original backtraces instead, which helps diagnose failures inside Revise itself.
+  See the "Debugging Revise" section of the documentation.
+  (https://github.com/timholy/Revise.jl/pull/1152)
 
 ## [Revise 3.17]
 
@@ -20,7 +37,7 @@ cleanups, or minor enhancements.
 
 - **Revise notifies about changing package versions** (experimental): Pkg
   operations may change package versions, and such indirect changes differ from
-  the intentional editor-based changes Revise typically tracks. The can be more
+  the intentional editor-based changes Revise typically tracks. These can be more
   difficult updates than most, sometimes requiring coordinated changes across
   packages. For this reason, Revise now warns when making such changes
   (https://github.com/timholy/Revise.jl/pull/1124).
