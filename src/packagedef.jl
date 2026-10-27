@@ -640,7 +640,7 @@ Re-pin Revise's own method dispatch to the current world age. Revise calls this 
 `__init__`; thereafter it stays fixed, so in ordinary use Revise runs at the world it froze at
 initialization and is unaffected by later (re)definitions. Call this manually only after
 deliberately revising Revise itself or one of its dependencies (CodeTracking, JuliaInterpreter,
-LoweredCodeUtils, OrderedCollections), to make those changes take effect in Revise's machinery.
+LoweredCodeUtils), to make those changes take effect in Revise's machinery.
 """
 advance_world!() = (worldage[] = Base.get_world_counter(); nothing)
 
@@ -3453,7 +3453,7 @@ end
 function add_revise_deps()
     # Populate CodeTracking data for dependencies and initialize watching on code that Revise depends on
     @lock revise_lock begin
-        for mod in (CodeTracking, OrderedCollections, JuliaInterpreter, LoweredCodeUtils, Revise)
+        for mod in (CodeTracking, JuliaInterpreter, LoweredCodeUtils, Revise)
             id = PkgId(mod)
             pkgdata = parse_pkg_files(id)
             init_watching(pkgdata, srcfiles(pkgdata))

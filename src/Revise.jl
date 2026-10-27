@@ -33,7 +33,11 @@ module Revise
 # This somewhat unusual structure is in place to support
 # the VS Code extension integration.
 
-using CodeTracking, JuliaInterpreter, LoweredCodeUtils, OrderedCollections
+using CodeTracking, JuliaInterpreter, LoweredCodeUtils
+
+# Vendored to avoid OrderedCollections version conflicts in stacked environments
+include("OrderedCollections/OrderedCollections.jl")
+using .OrderedCollections
 using Preferences: Preferences
 
 using CodeTracking: MethodInfoKey, PkgFiles, basedir, basepath, srcfiles

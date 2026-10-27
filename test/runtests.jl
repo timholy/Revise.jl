@@ -9,7 +9,6 @@ using Test
 
 using Dates, Distributed, InteractiveUtils, Pkg, REPL, UUIDs, Unicode
 import LibGit2
-using Revise.OrderedCollections: OrderedSet
 using Test: collect_test_logs
 using Logging: ConsoleLogger, with_logger
 using Base.CoreLogging: Debug,Info
