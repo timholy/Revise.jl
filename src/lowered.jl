@@ -132,8 +132,10 @@ end
 
 @static if isdefined(Base, :JuliaLowering) && isdefined(Base.JuliaLowering, :at_eval_hook)
     is_at_eval_hook(@nospecialize(f)) = f === Base.JuliaLowering.at_eval_hook
+    is_toplevel_syntax(@nospecialize(ex)) = ex isa Base.Syntax && Base.head(ex) === :toplevel
 else
     is_at_eval_hook(@nospecialize(f)) = false
+    is_toplevel_syntax(@nospecialize(ex)) = false
 end
 
 # The module and expression of an `eval` call to intercept: `Core.eval(mod, ex)` (as from
@@ -144,7 +146,8 @@ function eval_call_operands(interp::Interpreter, frame::Frame, @nospecialize(f),
     elseif @static(isdefined(Core, :EvalInto) ? true : false) && f isa Core.EvalInto && length(callstmt.args) == 2
         return Pair{Module,Any}(f.m, lookup(interp, frame, callstmt.args[2]))
     elseif is_at_eval_hook(f) && length(callstmt.args) == 3
-        return Pair{Module,Any}(lookup(interp, frame, callstmt.args[2]), Base.syntax_to_expr(lookup(interp, frame, callstmt.args[3])))
+        st = lookup(interp, frame, callstmt.args[3])
+        return Pair{Module,Any}(lookup(interp, frame, callstmt.args[2]), is_toplevel_syntax(st) ? st : Base.syntax_to_expr(st))
     end
     return nothing
 end
@@ -345,7 +348,7 @@ The other keyword arguments are more straightforward:
   This is primarily useful for debugging.
 """
 function methods_by_execution!(
-        interp::Interpreter, exinfo::ExInfo, mod::Module, ex::Expr;
+        interp::Interpreter, exinfo::ExInfo, mod::Module, @nospecialize(ex);
         mode::Symbol = :eval, disablebp::Bool = true, eval_namespace::Bool = mode!==:sigs,
         always_rethrow::Bool = false, kwargs...
     )
@@ -746,6 +749,10 @@ function _methods_by_execution!(
                             push!(exinfo.exprstack, newex)
                             value, _ = methods_by_execution!(interp, exinfo, newmod, newex; mode, skip_include, eval_namespace, disablebp=false)
                             pop!(exinfo.exprstack)
+                        end
+                    elseif is_toplevel_syntax(evalex)
+                        for st in Base.children(evalex)
+                            value, _ = methods_by_execution!(interp, exinfo, evalmod, st; mode, skip_include, eval_namespace, disablebp=false)
                         end
                     else
                         # e.g. `eval(sym)`: nothing to split, and it cannot define methods

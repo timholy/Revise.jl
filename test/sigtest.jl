@@ -115,7 +115,7 @@ try # Suppress world age increments, since the instantiation messes with base
     realfailed = similar(failed, 0)
     for sig in failed
         ft = Base.unwrap_unionall(sig).parameters[1]
-        match(r"^getfield\(Base, Symbol\(\"##\d", string(ft)) === nothing || continue  # exclude anonymous functions
+        match(r"^Base\.var\"##\d", string(ft)) === nothing || continue  # exclude anonymous functions
         all(T->in_module_or_core(T, Base), Base.unwrap_unionall(sig).parameters[2:end]) || continue
         push!(realfailed, sig)
     end
