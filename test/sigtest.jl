@@ -132,8 +132,9 @@ try # Suppress world age increments, since the instantiation messes with base
     @test length(realfailed) < 60  # big enough for some cushion in case new "difficult" methods get added
 catch org_err
     try
-        Base.invokelatest(display_error, Base.scrub_repl_backtrace(Base.current_exceptions()))
+        Base.invokelatest(Base.display_error, Base.scrub_repl_backtrace(Base.current_exceptions()))
     catch err
         Core.println(org_err)
     end
+    exit(1)
 end
