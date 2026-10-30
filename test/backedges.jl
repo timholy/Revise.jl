@@ -12,9 +12,6 @@ end
 do_test("Backedges") && @testset "Backedges" begin
     frame = Frame(Base, :(max_values(T::Union{map(X -> Type{X}, BitIntegerSmall_types)...}) = 1 << (8*sizeof(T))))
     src = frame.framecode.src
-    # Find the inner struct def for the anonymous function
-    idtype = findall(stmt->isexpr(stmt, :thunk) && isa(stmt.args[1], Core.CodeInfo), src.code)[end]
-    src2 = src.code[idtype].args[1]
     isrequired = Revise.minimal_evaluation!(frame, :sigs)[1]
     laststmt = src.code[end]
     @assert isa(laststmt, Core.ReturnNode)
