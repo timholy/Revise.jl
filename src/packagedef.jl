@@ -1309,7 +1309,7 @@ function instantiate_sig!(exs_infos::ExprsInfos, mod::Module, rex::RelocatableEx
         records === nothing || record_includes!(records, mod, rex, incs)
     catch err
         if (mode !== :sigs || get(kwargs, :always_rethrow, false) || rethrow_errors[] ||
-            err isa Union{InterruptException,SignatureExtractionError})
+            err isa Union{InterruptException,IdleCancelled,SignatureExtractionError})
             rethrow()
         end
         loc = if err isa ReviseEvalException && err.loc != "unknown location"
@@ -2669,8 +2669,12 @@ end
 `eval` any changes in the revision queue. See [`Revise.revision_queue`](@ref).
 If `throw` is `true`, throw any errors that occur during revision or callback;
 otherwise these are only logged.
+
+Called while the REPL waits for input, as an editor does before running code, this also
+stops the preparation of revisions (see [`Revise.prepare_ahead`](@ref)) until the next REPL
+command.
 """
-revise(; throw::Bool=false) = frozen(_revise; throw)
+revise(; throw::Bool=false) = (suspend_idle_work(); frozen(_revise; throw))
 
 function _revise(; throw::Bool=false)
     active[] || return nothing
@@ -2916,6 +2920,8 @@ function _revise(; throw::Bool=false)
                 interrupt |= isa(err, InterruptException)
             end
         end
+        # Files the revision newly included, and statements whose dependencies it replaced
+        request_analysis_ahead()
 
         # Error handling
         if interrupt
@@ -3094,6 +3100,7 @@ function _track(mod::Module, file::AbstractString; mode=:sigs, mapexpr::Function
             init_watching(pkgdata, (String(file)::String,))
             pkgdatas[id] = pkgdata
         end
+        request_analysis_ahead()
     end
     # issue #783: in `:includet` mode, return the value of the last evaluated expression
     return isdefined(pr, :ret) ? pr.ret : nothing
@@ -3496,6 +3503,8 @@ end
 # This allows `revise_first` to be compiled without compiling `revise` itself, and greatly
 # reduces the overhead of using Revise.
 function revise_first(ex)
+    pause_idle_work()
+    idle_suspended[] = false
     # Special-case `exit()` (issue #562)
     if isa(ex, Expr)
         exu = unwrap(ex)
@@ -3687,6 +3696,7 @@ function __init__()
     end
     __bpart__[] = Base.VERSION >= v"1.12.0-DEV.2047" && Preferences.@load_preference("revise_structs", true)
     revise_dependents[] = Preferences.@load_preference("revise_dependents", false)
+    prepare_ahead[] = Preferences.@load_preference("prepare_ahead", false)
     polling = get(ENV, "JULIA_REVISE_POLL", "0")
     if polling == "1"
         polling_files[] = watching_files[] = true

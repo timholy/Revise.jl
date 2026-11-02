@@ -509,7 +509,7 @@ function methods_by_execution!(
         ret = try
             _methods_by_execution!(interp, exinfo, frame, isrequired; mode, eval_namespace, kwargs...)
         catch err
-            (always_rethrow || rethrow_errors[] || isa(err, InterruptException)) && (@isdefined(active_bp_refs) && foreach(enable, active_bp_refs); rethrow(err))
+            (always_rethrow || rethrow_errors[] || isa(err, Union{InterruptException,IdleCancelled})) && (@isdefined(active_bp_refs) && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame))
             sfs = []  # crafted for interaction with Base.show_backtrace
             frame = JuliaInterpreter.leaf(frame)
@@ -596,6 +596,7 @@ function _methods_by_execution!(
     new_types = mode === :sigs ? IdSet{Type}() : nothing
     pc = frame.pc
     while true
+        check_idle_cancel()
         JuliaInterpreter.is_leaf(frame) || (@warn("not a leaf"); break)
         stmt = pc_expr(frame, pc)
         if !isrequired[pc] && mode !== :eval && !(mode === :evalassign && LoweredCodeUtils.get_lhs_rhs(stmt) !== nothing)

@@ -636,6 +636,54 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Prepare ahead") && @testset "Prepare ahead" begin
+        testdir = newtestdir()
+        fn = joinpath(testdir, "PrepareAhead.jl")
+        write(fn, "module PrepareAhead\nf(x) = x\ng(x::Int) = 2x\nend\n")
+        includet(fn)
+        pkgdata = Revise.pkgdatas[Base.PkgId(Main)]
+        ifile = findfirst(f -> endswith(f, "PrepareAhead.jl"), Revise.srcfiles(pkgdata))
+        files = [(pkgdata, ifile)]
+        fi = Revise.fileinfo(pkgdata, ifile)
+        exinfos() = [exinfos for (_, exs_infos) in fi.mod_exs_infos for (_, exinfos) in exs_infos]
+        olddeps, oldahead = Revise.revise_dependents[], Revise.prepare_ahead[]
+        try
+            # as if loaded from a package, whose signatures are extracted on the first edit
+            fi.extracted[] = false
+            for (_, exs_infos) in fi.mod_exs_infos, rex in keys(exs_infos)
+                exs_infos[rex] = nothing
+            end
+            Revise.revise_dependents[] = false
+            Revise.prepare_ahead[] = false
+            Revise.idle_work(Returns(true), files)
+            @test !fi.extracted[] && all(isnothing, exinfos())
+            Revise.request_idle_work()
+            @test Revise.idle_task[] === nothing
+            Revise.prepare_ahead[] = true
+            Revise.idle_work(Returns(true), files)
+            @test fi.extracted[]
+            @test count(e -> !isnothing(e) && any(x -> x isa Revise.SigInfo, e), exinfos()) == 2
+            sleep(mtimedelay)
+            write(fn, "module PrepareAhead\nf(x) = x\ng(x::Int) = 3x\nend\n")
+            @yry()
+            @test PrepareAhead.g(1) == 3
+            # `revise()` suspends the idle work only while the REPL waits for input
+            @test !Revise.idle_suspended[]
+            Revise.suspend_idle_work((; repl_channel=Channel{Any}(1)))
+            @test !Revise.idle_suspended[]
+            waiting = (; repl_channel=Channel{Any}(1))
+            taker = @async take!(waiting.repl_channel)
+            @test timedwait(() -> Revise.repl_waiting(waiting), 5) === :ok
+            Revise.suspend_idle_work(waiting)
+            @test Revise.idle_suspended[]
+            put!(waiting.repl_channel, nothing); wait(taker)
+            Revise.revise_first(:(1 + 1))
+            @test !Revise.idle_suspended[]
+        finally
+            Revise.revise_dependents[], Revise.prepare_ahead[] = olddeps, oldahead
+        end
+    end
+
     do_test("Reevaluate dependents") && @testset "Reevaluate dependents" begin
         testdir = newtestdir()
         @eval Main begin
@@ -1021,6 +1069,45 @@ end
                 d = Revise.cache_deps!(namedkey(loopex), Revise.global_deps(ReevalNamed, loopex))
                 @test !d.readsall && (ReevalNamed, :B) in d.reads && (ReevalNamed, :B) in d.observed
                 Revise.uncache_deps!(namedkey(loopex)); delete!(Revise.observed_reads, namedkey(loopex))
+                # a REPL command cancels a run of the idle worker, which leaves the statement to observe
+                d = Revise.cache_deps!(namedkey(loopex), Revise.global_deps(ReevalNamed, loopex))
+                Revise.idle_task[] = current_task(); Revise.idle_cancel[] = true
+                @test_throws Revise.IdleCancelled Revise.observe_reads!(namedkey(loopex), d)
+                Revise.idle_task[] = nothing; Revise.idle_cancel[] = false
+                @test d.dynamic && !haskey(Revise.observed_reads, namedkey(loopex))
+                Revise.uncache_deps!(namedkey(loopex))
+                # the idle work analyzes what calls a macro of a package and observes what may read any global
+                idle_fn = joinpath(testdir, "ReevalIdle.jl")
+                write(idle_fn, """
+                    module ReevalIdle
+                    __revise_mode__ = :eval
+                    macro two() 2 end
+                    const NAMES = [:A, :B]
+                    A = 1
+                    const C = @two
+                    for n in NAMES; isdefined(@__MODULE__, n); end
+                    end
+                    """)
+                includet(idle_fn)
+                idle_pkg = Revise.pkgdatas[Base.PkgId(Main)]
+                idle_files = [(idle_pkg, findfirst(f -> endswith(f, "ReevalIdle.jl"), Revise.srcfiles(idle_pkg)))]
+                idle_keys = Revise.file_statements(idle_files[1]...)
+                ckey = only(filter(k -> occursin("const C", string(k[3].ex)), idle_keys))
+                lkey = only(filter(k -> occursin("for n", string(k[3].ex)), idle_keys))
+                # as if loaded from a package, whose loading observes nothing
+                delete!(Revise.observed_reads, lkey); Revise.uncache_deps!(lkey); Revise.uncache_deps!(ckey)
+                Revise.analyze_ahead(idle_files)
+                @test !haskey(Revise.global_deps_cache, ckey)
+                @test Revise.global_deps_cache[lkey].readsall
+                oldahead = Revise.prepare_ahead[]
+                Revise.prepare_ahead[] = true
+                try
+                    Revise.idle_work(() -> true, idle_files)
+                finally
+                    Revise.prepare_ahead[] = oldahead
+                end
+                @test haskey(Revise.global_deps_cache, ckey) && haskey(Revise.observed_reads, lkey)
+                @test !Revise.global_deps_cache[lkey].readsall
                 # unless a called method or `names` selects them
                 @test !Revise.global_deps(ReevalNamed, :(for n in NAMES; pick(@__MODULE__, n); end)).dynamic
                 @test !Revise.global_deps(ReevalNamed, :(for n in names(@__MODULE__); isdefined(@__MODULE__, n); end)).dynamic
