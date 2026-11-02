@@ -47,6 +47,8 @@ Revise.missing_file_grace
 
 ```@docs
 Revise.revise_dependents
+Revise.set_revise_dependents
+Revise.prepare_ahead
 ```
 
 ### Revise module

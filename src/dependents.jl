@@ -16,9 +16,30 @@ it, unless its module's `__init__` mentions it. Statements with side effects run
 selected, which is why this is off by default.
 
 The initial value comes from the `revise_dependents` preference. Setting the `Ref` takes
-effect at the next revision.
+effect at the next revision. [`Revise.set_revise_dependents`](@ref) also prepares the code that
+is already tracked.
 """
 const revise_dependents = Ref(false)
+
+"""
+    Revise.prepare_ahead
+
+A `Ref{Bool}` (default `false`) controlling whether Revise prepares revisions before they are needed, while the REPL waits for input.
+
+Revise then parses the tracked files and extracts the method signatures they define, which a
+revision otherwise does when it first edits a file, and with [`Revise.revise_dependents`](@ref)
+also analyzes the dependencies of the tracked statements. This runs code of the tracked
+packages as a revision would, but between your commands: a command waits for the unit in
+progress, such as parsing one file or analyzing one statement, and cancels a run of a statement
+in `:sigs` mode at its next step (see [`Revise.idle_work`](@ref)). Without a REPL, or with
+`JULIA_REVISE=manual`, nothing is prepared ahead. A call of [`revise`](@ref) while the REPL
+waits for input, as an editor makes before running code, stops the preparation until the next
+REPL command.
+
+The initial value comes from the `prepare_ahead` preference. Setting the `Ref` to `false`
+stops the preparation after the unit in progress.
+"""
+const prepare_ahead = Ref(false)
 
 # The dependency analysis recognizes global writes by the builtins Julia 1.13 lowers them to.
 const dependents_supported = isdefined(Core, :declare_const) && isdefined(Core, :declare_global)
@@ -28,6 +49,31 @@ function dependents_active()
     dependents_supported && return true
     @warn "`Revise.revise_dependents` requires Julia 1.13 or later and is ignored" maxlog=1
     return false
+end
+
+"""
+    Revise.set_revise_dependents(on::Bool)
+
+Set [`Revise.revise_dependents`](@ref) to `on`, and when it turns on, start preparing the revisions of the code that is already tracked if [`Revise.prepare_ahead`](@ref) is on.
+
+The preparation is the one Revise starts after loading a package. Without it, a package
+loaded while the setting was off is analyzed only by its first revision.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> Revise.set_revise_dependents(true); Revise.revise_dependents[]
+true
+
+julia> Revise.set_revise_dependents(false); Revise.revise_dependents[]
+false
+```
+"""
+function set_revise_dependents(on::Bool)
+    was = revise_dependents[]
+    revise_dependents[] = on
+    on && !was && dependents_supported && request_analysis_ahead()
+    return nothing
 end
 
 """
@@ -349,7 +395,7 @@ function observe_reads!(key::StmtKey, deps::GlobalDeps)
     exinfo = try
         eval_with_signatures(mod, rex.ex; mode=:sigs)[4]
     catch err
-        isa(err, InterruptException) && rethrow()
+        isa(err, Union{InterruptException,IdleCancelled}) && rethrow()
         log_caught(err, catch_backtrace(), "ObserveReadsFailed"; deltainfo=(mod, rex.ex))
         nothing
     end
@@ -3100,6 +3146,444 @@ function add_file_sites!(sites::Vector{StmtSite}, ipkg::Int, pkgdata::PkgData, i
         push!(sites, (pkgdata, file, fi, mod, fi.mod_exs_infos[mod], rex, mode, (ipkg, ifile, istmt)))
     end
     return sites
+end
+
+# --- Analysis ahead of the first revision
+
+# The task analyzing ahead, and whether it runs once more. Guarded by `revise_lock`.
+const ahead_task = Ref{Union{Nothing,Task}}(nothing)
+const ahead_again = Ref(false)
+# Seconds the analysis waits, so that all packages that one `using` loads are tracked first.
+const ahead_delay = 2.0
+# Statements analyzed per acquisition of `revise_lock`. A revision waits for at most one chunk.
+const ahead_chunk = 25
+
+# The REPL must run on a thread of its own, so that the analysis does not delay it.
+ahead_enabled() = prepare_ahead[] && revise_dependents[] && dependents_supported && isinteractive() &&
+                  Threads.nthreads(:interactive) > 0
+
+"""
+    Revise.request_analysis_ahead()
+
+Start [`Revise.analyze_ahead`](@ref) on a task of the default thread pool, unless it already
+runs, in which case it runs once more when done, and [`Revise.idle_work`](@ref) after it.
+
+The analysis ahead needs [`Revise.prepare_ahead`](@ref) and [`Revise.revise_dependents`](@ref)
+on and a REPL on an interactive thread. Otherwise only the idle work is requested. Revise calls
+this when it starts tracking code and after each revision.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> Revise.ahead_enabled()   # doctests do not run interactively
+false
+
+julia> Revise.request_analysis_ahead(); Revise.ahead_task[] === nothing
+true
+```
+"""
+function request_analysis_ahead()
+    prepare_ahead[] || return nothing
+    ahead_enabled() || return request_idle_work()
+    @lock revise_lock begin
+        if ahead_task[] === nothing
+            ahead_task[] = Threads.@spawn :default begin
+                sleep(ahead_delay)
+                frozen(run_analysis_ahead)
+            end
+        else
+            ahead_again[] = true
+        end
+    end
+    return nothing
+end
+
+function run_analysis_ahead()
+    while true
+        try
+            analyze_ahead()
+        catch err
+            log_caught(err, catch_backtrace(), "AnalyzeAheadFailed")
+        end
+        @lock revise_lock begin
+            if !ahead_again[]
+                ahead_task[] = nothing
+                break
+            end
+            ahead_again[] = false
+        end
+    end
+    request_idle_work()
+    return nothing
+end
+
+"""
+    Revise.analyze_ahead()
+
+Store [`Revise.global_deps`](@ref) of the statements that a first revision with
+[`Revise.revise_dependents`](@ref) analyzes, in `global_deps_cache`.
+
+These are the statements of the watched packages other than the standard libraries, and of the
+packages these affect (see [`Revise.affected_tracked`](@ref)). Statements are analyzed in chunks
+under `revise_lock`, so a revision waits for at most one chunk. Statements
+whose expansion calls a macro of a package (see [`Revise.expands_package_macro`](@ref)) are
+left to [`Revise.idle_work`](@ref), since this analysis runs while other code runs.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> fn = joinpath(mktempdir(), "ahead.jl"); write(fn, "const AHEAD_A = 1\\nconst AHEAD_B = [AHEAD_A]\\n");
+
+julia> includet(fn); isahead(k) = k[2] === Main && occursin("AHEAD_B", string(k[3].ex));
+
+julia> count(isahead, keys(Revise.global_deps_cache))
+0
+
+julia> Revise.analyze_ahead(); count(isahead, keys(Revise.global_deps_cache))
+1
+```
+"""
+function analyze_ahead(files::Vector{Tuple{PkgData,Int}}=ahead_files())
+    for (pkgdata, ifile) in files
+        stmts = @lock revise_lock filter!(s -> !expands_package_macro(s[2], s[3].ex), file_statements(pkgdata, ifile))
+        for chunk in Iterators.partition(stmts, ahead_chunk)
+            @lock revise_lock cache_global_deps!(collect(chunk))
+        end
+    end
+    return nothing
+end
+
+# The files whose statements a first revision analyzes, as `(pkgdata, index)`: see `analyze_ahead`.
+# Without `dependents`, those of the watched packages, whose signatures a revision extracts.
+function ahead_files(dependents::Bool=revise_dependents[] && dependents_supported)
+    @lock revise_lock begin
+        watched = Set{PkgId}(id for (id, pkgdata) in pkgdatas if !Base.is_stdlib(id) && is_watched(pkgdata))
+        affected = dependents ? affected_pkgs(watched) : watched
+        return Tuple{PkgData,Int}[(pkgdata, ifile) for (id, pkgdata) in pkgdatas if id in affected && !is_base_pkg(id)
+                                  for ifile in eachindex(srcfiles(pkgdata))]
+    end
+end
+
+# --- Idle work: preparing revisions while the REPL waits for input, including what the analysis
+# ahead leaves because it runs code of packages.
+
+"""
+    Revise.IdleCancelled()
+
+The exception that stops a run of package code in the idle worker once a REPL command starts.
+
+See [`Revise.idle_work`](@ref).
+"""
+struct IdleCancelled <: Exception end
+
+const idle_task = Ref{Union{Nothing,Task}}(nothing)
+const idle_again = Ref(false)
+# Held during one unit of idle work. A REPL command takes it before it runs (see `pause_idle_work`).
+const idle_lock = ReentrantLock()
+const idle_cancel = Threads.Atomic{Bool}(false)
+# Seconds between two checks whether the REPL still runs a command
+const idle_poll = 0.1
+
+# The REPL backend whose task takes the commands from `repl_channel` and runs `revise_first`
+# before each, or `nothing`. Without that hook a command would not wait for the unit in progress.
+function idle_backend()
+    active_repl_backend_available() || return nothing
+    backend = Base.active_repl_backend
+    T = typeof(backend)
+    hasfield(T, :repl_channel) && isa(backend.repl_channel, Channel) || return nothing
+    hasfield(T, :ast_transforms) && any(f -> f === revise_first, backend.ast_transforms) || return nothing
+    return backend
+end
+
+# Whether the task of the REPL `backend` waits for the next command. Unlike `backend.in_eval`,
+# which stays set after a command that threw, this also holds after an error.
+repl_waiting(@nospecialize(backend)) = !isempty(backend.repl_channel.cond_take.waitq)
+
+# Start `idle_work` on a task of the default thread pool if `prepare_ahead` is on and a REPL runs,
+# or run it once more if it already runs.
+function request_idle_work()
+    prepare_ahead[] || return nothing
+    backend = idle_backend()
+    isnothing(backend) && return nothing
+    @lock revise_lock begin
+        if idle_task[] === nothing
+            idle_task[] = Threads.@spawn :default frozen(run_idle_work, () -> !idle_suspended[] && repl_waiting(backend))
+        else
+            idle_again[] = true
+        end
+    end
+    return nothing
+end
+
+function run_idle_work(@nospecialize(isidle))
+    while true
+        try
+            idle_work(isidle)
+        catch err
+            log_caught(err, catch_backtrace(), "IdleWorkFailed")
+        end
+        @lock revise_lock begin
+            if !idle_again[]
+                idle_task[] = nothing
+                return nothing
+            end
+            idle_again[] = false
+        end
+    end
+end
+
+"""
+    Revise.idle_work(isidle, files=Revise.ahead_files())
+
+Prepare revisions of `files` while `isidle()` returns `true` (see [`Revise.prepare_ahead`](@ref)).
+
+With [`Revise.revise_dependents`](@ref), the statements that the analysis ahead left are
+analyzed first. Then the signatures are extracted (see [`Revise.idle_extract_sigs!`](@ref)).
+Last, with `revise_dependents`, the statements that may still read any global run in `:sigs`
+mode to observe which they read (see [`Revise.observed_reads`](@ref)).
+
+Each file parse and each statement is a unit, which starts only while `isidle()` returns `true`.
+A REPL command cancels a run in `:sigs` mode (see [`Revise.IdleCancelled`](@ref)) and otherwise
+waits for the unit in progress.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> fn = joinpath(mktempdir(), "idle.jl");
+
+julia> write(fn, "module IdleDoc\\nmacro two() 2 end\\nconst IDLE_C = @two\\nend\\n"); includet(fn);
+
+julia> pkgdata = Revise.pkgdatas[Base.PkgId(Main)]; files = [(pkgdata, length(Revise.srcfiles(pkgdata)))];
+
+julia> isidle(k) = nameof(k[2]) === :IdleDoc && occursin("IDLE_C", string(k[3].ex));
+
+julia> Revise.analyze_ahead(files); count(isidle, keys(Revise.global_deps_cache))
+0
+
+julia> Revise.prepare_ahead[] = Revise.revise_dependents[] = true; Revise.idle_work(() -> true, files);
+
+julia> Revise.prepare_ahead[] = Revise.revise_dependents[] = false; count(isidle, keys(Revise.global_deps_cache))
+1
+```
+"""
+function idle_work(@nospecialize(isidle), files::Vector{Tuple{PkgData,Int}}=ahead_files())
+    dependents() = revise_dependents[] && dependents_supported
+    for (pkgdata, ifile) in files
+        idle_unit(isidle) do
+            @lock revise_lock begin
+                ifile <= length(pkgdata.fileinfos) && is_not_populated(fileinfo(pkgdata, ifile)) &&
+                    try_parse_from_cache!(pkgdata, srcfiles(pkgdata)[ifile])
+            end
+        end || return nothing
+    end
+    if dependents()
+        for (pkgdata, ifile) in files
+            stmts = @lock revise_lock filter!(s -> !haskey(global_deps_cache, s), file_statements(pkgdata, ifile))
+            for key in stmts
+                idle_unit(() -> @lock(revise_lock, cache_global_deps!([key])), isidle) || return nothing
+            end
+        end
+    end
+    # Extracting a statement's signatures also observes what it reads, so few runs remain below.
+    for (pkgdata, ifile) in files
+        idle_extract_sigs!(pkgdata, ifile, isidle) || return nothing
+    end
+    dependents() || return nothing
+    for (pkgdata, ifile) in files
+        stmts = @lock revise_lock file_statements(pkgdata, ifile)
+        for key in stmts
+            observe = @lock revise_lock begin
+                d = get(global_deps_cache, key, nothing)
+                !isnothing(d) && d.readsall && d.dynamic && (isnothing(d.evaluated) || !d.evaluated.readsall) &&
+                    revise_mode(key[2], default_revise_mode(pkgdata)) !== :sigs
+            end
+            observe || continue
+            idle_unit(isidle) do
+                @lock revise_lock begin
+                    d = get(global_deps_cache, key, nothing)
+                    isnothing(d) || !d.dynamic || observe_reads!(key, d)
+                end
+            end || return nothing
+        end
+    end
+    return nothing
+end
+
+"""
+    Revise.idle_extract_sigs!(pkgdata, ifile, isidle) -> Bool
+
+Extract the signatures of file `ifile` of `pkgdata`, one statement per unit of [`Revise.idle_work`](@ref), as a revision does when it first needs them.
+
+Statements extracted before, also by a cancelled unit, are skipped. A file that a revision
+replaced meanwhile is left alone, and so is one that fails, which the revision that needs it
+reports. Return `false` if
+[`Revise.prepare_ahead`](@ref) was turned off.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> fn = joinpath(mktempdir(), "sigs.jl"); write(fn, "module SigsIdleDoc\\nf(x) = x\\nend\\n"); includet(fn);
+
+julia> pkgdata = Revise.pkgdatas[Base.PkgId(Main)]; ifile = length(Revise.srcfiles(pkgdata));
+
+julia> Revise.prepare_ahead[] = true; Revise.idle_extract_sigs!(pkgdata, ifile, () -> true); Revise.prepare_ahead[] = false;
+
+julia> Revise.fileinfo(pkgdata, ifile).extracted[]
+true
+```
+"""
+function idle_extract_sigs!(pkgdata::PkgData, ifile::Int, @nospecialize(isidle))
+    current(fi) = any(f -> f === fi, pkgdata.fileinfos)
+    fi = @lock revise_lock begin
+        ifile <= length(pkgdata.fileinfos) || return true
+        info = fileinfo(pkgdata, ifile)
+        info.extracted[] && return true
+        try_parse_from_cache!(pkgdata, srcfiles(pkgdata)[ifile]) === nothing && return true
+        info
+    end
+    todo = @lock revise_lock [(mod, exs_infos, rex) for (mod, exs_infos) in fi.mod_exs_infos for rex in keys(exs_infos)
+                              if exs_infos[rex] === nothing && !is_doc_expr(rex.ex)]
+    try
+        for (mod, exs_infos, rex) in todo
+            idle_unit(isidle) do
+                @lock revise_lock begin
+                    current(fi) && !fi.extracted[] && exs_infos[rex] === nothing &&
+                        instantiate_sig!(exs_infos, mod, rex; records=fi.includes)
+                end
+            end || return false
+        end
+    catch err
+        isa(err, InterruptException) && rethrow()
+        log_caught(err, catch_backtrace(), "IdleExtractSigsFailed"; file=srcfiles(pkgdata)[ifile])
+        return true
+    end
+    @lock revise_lock current(fi) && (fi.extracted[] = true)
+    return true
+end
+
+# Run `f` once `isidle()` holds; return `false` if `prepare_ahead` was turned off. What `f`
+# logs goes to Revise's debug log: the user did not ask for this work.
+function idle_unit(f, @nospecialize(isidle))
+    while prepare_ahead[]
+        if isidle()
+            ran = @lock idle_lock begin
+                !isidle() ? false : try
+                    with_logger(f, _debug_logger)
+                    true
+                catch err
+                    isa(err, IdleCancelled) || rethrow()
+                    false
+                end
+            end
+            ran && return true
+        end
+        sleep(idle_poll)
+    end
+    return false
+end
+
+# Called before each REPL command runs: cancel a run of `idle_work` in `:sigs` mode and wait
+# until the unit in progress ended. The REPL no longer waits for input, so no next unit starts.
+function pause_idle_work()
+    isnothing(idle_task[]) && return nothing
+    idle_cancel[] = true
+    @lock idle_lock nothing
+    idle_cancel[] = false
+    return nothing
+end
+
+# Throw `IdleCancelled` if a REPL command waits for the idle worker running this.
+check_idle_cancel() = idle_cancel[] && current_task() === idle_task[] && throw(IdleCancelled())
+
+# Set by a `revise()` while the REPL waits for input, as an editor's inline evaluation calls it
+# before running user code. Cleared when a REPL command starts.
+const idle_suspended = Threads.Atomic{Bool}(false)
+
+# During a REPL command the hook has already paused the idle work, which resumes after the command.
+function suspend_idle_work(backend=idle_backend())
+    !isnothing(backend) && repl_waiting(backend) || return nothing
+    idle_suspended[] = true
+    pause_idle_work()
+    return nothing
+end
+
+"""
+    Revise.expands_package_macro(mod::Module, ex) -> Bool
+
+Return whether the expansion of the statement `ex` of `mod` calls a macro that neither `Core` nor a package of Julia itself defines.
+
+A macro whose binding is not found counts as well. Macros in the method bodies that
+[`Revise.strip_bodies`](@ref) removes, and in quoted code, are not expanded, so they do not count.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> module MacroDoc
+           macro m(x) x end
+       end;
+
+julia> Revise.expands_package_macro(Main, :(const C = MacroDoc.@m 1))
+true
+
+julia> Revise.expands_package_macro(Main, :(f(x) = MacroDoc.@m x))
+false
+```
+"""
+expands_package_macro(mod::Module, @nospecialize(ex)) = calls_package_macro(mod, strip_bodies(ex))
+
+# Whether the expression `x` of `mod` calls a macro that neither `Core` nor a package of Julia
+# defines, also in method bodies but not in quoted code. `@doc` counts if a package replaced the
+# function that `Core.@doc` calls (see `Core.atdoc!`).
+function calls_package_macro(mod::Module, @nospecialize(x))
+    isa(x, Expr) || return false
+    (x.head === :quote || x.head === :inert) && return false
+    if x.head === :macrocall
+        m = macro_module(mod, x.args[1])
+        isnothing(m) && return true
+        root = Base.moduleroot(m)
+        root === Core || is_julia_pkg(PkgId(root)) || return true
+        root === Core && macro_name(x.args[1]) === Symbol("@doc") && !julia_doc_function() && return true
+    end
+    return any(a -> calls_package_macro(mod, a), x.args)
+end
+
+macro_name(@nospecialize(name)) = isa(name, GlobalRef) ? name.name :
+    isexpr(name, :., 2) && isa(name.args[2], QuoteNode) ? name.args[2].value : name
+
+# Whether `Core.@doc` calls a function of Julia itself, not one a package installed.
+function julia_doc_function()
+    root = Base.moduleroot(parentmodule(getglobal(Core, :atdoc)))
+    return root === Core || is_julia_pkg(PkgId(root))
+end
+
+# The module that owns the macro `name` of a macro call in `mod`, or `nothing` if not known.
+function macro_module(mod::Module, @nospecialize(name))
+    isa(name, GlobalRef) && return name.mod
+    isa(name, Symbol) && return binding_owner(mod, name)
+    if isexpr(name, :., 2) && isa(name.args[2], QuoteNode) && isa(name.args[2].value, Symbol)
+        q = qualifier_module(mod, name.args[1])
+        return isnothing(q) ? nothing : binding_owner(q, name.args[2].value)
+    end
+    return nothing
+end
+
+# The statements of file `ifile` of `pkgdata`, or none if `pkgdata` is no longer tracked.
+function file_statements(pkgdata::PkgData, ifile::Int)
+    stmts = StmtKey[]
+    get(pkgdatas, PkgId(pkgdata), nothing) === pkgdata && ifile <= length(srcfiles(pkgdata)) || return stmts
+    for site in add_file_sites!(StmtSite[], 0, pkgdata, ifile)
+        push!(stmts, stmt_key(site[4], site[6]))
+    end
+    return stmts
+end
+
+# Whether Revise watches a file of `pkgdata`, so that a revision can start there.
+function is_watched(pkgdata::PkgData)
+    return any(srcfiles(pkgdata)) do file
+        dir, base = splitdir(String(file))
+        wl = get(watched_files, joinpath(basedir(pkgdata), dir), nothing)
+        return wl !== nothing && haskey(wl.trackedfiles, base)
+    end
 end
 
 # Whether `id` identifies `Base`, the compiler, or a standard library. Such a package requires

@@ -71,6 +71,44 @@ In somewhat greater detail, Revise uses the following overall strategy:
 - replace the cached version of each source file with the new version, so that
   further changes are `diff`ed against the most recent update.
 
+## [When the work is done](@id work-ahead)
+
+The work for a revision is spread over the following points. Each piece runs at the earliest
+point where it is correct and does not delay the user: pure analysis runs in the background,
+work that runs code of packages runs while the REPL waits for input, and only what depends on
+the edit runs during the revision. A result computed early is checked again during the
+revision, or is replaced once its file changes, so preparing ahead changes how fast a revision
+is, never what it does. With [`Revise.prepare_ahead`](@ref) off, the default, everything runs
+during the revision.
+
+| Point | When | What it may run | Work done there |
+|:----- |:---- |:--------------- |:--------------- |
+| Precompiling Revise | Building Revise's package image | Revise's own code | Compiling Revise (`_precompile_`). Results refer to the session, so none are kept. |
+| Loading Revise | `using Revise` (`__init__`) | Revise's own code | Freezing Revise's world, reading the preferences. |
+| Loading a package | Within `using` of a package, `includet`, or [`Revise.track`](@ref) | Revise's own code | Parsing its files, watching them, and requesting the preparation ahead. Nothing heavy: the user waits for it. |
+| Analysis ahead | Two seconds after loading and after each revision, on the default thread pool, while user code may run; only with [`Revise.revise_dependents`](@ref), in an interactive session with an interactive thread | Revise's code and Julia's own macros | [`Revise.analyze_ahead`](@ref): the dependencies of the statements whose expansion calls no macro of a package (see [`Revise.expands_package_macro`](@ref)). |
+| Idle work | After the analysis ahead, or after loading and each revision without it, while the REPL waits for input | Code of packages | [`Revise.idle_work`](@ref): extracting the signatures of the files, and with `revise_dependents` analyzing the statements not analyzed yet and observing what the statements that may read any global read. |
+| Revision | Before the next REPL command runs, or in `revise()` | Code of packages | Everything that depends on the edit, and what the earlier points did not get to, for example without a REPL. |
+
+The idle work avoids running code of packages concurrently with user code, which a macro or a
+statement run in `:sigs` mode may not tolerate. Parsing a file is one unit, and so is each
+statement. The idle work runs only if Revise's REPL hook runs before each command, which
+`JULIA_REVISE=manual` turns off. A unit starts only while the task of the REPL backend waits
+for the next command, and the hook waits for the unit in progress before a command runs. An
+editor's inline evaluation runs code while the REPL backend waits, but calls `revise()` first,
+which waits for the unit in progress the same way and suspends the idle work until the next
+REPL command. A run
+in `:sigs` mode is cancelled at its next top-level step and runs again later, since the command
+may change what it reads (see [`Revise.IdleCancelled`](@ref)). Parsing and expansion cannot be
+interrupted, so a command waits for them, longer for a large file or the first compilation of
+a macro. Tasks that a command spawned keep running, as they do during a revision. What a unit
+logs goes to Revise's debug log.
+
+Extracting the signatures of a file takes up to seconds, for example ForwardDiff's `dual.jl`,
+while those of a package take a few MiB. Without the idle work, a revision extracts them when
+it first edits the file, and with `revise_dependents` also for the files of dependent
+statements.
+
 ## The structure of Revise's internal representation
 
 ![diagram](figures/diagram.png)

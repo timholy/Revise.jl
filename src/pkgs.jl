@@ -863,6 +863,7 @@ function watch_package(id::PkgId)
             hold_cache!(pkgdata)
         end
         pkgdatas[id] = pkgdata
+        request_analysis_ahead()
         pkgdata
     end
 end

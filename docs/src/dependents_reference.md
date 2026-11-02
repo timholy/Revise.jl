@@ -1,6 +1,7 @@
 # Developer reference: dependent statements
 
-These implement [`Revise.revise_dependents`](@ref).
+These implement [`Revise.revise_dependents`](@ref). See [When the work is done](@ref work-ahead)
+for when Revise analyzes the statements.
 
 A cached result that no longer holds is not brought up to date early: the revision that finds
 it invalid learns from that which statements call code that changed.
@@ -18,6 +19,7 @@ Revise.expand_literal_evals
 Revise.expanded_deps
 Revise.literal_eval
 Revise.is_definition_call
+Revise.expands_package_macro
 Revise.old_value_reads
 Revise.fallback_deps
 Revise.strip_bodies
@@ -36,6 +38,11 @@ Revise.DepIndex
 Revise.refresh_index!
 Revise.check_dep_index
 Revise.affected_tracked
+Revise.request_analysis_ahead
+Revise.analyze_ahead
+Revise.idle_work
+Revise.idle_extract_sigs!
+Revise.IdleCancelled
 Revise.dependency_seeds
 Revise.add_method_owners!
 Revise.required_modules

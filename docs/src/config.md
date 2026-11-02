@@ -90,7 +90,7 @@ statement keeps the value it computed from the old code: after editing `struct S
 `const K = S(1)` still holds an instance of the old `S`, and after editing `A = 1`, an unchanged
 `B = [A]` still holds `[1]`.
 
-Setting `Revise.revise_dependents[] = true` (Julia 1.13+) makes Revise also reevaluate every
+Calling `Revise.set_revise_dependents(true)` (Julia 1.13+) makes Revise also reevaluate every
 unchanged top-level statement that reads a global binding the revision changed, or calls code
 that the revision changed, transitively and across all tracked files. A binding counts as
 changed if
@@ -211,7 +211,35 @@ Keep in mind:
 - The first revision analyzes every top-level statement of the revised packages, of the
   packages that own a function or type named in the signature of a changed method, of the
   packages that depend on any of them, and of `Main`. This can take several seconds. Later
-  revisions analyze only the statements that changed or that call code that changed.
+  revisions analyze only the statements that changed or that call code that changed. With
+  [`Revise.prepare_ahead`](@ref) (see [Preparing revisions ahead](@ref prepare-ahead)), Revise
+  does this analysis before you edit, so the first revision is usually fast as well. In an
+  interactive session started with an interactive thread (the default on Julia 1.13+), the
+  statements that call no macro of a package are analyzed in the background, shortly after
+  Revise starts tracking a package or file. The others, whose macros may change state that code
+  running at the same time uses, are analyzed while the REPL waits for input, and so are all
+  statements without an interactive thread. The background analysis skips the standard
+  libraries.
+
+## [Preparing revisions ahead](@id prepare-ahead)
+
+Revise can prepare the revisions of the tracked code while the REPL waits for your next
+command: it parses the files and extracts the method signatures they define, which a revision
+otherwise does when it first edits a file, and with `revise_dependents` it also analyzes the
+dependencies of the tracked statements. The first edit of a large file then takes milliseconds
+instead of seconds.
+
+The preparation runs code of the tracked packages, as a revision does, but between your
+commands. A command waits for the step in progress, such as parsing one file. Without a REPL,
+for example in a script, or with `JULIA_REVISE=manual`, nothing is prepared ahead. To turn the
+preparation on, set `Revise.prepare_ahead[] = true`, or the `prepare_ahead` preference to
+`true` via [Preferences.jl](https://github.com/JuliaPackaging/Preferences.jl) by adding the
+following to the `LocalPreferences.toml` file in your active project:
+
+```toml
+[Revise]
+prepare_ahead = true
+```
 
 ## Optional global configuration
 

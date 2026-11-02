@@ -101,6 +101,7 @@ function _precompile_()
         @warnpcfail precompile(Tuple{typeof(in), Tuple{T}, Set{Tuple{Type}}})
     end
     @warnpcfail precompile(Tuple{typeof(_errors), Vector{Tuple{PkgData,String}}})
+    @warnpcfail precompile(Tuple{typeof(run_idle_work), Function})
 
     @warnpcfail precompile(Tuple{typeof(get_def), Method})
     @warnpcfail precompile(Tuple{typeof(parse_pkg_files), PkgId})
@@ -153,6 +154,7 @@ function _precompile_()
         # The workload makes no sentinels while generating output.
         @warnpcfail precompile(Tuple{typeof(lookup_sentinel), Type, Vector{Method}})
         @warnpcfail precompile(Tuple{typeof(methods_by_type), Walk})
+        @warnpcfail precompile(Tuple{typeof(run_analysis_ahead)})
         # Reached through `invokelatest` or with parameters of unknown type
         @warnpcfail precompile(Tuple{typeof(assumed_hold), Vector{Pair{Tuple{Module,Symbol},Any}}})
         @warnpcfail precompile(Tuple{typeof(changed_assumptions), Dict{Tuple{Module,Symbol},IdDict{Any,Set{Int}}}})
