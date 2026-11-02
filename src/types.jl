@@ -110,14 +110,24 @@ It also has the following fields:
 - `includes`: a list of `(module, mapexpr, filename)` for any `include` statements encountered
   while the expression was parsed. `mapexpr` is the transform passed to
   `include(mapexpr, filename)`, or `identity` for plain `include(filename)`.
+- `namedreads`: the `(module, name)` globals that calls in the interpreted code read or tested
+  by a module or name computed while it ran (see [`Revise.named_access_call`](@ref)).
+- `unobserved`: whether such a call of the expression's own code ran compiled or was skipped,
+  so that `namedreads` may miss globals it selects.
+- `evaluated`: the module, expression, and lowered code of each piece of code that the
+  interpreted code ran through `eval`, collected while [`Revise.revise_dependents`](@ref) is set.
 """
 struct ExInfo
     exprstack::Vector{Expr}
     allsigs::Vector{SigInfo}
     typeinfos::Vector{TypeInfo}
     includes::Vector{Tuple{Module,Function,String}}
+    namedreads::Set{Tuple{Module,Symbol}}
+    unobserved::Base.RefValue{Bool}
+    evaluated::Vector{Tuple{Module,Expr,Expr}}
 end
-ExInfo(ex::Expr) = ExInfo(Expr[ex], SigInfo[], TypeInfo[], Tuple{Module,Function,String}[])
+ExInfo(ex::Expr) = ExInfo(Expr[ex], SigInfo[], TypeInfo[], Tuple{Module,Function,String}[], Set{Tuple{Module,Symbol}}(),
+                          Ref(false), Tuple{Module,Expr,Expr}[])
 
 """
     get_extended_data(ext::ExtendedData, owner::Symbol) -> ext::Union{ExtendedData,Nothing}
