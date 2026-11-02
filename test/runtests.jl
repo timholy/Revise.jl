@@ -1138,6 +1138,35 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Source order across modules") && @testset "Source order across modules" begin
+        # A new nested module runs before the later statements of its parent, as loading does.
+        testdir = newtestdir()
+        dn = joinpath(testdir, "SourceOrder", "src")
+        mkpath(dn)
+        write(joinpath(dn, "SourceOrder.jl"), """
+            module SourceOrder
+            end
+            """)
+        sleep(mtimedelay)
+        @eval using SourceOrder
+        sleep(mtimedelay)
+        write(joinpath(dn, "SourceOrder.jl"), """
+            module SourceOrder
+            module Inner
+                const C = 1
+            end
+            using .Inner: C
+            const D = C + 1
+            end
+            """)
+        @yry()
+        @test isempty(Revise.queue_errors)
+        @test @invokelatest(getglobal(SourceOrder, :D)) == 2
+
+        rm_precompile("SourceOrder")
+        pop!(LOAD_PATH)
+    end
+
     do_test("Revise mode :sigs") && @testset "Revise mode :sigs" begin
         testdir = newtestdir()
         # Sibling helper packages, so the test depends on nothing outside `testdir`.

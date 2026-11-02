@@ -105,14 +105,14 @@ function unwrap_where(ex::Expr)
     return ex::Expr
 end
 
-function pushex!(exs_infos::ExprsInfos, ex::Expr)
+function pushex!(exs_infos::ExprsInfos, ex::Expr, seq::Int=0)
     uex = unwrap(ex)
     if is_doc_expr(uex)
         body = uex.args[4]
         # Don't trigger for exprs where the documented expression is just a signature
         # (e.g. `"docstr" f(x::Int)`, `"docstr" f(x::T) where T` etc.)
         if isa(body, Expr) && unwrap_where(body).head !== :call
-            exs_infos[RelocatableExpr(body)] = nothing
+            exs_infos[RelocatableExpr(body, seq)] = nothing
         end
         if length(uex.args) < 5
             push!(uex.args, false)
@@ -120,8 +120,15 @@ function pushex!(exs_infos::ExprsInfos, ex::Expr)
             uex.args[5] = false
         end
     end
-    exs_infos[RelocatableExpr(ex)] = nothing
+    exs_infos[RelocatableExpr(ex, seq)] = nothing
     return exs_infos
+end
+
+# The `(mod, rex)` statements of a file's `mod_exs_infos` in the order loading the file runs them,
+# so those of a nested module between those of its parent. Statements with equal `seq` keep their order.
+function stmts_in_source_order(mod_exs_infos::ModuleExprsInfos)
+    stmts = Tuple{Module,RelocatableExpr}[(mod, rex) for (mod, exs_infos) in mod_exs_infos for rex in keys(exs_infos)]
+    return sort!(stmts; by = s -> s[2].seq, alg = Base.Sort.DEFAULT_STABLE)
 end
 
 ## WatchList utilities
