@@ -7326,6 +7326,36 @@ end
         fakeid = Base.PkgId(Base.UUID("00000000-0000-0000-0000-000000000685"), "NotALoadedPkg685")
         @test_throws "no Revise.track recipe" Revise._track(fakeid, :NotALoadedPkg685)
 
+        # A package loaded while its files are read-only is recorded but not watched, until
+        # `track` is called once they are writable
+        dro = joinpath(testdir, "TrackReadOnly", "src")
+        mkpath(dro)
+        fnro = joinpath(dro, "TrackReadOnly.jl")
+        write(fnro, """
+            module TrackReadOnly
+            fro() = 1
+            end
+            """)
+        chmod(fnro, 0o444)
+        sleep(mtimedelay)
+        @eval using TrackReadOnly
+        @latestworld
+        idro = Base.PkgId(TrackReadOnly)
+        @test !Revise.is_watched(Revise.pkgdatas[idro])
+        @test_logs (:warn, r"not writable") match_mode=:any Revise.track(TrackReadOnly)
+        chmod(fnro, 0o644)
+        sleep(mtimedelay)
+        write(fnro, """
+            module TrackReadOnly
+            fro() = 2
+            end
+            """)
+        Revise.track(TrackReadOnly)
+        @latestworld
+        @test Revise.is_watched(Revise.pkgdatas[idro])
+        @test TrackReadOnly.fro() == 2
+
+        rm_precompile("TrackReadOnly")
         rm_precompile("TrackSysimg685")
         pop!(LOAD_PATH)
     end
