@@ -107,6 +107,8 @@ Revise.cache_snapshot_is_valid
 Revise.cached_source_is_current
 Revise.include_targets
 Revise.maybe_add_includes_to_pkgdata!
+Revise.link_twins!
+Revise.adopt_twins!
 ```
 
 Revise pins its own method dispatch to the world age captured at initialization, so that
@@ -137,6 +139,7 @@ This part of the package is not as well documented.
 
 ```@docs
 Revise.gensym_base
+Revise.starts_with_hash
 Revise.minimal_evaluation!
 Revise.methods_by_execution!
 Revise.assign_this!

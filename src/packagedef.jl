@@ -1615,7 +1615,79 @@ function parse_for_revision(pkgdata::PkgData, file::AbstractString, idx::Int)
     topmod = first(keys(mod_exs_infos_old))
     fileok = file_exists(String(filep)::String)
     pr = fileok ? parse_and_maybe_eval_source(filep, topmod; mapexpr=fi.mapexpr) : ParseResult(ModuleExprsInfos(topmod), true)
+    pr.success && link_twins!(pr.modexinfos, mod_exs_infos_old)
     return pr, mod_exs_infos_old, fileok
+end
+
+"""
+    Revise.link_twins!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos) -> mod_exs_infos_new
+
+Set the `twin` of each statement of `mod_exs_infos_new` to the equal statement of the same module and file in `mod_exs_infos_old`, if there is one.
+
+Comparing a statement with its twin then needs no walk through the expressions. The file is
+the one the first line number of the statement names.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> f_old, f_new, g_new = (Revise.RelocatableExpr(Expr(:block, LineNumberNode(l), ex)) for (l, ex) in ((1, :(f() = 1)), (5, :(f() = 1)), (6, :(g() = 2))));
+
+julia> old = Revise.ModuleExprsInfos(Main => Revise.ExprsInfos(f_old => nothing));
+
+julia> new = Revise.ModuleExprsInfos(Main => Revise.ExprsInfos(f_new => nothing, g_new => nothing));
+
+julia> Revise.link_twins!(new, old); (@atomic f_new.twin) === f_old, @atomic g_new.twin
+(true, nothing)
+
+julia> f_moved = Revise.RelocatableExpr(Expr(:block, LineNumberNode(1, :moved), :(f() = 1)));
+
+julia> Revise.link_twins!(Revise.ModuleExprsInfos(Main => Revise.ExprsInfos(f_moved => nothing)), old); isnothing(@atomic f_moved.twin)
+true
+```
+"""
+function link_twins!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos)
+    for (mod, exs_infos_new) in mod_exs_infos_new
+        exs_infos_old = get(mod_exs_infos_old, mod, nothing)
+        isnothing(exs_infos_old) && continue
+        for rex in keys(exs_infos_new)
+            rex_old = getkey(exs_infos_old, rex, nothing)
+            # `adopt_twins!` swaps the keys, which needs equal hashes and the file of the first line.
+            if !isnothing(rex_old) && rex_old !== rex && hash(rex_old) == hash(rex) &&
+                    something(firstline(rex_old), LineNumberNode(0)).file === something(firstline(rex), LineNumberNode(0)).file
+                @atomic :monotonic rex.twin = rex_old
+            end
+        end
+    end
+    return mod_exs_infos_new
+end
+
+"""
+    Revise.adopt_twins!(mod_exs_infos::ModuleExprsInfos) -> mod_exs_infos
+
+Replace each statement of `mod_exs_infos` that has a `twin` by the twin, which takes over the statement's expression and place in the file.
+
+Statements that did not change thus keep their identity across revisions, and so do the
+entries keyed by them.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> old, new = (Revise.RelocatableExpr(Expr(:block, LineNumberNode(l), :(f() = 1)), l) for l in (1, 3));
+
+julia> @atomic new.twin = old; mexs = Revise.ModuleExprsInfos(Main => Revise.ExprsInfos(new => nothing));
+
+julia> Revise.adopt_twins!(mexs); only(keys(mexs[Main])) === old, old.ex === new.ex, old.seq
+(true, true, 3)
+```
+"""
+function adopt_twins!(mod_exs_infos::ModuleExprsInfos)
+    for exs_infos in values(mod_exs_infos), (rex, exinfos) in exs_infos
+        twin = @atomic :monotonic rex.twin
+        isnothing(twin) && continue
+        twin.ex, twin.seq = rex.ex, rex.seq
+        exs_infos[twin] = exinfos
+    end
+    return mod_exs_infos
 end
 
 # Apply deletions for `(pkgdata, file)` from the results of `parse_for_revision`.
@@ -2065,7 +2137,7 @@ function revise_file_now(pkgdata::PkgData, file, idx::Int)
         _, includes = eval_new!(mod_exs_infos_new, mod_exs_infos_old)
         realias_orphaned_bindings!(mod_exs_infos_new, mod_exs_infos_old)   # issue #239
         fi = fileinfo(pkgdata, idx)
-        pkgdata.fileinfos[idx] = FileInfo(mod_exs_infos_new, fi)
+        pkgdata.fileinfos[idx] = FileInfo(adopt_twins!(mod_exs_infos_new), fi)
         maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
     end
     nothing
@@ -2415,7 +2487,7 @@ function evaluate_worklist!(pass::RevisionPass)
         mod_exs_infos_new = entry.mod_exs_infos
         fi = fileinfo(pkgdata, idx)
         if isempty(pending) || isa(err, LoweringException)   # fix #877
-            pkgdata.fileinfos[idx] = FileInfo(mod_exs_infos_new, fi)
+            pkgdata.fileinfos[idx] = FileInfo(adopt_twins!(mod_exs_infos_new), fi)
         end
         if isempty(pending)
             realias_orphaned_bindings!(mod_exs_infos_new, fi.mod_exs_infos)  # issue #239
