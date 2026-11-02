@@ -246,12 +246,12 @@ function try_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
 end
 
 function add_modexs!(fi::FileInfo, modexs::Vector{Tuple{Module,Expr}})
-    for (mod, rex) in modexs
+    for (seq, (mod, rex)) in enumerate(modexs)
         exs_infos = get(fi.mod_exs_infos, mod, nothing)
         if exs_infos === nothing
             fi.mod_exs_infos[mod] = exs_infos = ExprsInfos()
         end
-        pushex!(exs_infos, rex)
+        pushex!(exs_infos, rex, seq)
     end
     return fi
 end

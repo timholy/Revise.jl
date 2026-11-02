@@ -1211,22 +1211,6 @@ function eval_rex(rex_new::RelocatableExpr, exs_infos_old::ExprsInfos, mod::Modu
     end
 end
 
-# These are typically bypassed in favor of expression-by-expression evaluation to
-# allow handling of new `include` statements.
-function eval_new!(exs_infos_new::ExprsInfos, exs_infos_old::ExprsInfos, mod::Module; mode::Symbol=:eval)
-    includes = Vector{Tuple{Module,Function,String}}()
-    for rex in keys(exs_infos_new)
-        exinfos, includes′ = eval_rex(rex, exs_infos_old, mod; mode)
-        if exinfos !== nothing
-            exs_infos_new[rex] = exinfos
-        end
-        if includes′ !== nothing
-            append!(includes, includes′)
-        end
-    end
-    return exs_infos_new, includes
-end
-
 # A module's `__revise_mode__` binding postdates Revise's frozen world, so with
 # world-partitioned bindings (Julia 1.12+) it must be read in the latest world even
 # though revision itself runs under `frozen` (issue #1116).
@@ -1238,14 +1222,17 @@ end
 # Avoid re-evaluating assignments accumulated in `Main`.
 default_revise_mode(pkgdata::PkgData) = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
 
+# Evaluate the new statements of a file in source order. Their `include`s are returned and not
+# evaluated here.
 function eval_new!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos; mode::Symbol=:eval)
     includes = Vector{Tuple{Module,Function,String}}()
-    for (mod, exs_infos_new) in mod_exs_infos_new
+    modes = IdDict{Module,Symbol}()
+    for (mod, rex) in stmts_in_source_order(mod_exs_infos_new)
         # Allow packages to override the supplied mode
-        mode = revise_mode(mod, mode)
-        exs_infos_old = get(mod_exs_infos_old, mod, empty_exs_infos)
-        _, _includes = eval_new!(exs_infos_new, exs_infos_old, mod; mode)
-        append!(includes, _includes)
+        modmode = get!(() -> revise_mode(mod, mode), modes, mod)
+        exinfos, includes′ = eval_rex(rex, get(mod_exs_infos_old, mod, empty_exs_infos), mod; mode=modmode)
+        exinfos === nothing || (mod_exs_infos_new[mod][rex] = exinfos)
+        includes′ === nothing || append!(includes, includes′)
     end
     return mod_exs_infos_new, includes
 end
@@ -2345,52 +2332,56 @@ function schedule_include!(pass::RevisionPass, pkgdata::PkgData, file::AbstractS
     return nothing
 end
 
-# Evaluate the pending expressions of one file, in source order within each module,
-# stopping at the first failure in a module (its later expressions may depend on the
-# failed one) but going on to the file's other modules. Repeats while a module
-# succeeds, since modules of one file can depend on one another in either order.
-# Returns whether any expression succeeded. `p` is the entry's position in the
-# worklist, after which the files it newly `include`s are scheduled.
+# Evaluate the pending expressions of one file in source order. After a failure, the later
+# expressions of the same module are skipped (they may depend on the failed one), but those of
+# the file's other modules run. Repeats while an expression succeeds, since modules of one file
+# can depend on one another in either order. Returns whether any expression succeeded. `p` is
+# the entry's position in the worklist, after which the files it newly `include`s are scheduled.
 function evaluate_entry!(pass::RevisionPass, entry::RevisionEntry, p::Int)
     (; pkgdata, file, idx, included, pending) = entry
     mod_exs_infos_new = entry.mod_exs_infos
     defaultmode = default_revise_mode(pkgdata)
     fi = fileinfo(pkgdata, idx)
     entry.round = pass.round
+    order = stmts_in_source_order(mod_exs_infos_new)
     progress = false
     changed = true
     while changed
         changed = false
-        for (mod, exs_infos_new) in mod_exs_infos_new
+        failed = IdSet{Module}()
+        modes = IdDict{Module,Symbol}()
+        for (mod, rex) in order
+            mod in failed && continue
             rexes = get(pending, mod, nothing)
-            rexes === nothing && continue
+            (rexes === nothing || first(rexes) !== rex) && continue
             try
                 # Allow packages to override the supplied mode
-                mode = included ? :eval : revise_mode(mod, defaultmode)
-                mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
-                exs_infos_old = get(fi.mod_exs_infos, mod, empty_exs_infos)
-                while !isempty(rexes)
-                    rex = first(rexes)
-                    exinfos, includes = eval_rex(rex, exs_infos_old, mod; mode)
-                    if exinfos !== nothing
-                        exs_infos_new[rex] = exinfos
-                    end
-                    if includes !== nothing
-                        maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true,
-                            revise=(pd, incrp, i) -> schedule_include!(pass, pd, incrp, i, p))
-                    end
-                    popfirst!(rexes)
-                    progress = true
+                mode = get!(modes, mod) do
+                    m = included ? :eval : revise_mode(mod, defaultmode)
+                    m ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", m)
+                    m
                 end
-                delete!(pending, mod)
-                changed = true
+                exs_infos_old = get(fi.mod_exs_infos, mod, empty_exs_infos)
+                exinfos, includes = eval_rex(rex, exs_infos_old, mod; mode)
+                if exinfos !== nothing
+                    mod_exs_infos_new[mod][rex] = exinfos
+                end
+                if includes !== nothing
+                    maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true,
+                        revise=(pd, incrp, i) -> schedule_include!(pass, pd, incrp, i, p))
+                end
+                popfirst!(rexes)
+                isempty(rexes) && delete!(pending, mod)
+                progress = changed = true
             catch e
+                push!(failed, mod)
                 # Retried in later rounds; see `evaluate_worklist!`.
                 entry.err, entry.bt = e, catch_backtrace()
                 log_caught(e, entry.bt, "EvalFailed"; mod, file)
                 pass.interrupt |= isa(e, InterruptException)
             end
         end
+        changed &= !isempty(failed)
     end
     return progress
 end

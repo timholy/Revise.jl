@@ -115,6 +115,7 @@ function process_ex!(mod_exprs_sigs::ModuleExprsInfos, ex::Expr, filename::Abstr
         apply_mapexpr!(mapexpr, ex, filename)
     end
     lastval = nothing
+    seq = sum(length, values(mod_exprs_sigs); init=0)
     for (mod, ex) in ExprSplitter(mod, ex)
         if mode === :includet
             try
@@ -134,11 +135,11 @@ function process_ex!(mod_exprs_sigs::ModuleExprsInfos, ex::Expr, filename::Abstr
                 if isa(a, LineNumberNode)
                     lnn = a
                 else
-                    pushex!(exprs_sigs, Expr(:toplevel, lnn, a))
+                    pushex!(exprs_sigs, Expr(:toplevel, lnn, a), seq += 1)
                 end
             end
         else
-            pushex!(exprs_sigs, ex)
+            pushex!(exprs_sigs, ex, seq += 1)
         end
     end
     # issue #783: the value of the last evaluated expression, so `includet` can

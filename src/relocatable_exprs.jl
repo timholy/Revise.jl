@@ -12,10 +12,15 @@ A `RelocatableExpr` wraps an `Expr` to ensure that comparisons
 between `RelocatableExpr`s ignore line numbering information.
 This allows one to detect that two expressions are the same no matter
 where they appear in a file.
+
+`seq` is the place of the statement in the order its file runs, counting the statements of
+all modules the file defines, or 0 if unknown. Comparisons ignore it as well.
 """
 struct RelocatableExpr
     ex::Expr
+    seq::Int
 end
+RelocatableExpr(ex) = RelocatableExpr(convert(Expr, ex), 0)
 
 const ExLike = Union{Expr,RelocatableExpr}
 
