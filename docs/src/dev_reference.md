@@ -102,6 +102,7 @@ Revise.remove_callback
 
 ```@docs
 Revise.revise_file_now
+Revise.eval_new_stmt
 Revise.hold_cache!
 Revise.cache_snapshot_is_valid
 Revise.cached_source_is_current
@@ -146,6 +147,11 @@ Revise.methods_by_execution!
 Revise.assign_this!
 Revise.ExInfo
 ```
+
+### Dependent statements
+
+The functions that implement [`Revise.revise_dependents`](@ref) are listed in
+[Developer reference: dependent statements](@ref).
 
 ### Modules and paths
 

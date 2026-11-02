@@ -43,6 +43,12 @@ Revise.unsilence
 Revise.missing_file_grace
 ```
 
+### Reevaluating dependent statements
+
+```@docs
+Revise.revise_dependents
+```
+
 ### Revise module
 
 ```@docs

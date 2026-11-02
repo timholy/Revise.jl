@@ -636,6 +636,1532 @@ end
         pop!(LOAD_PATH)
     end
 
+    do_test("Reevaluate dependents") && @testset "Reevaluate dependents" begin
+        testdir = newtestdir()
+        @eval Main begin
+            reeval_counts = Dict{String,Int}()
+            reeval_count!(key) = (reeval_counts[key] = get(reeval_counts, key, 0) + 1)
+        end
+        chain_src(name, a) = """
+            module $name
+            __revise_mode__ = :eval
+            A = $a
+            B = (Main.reeval_count!("$name.B"); A + 1)
+            C = (Main.reeval_count!("$name.C"); 10B)
+            U = (Main.reeval_count!("$name.U"); 100)
+            end
+            """
+        struct_src(name, T) = """
+            module $name
+            __revise_mode__ = :eval
+            struct S; v::$T; end
+            const K = S(1)
+            getv(s::S) = s.v
+            usek() = getv(K)
+            end
+            """
+        Revise.verify_dep_index[] = true
+        try
+            for (name, on) in (("ReevalChainOn", true), ("ReevalChainOff", false))
+                Revise.revise_dependents[] = on
+                fn = joinpath(testdir, name * ".jl")
+                write(fn, chain_src(name, 1))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, chain_src(name, 2))
+                if on && !Revise.dependents_supported
+                    @test_logs (:warn, r"requires Julia 1.13") match_mode=:any yry()
+                else
+                    @yry()
+                end
+                @test isempty(Revise.queue_errors)
+                mod = getglobal(Main, Symbol(name))
+                counts = Main.reeval_counts
+                @test mod.A == 2
+                if on && Revise.dependents_supported
+                    @test (mod.B, mod.C) == (3, 30)
+                    @test counts["$name.B"] == counts["$name.C"] == 2
+                else
+                    @test (mod.B, mod.C) == (2, 20)
+                    @test counts["$name.B"] == counts["$name.C"] == 1
+                end
+                @test counts["$name.U"] == 1
+            end
+
+            if Revise.__bpart__[]
+                for (name, on) in (("ReevalStructOn", true), ("ReevalStructOff", false))
+                    Revise.revise_dependents[] = on
+                    fn = joinpath(testdir, name * ".jl")
+                    write(fn, struct_src(name, "Int"))
+                    sleep(mtimedelay)
+                    includet(fn)
+                    sleep(mtimedelay)
+                    write(fn, struct_src(name, "Integer"))
+                    @yry()
+                    @test isempty(Revise.queue_errors)
+                    mod = getglobal(Main, Symbol(name))
+                    if on && Revise.dependents_supported
+                        @test mod.K isa mod.S
+                        @test mod.usek() == 1
+                    else
+                        @test !(mod.K isa mod.S)
+                        @test_throws MethodError mod.usek()
+                    end
+                end
+            end
+
+            if Revise.__bpart__[] && Revise.dependents_supported
+                # A type alias read by a struct definition and, through it, by a method signature
+                Revise.revise_dependents[] = true
+                alias_src(V) = """
+                    module ReevalAlias
+                    __revise_mode__ = :eval
+                    VecT{T} = $V{T}
+                    struct MyVec{T}; v::VecT{T}; end
+                    len(x::MyVec) = length(x.v)
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalAlias.jl")
+                write(fn, alias_src("Vector"))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, alias_src("AbstractVector"))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalAlias.len(ReevalAlias.MyVec(1:3)) == 3
+
+                # Across the files of a package, including a method signature that reads a `const`
+                Revise.revise_dependents[] = true
+                dn = joinpath(testdir, "ReevalPkg", "src")
+                mkpath(dn)
+                write(joinpath(dn, "ReevalPkg.jl"), """
+                    module ReevalPkg
+                    include("consts.jl")
+                    const TABLE = [SCALE, 2SCALE]
+                    half(x::NumT) = x / 2
+                    end
+                    """)
+                write(joinpath(dn, "consts.jl"), "const SCALE = 10\nconst NumT = Int\n")
+                sleep(mtimedelay)
+                @eval using ReevalPkg
+                sleep(mtimedelay)
+                @test ReevalPkg.TABLE == [10, 20]
+                @test ReevalPkg.half(4) == 2
+                write(joinpath(dn, "consts.jl"), "const SCALE = 20\nconst NumT = Float64\n")
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalPkg.TABLE == [20, 40]
+                @test ReevalPkg.half(4.0) == 2
+                @test_throws MethodError ReevalPkg.half(4)
+
+                # Statements a revision leaves unchanged keep their identity and their number in the index
+                pkgdata = Revise.pkgdatas[Base.PkgId(ReevalPkg)]
+                mainfile = only(f for f in Revise.srcfiles(pkgdata) if endswith(f, "ReevalPkg.jl"))
+                tablerex() = only(r for r in keys(Revise.fileinfo(pkgdata, mainfile).mod_exs_infos[ReevalPkg]) if occursin("TABLE", string(r)))
+                rex = tablerex()
+                id = findfirst(s -> !isnothing(s) && s.rex === rex, Revise.dep_index.stmts)
+                @test !isnothing(id)
+                write(joinpath(dn, "ReevalPkg.jl"), """
+                    module ReevalPkg
+                    include("consts.jl")
+
+                    const TABLE = [SCALE, 2SCALE]
+                    half(x::NumT) = x / 2
+                    twice(x) = 2x
+                    end
+                    """)
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalPkg.twice(3) == 6
+                @test tablerex() === rex
+                @test Revise.firstline(rex).line == 4
+                s = Revise.dep_index.stmts[id]::Revise.IndexedStmt
+                @test s.rex === rex && s.fi === Revise.fileinfo(pkgdata, mainfile)
+
+                # After a path switch, the statements of a revised file name the new path and replace their twins
+                newbase = joinpath(mktempdir(), "ReevalPkg")
+                cp(dirname(dn), newbase)
+                newmain = joinpath(newbase, "src", "ReevalPkg.jl")
+                write(newmain, replace(read(newmain, String), "twice(x) = 2x" => "thrice(x) = 3x"))
+                Revise.switch_basepath(pkgdata, newbase)
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalPkg.thrice(3) == 9
+                @test tablerex() !== rex
+                rm_precompile("ReevalPkg")
+            end
+
+            if Revise.dependents_supported
+                Revise.revise_dependents[] = true
+                latest(m, s) = @invokelatest getglobal(@invokelatest(getglobal(Main, m)), s)
+                # Edited statements rerun after the dependents whose writes they read
+                both_src(x, f) = """
+                    module ReevalBoth
+                    __revise_mode__ = :eval
+                    X = $x
+                    A = X + 1
+                    B = $f * A
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalBoth.jl")
+                write(fn, both_src(1, 10))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, both_src(2, 100))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test (ReevalBoth.A, ReevalBoth.B) == (3, 300)
+
+                # A loop that selects globals by computed names runs again only once one of them changes
+                loop_src(extra) = """
+                    module ReevalLoop
+                    __revise_mode__ = :eval
+                    const NAMES = [:sin, :cos, :absent_name]
+                    for n in NAMES
+                        if isdefined(@__MODULE__, n)
+                            Main.reeval_count!("ReevalLoop.loop")
+                            @eval \$(Symbol(:twice_, n))(x) = 2 * \$n(x)
+                        end
+                    end
+                    $extra
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalLoop.jl")
+                write(fn, loop_src(""))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                @test Main.reeval_counts["ReevalLoop.loop"] == 2
+                write(fn, loop_src("const UNRELATED = 1"))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test Main.reeval_counts["ReevalLoop.loop"] == 2
+                write(fn, loop_src("absent_name(x) = x"))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test Main.reeval_counts["ReevalLoop.loop"] == 5
+                @test @invokelatest(latest(:ReevalLoop, :twice_absent_name)(3)) == 6
+
+                # A name that a `using` or `import` makes visible runs such a loop again
+                @eval Main module ReevalImportSrc
+                    helper_name(x) = x + 1
+                end
+                @eval Main module ReevalImportExp
+                    export exported_name
+                    exported_name(x) = x + 2
+                end
+                import_src(extra) = """
+                    module ReevalImport
+                    __revise_mode__ = :eval
+                    for n in (:helper_name, :exported_name)
+                        found = isdefined(@__MODULE__, n)
+                        if found
+                            Main.reeval_count!("ReevalImport.loop")
+                            @eval \$(Symbol(:twice_, n))(x) = 2 * \$n(x)
+                        end
+                    end
+                    using Main.ReevalImportSrc: helper_name
+                    $extra
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalImport.jl")
+                write(fn, import_src(""))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                @test get(Main.reeval_counts, "ReevalImport.loop", 0) == 0
+                write(fn, import_src("using Main.ReevalImportExp"))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test Main.reeval_counts["ReevalImport.loop"] == 2
+                @test @invokelatest(latest(:ReevalImport, :twice_exported_name)(3)) == 10
+                # `Main.x` selects a fixed global, so a `:sigs` run need not run the code around it
+                src = Meta.lower(Main, :(Main.REEVAL_REF[] += 1)).args[1]
+                @test all(st -> isnothing(Revise.named_access_call(st, src.code)), src.code)
+
+                # What code run through `eval` reads and writes selects the statement and its readers
+                evalwrite_src(v) = """
+                    module ReevalEvalWrite
+                    __revise_mode__ = :eval
+                    struct LateHash <: AbstractIrrational end
+                    Base.hash(::LateHash, h::UInt) = hash(:LateHash, h)   # newer than Revise's world
+                    const BASE = $v
+                    for n in (:a,)
+                        @eval const \$(Symbol(n, :_c)) = BASE + 1
+                        @eval late_hash() = \$(LateHash())
+                    end
+                    const D = a_c + 1
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalEvalWrite.jl")
+                write(fn, evalwrite_src(1))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                @test latest(:ReevalEvalWrite, :D) == 3
+                write(fn, evalwrite_src(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test latest(:ReevalEvalWrite, :a_c) == 3
+                @test latest(:ReevalEvalWrite, :D) == 4
+                # A mutated global is rebuilt: its assignment and all its readers run again
+                mut_src(x, pushes) = """
+                    module ReevalMut
+                    __revise_mode__ = :eval
+                    X = $x
+                    const LOG = Int[]
+                    push!(LOG, X)
+                    $pushes
+                    const N = length(LOG)
+                    const PURE = (Main.reeval_count!("ReevalMut.PURE"); [1])
+                    total = sum(PURE) + X
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalMut.jl")
+                write(fn, mut_src(1, "push!(LOG, 100)"))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                @test latest(:ReevalMut, :LOG) == [1, 100]
+                write(fn, mut_src(2, "push!(LOG, 100)"))   # an argument of a mutation changes
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalMut.LOG == [2, 100]
+                @test ReevalMut.N == 2
+                @test ReevalMut.total == 3
+                @test Main.reeval_counts["ReevalMut.PURE"] == 1   # `sum` does not mutate `PURE`
+                write(fn, mut_src(2, "push!(LOG, 200)"))   # the mutation itself changes
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalMut.LOG == [2, 200]
+                write(fn, mut_src(2, ""))   # the mutation is removed
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalMut.LOG == [2]
+                @test ReevalMut.N == 1
+
+                # A global that `__init__` mentions is not rebuilt
+                init_src(z) = """
+                    module ReevalInit
+                    __revise_mode__ = :eval
+                    const REG = Int[]
+                    __init__() = push!(REG, 0)
+                    Z = $z
+                    push!(REG, Z)
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalInit.jl")
+                write(fn, init_src(1))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                before = copy(latest(:ReevalInit, :REG))
+                write(fn, init_src(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalInit.REG == [before; 2]
+
+                # Values that may share mutable memory with a global count as that global
+                @eval module ReevalMutDeps
+                    const V = Any[1]
+                    const D = Dict{Symbol,Vector{Int}}()
+                    const T = ("a", :b, 1)
+                    const BUF = zeros(UInt8, 4)
+                    const REG = Symbol[]
+                    register(s::Symbol) = push!(REG, s)
+                    registry() = REG
+                    nregistered() = length(REG)
+                    setG(x) = (global G = x)
+                    addG(x) = (global G += x)
+                    getm(s) = getglobal(@__MODULE__, s)
+                    const RV = Ref(Int[])
+                    const W0 = Int[]
+                    mutable struct AM
+                        @atomic x::Vector{Int}
+                    end
+                    const AMV = AM(Int[])
+                    keepnew(old, new) = new
+                    modx(m, v) = modifyfield!(m, :x, keepnew, v, :sequentially_consistent)
+                end
+                mutated(ex) = Set(n for (_, n) in Revise.global_deps(ReevalMutDeps, ex).mutates)
+                @test mutated(:(push!(V, T))) == Set([:V])                 # `T` is deeply immutable
+                @test mutated(:(push!(get!(D, :k, Int[]), 1))) == Set([:D]) # through a call result
+                @test mutated(:(let v = V; push!(v, 1); end)) == Set([:V])  # through a local variable
+                # through a global it assigns. `W` holds the value of `V` when it is mutated, so only
+                # `V` keeps a mutated old value.
+                @test mutated(:(begin W = V; push!(W, 1); end)) == Set([:V])
+                # reading the old value of a global it assigns
+                @test mutated(:(N2 = N2 + 1)) == Set([:N2])
+                @test (ReevalMutDeps, :N2) in Revise.global_deps(ReevalMutDeps, :(N2 = N2 + 1)).reads
+                @test isempty(mutated(:(begin N3 = 1; N3 = N3 + 1; end)))
+                # a global whose name is not known
+                @test Revise.global_deps(ReevalMutDeps, :(const NS = filter(n -> isdefined(@__MODULE__, n), names(@__MODULE__)))).readsall
+                @test !Revise.global_deps(ReevalMutDeps, :(const NS = isdefined(@__MODULE__, :V))).readsall
+                # Globals that the statement's own code selects by computed names: a run shows which
+                @eval module ReevalNamed
+                    const NAMES = [:A, :B]
+                    A = 1
+                    const FOUND = Symbol[]
+                    pick(m, n) = isdefined(m, n)
+                end
+                @latestworld
+                namedkey(ex) = Revise.stmt_key(ReevalNamed, Revise.RelocatableExpr(ex))
+                loopex = :(for n in NAMES; isdefined(@__MODULE__, n) && push!(FOUND, n); end)
+                d = Revise.global_deps(ReevalNamed, loopex)
+                @test d.readsall && d.dynamic
+                for mode in (:sigs, :eval)
+                    obs = Revise.eval_with_signatures(ReevalNamed, loopex; mode)[4].namedreads
+                    @test obs == Set([(ReevalNamed, :A), (ReevalNamed, :B)])
+                end
+                @test ReevalNamed.FOUND == [:A]   # `:sigs` runs only what selects the globals
+                Revise.record_observed!(namedkey(loopex), Revise.eval_with_signatures(ReevalNamed, loopex; mode=:sigs)[4])
+                d = Revise.cache_deps!(namedkey(loopex), Revise.global_deps(ReevalNamed, loopex))
+                @test !d.readsall && (ReevalNamed, :B) in d.reads && (ReevalNamed, :B) in d.observed
+                Revise.uncache_deps!(namedkey(loopex)); delete!(Revise.observed_reads, namedkey(loopex))
+                # unless a called method or `names` selects them
+                @test !Revise.global_deps(ReevalNamed, :(for n in NAMES; pick(@__MODULE__, n); end)).dynamic
+                @test !Revise.global_deps(ReevalNamed, :(for n in names(@__MODULE__); isdefined(@__MODULE__, n); end)).dynamic
+                # Code run through `eval`: a quoted expression without interpolation is part of the statement
+                @eval module ReevalEval
+                    const YY = 1
+                    const LIST = Int[]
+                end
+                @latestworld
+                evnames(s) = Set(n for (_, n) in s)
+                d = Revise.global_deps(ReevalEval, :(@eval const XX = YY))
+                @test evnames(d.reads) == Set([:YY]) && evnames(d.writes) == Set([:XX])
+                @test :LIST in evnames(Revise.global_deps(ReevalEval, :(@eval push!(LIST, YY))).mutates)
+                @test :BODYREAD ∉ evnames(Revise.global_deps(ReevalEval, :(@eval @inline f() = BODYREAD)).reads)
+                # other code run through `eval` is known from a run: its writes, its reads outside of
+                # method bodies, and its mutations
+                evloop = Meta.parse("""for n in (:a, :b)
+                    @eval const \$(Symbol(n, :_c)) = YY
+                    @eval \$(Symbol(:get_, n))() = BODYREAD
+                    @eval push!(LIST, \$(length(string(n))))
+                end""")
+                evkey = Revise.stmt_key(ReevalEval, Revise.RelocatableExpr(evloop))
+                @test isempty(Revise.global_deps(ReevalEval, evloop).writes)
+                Revise.record_observed!(evkey, Revise.eval_with_signatures(ReevalEval, evloop; mode=:sigs)[4])
+                d = Revise.cache_deps!(evkey, Revise.global_deps(ReevalEval, evloop))
+                @test evnames(d.writes) == Set([:a_c, :b_c, :get_a, :get_b]) == evnames(d.evaluated.writes)
+                @test :YY in evnames(d.reads) && :BODYREAD ∉ evnames(d.reads)
+                @test evnames(d.mutates) == Set([:LIST])
+                # the method lookups that analysis relied on select the statement once they change
+                evchecks = d.evaluated.checks
+                @test !isempty(evchecks) && all(c -> any(x -> x === c, d.checks), evchecks)
+                @test isempty(ReevalEval.LIST)   # `:sigs` runs only what defines methods
+                # a run without `eval` drops what an earlier one recorded
+                Revise.record_observed!(evkey, Revise.ExInfo(evloop))
+                d = Revise.global_deps_cache[evkey]
+                @test isempty(d.writes) && isnothing(d.evaluated) && !haskey(Revise.evaluated_deps, evkey)
+                @test !any(c -> any(x -> x === c, evchecks), d.checks)
+                Revise.uncache_deps!(evkey); delete!(Revise.observed_reads, evkey)
+                # code guarded by a test of precompilation, or by a flag a `Ref` holds, runs only once the flag is set
+                @eval module ReevalGuard
+                    const verbose = Ref(false)
+                    const alias = verbose
+                    const flags = [verbose]
+                    const counts = Int[]
+                    @noinline is_generating_output() = ccall(:jl_generating_output, Cint, ()) == 1
+                    workload_enabled(m) = true
+                    const WORK = Int[]
+                end
+                @latestworld
+                guardex = :(if (is_generating_output() && workload_enabled(@__MODULE__)) || verbose[]; push!(WORK, 1); end)
+                d = Revise.global_deps(ReevalGuard, guardex)
+                @test :WORK ∉ evnames(d.reads) && isempty(d.mutates) && Revise.assumed_hold(d.assumed)
+                ReevalGuard.verbose[] = true
+                @test !Revise.assumed_hold(d.assumed)
+                @test evnames(Revise.global_deps(ReevalGuard, guardex).mutates) == Set([:WORK])
+                ReevalGuard.verbose[] = false
+                # unless the statement may set the flag before testing it
+                setex = :(begin verbose[] = true; if verbose[]; push!(WORK, 1); end; verbose[] = false; end)
+                @test evnames(Revise.global_deps(ReevalGuard, setex).mutates) == Set([:WORK, :verbose])
+                # also through another global that holds the `Ref`
+                aliasex = :(begin alias[] = true; if verbose[]; push!(WORK, 1); end; alias[] = false; end)
+                @test evnames(Revise.global_deps(ReevalGuard, aliasex).mutates) == Set([:WORK, :alias])
+                flagsex = :(begin flags[1][] = true; if verbose[]; push!(WORK, 1); end; flags[1][] = false; end)
+                @test :WORK in evnames(Revise.global_deps(ReevalGuard, flagsex).mutates)
+                # but a mutated global that cannot reach a `Ref` keeps the fold
+                countsex = :(begin push!(counts, 1); if verbose[]; push!(WORK, 1); end; end)
+                @test evnames(Revise.global_deps(ReevalGuard, countsex).mutates) == Set([:counts])
+                # or the code ran through `eval`, which only a new run analyzes again
+                evguard = Revise.evaluated_code_deps([(ReevalGuard, guardex, Meta.lower(ReevalGuard, guardex))])
+                @test :WORK in evnames(evguard.mutates)
+                # a global that called code assigns, unless it also reads it
+                @test (ReevalMutDeps, :G) in Revise.global_deps(ReevalMutDeps, :(setG(1))).writes
+                @test isempty(mutated(:(setG(1))))
+                @test mutated(:(addG(1))) == Set([:G])
+                # a global that a called function selects by name and returns
+                @test mutated(:(push!(getm(:REG), :x))) == Set([:REG])
+                # the value a builtin stores and returns
+                @test mutated(:(push!(setfield!(RV, :x, W0), 1))) == Set([:RV, :W0])
+                @test mutated(:(let v = setfield!(RV, :x, W0); push!(v, 1); end)) == Set([:RV, :W0])
+                @test mutated(:(push!(Core.memoryrefset!(Core.memoryrefnew(Memory{Vector{Int}}(undef, 1)), W0, :not_atomic, true), 1))) == Set([:W0])
+                # the function `modifyfield!` calls is not followed, so its caller may mutate any argument
+                @test mutated(:(modx(AMV, W0))) == Set([:AMV, :W0])
+                # a statement whose called code keeps changing runs at most `max_runs` times in a revision
+                capdeps = Revise.GlobalDeps()
+                push!(capdeps.checks, Revise.method_check(Tuple{typeof(ReevalMutDeps.registry)}))
+                capkey = ("cap.jl", ReevalMutDeps, Revise.RelocatableExpr(:(registry())))
+                Revise.run_worlds[capkey] = (Base.get_world_counter(), 1)
+                @test !Revise.ran_before_change(capkey, capdeps)
+                Core.eval(ReevalMutDeps, :(registry() = REG))
+                @test Revise.ran_before_change(capkey, capdeps)
+                Revise.run_worlds[capkey] = (Revise.run_worlds[capkey][1], Revise.max_runs)
+                @test_logs (:warn, r"not evaluated again") @test !Revise.ran_before_change(capkey, capdeps)
+                @test_logs @test !Revise.ran_before_change(capkey, capdeps)
+                empty!(Revise.run_worlds)
+                @test mutated(:(ccall(:memset, Ptr{Cvoid}, (Ptr{Cvoid}, Cint, Csize_t), BUF, 0, 4))) == Set([:BUF])
+                @test isempty(mutated(:(n = length(V) + length(D))))
+                @test isempty(mutated(:(push!(V, error("x")))))   # the argument never returns
+                @test isempty(mutated(:(const R = Ref{Vector{Any}}(V))))   # a parametric constructor without side effects
+                @test isempty(mutated(:(W2 = V)))   # converting to the binding type `Any` has no side effects
+                @test isempty(mutated(:(let v = V; length(v); end)))   # a local variable has the type of its value
+                @test isempty(mutated(:(const E = V[VERSION.major])))   # a field of a `const` immutable value
+                @test isempty(mutated(:(E2 = let v = VERSION; V[v.major]; end)))   # through a local variable
+                @test isempty(mutated(:(const E3 = let (v, n) = (V, 1); V[n]; end)))   # destructuring a tuple
+                @test mutated(:(for (k, v) in D; push!(v, 1); end)) == Set([:D])
+                # Summaries of the called methods
+                @test mutated(:(register(:a))) == Set([:REG])              # a mutation inside a function
+                @test mutated(:(push!(registry(), :b))) == Set([:REG])     # a global a function returns
+                @test isempty(mutated(:(push!(copy(BUF), 0x01))))          # a copy shares no memory
+                @test (ReevalMutDeps, :REG) in Revise.global_deps(ReevalMutDeps, :(const N = nregistered())).reads
+                # A summary computed inside a recursion is not reused without what its caller reads
+                @eval module ReevalRecursion
+                    G = 1
+                    a(n::Int) = n > 0 ? b(n - 1) : G
+                    b(n::Int) = a(n)
+                end
+                Revise.global_deps(ReevalRecursion, :(x = a(1)))
+                @test (ReevalRecursion, :G) in Revise.global_deps(ReevalRecursion, :(y = b(1))).reads
+                # A method of a cycle reached on two paths is analyzed once while the cycle's root is in progress
+                @eval module ReevalCycle
+                    H = 1
+                    @noinline r(n::Int) = n > 0 ? p(n) + q(n) : 0
+                    @noinline p(n::Int) = m(n - 1)
+                    @noinline q(n::Int) = m(n - 2)
+                    @noinline m(n::Int) = r(n) + H
+                end
+                @latestworld
+                cyclemi(f) = Core.Compiler.specialize_method(only(Base._methods_by_ftype(Tuple{typeof(f), Int}, -1, Base.get_world_counter())))
+                walk = Revise.Walk()
+                Revise.summarize(cyclemi(ReevalCycle.r), walk)
+                C = ReevalCycle
+                @test walk.lowered == sum(f -> length(Revise.lowered_code(only(methods(f))).code), (C.r, C.p, C.q, C.m))
+                @test (ReevalCycle, :H) in Revise.global_deps(ReevalCycle, :(z = r(3))).reads
+                # A name imported implicitly from two modules that export equal constants has no single owner
+                @eval module ReevalAmbigA; export x; const x = 1; end
+                @eval module ReevalAmbigB; export x; const x = 1; end
+                @eval module ReevalAmbig; using ..ReevalAmbigA, ..ReevalAmbigB; end
+                @latestworld
+                @test (ReevalAmbig, :x) in Revise.global_deps(ReevalAmbig, :(y = x + 1)).reads
+                # A reevaluated statement loses only the methods whose signature it no longer defines
+                @eval module ReevalStaleSigs
+                    k(x::Int) = 1
+                    k(x::Float64) = 2
+                end
+                @latestworld
+                ksig(T) = Revise.SigInfo(nothing, Tuple{typeof(ReevalStaleSigs.k), T})
+                Revise.delete_stale_methods!([ksig(Int), ksig(Float64)], [ksig(Int)])
+                @test [m.sig for m in methods(ReevalStaleSigs.k)] == [Tuple{typeof(ReevalStaleSigs.k), Int}]
+                # Globals of modules that are not tracked are left out of summaries; `Base` is a
+                # root module, although its parent is `Main`
+                @test Revise.in_tracked(ReevalStaleSigs, Set([Main]))
+                @test !Revise.in_tracked(Base, Set([Main])) && !Revise.in_tracked(Base.Iterators, Set([Main]))
+                s = Revise.summarize(Tuple{typeof(sprint), typeof(show), Vector{Int}})
+                @test !any(id -> id > 0 && Base.moduleroot(Revise.global_binding(id)[1]) in (Base, Core), s.reads)
+                # A tracked `Base` is affected only by a revision of a package of Julia itself, and a
+                # revision of `Base` affects every package
+                baseid = Base.PkgId(Base)
+                hadbase = haskey(Revise.pkgdatas, baseid)
+                hadbase || (Revise.pkgdatas[baseid] = Revise.PkgData(baseid, Revise.juliadir))
+                try
+                    @test baseid ∉ Revise.affected_pkgs(Set([Base.PkgId(Base.UUID(1), "NotJulia")]))
+                    @test baseid in Revise.affected_pkgs(Set([Base.PkgId(Base.UUID("ade2ca70-3891-5945-98fb-dc099432e06a"), "Dates")]))
+                    @test issubset(keys(Revise.pkgdatas), Revise.affected_pkgs(Set([baseid])))
+                finally
+                    hadbase || delete!(Revise.pkgdatas, baseid)
+                end
+                @eval ReevalMutDeps const P = (1, 2)
+                @test isempty(mutated(:(push!(P, 1))))   # no method, so no side effects
+                unknownP = Set([(ReevalMutDeps, :P)])
+                @test Set(n for (_, n) in Revise.global_deps(ReevalMutDeps, :(push!(P, 1)); unknown=unknownP).mutates) == Set([:P])
+                # A statement that cannot be analyzed gets conservative dependencies
+                key = Revise.stmt_key(ReevalMutDeps, Revise.RelocatableExpr(:(@no_such_macro push!(V, T))))
+                Revise.cache_global_deps!([key])
+                @test (ReevalMutDeps, :V) in Revise.global_deps_cache[key].mutates
+                @test !((ReevalMutDeps, :T) in Revise.global_deps_cache[key].mutates)   # deeply immutable
+                delete!(Revise.global_deps_cache, key)
+                # Equal statements of two files are analyzed per file, since a macro may expand per file
+                @eval ReevalMutDeps macro sourceconst()
+                    return esc(Expr(:const, Expr(:(=), Symbol(splitext(basename(string(__source__.file)))[1]), 1)))
+                end
+                @latestworld
+                function rexat(file)
+                    line = LineNumberNode(1, Symbol(file))
+                    return Revise.RelocatableExpr(Expr(:block, line, Expr(:macrocall, Symbol("@sourceconst"), line)))
+                end
+                ka, kb = Revise.stmt_key(ReevalMutDeps, rexat("srca.jl")), Revise.stmt_key(ReevalMutDeps, rexat("srcb.jl"))
+                @test ka[3] == kb[3] && ka != kb
+                Revise.cache_global_deps!([ka, kb])
+                @test Revise.global_deps_cache[ka].writes == Set([(ReevalMutDeps, :srca)])
+                @test Revise.global_deps_cache[kb].writes == Set([(ReevalMutDeps, :srcb)])
+                Revise.uncache_deps!(ka); Revise.uncache_deps!(kb)
+
+                # Cached results are not reused once a value they relied on has changed
+                stale_src(x, init) = """
+                    module ReevalStale
+                    __revise_mode__ = :eval
+                    add!(b::Tuple, x) = nothing
+                    add!(b::Vector, x) = push!(b, x)
+                    make() = $init
+                    const B = make()
+                    X = $x
+                    add!(B, X)
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalStale.jl")
+                write(fn, stale_src(1, "()"))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, stale_src(1, "Int[]"))   # `B` becomes a `Vector`, `add!(B, X)` runs again
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalStale.B == [1]
+                write(fn, stale_src(2, "Int[]"))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalStale.B == [2]
+
+                # A global that shares memory with a mutated one is rebuilt as well
+                alias_mut_src(x) = """
+                    module ReevalAliasMut
+                    __revise_mode__ = :eval
+                    X = $x
+                    const D = Dict{Symbol,Vector{Int}}()
+                    push!(get!(D, :k, Int[]), X)
+                    const A = Int[]
+                    B = A
+                    push!(B, X)
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalAliasMut.jl")
+                write(fn, alias_mut_src(1))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, alias_mut_src(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalAliasMut.D == Dict(:k => [2])
+                @test ReevalAliasMut.A == [2]
+                @test ReevalAliasMut.B === ReevalAliasMut.A
+
+                # A global mutated inside a called function is rebuilt, with every statement
+                # that calls the function
+                register_src(x) = """
+                    module ReevalRegister
+                    __revise_mode__ = :eval
+                    const REG = Symbol[]
+                    register(s::Symbol) = push!(REG, s)
+                    register(:b)
+                    X = $x
+                    register(Symbol("a", X))
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalRegister.jl")
+                write(fn, register_src(1))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, register_src(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalRegister.REG == [:b, :a2]
+
+                # A statement that calls a changed method runs again, and the globals that the
+                # old and the new method mutate are both rebuilt
+                callee_src(target) = """
+                    module ReevalCallee
+                    __revise_mode__ = :eval
+                    const REG = Symbol[]
+                    const REG2 = Symbol[]
+                    register(s::Symbol) = push!($target, s)
+                    register(:a)
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalCallee.jl")
+                write(fn, callee_src(:REG))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, callee_src(:REG2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test isempty(ReevalCallee.REG)
+                @test ReevalCallee.REG2 == [:a]
+
+                # A statement runs again when code it calls changes: a `const` that inference
+                # folded into a called method, or a method added to a function of `Base`
+                body_src(g, s) = """
+                    module ReevalBody
+                    __revise_mode__ = :eval
+                    const G = $g
+                    f() = 2G
+                    const C = f()
+                    struct T end
+                    Base.show(io::IO, ::T) = print(io, "$s")
+                    const S = string(T())
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalBody.jl")
+                write(fn, body_src(1, "x"))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, body_src(2, "x"))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalBody.C == 4
+                write(fn, body_src(2, "y"))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalBody.S == "y"
+
+                # `revise(throw=true)` throws the failure of a dependent statement
+                throw_src(a) = """
+                    module ReevalThrow
+                    __revise_mode__ = :eval
+                    A = $a
+                    B = A == 2 ? error("B fails for A == 2") : A
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalThrow.jl")
+                write(fn, throw_src(1))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, throw_src(2))
+                err = try
+                    timedwait(() -> !isempty(Revise.revision_queue), event_timeout; pollint=0.02)
+                    revise(throw=true)
+                    nothing
+                catch err
+                    err
+                end
+                @latestworld
+                @test err isa Revise.ReviseEvalException
+                @test err.exc isa ErrorException
+                @test ReevalThrow.A == 2
+                sleep(mtimedelay)
+                write(fn, throw_src(1))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalThrow.B == 1
+
+                # A failed dependent statement runs again at every later revision, including
+                # the one `Revise.retry()` starts
+                @eval Main reeval_fails = Ref(false)
+                retry_src(a) = """
+                    module ReevalRetry
+                    __revise_mode__ = :eval
+                    A = $a
+                    B = (Main.reeval_fails[] && error("B fails"); A)
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalRetry.jl")
+                write(fn, retry_src(1))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                Main.reeval_fails[] = true
+                write(fn, retry_src(2))
+                @test_logs (:error, r"Failed to revise.*ReevalRetry\.jl") (:warn, r"The running code does not match the saved version") match_mode=:any yry()
+                @latestworld
+                @test (ReevalRetry.A, ReevalRetry.B) == (2, 1)
+                Main.reeval_fails[] = false
+                Revise.retry()
+                @latestworld
+                @test isempty(Revise.queue_errors)
+                @test ReevalRetry.B == 2
+                # A later plain revision that succeeds also clears the error
+                Main.reeval_fails[] = true
+                sleep(mtimedelay)
+                write(fn, retry_src(3))
+                @test_logs (:error, r"Failed to revise.*ReevalRetry\.jl") match_mode=:any yry()
+                @latestworld
+                @test !isempty(Revise.queue_errors)
+                Main.reeval_fails[] = false
+                revise()
+                @latestworld
+                @test isempty(Revise.queue_errors)
+                @test ReevalRetry.B == 3
+
+                # A read through a module that a global holds, which is not `const`
+                modalias_src(alias, right) = """
+                    module ReevalModAlias
+                    __revise_mode__ = :eval
+                    module Left
+                    __revise_mode__ = :eval
+                    VALUE = 1
+                    end
+                    module Right
+                    __revise_mode__ = :eval
+                    VALUE = $right
+                    end
+                    Alias = $alias
+                    B = Alias.VALUE
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalModAlias.jl")
+                write(fn, modalias_src("Left", 10))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, modalias_src("Right", 10))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalModAlias.B == 10
+                write(fn, modalias_src("Right", 20))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalModAlias.B == 20
+
+                # A method definition that names its function by a qualified path
+                qualified_src(extra) = """
+                    module ReevalQualified
+                    __revise_mode__ = :eval
+                    function g end
+                    ReevalQualified.g() = 1
+                    $extra
+                    const N = length(methods(g))
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalQualified.jl")
+                write(fn, qualified_src(""))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, qualified_src("ReevalQualified.g(x) = 2"))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalQualified.N == 2
+
+                # Reads through `getglobal` and `getfield` of a module, also inside a method
+                getglobal_src(a) = """
+                    module ReevalGetglobal
+                    __revise_mode__ = :eval
+                    A = $a
+                    viafield() = getfield(@__MODULE__, :A)
+                    B = getglobal(@__MODULE__, :A)
+                    C = getfield(@__MODULE__, :A)
+                    D = viafield()
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalGetglobal.jl")
+                write(fn, getglobal_src(1))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, getglobal_src(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test (ReevalGetglobal.B, ReevalGetglobal.C, ReevalGetglobal.D) == (2, 2, 2)
+
+                # A package that is not precompiled has no recorded requirements
+                depuuid, topuuid = string(uuid4()), string(uuid4())
+                for (name, uuid, extra) in (("ReevalNoPCDep", depuuid, ""),
+                                            ("ReevalNoPCTop", topuuid, "\n[deps]\nReevalNoPCDep = \"$depuuid\""))
+                    mkpath(joinpath(testdir, name, "src"))
+                    write(joinpath(testdir, name, "Project.toml"), """
+                        name = "$name"
+                        uuid = "$uuid"
+                        version = "0.1.0"
+                        $extra
+                        """)
+                end
+                nopc_dep(x) = "__precompile__(false)\nmodule ReevalNoPCDep\nconst X = $x\nend\n"
+                depfn = joinpath(testdir, "ReevalNoPCDep", "src", "ReevalNoPCDep.jl")
+                write(depfn, nopc_dep(1))
+                write(joinpath(testdir, "ReevalNoPCTop", "src", "ReevalNoPCTop.jl"),
+                      "__precompile__(false)\nmodule ReevalNoPCTop\nusing ReevalNoPCDep\nconst B = ReevalNoPCDep.X + 1\nend\n")
+                sleep(mtimedelay)
+                @eval using ReevalNoPCTop
+                sleep(mtimedelay)
+                @test ReevalNoPCTop.B == 2
+                write(depfn, nopc_dep(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalNoPCTop.B == 3
+
+                # A method of a function of another package affects the packages that require it
+                owneruuid = string(uuid4())
+                for (name, extra) in (("ReevalOwner", ""), ("ReevalPlugin", "\n[deps]\nReevalOwner = \"$owneruuid\""),
+                                      ("ReevalConsumer", "\n[deps]\nReevalOwner = \"$owneruuid\""))
+                    mkpath(joinpath(testdir, name, "src"))
+                    write(joinpath(testdir, name, "Project.toml"), """
+                        name = "$name"
+                        uuid = "$(name == "ReevalOwner" ? owneruuid : uuid4())"
+                        version = "0.1.0"
+                        $extra
+                        """)
+                end
+                write(joinpath(testdir, "ReevalOwner", "src", "ReevalOwner.jl"),
+                      "module ReevalOwner\nstruct T end\nf(x) = 0\ng() = f(T())\nend\n")
+                plugin_src(v) = "module ReevalPlugin\nusing ReevalOwner\nReevalOwner.f(::ReevalOwner.T) = $v\nend\n"
+                pluginfn = joinpath(testdir, "ReevalPlugin", "src", "ReevalPlugin.jl")
+                write(pluginfn, plugin_src(1))
+                write(joinpath(testdir, "ReevalConsumer", "src", "ReevalConsumer.jl"),
+                      "module ReevalConsumer\nusing ReevalOwner\nconst R = ReevalOwner.g()\nend\n")
+                sleep(mtimedelay)
+                @eval using ReevalPlugin
+                @eval using ReevalConsumer
+                sleep(mtimedelay)
+                write(pluginfn, plugin_src(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test @invokelatest(getglobal(ReevalConsumer, :R)) == 2
+                foreach(rm_precompile, ("ReevalConsumer", "ReevalPlugin", "ReevalOwner"))
+
+                # Removing an `include` undoes the mutations of the included file
+                dn = joinpath(testdir, "ReevalOrphan", "src")
+                mkpath(dn)
+                orphan_src(inc) = """
+                    module ReevalOrphan
+                    const REG = Int[]
+                    $inc
+                    const N = length(REG)
+                    end
+                    """
+                write(joinpath(dn, "ReevalOrphan.jl"), orphan_src("include(\"child.jl\")"))
+                write(joinpath(dn, "child.jl"), "push!(REG, 1)\n")
+                sleep(mtimedelay)
+                @eval using ReevalOrphan
+                sleep(mtimedelay)
+                @test ReevalOrphan.N == 1
+                write(joinpath(dn, "ReevalOrphan.jl"), orphan_src(""))
+                @test_logs (:warn, r"no longer `include`d") match_mode=:any yry()
+                @latestworld
+                @test isempty(Revise.queue_errors)
+                @test (ReevalOrphan.REG, ReevalOrphan.N) == (Int[], 0)
+                rm_precompile("ReevalOrphan")
+
+                # Only distinct specializations count toward the limit of a method
+                @eval module ReevalSpecs
+                    h(x) = x
+                end
+                hmatch(T) = only(Base._methods_by_ftype(Tuple{typeof(ReevalSpecs.h), T}, -1, Base.get_world_counter()))
+                hspec(T) = Revise.dispatch_instance(hmatch(T)).specTypes
+                @test all(_ -> hspec(Int) == Tuple{typeof(ReevalSpecs.h), Int}, 1:2Revise.max_specializations)
+                for T in (Float64, Int8, Int16)
+                    @test hspec(T) == Tuple{typeof(ReevalSpecs.h), T}
+                end
+                @test hspec(Int32) == Tuple{typeof(ReevalSpecs.h), Any}
+                @test hspec(Int) == Tuple{typeof(ReevalSpecs.h), Int}
+
+                # A value stored into memory reaches the loads before the store in a loop, and the
+                # result of a callee that loads from an argument
+                @eval module ReevalHeap
+                    @noinline getx(r) = r[]
+                    @noinline addone!(x) = push!(x, 1)
+                    function viaref!(v::Vector{Int})
+                        r = Ref{Any}(nothing)
+                        Base.donotdelete(r)
+                        for _ in 1:2
+                            x = r[]
+                            x isa Vector{Int} && push!(x, 1)
+                            r[] = v
+                        end
+                        return nothing
+                    end
+                    function viacallee!(v::Vector{Int})
+                        r = Ref{Any}(nothing)
+                        Base.donotdelete(r)
+                        for _ in 1:2
+                            x = getx(r)
+                            x isa Vector{Int} && addone!(x)
+                            r[] = v
+                        end
+                        return nothing
+                    end
+                end
+                for f in (ReevalHeap.viaref!, ReevalHeap.viacallee!)
+                    @test Revise.argpositions(Revise.summarize(Tuple{typeof(f), Vector{Int}}).mutated) == [2]
+                end
+
+                # Output methods of tracked modules read what their bodies read
+                @eval module ReevalShowReads
+                    G = 1
+                    H = 2
+                    struct T end
+                    struct Wrapper
+                        value::T
+                    end
+                    struct E <: Exception end
+                    Base.show(io::IO, ::T) = print(io, G)
+                    Base.showerror(io::IO, ::E, bt) = print(io, H)
+                end
+                showreads(ex, name=:G) = (ReevalShowReads, name) in Revise.global_deps(ReevalShowReads, ex).reads
+                @test showreads(:(S = string(T())))
+                @test showreads(:(S = string([T()])))
+                @test showreads(:(S = string(Wrapper(T()))))   # the default `show` prints the field
+                @test !showreads(:(S = string(1)))
+                @test !showreads(:(S = string(T())), :H)   # an untyped parameter selects no type
+
+                # A revision without changes affects no package
+                @test isempty(Revise.affected_pkgs(Set{Base.PkgId}()))
+
+                # A constructor belongs to the package of its type, also where `Type{T}` is a
+                # `Core.TypeEq`, which is not a `DataType`
+                ownernames(sig) = sort!([id.name for id in Revise.add_method_owners!(Set{Base.PkgId}(), [Revise.SigInfo(nothing, sig)])])
+                @test ownernames(Tuple{Type{Dates.Date}, Int}) == ["Dates"]
+                @test ownernames(Tuple{Type{Int}, Int}) == ["Base"]
+                # Of the required packages, only the one loaded last counts, and a `Union`
+                # requires only what all of its members require
+                @test ownernames(Tuple{typeof(Revise.revise), Type{Revise.CodeTracking.PkgFiles}}) == ["Revise"]
+                @test ownernames(Tuple{typeof(Revise.CodeTracking.basedir), Revise.PkgData}) == ["Revise"]
+                @test ownernames(Tuple{typeof(show), Union{Dates.Day, Revise.PkgData}}) == ["Base"]
+                @test Dates.Date in Revise.type_parts!(Base.IdSet{Any}(), Type{Dates.Date})
+                # Across packages, a statement that reads a mutated global runs after the
+                # statements that mutate it
+                for (name, src) in (("ReevalOrdProd", "using ReevalOrdReg\npush!(ReevalOrdReg.REG, ReevalOrdReg.X)"),
+                                    ("ReevalOrdCons", "using ReevalOrdProd, ReevalOrdReg\nconst N = length(ReevalOrdReg.REG)"))
+                    mkpath(joinpath(testdir, name, "src"))
+                    write(joinpath(testdir, name, "src", name * ".jl"), "__precompile__(false)\nmodule $name\n$src\nend\n")
+                end
+                ordreg(x) = "__precompile__(false)\nmodule ReevalOrdReg\nconst REG = Int[]\nconst X = $x\nend\n"
+                regfn = joinpath(testdir, "ReevalOrdReg", "src", "ReevalOrdReg.jl")
+                mkpath(dirname(regfn))
+                write(regfn, ordreg(1))
+                sleep(mtimedelay)
+                @eval using ReevalOrdCons
+                sleep(mtimedelay)
+                ordmod(name) = Base.root_module(only(id for id in keys(Revise.pkgdatas) if id.name == name))
+                ordnames = [id.name for (id, _) in Revise.pkgs_in_load_order() if startswith(id.name, "ReevalOrd")]
+                @test ordnames == ["ReevalOrdReg", "ReevalOrdProd", "ReevalOrdCons"]
+                write(regfn, ordreg(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test @invokelatest(getglobal(ordmod("ReevalOrdReg"), :REG)) == [2]
+                @test @invokelatest(getglobal(ordmod("ReevalOrdCons"), :N)) == 1
+                # A reader keeps its position relative to the statements that mutate what it reads
+                site = first(Revise.add_file_sites!(Revise.StmtSite[], 1, Revise.pkgdatas[Base.PkgId(ordmod("ReevalOrdReg"))], 1))
+                function ordstmt(pos, mutates)
+                    deps = Revise.GlobalDeps()
+                    push!(deps.reads, (Main, :REG))
+                    mutates && push!(deps.mutates, (Main, :REG))
+                    return Revise.DependentStmt(site[1:7]..., (pos, 0, 0), deps)
+                end
+                ordered = Revise.order_dependents([ordstmt(1, true), ordstmt(2, false), ordstmt(3, true), ordstmt(4, false)])
+                @test [d.pos[1] for d in ordered] == [1, 2, 3, 4]
+                snapsrc(x) = "__precompile__(false)\nmodule ReevalSnap\nconst REG = Int[]\nconst X = $x\nnreg(v::Vector{Int}) = length(v)\npush!(REG, 10)\nconst FIRST = nreg(REG)\npush!(REG, X)\nconst LAST = nreg(REG)\nend\n"
+                snapfn = joinpath(testdir, "ReevalSnap", "src", "ReevalSnap.jl")
+                mkpath(dirname(snapfn))
+                write(snapfn, snapsrc(1))
+                sleep(mtimedelay)
+                @eval using ReevalSnap
+                sleep(mtimedelay)
+                write(snapfn, snapsrc(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test @invokelatest(getglobal(ordmod("ReevalSnap"), :REG)) == [10, 2]
+                @test (@invokelatest(getglobal(ordmod("ReevalSnap"), :FIRST)), @invokelatest(getglobal(ordmod("ReevalSnap"), :LAST))) == (1, 2)
+
+                # Functions that may run during the statement count as part of it
+                @eval module ReevalClosures
+                    A = 1
+                    const REG = Int[]
+                end
+                closuredeps(ex) = Revise.global_deps(ReevalClosures, ex)
+                readsA(ex) = (ReevalClosures, :A) in closuredeps(ex).reads
+                @test readsA(:(B = map(x -> x + A, 1:3)))
+                @test readsA(:(C = (() -> A)()))
+                @test readsA(:(D = [x + A for x in 1:3]))
+                @test readsA(:(E = map(1:3) do x; x + A; end))
+                @test readsA(:(F = let; g() = A; g(); end))
+                @test (ReevalClosures, :REG) in closuredeps(:(foreach(x -> push!(REG, x), 1:2))).mutates
+                @test !readsA(:(f(x) = x + A))
+                @test !readsA(:(if true; f(x) = x + A; end))
+                closure_src(a) = """
+                    module ReevalClosureRun
+                    __revise_mode__ = :eval
+                    A = $a
+                    B = map(x -> x + A, 1:3)
+                    C = [x + A for x in 1:3]
+                    end
+                    """
+                fn = joinpath(testdir, "ReevalClosureRun.jl")
+                write(fn, closure_src(1))
+                sleep(mtimedelay)
+                includet(fn)
+                sleep(mtimedelay)
+                write(fn, closure_src(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test ReevalClosureRun.B == ReevalClosureRun.C == [3, 4, 5]
+
+                # The same statement in two files of one module makes two statements
+                dupsrc(x) = "__precompile__(false)\nmodule ReevalDup\nconst REG = Int[]\nconst X = $x\ninclude(\"a.jl\")\ninclude(\"b.jl\")\nend\n"
+                dupfn = joinpath(testdir, "ReevalDup", "src", "ReevalDup.jl")
+                mkpath(dirname(dupfn))
+                write(dupfn, dupsrc(1))
+                for f in ("a.jl", "b.jl")
+                    write(joinpath(dirname(dupfn), f), "push!(REG, X)\n")
+                end
+                sleep(mtimedelay)
+                @eval using ReevalDup
+                sleep(mtimedelay)
+                write(dupfn, dupsrc(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test @invokelatest(getglobal(ordmod("ReevalDup"), :REG)) == [2, 2]
+
+                # A reevaluated `include` tracks the file it includes, and drops the one it no longer includes
+                incsrc(c) = "__precompile__(false)\nmodule ReevalInc\nconst CHILD = \"$c\"\ninclude(CHILD)\nend\n"
+                incfn = joinpath(testdir, "ReevalInc", "src", "ReevalInc.jl")
+                mkpath(dirname(incfn))
+                write(incfn, incsrc("one.jl"))
+                write(joinpath(dirname(incfn), "one.jl"), "f() = 1\n")
+                write(joinpath(dirname(incfn), "two.jl"), "g() = 2\n")
+                write(joinpath(dirname(incfn), "three.jl"), "h() = 3\n")
+                sleep(mtimedelay)
+                @eval using ReevalInc
+                incmod = ordmod("ReevalInc")
+                incfiles() = basename.(Revise.srcfiles(Revise.pkgdatas[Base.PkgId(incmod)]))
+                sleep(mtimedelay)
+                write(incfn, incsrc("two.jl"))
+                @test_logs (:warn, r"one.jl is no longer `include`d") match_mode=:any yry()
+                @test incfiles() == ["ReevalInc.jl", "two.jl"]
+                @test isempty(methods(@invokelatest getglobal(incmod, :f)))
+                write(joinpath(dirname(incfn), "two.jl"), "g() = 3\n")
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test @invokelatest(incmod.g()) == 3
+                # From the record of the first reevaluation
+                write(incfn, incsrc("three.jl"))
+                @test_logs (:warn, r"two.jl is no longer `include`d") match_mode=:any yry()
+                @test incfiles() == ["ReevalInc.jl", "three.jl"]
+                @test isempty(methods(@invokelatest getglobal(incmod, :g)))
+                @test @invokelatest(incmod.h()) == 3
+                # Deleting the statement removes the file it included last
+                write(incfn, "__precompile__(false)\nmodule ReevalInc\nconst CHILD = \"three.jl\"\nend\n")
+                @test_logs (:warn, r"three.jl is no longer `include`d") match_mode=:any yry()
+                @test incfiles() == ["ReevalInc.jl"]
+                @test isempty(methods(@invokelatest getglobal(incmod, :h)))
+
+                # The statements of a newly included file seed the next round
+                seedsrc(c) = "__precompile__(false)\nmodule ReevalSeed\nconst REG = Int[]\nconst CHILD = \"$c\"\ninclude(CHILD)\nconst N = length(REG)\nend\n"
+                seedfn = joinpath(testdir, "ReevalSeed", "src", "ReevalSeed.jl")
+                mkpath(dirname(seedfn))
+                write(seedfn, seedsrc("one.jl"))
+                write(joinpath(dirname(seedfn), "one.jl"), "f() = 1\n")
+                write(joinpath(dirname(seedfn), "two.jl"), "push!(REG, 2)\n")
+                sleep(mtimedelay)
+                @eval using ReevalSeed
+                sleep(mtimedelay)
+                write(seedfn, seedsrc("two.jl"))
+                @test_logs (:warn, r"one.jl is no longer `include`d") match_mode=:any yry()
+                @test isempty(Revise.queue_errors)
+                @test @invokelatest(getglobal(ordmod("ReevalSeed"), :REG)) == [2]
+                @test @invokelatest(getglobal(ordmod("ReevalSeed"), :N)) == 1
+
+                # Files that another function includes stay tracked
+                forsrc(fs) = "__precompile__(false)\nmodule ReevalFor\nconst FILES = $(repr(fs))\nforeach(f -> include(joinpath(@__DIR__, f)), FILES)\nend\n"
+                forfn = joinpath(testdir, "ReevalFor", "src", "ReevalFor.jl")
+                mkpath(dirname(forfn))
+                write(forfn, forsrc(["a.jl"]))
+                write(joinpath(dirname(forfn), "a.jl"), "fa() = 1\n")
+                write(joinpath(dirname(forfn), "b.jl"), "fb() = 2\n")
+                sleep(mtimedelay)
+                @eval using ReevalFor
+                sleep(mtimedelay)
+                write(forfn, forsrc(["a.jl", "b.jl"]))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                formod = ordmod("ReevalFor")
+                @test "a.jl" in basename.(Revise.srcfiles(Revise.pkgdatas[Base.PkgId(formod)]))
+                @test @invokelatest(formod.fa()) == 1
+                @test @invokelatest(formod.fb()) == 2
+
+                # With two statements that include computed paths, each removes only its own files
+                ambsrc(a) = "__precompile__(false)\nmodule ReevalAmb\nconst A = \"$a\"\ninclude(A)\nconst B = \"b.jl\"\ninclude(B)\nend\n"
+                ambfn = joinpath(testdir, "ReevalAmb", "src", "ReevalAmb.jl")
+                mkpath(dirname(ambfn))
+                write(ambfn, ambsrc("a1.jl"))
+                for (f, def) in ("a1.jl" => "fa1() = 1\n", "a2.jl" => "fa2() = 2\n", "b.jl" => "fb() = 3\n")
+                    write(joinpath(dirname(ambfn), f), def)
+                end
+                sleep(mtimedelay)
+                @eval using ReevalAmb
+                sleep(mtimedelay)
+                write(ambfn, ambsrc("a2.jl"))
+                @test_logs (:warn, r"a1.jl is no longer `include`d") match_mode=:any yry()
+                @test isempty(Revise.queue_errors)
+                @test basename.(Revise.srcfiles(Revise.pkgdatas[Base.PkgId(ordmod("ReevalAmb"))])) ==
+                      ["ReevalAmb.jl", "b.jl", "a2.jl"]
+                @test isempty(methods(@invokelatest getglobal(ordmod("ReevalAmb"), :fa1)))
+                @test @invokelatest(ordmod("ReevalAmb").fb()) == 3
+
+                # A statement that now includes nothing drops the file its literal `include` names
+                for (tag, stmt) in (("If", "if FLAG\n    include(\"child.jl\")\nend"), ("And", "FLAG && include(\"child.jl\")"))
+                    name = "ReevalEmpty" * tag
+                    emptysrc(flag) = "__precompile__(false)\nmodule $name\nconst FLAG = $flag\n$stmt\nend\n"
+                    emptyfn = joinpath(testdir, name, "src", "$name.jl")
+                    mkpath(dirname(emptyfn))
+                    write(emptyfn, emptysrc(true))
+                    write(joinpath(dirname(emptyfn), "child.jl"), "f() = 1\n")
+                    sleep(mtimedelay)
+                    @eval using $(Symbol(name))
+                    sleep(mtimedelay)
+                    write(emptyfn, emptysrc(false))
+                    @test_logs (:warn, r"child.jl is no longer `include`d") match_mode=:any yry()
+                    emptymod = ordmod(name)
+                    @test basename.(Revise.srcfiles(Revise.pkgdatas[Base.PkgId(emptymod)])) == ["$name.jl"]
+                    @test isempty(methods(@invokelatest getglobal(emptymod, :f)))
+                end
+
+                # Statements that exchange the files they include keep both, without reloading them
+                swapsrc(a, b) = "__precompile__(false)\nmodule ReevalSwap\nconst A = \"$a\"\nconst B = \"$b\"\ninclude(A)\ninclude(B)\nend\n"
+                swapfn = joinpath(testdir, "ReevalSwap", "src", "ReevalSwap.jl")
+                mkpath(dirname(swapfn))
+                write(swapfn, swapsrc("one.jl", "two.jl"))
+                write(joinpath(dirname(swapfn), "one.jl"), "f() = 1\n")
+                write(joinpath(dirname(swapfn), "two.jl"), "g() = 2\n")
+                sleep(mtimedelay)
+                @eval using ReevalSwap
+                sleep(mtimedelay)
+                write(swapfn, swapsrc("two.jl", "one.jl"))
+                @test_logs min_level=Base.CoreLogging.Warn yry()
+                swapmod = ordmod("ReevalSwap")
+                @test sort(basename.(Revise.srcfiles(Revise.pkgdatas[Base.PkgId(swapmod)]))) == ["ReevalSwap.jl", "one.jl", "two.jl"]
+                @test @invokelatest(swapmod.f()) == 1
+                write(joinpath(dirname(swapfn), "one.jl"), "f() = 3\n")
+                @yry()
+                @test @invokelatest(swapmod.f()) == 3
+
+                # A change of a function that a registered transform calls retransforms the file
+                transsrc(v) = "__precompile__(false)\nmodule ReevalTrans\nbody(ex) = $v\nmapper(ex) = ex isa Expr && ex.head === :(=) ? Expr(:(=), ex.args[1], body(ex)) : ex\ninclude(mapper, \"child.jl\")\nend\n"
+                transfn = joinpath(testdir, "ReevalTrans", "src", "ReevalTrans.jl")
+                mkpath(dirname(transfn))
+                write(transfn, transsrc(1))
+                write(joinpath(dirname(transfn), "child.jl"), "f() = 0\n")
+                sleep(mtimedelay)
+                @eval using ReevalTrans
+                sleep(mtimedelay)
+                transmod = ordmod("ReevalTrans")
+                @test @invokelatest(transmod.f()) == 1
+                for v in (2, 3)   # the first revision registers the transform, the second reuses it
+                    write(transfn, transsrc(v))
+                    @yry()
+                    @test isempty(Revise.queue_errors)
+                    @test @invokelatest(transmod.f()) == v
+                end
+
+                # Assigning a mutated global back to itself mutates it
+                selfsrc(x) = "__precompile__(false)\nmodule ReevalSelf\nconst X = $x\naddx!(v) = push!(v, X)\nV = Int[]\nV = push!(V, X)\nW = Int[]\nW = addx!(W)\nend\n"
+                selffn = joinpath(testdir, "ReevalSelf", "src", "ReevalSelf.jl")
+                mkpath(dirname(selffn))
+                write(selffn, selfsrc(1))
+                sleep(mtimedelay)
+                @eval using ReevalSelf
+                sleep(mtimedelay)
+                write(selffn, selfsrc(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test @invokelatest(getglobal(ordmod("ReevalSelf"), :V)) == [2]
+                @test @invokelatest(getglobal(ordmod("ReevalSelf"), :W)) == [2]
+
+                # Whether a global exists depends on the global
+                hassrc(a) = "__precompile__(false)\nmodule ReevalHas\nhasA() = isdefined(@__MODULE__, :A)\n$(a ? "A = 1\n" : "")const HAS = isdefined(@__MODULE__, :A)\nconst HASM = @isdefined(A)\nconst HASF = hasA()\nend\n"
+                hasfn = joinpath(testdir, "ReevalHas", "src", "ReevalHas.jl")
+                mkpath(dirname(hasfn))
+                write(hasfn, hassrc(false))
+                sleep(mtimedelay)
+                @eval using ReevalHas
+                sleep(mtimedelay)
+                write(hasfn, hassrc(true))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                hasmod = ordmod("ReevalHas")
+                @test @invokelatest(getglobal(hasmod, :HAS)) === @invokelatest(getglobal(hasmod, :HASM)) ===
+                      @invokelatest(getglobal(hasmod, :HASF)) === true
+
+                # The statements of a nested module run between those of its parent
+                nestsrc(x) = "__precompile__(false)\nmodule ReevalNest\nconst R = Int[]\npush!(R, 1)\nmodule Inner\nimport ..R\nconst SNAP = length(R)\nend\npush!(R, $x)\nconst LAST = length(R)\nend\n"
+                nestfn = joinpath(testdir, "ReevalNest", "src", "ReevalNest.jl")
+                mkpath(dirname(nestfn))
+                write(nestfn, nestsrc(2))
+                sleep(mtimedelay)
+                @eval using ReevalNest
+                sleep(mtimedelay)
+                write(nestfn, nestsrc(3))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                nestmod = ordmod("ReevalNest")
+                @test @invokelatest(getglobal(nestmod, :R)) == [1, 3]
+                @test @invokelatest(getglobal(@invokelatest(getglobal(nestmod, :Inner)), :SNAP)) == 1
+                @test @invokelatest(getglobal(nestmod, :LAST)) == 2
+                # ... also on one line
+                linesrc(x) = "__precompile__(false)\nmodule ReevalNestLine\nconst R = Int[]; push!(R, 1); module Inner; import ..R; const SNAP = length(R); end; push!(R, $x); const LAST = length(R)\nend\n"
+                linefn = joinpath(testdir, "ReevalNestLine", "src", "ReevalNestLine.jl")
+                mkpath(dirname(linefn))
+                write(linefn, linesrc(2))
+                sleep(mtimedelay)
+                @eval using ReevalNestLine
+                sleep(mtimedelay)
+                write(linefn, linesrc(3))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                linemod = ordmod("ReevalNestLine")
+                @test @invokelatest(getglobal(linemod, :R)) == [1, 3]
+                @test @invokelatest(getglobal(@invokelatest(getglobal(linemod, :Inner)), :SNAP)) == 1
+                @test @invokelatest(getglobal(linemod, :LAST)) == 2
+
+                # Statements that compute a global from its old value
+                oldsrc(a, x) = "__precompile__(false)\nmodule ReevalOld\ninc(x) = x + 1\nA = $a\nA = (A::Int) + 1\nglobal A += 1\nA = inc(A)\nconst B = A\nX = $x\nC = 0\nC = C + X\nconst D = C\nend\n"
+                oldfn = joinpath(testdir, "ReevalOld", "src", "ReevalOld.jl")
+                mkpath(dirname(oldfn))
+                write(oldfn, oldsrc(1, 1))
+                sleep(mtimedelay)
+                @eval using ReevalOld
+                sleep(mtimedelay)
+                oldmod = ordmod("ReevalOld")
+                for (a, x, want) in ((2, 1, (5, 5, 1, 1)), (2, 3, (5, 5, 3, 3)))
+                    write(oldfn, oldsrc(a, x))
+                    @yry()
+                    @test isempty(Revise.queue_errors)
+                    @test Tuple(@invokelatest(getglobal(oldmod, s)) for s in (:A, :B, :C, :D)) == want
+                end
+
+                # Questions about a global inside called methods, also by a name they get as argument
+                querysrc(c, y) = "__precompile__(false)\nmodule ReevalQuery\n$(c)A = 1\nY = $y\ncheck() = isconst(@__MODULE__, :A)\nhas(s) = isconst(@__MODULE__, s)\nhas2(s) = has(s)\nval(s) = getglobal(@__MODULE__, s)\nconst C1 = check()\nconst C2 = has2(:A)\nconst V1 = val(:Y) + 0\nend\n"
+                queryfn = joinpath(testdir, "ReevalQuery", "src", "ReevalQuery.jl")
+                mkpath(dirname(queryfn))
+                write(queryfn, querysrc("", 1))
+                sleep(mtimedelay)
+                @eval using ReevalQuery
+                sleep(mtimedelay)
+                querymod = ordmod("ReevalQuery")
+                for (c, y, want) in (("const ", 1, (true, true, 1)), ("const ", 2, (true, true, 2)))
+                    write(queryfn, querysrc(c, y))
+                    @yry()
+                    @test isempty(Revise.queue_errors)
+                    @test Tuple(@invokelatest(getglobal(querymod, s)) for s in (:C1, :C2, :V1)) == want
+                end
+
+                # Output reaches the methods of the stream type and of the printed value's type
+                outsrc(g, h) = """
+                    __precompile__(false)
+                    module ReevalOut
+                    G = $g
+                    struct MyIO <: IO
+                        buf::Vector{UInt8}
+                    end
+                    Base.write(io::MyIO, b::UInt8) = (push!(io.buf, b); append!(io.buf, codeunits(string(G))); 1)
+                    struct V <: AbstractVector{Int} end
+                    Base.size(::V) = (1,)
+                    Base.getindex(::V, i::Int) = $h
+                    struct W
+                        v::V
+                    end
+                    const OUT = let io = MyIO(UInt8[]); print(io, "a"); String(copy(io.buf)) end
+                    const S = let io = IOBuffer(); print(io, W(V())); String(take!(io)) end
+                    end
+                    """
+                outfn = joinpath(testdir, "ReevalOut", "src", "ReevalOut.jl")
+                mkpath(dirname(outfn))
+                write(outfn, outsrc(1, "G"))
+                sleep(mtimedelay)
+                @eval using ReevalOut
+                sleep(mtimedelay)
+                outmod = ordmod("ReevalOut")
+                for (g, h, out, s) in ((2, "G", "a2", "[2]"), (2, "G + 10", "a2", "[12]"))
+                    write(outfn, outsrc(g, h))
+                    @yry()
+                    @test isempty(Revise.queue_errors)
+                    @test @invokelatest(getglobal(outmod, :OUT)) == out
+                    @test occursin(s, @invokelatest(getglobal(outmod, :S)))
+                end
+
+                # A macro may call into Revise while the statements that use it are analyzed
+                macrosrc(a) = "__precompile__(false)\nmodule ReevalMacro\nimport Revise\nmacro m(x)\n    Revise.remove_callback(:no_such_key)\n    esc(x)\nend\nconst A = $a\nconst B = @m A + 1\nend\n"
+                macrofn = joinpath(testdir, "ReevalMacro", "src", "ReevalMacro.jl")
+                mkpath(dirname(macrofn))
+                write(macrofn, macrosrc(1))
+                sleep(mtimedelay)
+                @eval using ReevalMacro
+                sleep(mtimedelay)
+                write(macrofn, macrosrc(2))
+                t = @async yry()
+                @test timedwait(() -> istaskdone(t), 60.0) === :ok
+                @test isempty(Revise.queue_errors)
+                @test @invokelatest(getglobal(ordmod("ReevalMacro"), :B)) == 3
+
+                # A statement that already ran calls code that a later statement changes; called
+                # code returns a global it selects by name, prints one, or assigns one
+                latesrc(x, k) = """
+                    __precompile__(false)
+                    module ReevalLate
+                    const X = $x
+                    const A = X + 1
+                    f() = A
+                    const B = f() * $k
+                    struct T end
+                    @eval area(::T) = \$X
+                    h(t) = area(t)
+                    const C = h(T()) * $k
+                    const REG = Int[]
+                    getm(m::Module, s::Symbol) = getglobal(m, s)
+                    push!(getm(@__MODULE__, :REG), X)
+                    G = $x
+                    NAME = :G
+                    Base.show(io::IO, ::T) = print(io, getglobal(@__MODULE__, NAME))
+                    const S = string(T())
+                    setY(y) = (global Y = y)
+                    setY(X)
+                    const Z = Y
+                    end
+                    """
+                latefn = joinpath(testdir, "ReevalLate", "src", "ReevalLate.jl")
+                mkpath(dirname(latefn))
+                write(latefn, latesrc(1, 10))
+                sleep(mtimedelay)
+                @eval using ReevalLate
+                sleep(mtimedelay)
+                write(latefn, latesrc(2, 100))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test Tuple(@invokelatest(getglobal(ordmod("ReevalLate"), s)) for s in (:A, :B, :C, :REG, :S, :Y, :Z)) ==
+                      (3, 300, 200, [2], "2", 2, 2)
+
+                # A mutating statement whose target changes rebuilds the old target as well.
+                # The target is selected by an alias, a module alias, or a name, which a method
+                # or `getglobal` gets from a `const` or other global.
+                retargetsrc(b, m, k) = """
+                    __precompile__(false)
+                    module ReevalRetarget
+                    const A = Int[]
+                    const C = Int[]
+                    B = $b
+                    push!(B, 1)
+                    module SA
+                    const REG = Int[]
+                    end
+                    module SB
+                    const REG = Int[]
+                    end
+                    M = $m
+                    push!(M.REG, 1)
+                    const RA = Int[]
+                    const RB = Int[]
+                    const NAME = :R$k
+                    getm(m, s) = getglobal(m, s)
+                    push!(getm(@__MODULE__, NAME), 1)
+                    const QA = Int[]
+                    const QB = Int[]
+                    QNAME = :Q$k
+                    push!(getm(@__MODULE__, QNAME), 1)
+                    const DA = Int[]
+                    const DB = Int[]
+                    const DNAME = :D$k
+                    push!(getglobal(@__MODULE__, DNAME), 1)
+                    const EA = Int[]
+                    const EB = Int[]
+                    ENAME = :E$k
+                    push!(getglobal(@__MODULE__, ENAME), 1)
+                    end
+                    """
+                retargetfn = joinpath(testdir, "ReevalRetarget", "src", "ReevalRetarget.jl")
+                mkpath(dirname(retargetfn))
+                write(retargetfn, retargetsrc(:A, :SA, :A))
+                sleep(mtimedelay)
+                @eval using ReevalRetarget
+                sleep(mtimedelay)
+                write(retargetfn, retargetsrc(:C, :SB, :B))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                retargetmod = ordmod("ReevalRetarget")
+                retarget(s) = @invokelatest(getglobal(retargetmod, s))
+                @test (retarget(:A), retarget(:C)) == ([], [1])
+                @test (@invokelatest(getglobal(retarget(:SA), :REG)), @invokelatest(getglobal(retarget(:SB), :REG))) == ([], [1])
+                @test [(retarget(Symbol(p, :A)), retarget(Symbol(p, :B))) for p in (:R, :Q, :D, :E)] == fill(([], [1]), 4)
+
+                # Called code assigns a global that the statement reads afterwards and that no
+                # tracked statement initializes
+                Core.eval(Main, :(module ReevalExtA
+                    A = 0
+                end))
+                extsrc(x) = "__precompile__(false)\nmodule ReevalWriteRead\nsetA(x) = (Main.ReevalExtA.A = x)\nconst X = $x\nconst B = (setA(X); Main.ReevalExtA.A)\nconst C = Main.ReevalExtA.A\nend\n"
+                extfn = joinpath(testdir, "ReevalWriteRead", "src", "ReevalWriteRead.jl")
+                mkpath(dirname(extfn))
+                write(extfn, extsrc(1))
+                sleep(mtimedelay)
+                @eval using ReevalWriteRead
+                sleep(mtimedelay)
+                write(extfn, extsrc(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test (@invokelatest(getglobal(Main.ReevalExtA, :A)), @invokelatest(getglobal(ordmod("ReevalWriteRead"), :C))) == (2, 2)
+
+                # Removing the file of a failed dependent statement removes its error
+                rmsrc(x, inc) = "__precompile__(false)\nmodule ReevalRmFailed\nX = $x\n$(inc ? "include(\"child.jl\")" : "")\nend\n"
+                rmfn = joinpath(testdir, "ReevalRmFailed", "src", "ReevalRmFailed.jl")
+                mkpath(dirname(rmfn))
+                write(rmfn, rmsrc(1, true))
+                write(joinpath(dirname(rmfn), "child.jl"), "const Y = X == 2 ? error(\"Y fails\") : X\n")
+                sleep(mtimedelay)
+                @eval using ReevalRmFailed
+                sleep(mtimedelay)
+                write(rmfn, rmsrc(2, true))
+                @test_logs (:error, r"Failed to revise.*child\.jl") match_mode=:any yry()
+                @test any(((_, f),) -> endswith(f, "child.jl"), keys(Revise.queue_errors))
+                write(rmfn, rmsrc(2, false))
+                @test_logs (:warn, r"child\.jl is no longer `include`d") match_mode=:any yry()
+                @test isempty(Revise.queue_errors)
+                Revise.retry()
+                @test isempty(Revise.queue_errors)
+
+                # A statement of a file that the revision stops including fails before the file is removed
+                switchsrc(x) = "__precompile__(false)\nmodule ReevalSwitchFailed\nconst X = $x\nconst CHILD = X == 1 ? \"one.jl\" : \"two.jl\"\ninclude(CHILD)\nend\n"
+                switchfn = joinpath(testdir, "ReevalSwitchFailed", "src", "ReevalSwitchFailed.jl")
+                mkpath(dirname(switchfn))
+                write(switchfn, switchsrc(1))
+                write(joinpath(dirname(switchfn), "one.jl"), "const Y = X == 2 ? error(\"Y fails\") : X\n")
+                write(joinpath(dirname(switchfn), "two.jl"), "const W = X\n")
+                sleep(mtimedelay)
+                @eval using ReevalSwitchFailed
+                sleep(mtimedelay)
+                write(switchfn, switchsrc(2))
+                @test_logs (:warn, r"one\.jl is no longer `include`d") match_mode=:any yry()
+                @test isempty(Revise.queue_errors)
+                @test !any(((f, _, _),) -> endswith(f, "one.jl"), keys(Revise.failed_dependents))
+                @test @invokelatest(getglobal(ordmod("ReevalSwitchFailed"), :W)) == 2
+
+                # A function of a module named `getproperty` is not `Base.getproperty`
+                shadowsrc(x) = "__precompile__(false)\nmodule ReevalShadowGet\nfunction getproperty end\ngetproperty(m::Module, s::Symbol) = REG\nconst REG = Int[]\nconst X = $x\npush!(getproperty(@__MODULE__, :X), X)\nend\n"
+                shadowfn = joinpath(testdir, "ReevalShadowGet", "src", "ReevalShadowGet.jl")
+                mkpath(dirname(shadowfn))
+                write(shadowfn, shadowsrc(1))
+                sleep(mtimedelay)
+                @eval using ReevalShadowGet
+                sleep(mtimedelay)
+                write(shadowfn, shadowsrc(2))
+                @yry()
+                @test isempty(Revise.queue_errors)
+                @test @invokelatest(getglobal(ordmod("ReevalShadowGet"), :REG)) == [2]
+            end
+        finally
+            Revise.revise_dependents[] = false
+            Revise.verify_dep_index[] = false
+            pop!(LOAD_PATH)
+        end
+    end
+
     do_test("Display") && @testset "Display" begin
         io = IOBuffer()
         show(io, Revise.RelocatableExpr(:(@inbounds x[2])))
