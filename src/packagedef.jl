@@ -1222,9 +1222,10 @@ end
 # Avoid re-evaluating assignments accumulated in `Main`.
 default_revise_mode(pkgdata::PkgData) = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
 
-# Evaluate the new statements of a file in source order. Their `include`s are returned and not
-# evaluated here.
-function eval_new!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos; mode::Symbol=:eval)
+# Evaluate the new statements of a file in source order. `records`, when supplied, receives the
+# `include`s of each statement, which are returned and not evaluated here.
+function eval_new!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos; mode::Symbol=:eval,
+                   records::Union{Nothing,IncludeRecords}=nothing)
     includes = Vector{Tuple{Module,Function,String}}()
     modes = IdDict{Module,Symbol}()
     for (mod, rex) in stmts_in_source_order(mod_exs_infos_new)
@@ -1232,7 +1233,10 @@ function eval_new!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::Modul
         modmode = get!(() -> revise_mode(mod, mode), modes, mod)
         exinfos, includes′ = eval_rex(rex, get(mod_exs_infos_old, mod, empty_exs_infos), mod; mode=modmode)
         exinfos === nothing || (mod_exs_infos_new[mod][rex] = exinfos)
-        includes′ === nothing || append!(includes, includes′)
+        if includes′ !== nothing
+            append!(includes, includes′)
+            records === nothing || record_includes!(records, mod, rex, includes′)
+        end
     end
     return mod_exs_infos_new, includes
 end
@@ -1247,34 +1251,45 @@ function eval_with_signatures(mod::Module, ex::Expr; mode::Symbol=:eval, kwargs.
 end
 
 # `includes`, when supplied, collects the `include` statements encountered, which the
-# caller must register (they are not evaluated here).
+# caller must register (they are not evaluated here). `records`, when supplied, receives
+# them per statement.
 function instantiate_sigs!(mod_exs_infos::ModuleExprsInfos; mode::Symbol=:sigs,
                            includes::Union{Nothing,Vector{Tuple{Module,Function,String}}}=nothing,
-                           kwargs...)
+                           records::Union{Nothing,IncludeRecords}=nothing, kwargs...)
     for (mod, exs_infos) in mod_exs_infos
         for rex in keys(exs_infos)
-            is_doc_expr(rex.ex) && continue
-            try
-                exinfos, incs, _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
-                exs_infos[rex] = exinfos
-                includes === nothing || append!(includes, incs)
-            catch err
-                if (mode !== :sigs || get(kwargs, :always_rethrow, false) || rethrow_errors[] ||
-                    err isa InterruptException || err isa SignatureExtractionError)
-                    rethrow()
-                end
-                loc = if err isa ReviseEvalException && err.loc != "unknown location"
-                    err.loc
-                else
-                    lnn = firstline(rex)
-                    lnn === nothing || lnn.file === nothing || lnn.file === :none ?
-                        "unknown location" : location_string((lnn.file, lnn.line))
-                end
-                throw(SignatureExtractionError(mod, loc, err))
-            end
+            instantiate_sig!(exs_infos, mod, rex; mode, includes, records, kwargs...)
         end
     end
     return mod_exs_infos
+end
+
+# Store the signatures that the statement `rex` of `mod` defines in `exs_infos[rex]`. A docstring
+# is skipped, and an error in `:sigs` mode is thrown as a `SignatureExtractionError`.
+function instantiate_sig!(exs_infos::ExprsInfos, mod::Module, rex::RelocatableExpr; mode::Symbol=:sigs,
+                          includes::Union{Nothing,Vector{Tuple{Module,Function,String}}}=nothing,
+                          records::Union{Nothing,IncludeRecords}=nothing, kwargs...)
+    is_doc_expr(rex.ex) && return exs_infos
+    try
+        exinfos, incs, _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
+        exs_infos[rex] = exinfos
+        includes === nothing || append!(includes, incs)
+        records === nothing || record_includes!(records, mod, rex, incs)
+    catch err
+        if (mode !== :sigs || get(kwargs, :always_rethrow, false) || rethrow_errors[] ||
+            err isa Union{InterruptException,SignatureExtractionError})
+            rethrow()
+        end
+        loc = if err isa ReviseEvalException && err.loc != "unknown location"
+            err.loc
+        else
+            lnn = firstline(rex)
+            lnn === nothing || lnn.file === nothing || lnn.file === :none ?
+                "unknown location" : location_string((lnn.file, lnn.line))
+        end
+        throw(SignatureExtractionError(mod, loc, err))
+    end
+    return exs_infos
 end
 
 # This is intended for testing purposes, but not general use. The key problem is
@@ -1734,7 +1749,10 @@ function source_view(pkgdata::PkgData, file::AbstractString, idx::Int,
     return fi.mod_exs_infos
 end
 
-# Inclusions removed by the revision, as `(pkgdata, file, idx, unwatch)` tuples.
+# Inclusions removed by the revision, as `(pkgdata, file, idx, unwatch)` tuples, and the
+# `(path, module)` inclusions that only the include records of deleted statements name.
+# Those are decided by `remove_unincluded!` once the revision evaluated its statements,
+# since a statement that replaces a computed `include` can include the same file again.
 # For files in `parsed`, use the pending parse rather than the stored `FileInfo`.
 #
 # Inclusions are identified by `(path, module)` (see `include_targets`), so a file
@@ -1742,9 +1760,9 @@ end
 # Removal is transitive: files included only by a removed inclusion are also
 # removed.
 function orphaned_includes(pkgdata::PkgData, parsed)
-    orphans = Tuple{PkgData,String,Int,Bool}[]
     current = Dict{Tuple{String,Int},ModuleExprsInfos}()
     candidates = Set{Tuple{String,Module}}()
+    recorded = Set{Tuple{String,Module}}()
     for (pd, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
         pd === pkgdata || continue
         # A file that is missing from disk keeps its registration pending its return
@@ -1753,16 +1771,34 @@ function orphaned_includes(pkgdata::PkgData, parsed)
         fileok || continue
         isa(mod_exs_infos_new, ModuleExprsInfos) || continue
         current[(file, idx)] = mod_exs_infos_new
-        union!(candidates, setdiff(include_targets(pkgdata, file, mod_exs_infos_old),
-                                   include_targets(pkgdata, file, mod_exs_infos_new)))
+        records = fileinfo(pkgdata, idx).includes
+        dropped = setdiff(include_targets(pkgdata, file, mod_exs_infos_old, records),
+                          include_targets(pkgdata, file, mod_exs_infos_new, records))
+        literal = include_targets(pkgdata, file, mod_exs_infos_old)
+        for target in dropped
+            push!(target in literal ? candidates : recorded, target)
+        end
+        for (mod, exs_infos_old) in mod_exs_infos_old, rex in keys(exs_infos_old)
+            haskey(get(mod_exs_infos_new, mod, empty_exs_infos), rex) || delete!(records, (mod, rex))
+        end
     end
+    return include_orphans(pkgdata, candidates, current), recorded
+end
+
+# The inclusions of `pkgdata` among `candidates` that no `include` keeps, and those only they
+# include, transitively, as `(pkgdata, file, idx, unwatch)` tuples. `current` holds pending
+# parses (see `source_view`). An `include` keeps a file if its statement is in a file that is
+# not removed (see `include_targets`).
+function include_orphans(pkgdata::PkgData, candidates::Set{Tuple{String,Module}},
+                         current::Dict{Tuple{String,Int},ModuleExprsInfos})
+    orphans = Tuple{PkgData,String,Int,Bool}[]
     isempty(candidates) && return orphans
     gone = Set{Tuple{String,Module}}()
     while !isempty(candidates)
         live = Set{Tuple{String,Module}}()
         for (i, file) in enumerate(srcfiles(pkgdata))
             (file, includemodule(pkgdata, i)) ∈ gone && continue
-            union!(live, include_targets(pkgdata, file, source_view(pkgdata, file, i, current)))
+            union!(live, include_targets(pkgdata, file, source_view(pkgdata, file, i, current), fileinfo(pkgdata, i).includes))
         end
         newly = Tuple{String,Module,Int}[]
         for target in candidates
@@ -1776,7 +1812,7 @@ function orphaned_includes(pkgdata::PkgData, parsed)
         candidates = Set{Tuple{String,Module}}()
         for (path, mod, idx) in newly
             push!(gone, (path, mod))
-            union!(candidates, include_targets(pkgdata, path, source_view(pkgdata, path, idx, current)))
+            union!(candidates, include_targets(pkgdata, path, source_view(pkgdata, path, idx, current), fileinfo(pkgdata, idx).includes))
             push!(orphans, (pkgdata, path, idx, false))
         end
     end
@@ -1791,23 +1827,84 @@ function orphaned_includes(pkgdata::PkgData, parsed)
     return orphans
 end
 
-# Return the removed inclusions for every package represented in `parsed`. Detection
-# is static and therefore conservative (see `include_targets`); if scanning a
-# package fails, keep all its files and log the error (or rethrow it under `throw`).
+# Return the removed inclusions for every package represented in `parsed`, and the
+# inclusions to decide after evaluation per package. Detection is static and therefore
+# conservative (see `include_targets`); if scanning a package fails, keep all its files and
+# log the error (or rethrow it under `throw`).
 function orphaned_includes(parsed; throw::Bool=false)
     orphans = Tuple{PkgData,String,Int,Bool}[]
+    recorded = Tuple{PkgData,Set{Tuple{String,Module}}}[]
     seen = PkgData[]
     for (pkgdata, _, _, _, _, _) in parsed
         any(pd -> pd === pkgdata, seen) && continue
         push!(seen, pkgdata)
         try
-            append!(orphans, orphaned_includes(pkgdata, parsed))
+            pkgorphans, pkgrecorded = orphaned_includes(pkgdata, parsed)
+            append!(orphans, pkgorphans)
+            isempty(pkgrecorded) || push!(recorded, (pkgdata, pkgrecorded))
         catch err
             handle_caught(err, catch_backtrace(), "OrphanScanFailed"; throw = throw || isa(err, InterruptException))
             @error "scan for removed `include`s failed for $(PkgId(pkgdata)); keeping its files tracked" exception=(err, catch_backtrace())
         end
     end
-    return orphans
+    return orphans, recorded
+end
+
+"""
+    Revise.remove_unincluded!(removed, revision_errors, pkgdata, candidates; throw=false) -> removed
+
+Remove the `(path, module)` inclusions `candidates` of `pkgdata` that no `include` keeps, and the files only they include.
+
+A revision calls this after it evaluated its statements, since a statement that replaces a
+computed `include` can include the same file again. The methods of the removed files are
+deleted. The inclusions are appended to `removed` as `(pkgdata, path, idx, unwatch)` tuples,
+and stay registered until `Revise.deregister_orphaned_includes!(removed)`. Failures are
+recorded in `revision_errors` and [`Revise.queue_errors`](@ref), or thrown under `throw`.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> dir = mktempdir(); src = mkpath(joinpath(dir, "UnInc", "src")); push!(LOAD_PATH, dir);
+
+julia> write(joinpath(src, "UnInc.jl"), "__precompile__(false)\\nmodule UnInc\\ninclude(\\\"a.jl\\\")\\nconst CHILD = \\\"b.jl\\\"\\ninclude(CHILD)\\nend\\n");
+
+julia> write(joinpath(src, "a.jl"), "f() = 1\\n"); write(joinpath(src, "b.jl"), "g() = 1\\n"); using UnInc; pop!(LOAD_PATH);
+
+julia> pd = Revise.pkgdatas[Base.PkgId(UnInc)]; removed = Tuple{Revise.PkgData,String,Int,Bool}[];
+
+julia> candidates = Set([("src/a.jl", UnInc), ("src/b.jl", UnInc)]);
+
+julia> Base.CoreLogging.with_logger(Base.CoreLogging.NullLogger()) do
+           Revise.remove_unincluded!(removed, Tuple{Revise.PkgData,String}[], pd, candidates)
+       end; [basename(r[2]) for r in removed]
+1-element Vector{String}:
+ "b.jl"
+
+julia> isempty(methods(UnInc.g)), isempty(methods(UnInc.f))
+(true, false)
+```
+"""
+function remove_unincluded!(removed::Vector{Tuple{PkgData,String,Int,Bool}},
+                            revision_errors::Vector{Tuple{PkgData,String}}, pkgdata::PkgData,
+                            candidates::Set{Tuple{String,Module}}; throw::Bool=false, worker_ps::AbstractVector=[])
+    orphans = include_orphans(pkgdata, candidates, Dict{Tuple{String,Int},ModuleExprsInfos}())
+    filter!(o -> !any(r -> r[1] === o[1] && r[3] == o[3], removed), orphans)
+    isempty(orphans) && return removed
+    reeval_list = IdSet{Union{Method,Type}}()
+    handled_types = IdSet{Type}()
+    world = Base.get_world_counter()
+    for (_, file, idx, unwatch) in orphans
+        try
+            delete_orphaned_include!(pkgdata, file, idx, unwatch, reeval_list, handled_types, world, TypePredictions())
+            push!(removed, (pkgdata, file, idx, unwatch))
+        catch err
+            handle_caught(err, catch_backtrace(), "DeleteOrphanFailed"; throw = throw || isa(err, InterruptException), file)
+            push!(revision_errors, (pkgdata, file))
+            queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+        end
+    end
+    isempty(reeval_list) || redefine_bindings!(revision_errors, reeval_list, world, worker_ps)
+    return removed
 end
 
 # Delete definitions contributed by one inclusion and clear its stored expressions.
@@ -2134,9 +2231,9 @@ function revise_file_now(pkgdata::PkgData, file, idx::Int)
     world = Base.get_world_counter()
     mod_exs_infos_new, mod_exs_infos_old = handle_deletions(pkgdata, file, idx, reeval_list, handled_types, world)
     if mod_exs_infos_new != nothing
-        _, includes = eval_new!(mod_exs_infos_new, mod_exs_infos_old)
-        realias_orphaned_bindings!(mod_exs_infos_new, mod_exs_infos_old)   # issue #239
         fi = fileinfo(pkgdata, idx)
+        _, includes = eval_new!(mod_exs_infos_new, mod_exs_infos_old; records=fi.includes)
+        realias_orphaned_bindings!(mod_exs_infos_new, mod_exs_infos_old)   # issue #239
         pkgdata.fileinfos[idx] = FileInfo(adopt_twins!(mod_exs_infos_new), fi)
         maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
     end
@@ -2350,7 +2447,7 @@ function include_order!(order::Vector{Int}, visited::Set{Int}, pkgdata::PkgData,
     push!(visited, idx)
     push!(order, idx)
     file = srcfiles(pkgdata)[idx]
-    for (path, mod) in ordered_include_targets(pkgdata, file, source_view(pkgdata, file, idx, current))
+    for (path, mod) in ordered_include_targets(pkgdata, file, source_view(pkgdata, file, idx, current), fileinfo(pkgdata, idx).includes)
         for j in fileindices(pkgdata, path)
             includemodule(pkgdata, j) === mod && include_order!(order, visited, pkgdata, current, j)
         end
@@ -2439,6 +2536,7 @@ function evaluate_entry!(pass::RevisionPass, entry::RevisionEntry, p::Int)
                     mod_exs_infos_new[mod][rex] = exinfos
                 end
                 if includes !== nothing
+                    record_includes!(fi.includes, mod, rex, includes)
                     maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true,
                         revise=(pd, incrp, i) -> schedule_include!(pass, pd, incrp, i, p))
                 end
@@ -2607,7 +2705,7 @@ function _revise(; throw::Bool=false)
         end
 
         # Do not evaluate files whose inclusions are being removed.
-        orphans = orphaned_includes(parsed; throw)
+        orphans, recorded_orphans = orphaned_includes(parsed; throw)
         if !isempty(orphans)
             filter!(parsed) do entry
                 pkgdata, file, idx = entry[1], entry[2], entry[3]
@@ -2668,6 +2766,14 @@ function _revise(; throw::Bool=false)
         end
         evaluate_worklist!(pass)
         interrupt |= pass.interrupt
+        for (pkgdata, candidates) in recorded_orphans
+            try
+                remove_unincluded!(deleted_orphans, revision_errors, pkgdata, candidates; throw, worker_ps)
+            catch err
+                handle_caught(err, catch_backtrace(), "OrphanScanFailed"; throw)
+                interrupt |= isa(err, InterruptException)
+            end
+        end
 
         # Evaluation above relies on stable `pkgdata.fileinfos` indices.
         isempty(deleted_orphans) || deregister_orphaned_includes!(deleted_orphans)

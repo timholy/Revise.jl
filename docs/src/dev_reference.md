@@ -106,6 +106,7 @@ Revise.hold_cache!
 Revise.cache_snapshot_is_valid
 Revise.cached_source_is_current
 Revise.include_targets
+Revise.remove_unincluded!
 Revise.maybe_add_includes_to_pkgdata!
 Revise.link_twins!
 Revise.adopt_twins!

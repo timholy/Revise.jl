@@ -6727,7 +6727,7 @@ do_test("@require path switch") && @testset "@require path switch" begin
     # drives `switch_basepath` into its read-from-disk fallback.
     reqfile = joinpath("src", "Issue678.jl") * Revise.requires_suffix
     fi = Revise.FileInfo(Revise.ModuleExprsInfos(), identity, "", "", nothing,
-                         Tuple{Module,Expr}[(mod, :(g() = 42))], Ref(false), Ref(false))
+                         Tuple{Module,Expr}[(mod, :(g() = 42))], Ref(false), Ref(false), Revise.IncludeRecords())
     push!(pkgdata, reqfile=>fi)
     @test Revise.is_requires_file(reqfile)
     @test (Revise.switch_basepath(pkgdata, newdir); true)   # must not throw
@@ -7328,9 +7328,28 @@ do_test("Computed include path") && @testset "Computed include path" begin
         end
         end
         """)
-    @yry()
+    # Still included, so its methods are neither deleted nor redefined
+    @test_logs min_level=Base.CoreLogging.Warn yry()
+    @latestworld
     @test ComputedInclude.impl() == 1
     @test Revise.iswatched(pkgdata, joinpath("src", "impl.jl"))
+
+    # The method moves to a file the replacing statement includes
+    write(joinpath(dn, "other.jl"), "impl() = 2")
+    write(joinpath(dn, "ComputedInclude.jl"), """
+        module ComputedInclude
+        for f in ("other.jl",)
+            include(f)
+        end
+        end
+        """)
+    # impl.jl is removed after evaluation, so `--warn-overwrite=yes` reports `impl()` as overwritten
+    redirect_stderr(devnull) do
+        @test_logs (:warn, r"impl.jl is no longer `include`d") yry()
+    end
+    @latestworld
+    @test ComputedInclude.impl() == 2
+    @test basename.(Revise.srcfiles(pkgdata)) == ["ComputedInclude.jl", "other.jl"]
 
     rm_precompile("ComputedInclude")
     pop!(LOAD_PATH)

@@ -181,6 +181,10 @@ end
 
 const ExprsInfos = OrderedDict{RelocatableExpr,Union{Nothing,Vector{Union{SigInfo,TypeInfo}}}}
 
+# The `(module, mapexpr, path)` of the files each statement `include`s, by module and statement.
+# A statement without an entry has not run, or includes no file and names none literally.
+const IncludeRecords = Dict{Tuple{Module,RelocatableExpr},Vector{Tuple{Module,Function,String}}}
+
 # `TypePredictions`
 #
 # Per-revision record of whether the incoming source preserves each type it
@@ -293,9 +297,10 @@ struct FileInfo
     cacheexprs::Vector{Tuple{Module,Expr}}             # "unprocessed" exprs, used to support @require
     extracted::Base.RefValue{Bool}                     # true if signatures have been processed from mod_exs_infos
     parsed::Base.RefValue{Bool}                        # true if mod_exs_infos have been parsed from cachefile
+    includes::IncludeRecords                           # the `include` calls of each statement, as `ExInfo` records them
 end
 FileInfo(mod_exs_infos::ModuleExprsInfos, cachefile="", cachefilename=""; mapexpr::Function=identity, cachesrcid=nothing) =
-    FileInfo(mod_exs_infos, mapexpr, cachefile, cachefilename, cachesrcid, Tuple{Module,Expr}[], Ref(false), Ref(false))
+    FileInfo(mod_exs_infos, mapexpr, cachefile, cachefilename, cachesrcid, Tuple{Module,Expr}[], Ref(false), Ref(false), IncludeRecords())
 
 """
     FileInfo(mod::Module, cachefile="", cachefilename=""; mapexpr=identity, cachesrcid=nothing)
@@ -305,7 +310,7 @@ Initialize an empty FileInfo for a file that is `include`d into `mod`.
 FileInfo(mod::Module, cachefile::AbstractString="", cachefilename::AbstractString=""; mapexpr::Function=identity, cachesrcid=nothing) =
     FileInfo(ModuleExprsInfos(mod), cachefile, cachefilename; mapexpr, cachesrcid)
 
-FileInfo(fm::ModuleExprsInfos, fi::FileInfo) = FileInfo(fm, fi.mapexpr, fi.cachefile, fi.cachefilename, fi.cachesrcid, copy(fi.cacheexprs), Ref(fi.extracted[]), Ref(fi.parsed[]))
+FileInfo(fm::ModuleExprsInfos, fi::FileInfo) = FileInfo(fm, fi.mapexpr, fi.cachefile, fi.cachefilename, fi.cachesrcid, copy(fi.cacheexprs), Ref(fi.extracted[]), Ref(fi.parsed[]), fi.includes)
 
 function Base.show(io::IO, fi::FileInfo)
     print(io, "FileInfo(")
