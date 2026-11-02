@@ -173,14 +173,17 @@ end # module
 and the corresponding edit to the code would be to modify it to `greetcaller(x) = greet("Bar")`
 and `remotecall_fetch(greetcaller, p, 1)`.
 
-#### A removed `include` is recognized only for literal paths
+#### Files that another function `include`s stay tracked
 
-When an `include` statement disappears from a revised file, Revise deletes the
-definitions the included file contributed to that module and stops tracking the
-inclusion; restoring the statement registers the file again. Revise recognizes
-only string-literal paths and literal destination-module names, as in
-`Base.include(Sub, "file.jl")`. Computed paths (for example, from a loop, variable,
-or constant) are not recognized.
+When an `include` statement disappears from a revised file, Revise deletes the definitions of
+each file the statement included and stops tracking that file. Restoring the statement
+registers the file again.
+
+Revise knows which files a statement includes once it has evaluated the statement or extracted
+its signatures. Before that, it reads them from the source, which shows only string-literal
+paths and literal destination modules, as in `Base.include(Sub, "file.jl")`. Neither way sees an
+`include` that another function calls, as in `foreach(include, files)`. The files such a call
+includes stay tracked.
 
 #### Precompilation by another process can discard Revise's baseline
 

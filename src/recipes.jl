@@ -238,7 +238,7 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
             if !parse_and_maybe_eval_source!(fi.mod_exs_infos, src, file, fmod).success
                 @warn "failed to parse Git source text for $file"
             else
-                instantiate_sigs!(fi.mod_exs_infos)
+                instantiate_sigs!(fi.mod_exs_infos; records=fi.includes)
             end
             # Re-tracking a file that is already registered replaces its `FileInfo`;
             # a duplicate entry would revise the file twice per change.
