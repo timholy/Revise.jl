@@ -2,6 +2,10 @@
 
 function assign_this!(frame::Frame, @nospecialize value)
     frame.framedata.ssavalues[frame.pc] = value
+    stmt = pc_expr(frame)
+    if isexpr(stmt, :(=)) && isa(stmt.args[1], JuliaInterpreter.SlotNumber)
+        JuliaInterpreter.do_assignment!(frame, stmt.args[1], value)
+    end
 end
 
 # The callee of a lowered statement may be a `GlobalRef`, or the function itself: JuliaInterpreter
@@ -111,6 +115,10 @@ is_define_method_call_4arg(@nospecialize(stmt)) =
     getfield(LoweredCodeUtils, :is_define_method_call_4arg)(stmt)
 
 function matches_eval(stmt::Expr, code::Vector{Any})
+    if stmt.head === :(=)
+        stmt = stmt.args[2]
+        isa(stmt, Expr) || return false
+    end
     stmt.head === :call || return false
     f = stmt.args[1]
     # e.g. a module's own `eval`, which Julia 1.12+ lowering reads into an SSA value
@@ -119,7 +127,15 @@ function matches_eval(stmt::Expr, code::Vector{Any})
     end
     return f === :eval ||
            (callee_matches(f, Base, :getproperty) && is_quotenode_egal(stmt.args[end], :eval)) ||
-           (isa(f, GlobalRef) && f.name === :eval) || is_quotenode_egal(f, Core.eval)
+           (isa(f, GlobalRef) && f.name === :eval) || is_quotenode_egal(f, Core.eval) || is_at_eval_hook(f)
+end
+
+@static if isdefined(Base, :JuliaLowering) && isdefined(Base.JuliaLowering, :at_eval_hook)
+    is_at_eval_hook(@nospecialize(f)) = f === Base.JuliaLowering.at_eval_hook
+    is_toplevel_syntax(@nospecialize(ex)) = ex isa Base.Syntax && Base.head(ex) === :toplevel
+else
+    is_at_eval_hook(@nospecialize(f)) = false
+    is_toplevel_syntax(@nospecialize(ex)) = false
 end
 
 # The module and expression of an `eval` call to intercept: `Core.eval(mod, ex)` (as from
@@ -129,6 +145,9 @@ function eval_call_operands(interp::Interpreter, frame::Frame, @nospecialize(f),
         return Pair{Module,Any}(lookup(interp, frame, callstmt.args[2]), lookup(interp, frame, callstmt.args[3]))
     elseif @static(isdefined(Core, :EvalInto) ? true : false) && f isa Core.EvalInto && length(callstmt.args) == 2
         return Pair{Module,Any}(f.m, lookup(interp, frame, callstmt.args[2]))
+    elseif is_at_eval_hook(f) && length(callstmt.args) == 3
+        st = lookup(interp, frame, callstmt.args[3])
+        return Pair{Module,Any}(lookup(interp, frame, callstmt.args[2]), is_toplevel_syntax(st) ? st : Base.syntax_to_expr(st))
     end
     return nothing
 end
@@ -144,7 +163,15 @@ is_namespace_head(head::Symbol) = head === :export || head === :import || head =
             return f.mod === Base && (f.name === :_eval_import || f.name === :_eval_using)
         end
         return f === Base._eval_import || f === Base._eval_using ||
-               is_quotenode_egal(f, Base._eval_import) || is_quotenode_egal(f, Base._eval_using)
+               is_quotenode_egal(f, Base._eval_import) || is_quotenode_egal(f, Base._eval_using) ||
+               is_jl_namespace_call(f)
+    end
+    # JuliaLowering calls its own wrappers of these, and lowers `export`/`public` to a call too
+    @static if isdefined(Base, :JuliaLowering)
+        is_jl_namespace_call(@nospecialize(f)) = (JL = Base.JuliaLowering;
+            f === JL.eval_import || f === JL.eval_using || f === JL.eval_public)
+    else
+        is_jl_namespace_call(@nospecialize(f)) = false
     end
 else
     is_namespace_call(@nospecialize(f)) = false
@@ -321,7 +348,7 @@ The other keyword arguments are more straightforward:
   This is primarily useful for debugging.
 """
 function methods_by_execution!(
-        interp::Interpreter, exinfo::ExInfo, mod::Module, ex::Expr;
+        interp::Interpreter, exinfo::ExInfo, mod::Module, @nospecialize(ex);
         mode::Symbol = :eval, disablebp::Bool = true, eval_namespace::Bool = mode!==:sigs,
         always_rethrow::Bool = false, kwargs...
     )
@@ -722,6 +749,10 @@ function _methods_by_execution!(
                             push!(exinfo.exprstack, newex)
                             value, _ = methods_by_execution!(interp, exinfo, newmod, newex; mode, skip_include, eval_namespace, disablebp=false)
                             pop!(exinfo.exprstack)
+                        end
+                    elseif is_toplevel_syntax(evalex)
+                        for st in Base.children(evalex)
+                            value, _ = methods_by_execution!(interp, exinfo, evalmod, st; mode, skip_include, eval_namespace, disablebp=false)
                         end
                     else
                         # e.g. `eval(sym)`: nothing to split, and it cannot define methods
