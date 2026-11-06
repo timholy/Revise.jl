@@ -1,11 +1,35 @@
 ## Analyzing lowered code
 
+"""
+    Revise.assign_this!(frame::Frame, value)
+
+Store `value` as the result of the current statement of `frame`, in place of running it.
+
+The statement of an intercepted call is either the call, whose result is its SSA value, or an
+assignment of the call to a local variable or a global, which receives `value`.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> src = Meta.lower(Main, :(let; x = identity(1); end)).args[1]; frame = Revise.JuliaInterpreter.Frame(Main, src);
+
+julia> frame.pc = findfirst(st -> Meta.isexpr(st, :(=)), frame.framecode.src.code); Revise.assign_this!(frame, 5);
+
+julia> something(frame.framedata.locals[frame.framecode.src.code[frame.pc].args[1].id])
+5
+
+julia> frame.pc = 1; Revise.assign_this!(frame, 7); frame.framedata.ssavalues[1]
+7
+```
+"""
 function assign_this!(frame::Frame, @nospecialize value)
-    frame.framedata.ssavalues[frame.pc] = value
-    stmt = pc_expr(frame)
-    if isexpr(stmt, :(=)) && isa(stmt.args[1], JuliaInterpreter.SlotNumber)
+    stmt = pc_expr(frame, frame.pc)
+    if isexpr(stmt, :(=), 2)
         JuliaInterpreter.do_assignment!(frame, stmt.args[1], value)
+    else
+        frame.framedata.ssavalues[frame.pc] = value
     end
+    return value
 end
 
 # The callee of a lowered statement may be a `GlobalRef`, or the function itself: JuliaInterpreter
@@ -154,28 +178,28 @@ end
 
 is_namespace_head(head::Symbol) = head === :export || head === :import || head === :using
 
-# On Julia 1.13+, `using`/`import` statements lower to calls to these `Base` functions
-# rather than surviving as `Expr(:using)`/`Expr(:import)` statements (`export` still
-# lowers unwrapped).
-@static if isdefined(Base, :_eval_import) && isdefined(Base, :_eval_using)
-    function is_namespace_call(@nospecialize(f))
-        if isa(f, GlobalRef)
-            return f.mod === Base && (f.name === :_eval_import || f.name === :_eval_using)
-        end
-        return f === Base._eval_import || f === Base._eval_using ||
-               is_quotenode_egal(f, Base._eval_import) || is_quotenode_egal(f, Base._eval_using) ||
-               is_jl_namespace_call(f)
-    end
-    # JuliaLowering calls its own wrappers of these, and lowers `export`/`public` to a call too
-    @static if isdefined(Base, :JuliaLowering)
-        is_jl_namespace_call(@nospecialize(f)) = (JL = Base.JuliaLowering;
-            f === JL.eval_import || f === JL.eval_using || f === JL.eval_public)
-    else
-        is_jl_namespace_call(@nospecialize(f)) = false
-    end
-else
-    is_namespace_call(@nospecialize(f)) = false
+# On Julia 1.13+, `using`/`import` statements lower to calls to these functions rather than
+# surviving as `Expr(:using)`/`Expr(:import)` statements (`export` still lowers unwrapped).
+# JuliaLowering calls its own functions of the same signatures, and lowers `export`/`public`
+# to a call too.
+const eval_using_functions = Any[getglobal(m, n) for (m, n) in ((Base, :_eval_using),
+    (isdefined(Base, :JuliaLowering) ? Base.JuliaLowering : Base, :eval_using)) if isdefined(m, n)]
+const eval_import_functions = Any[getglobal(m, n) for (m, n) in ((Base, :_eval_import),
+    (isdefined(Base, :JuliaLowering) ? Base.JuliaLowering : Base, :eval_import)) if isdefined(m, n)]
+const eval_public_functions = Any[getglobal(m, n) for (m, n) in
+    ((isdefined(Base, :JuliaLowering) ? Base.JuliaLowering : Base, :eval_public),) if isdefined(m, n)]
+
+# The function that the callee `f` of a lowered call names, or `f` itself if it names none
+function callee_value(@nospecialize(f))
+    isa(f, QuoteNode) && return f.value
+    isa(f, GlobalRef) && @invokelatest(isdefinedglobal(f.mod, f.name)) && @invokelatest(isconst(f.mod, f.name)) &&
+        return @invokelatest getglobal(f.mod, f.name)
+    return f
 end
+
+is_namespace_call(@nospecialize(f)) =
+    (f = callee_value(f); any(g -> g === f, eval_using_functions) || any(g -> g === f, eval_import_functions) ||
+                          any(g -> g === f, eval_public_functions))
 
 function categorize_stmt(@nospecialize(stmt), code::Vector{Any})
     ismeth, haseval, isinclude, isnamespace, istoplevel = false, false, false, false, false
@@ -806,6 +830,13 @@ function _methods_by_execution!(
                         str.data[:typesig] = sig
                     end
                     assign_this!(frame, Base.Docs.doc(b, sig))
+                    pc = next_or_nothing!(frame)
+                elseif f === Core.isdefined && length(callstmt.args) == 3 &&
+                       isa(lookup(interp, frame, callstmt.args[2]), Module)
+                    # JuliaInterpreter calls `isdefined` in Revise's frozen world, which lacks newer bindings.
+                    m, s = lookup(interp, frame, callstmt.args[2]), lookup(interp, frame, callstmt.args[3])
+                    value = Base.invoke_in_world(frame.world, isdefined, m, s)
+                    assign_this!(frame, value)
                     pc = next_or_nothing!(frame)
                 else
                     # A :call Expr we don't want to intercept

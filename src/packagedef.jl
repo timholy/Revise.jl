@@ -752,6 +752,13 @@ function delete_missing!(
         reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
         predictions::TypePredictions = TypePredictions(),
     )
+    with_logger(_debug_logger) do
+        for mod in union(keys(mod_exs_infos_old), keys(mod_exs_infos_new))
+            old = keys(get(mod_exs_infos_old, mod, empty_exs_infos))
+            new = keys(get(mod_exs_infos_new, mod, empty_exs_infos))
+            @debug "Diff" _group="Parsing" time=time() mod newexprs=setdiff(new, old) oldexprs=setdiff(old, new)
+        end
+    end
     for (mod, exs_infos_old) in mod_exs_infos_old
         exs_infos_new = get(mod_exs_infos_new, mod, empty_exs_infos)
         delete_missing!(exs_infos_old, exs_infos_new, reeval_list, handled_types, world, predictions)
@@ -1044,7 +1051,7 @@ function handle_method_deletion!(siginfo::SigInfo, rex::RelocatableExpr,
     mt, sig = siginfo
     ret = Base._methods_by_ftype(sig, mt, -1, world)
     isempty(ret) && return nothing
-    m = ret[end].method  # the last method returned is the least-specific that matches, and thus most likely to be type-equal
+    m = (ret[end]::Core.MethodMatch).method  # the last method returned is the least-specific that matches, and thus most likely to be type-equal
     methsig = m.sig
     if sig <: methsig && methsig <: sig
         locdefs = get(CodeTracking.method_info, MethodInfoKey(siginfo), nothing)
@@ -1929,14 +1936,15 @@ function sig_function(@nospecialize(sig))
     return F.instance
 end
 
-# Collect the set of method signatures defined by the `SigInfo`s in `exs_infos`.
+# Collect the set of method signatures defined by the `SigInfo`s in `exs_infos`, as 1-tuples,
+# for which `setindex!` does not compile once per signature type.
 function sigset(exs_infos::ExprsInfos)
-    sigs = Set{Any}()
+    sigs = Set{Tuple{Type}}()
     for (_, exinfos) in exs_infos
         exinfos === nothing && continue
         for exinfo in exinfos
             exinfo isa SigInfo || continue
-            push!(sigs, exinfo.sig)
+            push!(sigs, (exinfo.sig,))
         end
     end
     return sigs
@@ -1972,16 +1980,16 @@ function realias_orphaned_bindings!(mod_exs_infos_new::ModuleExprsInfos,
             newsigs = sigset(get(mod_exs_infos_new, mod, empty_exs_infos))
             # (b) functions that gained a method this revision, indexed by name
             added = Dict{Symbol,Any}()
-            for s in newsigs
-                s in oldsigs && continue
+            for (s,) in newsigs
+                (s,) in oldsigs && continue
                 f = sig_function(s)
                 f === nothing && continue
                 added[nameof(f)] = f
             end
             isempty(added) && continue
             # (a) functions that lost a method this revision and are now empty + module-owned
-            for s in oldsigs
-                s in newsigs && continue
+            for (s,) in oldsigs
+                (s,) in newsigs && continue
                 fdel = sig_function(s)
                 fdel === nothing && continue
                 isempty(methods(fdel)) || continue       # still has methods => not orphaned
@@ -2091,7 +2099,10 @@ function _errors(revision_errors)
         item in printed && continue
         push!(printed, item)
         pkgdata, file = item
-        (err, bt) = queue_errors[(pkgdata, file)]
+        # Removing a statement or its file during the revision also removes its error.
+        qe = get(queue_errors, item, nothing)
+        isnothing(qe) && continue
+        (err, bt) = qe
         fullpath = joinpath(basedir(pkgdata), file)
         if (err isa ReviseEvalException || err isa StaleCacheError ||
             (err isa SignatureExtractionError && captured_stacktrace(err) !== nothing))
@@ -2239,7 +2250,7 @@ end
 function RevisionEntry(pkgdata::PkgData, file::AbstractString, idx::Int, mod_exs_infos::ModuleExprsInfos, included::Bool)
     pending = Dict{Module,Vector{RelocatableExpr}}()
     for (mod, exs_infos) in mod_exs_infos
-        pending[mod] = collect(keys(exs_infos))
+        isempty(exs_infos) || (pending[mod] = collect(keys(exs_infos)))
     end
     return RevisionEntry(pkgdata, String(file), idx, mod_exs_infos, included, pending, 0, nothing, nothing)
 end
@@ -2310,21 +2321,23 @@ function schedule_include!(pass::RevisionPass, pkgdata::PkgData, file::AbstractS
     q = p + 1
     # The scan reads the sources of files outside this pass; if that fails, evaluate
     # at once and log the error (or rethrow it under `throw`).
-    try
-        rank = Dict{Int,Int}()
-        for (r, i) in enumerate(include_order(pkgdata, current))
-            rank[i] = r
+    if any(j -> pass.worklist[j].pkgdata === pkgdata, p+1:length(pass.worklist))
+        try
+            rank = Dict{Int,Int}()
+            for (r, i) in enumerate(include_order(pkgdata, current))
+                rank[i] = r
+            end
+            for j in p+1:length(pass.worklist)
+                e = pass.worklist[j]
+                e.pkgdata === pkgdata || continue
+                rank[e.idx] > rank[idx] && break
+                q = j + 1
+            end
+        catch err
+            handle_caught(err, catch_backtrace(), "IncludeOrderScanFailed"; throw = pass.throw || isa(err, InterruptException))
+            @error "scan for the include order of $(PkgId(pkgdata)) failed; evaluating $file now" exception=(err, catch_backtrace())
+            q = p + 1
         end
-        for j in p+1:length(pass.worklist)
-            e = pass.worklist[j]
-            e.pkgdata === pkgdata || continue
-            rank[e.idx] > rank[idx] && break
-            q = j + 1
-        end
-    catch err
-        handle_caught(err, catch_backtrace(), "IncludeOrderScanFailed"; throw = pass.throw || isa(err, InterruptException))
-        @error "scan for the include order of $(PkgId(pkgdata)) failed; evaluating $file now" exception=(err, catch_backtrace())
-        q = p + 1
     end
     inline = all(j -> isempty(pass.worklist[j].pending), p+1:q-1)
     insert!(pass.worklist, q, entry)
@@ -3232,7 +3245,7 @@ function revise_first(ex)
         end
     end
     # Check for queued revisions or new extensions, and if so call `revise` first before executing the expression
-    return Expr(:toplevel, :($isempty($revision_queue) && !$extensions_stale[] || $(Base.invokelatest)($revise)), ex)
+    return Expr(:toplevel, :($isempty($revision_queue) && !$extensions_stale[] || $(Base.invokelatest)($frozen, $_revise)), ex)
 end
 
 steal_repl_backend(_...) = @warn """
@@ -3299,6 +3312,37 @@ init_worker(p::Int) = init_worker(DistributedWorker(p))
 
 active_repl_backend_available() = isdefined(Base, :active_repl_backend) && Base.active_repl_backend !== nothing
 
+"""
+    add_repl_transform!(backend)
+
+Append `revise_first` to the AST transforms of the REPL backend `backend`.
+
+Access to the fields of a `REPL.REPLBackend` is compiled ahead of time. Any other backend
+type needs a field `ast_transforms`.
+
+```jldoctest; setup = :(using Revise)
+julia> using REPL
+
+julia> backend = REPL.REPLBackend();
+
+julia> Revise.add_repl_transform!(backend); last(backend.ast_transforms) === Revise.revise_first
+true
+
+julia> other = (; ast_transforms = Any[]);
+
+julia> Revise.add_repl_transform!(other); other.ast_transforms == [Revise.revise_first]
+true
+```
+"""
+function add_repl_transform!(@nospecialize(backend))
+    if backend isa REPL.REPLBackend
+        push!(backend.ast_transforms, revise_first)
+    else
+        push!(backend.ast_transforms, revise_first)
+    end
+    return nothing
+end
+
 # Wait for the REPL backend to come up, then register `revise_first` on it.
 # #719: this runs async in case Revise is loaded from startup.jl, before the
 # backend exists. issue #900: keep this a named function (not an anonymous
@@ -3310,7 +3354,7 @@ function wait_for_repl_backend()
         iter += 1
     end
     if active_repl_backend_available()
-        push!(Base.active_repl_backend.ast_transforms, revise_first)
+        add_repl_transform!(Base.active_repl_backend)
     end
     return nothing
 end
@@ -3400,7 +3444,7 @@ function __init__()
         pushfirst!(REPL.repl_ast_transforms, revise_first)
         # #664: once a REPL is started, it no longer interacts with REPL.repl_ast_transforms
         if active_repl_backend_available()
-            push!(Base.active_repl_backend.ast_transforms, revise_first)
+            add_repl_transform!(Base.active_repl_backend)
         else
             # wait for active_repl_backend to exist. Schedule the named function
             # directly (rather than `@async`, which wraps it in an anonymous

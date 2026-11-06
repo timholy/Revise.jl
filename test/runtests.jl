@@ -482,7 +482,7 @@ end
         cmpdiff(logs[9], "LineOffset"; deltainfo=(Any[Revise.SigInfo(nothing, Tuple{typeof(ReviseTest.Internal.unchanged2),Any})], LineNumberNode(20,stmpfile)=>LineNumberNode(21,stmpfile)))
         @test length(Revise.actions(rlogger)) == 6  # by default LineOffset is skipped
         @test length(Revise.actions(rlogger; line=true)) == 9
-        @test_broken length(Revise.diffs(rlogger)) == 2
+        @test length(Revise.diffs(rlogger)) == 2
         io = PipeBuffer()
         foreach(rec -> (show(io, rec); println(io)), rlogger.logs)
         str = String(take!(io))
@@ -8662,6 +8662,33 @@ do_test("startup precompilation") && @testset "startup precompilation" begin
     finally
         rm(loadfile; force=true)
         rm(tracefile; force=true)
+    end
+end
+
+do_test("first revision precompilation") && @testset "first revision precompilation" begin
+    # `revise()` reaches `_revise` through the runtime dispatch of `frozen`, so the body of a
+    # revision is in the precompile image only through its own directive.
+    julia = Base.julia_cmd().exec[1]
+    proj = dirname(Base.active_project())
+    dir = mktempdir()
+    tracked, script, tracefile = joinpath(dir, "tracked.jl"), joinpath(dir, "script.jl"), joinpath(dir, "trace.txt")
+    write(tracked, "firstrev() = 1\n")
+    write(script, """
+        using Revise
+        includet($(repr(tracked)))
+        sleep($mtimedelay)
+        write($(repr(tracked)), "firstrev() = 2\\n")
+        timedwait(() -> !isempty(Revise.revision_queue), 10.0; pollint=0.01) === :ok || error("no revision queued")
+        revise()
+        firstrev() == 2 || error("not revised")
+        """)
+    try
+        run(pipeline(`$julia --startup-file=no --project=$proj --pkgimages=yes --trace-compile=$tracefile $script`;
+                        stdin=devnull, stdout=devnull, stderr=devnull))
+        trace = isfile(tracefile) ? read(tracefile, String) : ""
+        @test !occursin("typeof(Revise._revise)", trace)
+    finally
+        rm(dir; recursive=true, force=true)
     end
 end
 

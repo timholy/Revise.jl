@@ -139,6 +139,7 @@ This part of the package is not as well documented.
 Revise.gensym_base
 Revise.minimal_evaluation!
 Revise.methods_by_execution!
+Revise.assign_this!
 Revise.ExInfo
 ```
 
@@ -160,6 +161,8 @@ Revise has a work-around for this problem.
 
 ```@docs
 Revise.throwto_repl
+Revise.throwto_backend
+Revise.add_repl_transform!
 ```
 
 ### Git integration
