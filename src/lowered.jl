@@ -1,11 +1,35 @@
 ## Analyzing lowered code
 
+"""
+    Revise.assign_this!(frame::Frame, value)
+
+Store `value` as the result of the current statement of `frame`, in place of running it.
+
+The statement of an intercepted call is either the call, whose result is its SSA value, or an
+assignment of the call to a local variable or a global, which receives `value`.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> src = Meta.lower(Main, :(let; x = identity(1); end)).args[1]; frame = Revise.JuliaInterpreter.Frame(Main, src);
+
+julia> frame.pc = findfirst(st -> Meta.isexpr(st, :(=)), frame.framecode.src.code); Revise.assign_this!(frame, 5);
+
+julia> something(frame.framedata.locals[frame.framecode.src.code[frame.pc].args[1].id])
+5
+
+julia> frame.pc = 1; Revise.assign_this!(frame, 7); frame.framedata.ssavalues[1]
+7
+```
+"""
 function assign_this!(frame::Frame, @nospecialize value)
-    frame.framedata.ssavalues[frame.pc] = value
-    stmt = pc_expr(frame)
-    if isexpr(stmt, :(=)) && isa(stmt.args[1], JuliaInterpreter.SlotNumber)
+    stmt = pc_expr(frame, frame.pc)
+    if isexpr(stmt, :(=), 2)
         JuliaInterpreter.do_assignment!(frame, stmt.args[1], value)
+    else
+        frame.framedata.ssavalues[frame.pc] = value
     end
+    return value
 end
 
 # The callee of a lowered statement may be a `GlobalRef`, or the function itself: JuliaInterpreter
@@ -138,6 +162,81 @@ else
     is_toplevel_syntax(@nospecialize(ex)) = false
 end
 
+# The functions with which lowered code reads or tests the global that a module and a name select.
+const global_accessors = Any[Core.getfield, Core.getglobal, Base.getproperty, Core.isdefined,
+                             (getglobal(Core, n) for n in (:isdefinedglobal,) if isdefined(Core, n))...]
+
+# JuliaInterpreter replaces the SSA values and slots of the code it runs by its own types.
+computed_operand(@nospecialize(x)) = isa(x, Union{Core.SSAValue,Core.SlotNumber,Core.Argument,Expr,
+                                                  JuliaInterpreter.SSAValue,JuliaInterpreter.SlotNumber})
+
+"""
+    Revise.named_access_call(stmt, code) -> Union{Nothing,Expr}
+
+Return the call in the lowered statement `stmt` of `code` if it may read or test a global whose module or name is computed while the code runs, else `nothing`.
+
+That is a call of a function in `Revise.global_accessors`, or of a callee not known before the
+code runs, with a computed module or a computed name. An SSA value that holds a global or a
+literal, as lowering makes for the module in `Main.x`, is not computed.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> code = Any[:(names_list), Expr(:call, GlobalRef(Core, :isdefined), Main, Core.SSAValue(1))];
+
+julia> Revise.named_access_call(code[2], code) === code[2]
+true
+
+julia> Revise.named_access_call(Expr(:call, GlobalRef(Core, :isdefined), Main, QuoteNode(:x)), code)
+
+julia> code = Any[GlobalRef(Main, :Base), Expr(:call, GlobalRef(Base, :getproperty), Core.SSAValue(1), QuoteNode(:x))];
+
+julia> Revise.named_access_call(code[2], code)
+
+```
+"""
+function named_access_call(@nospecialize(stmt), code::Vector{Any})
+    isexpr(stmt, :(=), 2) && (stmt = stmt.args[2])
+    isexpr(stmt, :call) && length(stmt.args) >= 3 || return nothing
+    # Lowering reads the module of `Main.x` into an SSA value, which selects no computed global.
+    function operand(x)
+        while isa(x, Core.SSAValue) || isa(x, JuliaInterpreter.SSAValue)
+            y = code[x.id]
+            isa(y, Union{GlobalRef,QuoteNode,Module}) || return x
+            x = y
+        end
+        return x
+    end
+    m, s = operand(stmt.args[2]), operand(stmt.args[3])
+    isa(s, QuoteNode) && (s = s.value)
+    computed_operand(s) || (computed_operand(m) && isa(s, Symbol)) || return nothing
+    callee = stmt.args[1]
+    while isa(callee, Core.SSAValue) || isa(callee, JuliaInterpreter.SSAValue)
+        callee = code[callee.id]
+    end
+    f = if isa(callee, GlobalRef)
+        @invokelatest(isdefinedglobal(callee.mod, callee.name)) || return stmt
+        @invokelatest getglobal(callee.mod, callee.name)
+    elseif isa(callee, QuoteNode)
+        callee.value
+    elseif computed_operand(callee)
+        return stmt
+    else
+        callee
+    end
+    return any(g -> g === f, global_accessors) ? stmt : nothing
+end
+
+# Record in `exinfo` the global that `call`, a call of `f` in `frame`, reads or tests, if its
+# module or name is computed while the code runs.
+function record_named_access!(exinfo::ExInfo, interp::Interpreter, frame::Frame, @nospecialize(f), call::Expr)
+    length(call.args) >= 3 && any(g -> g === f, global_accessors) || return nothing
+    isnothing(named_access_call(call, frame.framecode.src.code)) && return nothing
+    m, s = lookup(interp, frame, call.args[2]), lookup(interp, frame, call.args[3])
+    isa(m, Module) && isa(s, Symbol) && push!(exinfo.namedreads, (m, s))
+    return nothing
+end
+
 # The module and expression of an `eval` call to intercept: `Core.eval(mod, ex)` (as from
 # `@eval`), or `eval(ex)` with a module's own `eval`, which is a `Core.EvalInto` on Julia 1.12+.
 function eval_call_operands(interp::Interpreter, frame::Frame, @nospecialize(f), callstmt::Expr)
@@ -154,28 +253,29 @@ end
 
 is_namespace_head(head::Symbol) = head === :export || head === :import || head === :using
 
-# On Julia 1.13+, `using`/`import` statements lower to calls to these `Base` functions
-# rather than surviving as `Expr(:using)`/`Expr(:import)` statements (`export` still
-# lowers unwrapped).
-@static if isdefined(Base, :_eval_import) && isdefined(Base, :_eval_using)
-    function is_namespace_call(@nospecialize(f))
-        if isa(f, GlobalRef)
-            return f.mod === Base && (f.name === :_eval_import || f.name === :_eval_using)
-        end
-        return f === Base._eval_import || f === Base._eval_using ||
-               is_quotenode_egal(f, Base._eval_import) || is_quotenode_egal(f, Base._eval_using) ||
-               is_jl_namespace_call(f)
-    end
-    # JuliaLowering calls its own wrappers of these, and lowers `export`/`public` to a call too
-    @static if isdefined(Base, :JuliaLowering)
-        is_jl_namespace_call(@nospecialize(f)) = (JL = Base.JuliaLowering;
-            f === JL.eval_import || f === JL.eval_using || f === JL.eval_public)
-    else
-        is_jl_namespace_call(@nospecialize(f)) = false
-    end
-else
-    is_namespace_call(@nospecialize(f)) = false
+# On Julia 1.13+, `using`/`import` statements lower to calls to these functions rather than
+# surviving as `Expr(:using)`/`Expr(:import)` statements (`export` still lowers unwrapped).
+# JuliaLowering calls its own functions of the same signatures, and lowers `export`/`public`
+# to a call too.
+const eval_using_functions = Any[getglobal(m, n) for (m, n) in ((Base, :_eval_using),
+    (isdefined(Base, :JuliaLowering) ? Base.JuliaLowering : Base, :eval_using)) if isdefined(m, n)]
+const eval_import_functions = Any[getglobal(m, n) for (m, n) in ((Base, :_eval_import),
+    (isdefined(Base, :JuliaLowering) ? Base.JuliaLowering : Base, :eval_import)) if isdefined(m, n)]
+const eval_public_functions = Any[getglobal(m, n) for (m, n) in
+    ((isdefined(Base, :JuliaLowering) ? Base.JuliaLowering : Base, :eval_public),) if isdefined(m, n)]
+
+# The function that the callee `f` of a lowered call names, or `f` itself if it names none
+function callee_value(@nospecialize(f))
+    isa(f, QuoteNode) && return f.value
+    isa(f, GlobalRef) && @invokelatest(isdefinedglobal(f.mod, f.name)) && @invokelatest(isconst(f.mod, f.name)) &&
+        return @invokelatest getglobal(f.mod, f.name)
+    return f
 end
+
+is_using_call(@nospecialize(f)) = (f = callee_value(f); any(g -> g === f, eval_using_functions))
+is_namespace_call(@nospecialize(f)) =
+    (f = callee_value(f); any(g -> g === f, eval_using_functions) || any(g -> g === f, eval_import_functions) ||
+                          any(g -> g === f, eval_public_functions))
 
 function categorize_stmt(@nospecialize(stmt), code::Vector{Any})
     ismeth, haseval, isinclude, isnamespace, istoplevel = false, false, false, false, false
@@ -282,10 +382,12 @@ end
 @noinline minimal_evaluation!(@nospecialize(predicate), frame::Frame, mode::Symbol) =
     minimal_evaluation!(predicate, moduleof(frame), frame.framecode.src, mode)
 
-function minimal_evaluation!(frame::Frame, mode::Symbol; eval_namespace::Bool=mode!==:sigs)
+function minimal_evaluation!(frame::Frame, mode::Symbol; eval_namespace::Bool=mode!==:sigs, observe::Bool=false)
     minimal_evaluation!(frame, mode) do @nospecialize(stmt), code::Vector{Any}
         ismeth, haseval, isinclude, isnamespace, istoplevel = categorize_stmt(stmt, code)
         isreq = ismeth | isinclude | istoplevel | (isnamespace & eval_namespace)
+        # Run in the interpreter, the call shows which global it selects (see `observed_reads`).
+        isreq |= observe && !isnothing(named_access_call(stmt, code))
         return (isreq, haseval)
     end
 end
@@ -371,9 +473,14 @@ function methods_by_execution!(
     frame = Frame(mod, lwr.args[1]::CodeInfo; world=Base.get_world_counter())
     mode === :eval || LoweredCodeUtils.rename_framemethods!(interp, frame)
     # Determine whether we need interpreted mode
-    isrequired, evalassign = minimal_evaluation!(frame, mode; eval_namespace)
+    isrequired, evalassign = minimal_evaluation!(frame, mode; eval_namespace,
+        observe=length(exinfo.exprstack) == 1 && revise_dependents[] && dependents_supported)
     # LoweredCodeUtils.print_with_code(stdout, frame.framecode.src, isrequired)
     if !any(isrequired) && (mode === :eval || !evalassign)
+        # Running compiled, or not at all, hides which global the statement's own code selects.
+        code = frame.framecode.src.code
+        length(exinfo.exprstack) == 1 && any(st -> !isnothing(named_access_call(st, code)), code) &&
+            (exinfo.unobserved[] = true)
         # We can evaluate the entire expression in compiled mode
         if mode === :eval
             ret = try
@@ -402,7 +509,7 @@ function methods_by_execution!(
         ret = try
             _methods_by_execution!(interp, exinfo, frame, isrequired; mode, eval_namespace, kwargs...)
         catch err
-            (always_rethrow || rethrow_errors[] || isa(err, InterruptException)) && (@isdefined(active_bp_refs) && foreach(enable, active_bp_refs); rethrow(err))
+            (always_rethrow || rethrow_errors[] || isa(err, Union{InterruptException,IdleCancelled})) && (@isdefined(active_bp_refs) && foreach(enable, active_bp_refs); rethrow(err))
             loc = location_string(whereis(frame))
             sfs = []  # crafted for interaction with Base.show_backtrace
             frame = JuliaInterpreter.leaf(frame)
@@ -489,9 +596,13 @@ function _methods_by_execution!(
     new_types = mode === :sigs ? IdSet{Type}() : nothing
     pc = frame.pc
     while true
+        check_idle_cancel()
         JuliaInterpreter.is_leaf(frame) || (@warn("not a leaf"); break)
         stmt = pc_expr(frame, pc)
         if !isrequired[pc] && mode !== :eval && !(mode === :evalassign && LoweredCodeUtils.get_lhs_rhs(stmt) !== nothing)
+            # Skipping it hides which global the statement's own code selects.
+            length(exinfo.exprstack) == 1 && !isnothing(named_access_call(stmt, frame.framecode.src.code)) &&
+                (exinfo.unobserved[] = true)
             if isa(stmt, Core.ReturnNode)
                 # Follow control flow: a `return` terminates this frame. Walking past it
                 # would march into a statically-untaken branch of an `if`/`else` and try
@@ -747,8 +858,10 @@ function _methods_by_execution!(
                             end
                             newex = unwrap(newex)::Expr
                             push!(exinfo.exprstack, newex)
-                            value, _ = methods_by_execution!(interp, exinfo, newmod, newex; mode, skip_include, eval_namespace, disablebp=false)
+                            value, lwr = methods_by_execution!(interp, exinfo, newmod, newex; mode, skip_include, eval_namespace, disablebp=false)
                             pop!(exinfo.exprstack)
+                            revise_dependents[] && dependents_supported && isexpr(lwr, :thunk) &&
+                                push!(exinfo.evaluated, (newmod, newex, lwr))
                         end
                     elseif is_toplevel_syntax(evalex)
                         for st in Base.children(evalex)
@@ -807,8 +920,17 @@ function _methods_by_execution!(
                     end
                     assign_this!(frame, Base.Docs.doc(b, sig))
                     pc = next_or_nothing!(frame)
+                elseif f === Core.isdefined && length(callstmt.args) == 3 &&
+                       isa(lookup(interp, frame, callstmt.args[2]), Module)
+                    # JuliaInterpreter calls `isdefined` in Revise's frozen world, which lacks newer bindings.
+                    record_named_access!(exinfo, interp, frame, f, callstmt)
+                    m, s = lookup(interp, frame, callstmt.args[2]), lookup(interp, frame, callstmt.args[3])
+                    value = Base.invoke_in_world(frame.world, isdefined, m, s)
+                    assign_this!(frame, value)
+                    pc = next_or_nothing!(frame)
                 else
                     # A :call Expr we don't want to intercept
+                    record_named_access!(exinfo, interp, frame, f, callstmt)
                     pc = throw_if_breakpoint(step_expr!(interp, frame, stmt, true))
                 end
             else

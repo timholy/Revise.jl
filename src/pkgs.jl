@@ -246,19 +246,19 @@ function try_parse_from_cache!(pkgdata::PkgData, file::AbstractString)
 end
 
 function add_modexs!(fi::FileInfo, modexs::Vector{Tuple{Module,Expr}})
-    for (mod, rex) in modexs
+    for (seq, (mod, rex)) in enumerate(modexs)
         exs_infos = get(fi.mod_exs_infos, mod, nothing)
         if exs_infos === nothing
             fi.mod_exs_infos[mod] = exs_infos = ExprsInfos()
         end
-        pushex!(exs_infos, rex)
+        pushex!(exs_infos, rex, seq)
     end
     return fi
 end
 
 function maybe_extract_sigs!(fi::FileInfo)
     if !fi.extracted[]
-        instantiate_sigs!(fi.mod_exs_infos)
+        instantiate_sigs!(fi.mod_exs_infos; records=fi.includes)
         fi.extracted[] = true
     end
     return fi
@@ -295,7 +295,7 @@ function maybe_extract_sigs_for_meths(meths)
                 fi = fileinfo(pkgdata, file)
                 if is_not_populated(fi)
                     fi = try_parse_from_cache!(pkgdata, file)
-                    fi === nothing || instantiate_sigs!(fi.mod_exs_infos)
+                    fi === nothing || instantiate_sigs!(fi.mod_exs_infos; records=fi.includes)
                 end
             end
         end
@@ -311,7 +311,7 @@ function maybe_extract_sigs_for_types(types)
             fi = fileinfo(pkgdata, file)
             if is_not_populated(fi)
                 fi = try_parse_from_cache!(pkgdata, file)
-                fi === nothing || instantiate_sigs!(fi.mod_exs_infos)
+                fi === nothing || instantiate_sigs!(fi.mod_exs_infos; records=fi.includes)
             end
         end
     end
@@ -324,10 +324,11 @@ Register the files named by the `include` statements `includes` (as
 `(module, mapexpr, path)` tuples) found in `pkgdata`'s `file`, and start watching
 them.
 
-A registered file whose stored expressions do not describe what the session has
+A registered file whose stored expressions may not describe what the session has
 loaded — a file registered here for the first time, one whose `mapexpr` changed, or
 one whose watch was relinquished — is brought current by `revise(pkgdata, path, idx)`
-when `eval_now` is set. The default, [`Revise.revise_file_now`](@ref), diffs and
+when `eval_now` is set. So is a file included through a `mapexpr` other than `identity`,
+since the methods of `mapexpr` may have changed. The default, [`Revise.revise_file_now`](@ref), diffs and
 evaluates it immediately; `revise` schedules it instead when the call is made from
 within a revision pass. With `eval_now=false` a first-time file is recorded as
 already loaded (as when `Requires` has just evaluated it), and one that needs
@@ -363,6 +364,8 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
             if !iswatched(pkgdata, incrp)
                 revise(pkgdata, incrp, current_idx)
                 init_watching(pkgdata, (incrp,))
+            elseif eval_now && mapexpr !== identity
+                revise(pkgdata, incrp, current_idx)
             end
         elseif stale_idx != 0
             fi = pkgdata.fileinfos[stale_idx]
@@ -373,7 +376,7 @@ function maybe_add_includes_to_pkgdata!(pkgdata::PkgData, file::AbstractString, 
             # subsequent diff vacuous and leaving the session stale.)
             maybe_parse_from_cache!(pkgdata, incrp, fi)
             pkgdata.fileinfos[stale_idx] = FileInfo(fi.mod_exs_infos, mapexpr, fi.cachefile, fi.cachefilename,
-                                                    fi.cachesrcid, fi.cacheexprs, fi.extracted, fi.parsed)
+                                                    fi.cachesrcid, fi.cacheexprs, fi.extracted, fi.parsed, fi.includes)
             # Re-diff the file under the new transform so the session catches up with
             # the new effective source.
             if eval_now
@@ -445,6 +448,21 @@ function collect_includes!(incs::Vector{Tuple{String,Any}}, @nospecialize(ex))
     return incs
 end
 
+# Store `incs`, the `(module, mapexpr, path)` of the files the statement `rex` of `mod` includes,
+# in `records`. An empty `incs` is stored only where it overrides something: an earlier record,
+# or the literal `include` paths that `include_targets` would otherwise find.
+function record_includes!(records::IncludeRecords, mod::Module, rex::RelocatableExpr, incs)
+    if !isempty(incs) || haskey(records, (mod, rex)) || !isempty(collect_includes!(Tuple{String,Any}[], rex.ex))
+        records[(mod, rex)] = incs
+    end
+    return records
+end
+
+# The `(path, module)` inclusions of the `(module, mapexpr, path)` includes `incs` of a
+# statement in `file`, with paths relative to `pkgdata`.
+include_paths(pkgdata::PkgData, file::AbstractString, incs) =
+    Tuple{String,Module}[(relpath(joinpath(dirname(String(file)), inc), pkgdata), m) for (m, _, inc) in incs]
+
 # Resolve `x` as a literal module reference (a bare or dotted name) in `mod`,
 # returning `nothing` if it does not name a `Module`. Bindings resolve at the
 # latest world: the modules named postdate Revise's frozen world.
@@ -469,31 +487,57 @@ function resolve_module_literal(mod::Module, @nospecialize(x))
 end
 
 """
-    Revise.include_targets(pkgdata, file, mod_exs_infos) -> targets::Set{Tuple{String,Module}}
+    Revise.include_targets(pkgdata, file, mod_exs_infos, records=nothing) -> targets::Set{Tuple{String,Module}}
 
-Return the `(path, module)` inclusions found statically in `mod_exs_infos`.
-Paths are relative to `pkgdata`.
+Return the `(path, module)` inclusions of the statements in `mod_exs_infos`, from `file` of `pkgdata`.
 
-Only literal paths and destination-module names are recognized. An unresolved
-two-argument form is treated as `include(mapexpr, path)` in the current module.
+Paths are relative to `pkgdata`. A statement with an entry in `records`, the `includes` of the
+file's [`Revise.FileInfo`](@ref), includes the files recorded there. Otherwise only
+literal paths and destination-module names are recognized, and an unresolved two-argument form
+is treated as `include(mapexpr, path)` in the current module.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> pd = Revise.PkgData(Base.PkgId(Base.UUID(2), "TargetsDoc"), mktempdir()); fm = Revise.ModuleExprsInfos(Main);
+
+julia> dyn = Revise.RelocatableExpr(:(include(CHILD))); fm[Main][Revise.RelocatableExpr(:(include("a.jl")))] = nothing; fm[Main][dyn] = nothing;
+
+julia> collect(Revise.include_targets(pd, "src/M.jl", fm))
+1-element Vector{Tuple{String, Module}}:
+ ("src/a.jl", Main)
+
+julia> records = Revise.IncludeRecords((Main, dyn) => [(Main, identity, "b.jl")]);
+
+julia> sort!(collect(Revise.include_targets(pd, "src/M.jl", fm, records)))
+2-element Vector{Tuple{String, Module}}:
+ ("src/a.jl", Main)
+ ("src/b.jl", Main)
+```
 """
-include_targets(pkgdata::PkgData, file::AbstractString, mod_exs_infos::ModuleExprsInfos) =
-    Set{Tuple{String,Module}}(ordered_include_targets(pkgdata, file, mod_exs_infos))
+include_targets(pkgdata::PkgData, file::AbstractString, mod_exs_infos::ModuleExprsInfos, records=nothing) =
+    Set{Tuple{String,Module}}(ordered_include_targets(pkgdata, file, mod_exs_infos, records))
 
 # `include_targets` as a vector in source order (module by module).
-function ordered_include_targets(pkgdata::PkgData, file::AbstractString, mod_exs_infos::ModuleExprsInfos)
+function ordered_include_targets(pkgdata::PkgData, file::AbstractString, mod_exs_infos::ModuleExprsInfos,
+                                 records::Union{Nothing,IncludeRecords}=nothing)
     targets = Tuple{String,Module}[]
-    dir = splitdir(String(file)::String)[1]
-    incs = Tuple{String,Any}[]
-    for (mod, exs_infos) in mod_exs_infos
-        empty!(incs)
-        for rex in keys(exs_infos)
-            collect_includes!(incs, rex.ex)
-        end
-        for (inc, modarg) in incs
-            destmod = modarg === nothing ? mod : something(resolve_module_literal(mod, modarg), mod)
-            push!(targets, (relpath(joinpath(dir, inc), pkgdata), destmod))
-        end
+    for (mod, exs_infos) in mod_exs_infos, rex in keys(exs_infos)
+        stmt_include_targets!(targets, pkgdata, file, mod, rex, records)
+    end
+    return targets
+end
+
+# Append the `(path, module)` inclusions of the statement `rex` of `mod` in `file` to `targets`,
+# as `include_targets` finds them.
+function stmt_include_targets!(targets::Vector{Tuple{String,Module}}, pkgdata::PkgData, file::AbstractString,
+                               mod::Module, rex::RelocatableExpr, records::Union{Nothing,IncludeRecords})
+    rec = isnothing(records) ? nothing : get(records, (mod, rex), nothing)
+    isnothing(rec) || return append!(targets, include_paths(pkgdata, file, rec))
+    dir = dirname(String(file))
+    for (inc, modarg) in collect_includes!(Tuple{String,Any}[], rex.ex)
+        destmod = isnothing(modarg) ? mod : something(resolve_module_literal(mod, modarg), mod)
+        push!(targets, (relpath(joinpath(dir, inc), pkgdata), destmod))
     end
     return targets
 end
@@ -819,6 +863,7 @@ function watch_package(id::PkgId)
             hold_cache!(pkgdata)
         end
         pkgdatas[id] = pkgdata
+        request_analysis_ahead()
         pkgdata
     end
 end
