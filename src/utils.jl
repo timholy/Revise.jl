@@ -142,12 +142,36 @@ were met and the throw can be expected to succeed. The throw is generated from a
 task, so a `yield` will need to occur before it happens.
 """
 function throwto_repl(e::Exception)
-    if isdefined(Base, :active_repl_backend) &&
-            !isnothing(Base.active_repl_backend) &&
-            Base.active_repl_backend.backend_task.state === :runnable &&
-            isempty(Base.Workqueue) &&
-            Base.active_repl_backend.in_eval
-        @async Base.throwto(Base.active_repl_backend.backend_task, e)
+    isdefined(Base, :active_repl_backend) || return false
+    backend = Base.active_repl_backend
+    isnothing(backend) && return false
+    if backend isa REPL.REPLBackend
+        return throwto_backend(backend, e)
+    end
+    return throwto_backend(backend, e)
+end
+
+"""
+    success = throwto_backend(backend, e::Exception)
+
+Throw `e` from the task of the REPL backend `backend` if that task is evaluating user code.
+
+Return `true` if the throw has been scheduled. `backend` needs the fields `backend_task`
+and `in_eval`.
+
+```jldoctest; setup = :(using Revise)
+julia> Revise.throwto_backend((; backend_task = current_task(), in_eval = false), InterruptException())
+false
+
+julia> done = schedule(Task(() -> nothing)); wait(done);
+
+julia> Revise.throwto_backend((; backend_task = done, in_eval = true), InterruptException())
+false
+```
+"""
+function throwto_backend(backend, e::Exception)
+    if backend.backend_task.state === :runnable && isempty(Base.Workqueue) && backend.in_eval
+        @async Base.throwto(backend.backend_task, e)
         return true
     end
     return false

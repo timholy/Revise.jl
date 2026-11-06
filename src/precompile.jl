@@ -37,6 +37,9 @@ function _precompile_()
     @warnpcfail precompile(Tuple{typeof(watch_package_callback), PkgId})
 
     @warnpcfail precompile(Tuple{typeof(revise)})
+    # `frozen` reaches these bodies by a runtime dispatch, so precompiling the entry points does not compile them.
+    @warnpcfail precompile(Tuple{typeof(Core.kwcall), NamedTuple{(:throw,), Tuple{Bool}}, typeof(_revise)})
+    @warnpcfail precompile(Tuple{typeof(Core.kwcall), NamedTuple{(:force,), Tuple{Bool}}, typeof(_revise), Module})
     @warnpcfail precompile(Tuple{typeof(revise_first), Expr})
     @warnpcfail precompile(Tuple{typeof(includet), String})
     @warnpcfail precompile(Tuple{typeof(_includet), typeof(identity), Module, String})
@@ -83,6 +86,21 @@ function _precompile_()
     mfr = which(_methods_by_execution!, (Compiled, MI, Frame, Vector{Bool}))
     mbody = bodymethod(mfr)
     @warnpcfail precompile(Tuple{mbody.sig.parameters[1], Symbol, Bool, Bool, typeof(_methods_by_execution!), Compiled, MI, Frame, Vector{Bool}})
+    # Reached through dynamic dispatch: the intercepted `eval`, the forwarded keywords, `invokelatest`
+    @warnpcfail precompile(Tuple{typeof(Core.kwcall),
+                             NamedTuple{(:mode, :skip_include, :eval_namespace, :disablebp),Tuple{Symbol,Bool,Bool,Bool}},
+                             typeof(methods_by_execution!), Compiled, MI, Module, Expr})
+    @warnpcfail precompile(Tuple{typeof(Core.kwcall), NamedTuple{(:mode, :eval_namespace, :skip_include),Tuple{Symbol,Bool,Bool}},
+                             typeof(_methods_by_execution!), Compiled, MI, Frame, Vector{Bool}})
+    @warnpcfail precompile(Tuple{typeof(JuliaInterpreter.finish!), Compiled, Frame, Bool})
+    @warnpcfail precompile(Tuple{typeof(get!), Type{Vector{Tuple{LineNumberNode,Expr}}}, typeof(CodeTracking.method_info), Any})
+    @warnpcfail precompile(Tuple{typeof(isequal), QuoteNode, QuoteNode})
+    @warnpcfail precompile(Tuple{typeof(isequal), Expr, Expr})
+    for T in (DataType, UnionAll)
+        @warnpcfail precompile(Tuple{typeof(push!), Set{Tuple{Type}}, Tuple{T}})
+        @warnpcfail precompile(Tuple{typeof(in), Tuple{T}, Set{Tuple{Type}}})
+    end
+    @warnpcfail precompile(Tuple{typeof(_errors), Vector{Tuple{PkgData,String}}})
 
     @warnpcfail precompile(Tuple{typeof(get_def), Method})
     @warnpcfail precompile(Tuple{typeof(parse_pkg_files), PkgId})
@@ -92,6 +110,9 @@ function _precompile_()
     @warnpcfail precompile(Tuple{typeof(Revise.iswritable), String})
     @warnpcfail precompile(Tuple{typeof(Revise.active_repl_backend_available)})
     @warnpcfail precompile(Tuple{typeof(wait_for_repl_backend)})
+    @warnpcfail precompile(Tuple{typeof(add_repl_transform!), REPL.REPLBackend})
+    @warnpcfail precompile(Tuple{typeof(throwto_repl), InterruptException})
+    @warnpcfail precompile(Tuple{typeof(isempty), typeof(revision_queue)})
     @warnpcfail precompile(Tuple{typeof(pkg_fileinfo), PkgId})
     @warnpcfail precompile(Tuple{typeof(push!), WatchList, Pair{String,PkgId}})
     @warnpcfail precompile(Tuple{typeof(pushex!), ExprsInfos, Expr})
