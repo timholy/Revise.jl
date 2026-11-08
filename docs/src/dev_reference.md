@@ -102,11 +102,15 @@ Revise.remove_callback
 
 ```@docs
 Revise.revise_file_now
+Revise.eval_new_stmt
 Revise.hold_cache!
 Revise.cache_snapshot_is_valid
 Revise.cached_source_is_current
 Revise.include_targets
+Revise.remove_unincluded!
 Revise.maybe_add_includes_to_pkgdata!
+Revise.link_twins!
+Revise.adopt_twins!
 ```
 
 Revise pins its own method dispatch to the world age captured at initialization, so that
@@ -137,10 +141,17 @@ This part of the package is not as well documented.
 
 ```@docs
 Revise.gensym_base
+Revise.starts_with_hash
 Revise.minimal_evaluation!
 Revise.methods_by_execution!
+Revise.assign_this!
 Revise.ExInfo
 ```
+
+### Dependent statements
+
+The functions that implement [`Revise.revise_dependents`](@ref) are listed in
+[Developer reference: dependent statements](@ref).
 
 ### Modules and paths
 
@@ -160,6 +171,8 @@ Revise has a work-around for this problem.
 
 ```@docs
 Revise.throwto_repl
+Revise.throwto_backend
+Revise.add_repl_transform!
 ```
 
 ### Git integration

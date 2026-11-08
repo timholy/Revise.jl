@@ -12,10 +12,24 @@ A `RelocatableExpr` wraps an `Expr` to ensure that comparisons
 between `RelocatableExpr`s ignore line numbering information.
 This allows one to detect that two expressions are the same no matter
 where they appear in a file.
+
+`seq` is the place of the statement in the order its file runs, counting the statements of
+all modules the file defines, or 0 if unknown. Comparisons ignore it as well.
+
+`twin`, if set, is another `RelocatableExpr` known to be equal, which makes comparing the two
+cheap.
+
+The hash is computed once and kept, so `ex` must not be mutated after the first `hash`, and it
+may only be replaced by an expression equal to it.
 """
-struct RelocatableExpr
+mutable struct RelocatableExpr
     ex::Expr
+    seq::Int
+    @atomic hash::UInt   # 0 until computed
+    @atomic twin::Union{Nothing,RelocatableExpr}
+    RelocatableExpr(ex::Expr, seq::Int) = new(ex, seq, UInt(0), nothing)
 end
+RelocatableExpr(ex) = RelocatableExpr(convert(Expr, ex), 0)
 
 const ExLike = Union{Expr,RelocatableExpr}
 
@@ -27,6 +41,7 @@ Base.copy(rex::RelocatableExpr) = RelocatableExpr(copy(rex.ex))
 
 # Implement the required comparison functions. `hash` is needed for Dicts.
 function Base.:(==)(ra::RelocatableExpr, rb::RelocatableExpr)
+    (ra === rb || (@atomic :monotonic ra.twin) === rb || (@atomic :monotonic rb.twin) === ra) && return true
     a, b = ra.ex, rb.ex
     if a.head == b.head
     elseif a.head === :block
@@ -38,8 +53,14 @@ function Base.:(==)(ra::RelocatableExpr, rb::RelocatableExpr)
 end
 
 const hashrex_seed = UInt == UInt64 ? 0x7c4568b6e99c82d9 : 0xb9c82fd8
-Base.hash(x::RelocatableExpr, h::UInt) = hash(LineSkippingIterator(x.ex.args),
-                                              hash(x.ex.head, h + hashrex_seed))
+function Base.hash(x::RelocatableExpr, h::UInt)
+    c = @atomic :monotonic x.hash
+    if c == 0
+        c = hash(LineSkippingIterator(x.ex.args), hash(x.ex.head, hashrex_seed))
+        @atomic :monotonic x.hash = c
+    end
+    return hash(c, h)
+end
 
 function Base.show(io::IO, rex::RelocatableExpr)
     show(io, striplines!(copy(rex.ex)))
@@ -135,11 +156,29 @@ struct GensymPairing
 end
 GensymPairing() = GensymPairing(Dict{Symbol,Symbol}(), Dict{Symbol,Symbol}())
 
+"""
+    Revise.starts_with_hash(s::Symbol) -> Bool
+
+Return whether the name `s` starts with `#`, without allocating a `String`.
+
+Symbols are never freed, so their names can be read through a pointer.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> Revise.starts_with_hash(Symbol("#self#")), Revise.starts_with_hash(:x)
+(true, false)
+
+julia> Revise.starts_with_hash(Symbol(""))
+false
+```
+"""
+starts_with_hash(s::Symbol) = unsafe_load(Base.unsafe_convert(Ptr{UInt8}, s)) == UInt8('#')
+
 function isequal_sym(pairing::GensymPairing, a::Symbol, b::Symbol)
-    sa, sb = String(a), String(b)
-    if startswith(sa, '#') && startswith(sb, '#')
-        basea, countera = gensym_base(sa)
-        baseb, counterb = gensym_base(sb)
+    if starts_with_hash(a) && starts_with_hash(b)
+        basea, countera = gensym_base(String(a))
+        baseb, counterb = gensym_base(String(b))
         countera == counterb || return false
         countera || return a === b
         basea == baseb || return false
@@ -170,6 +209,10 @@ function isequal_lsi(pairing::GensymPairing, itera::LineSkippingIterator, iterb:
             isequal_sym(pairing, vala::Symbol, valb::Symbol) || return false
         elseif isa(vala, Number) && isa(valb, Number)
             vala === valb || return false    # issue #233
+        elseif isa(vala, GlobalRef) && isa(valb, GlobalRef)
+            vala == valb || return false
+        elseif isa(vala, Union{Expr,Symbol,GlobalRef}) || isa(valb, Union{Expr,Symbol,GlobalRef})
+            return false
         else
             isequal(vala, valb) || return false
         end
@@ -188,9 +231,8 @@ function hash_lsi(gensym_indices::Dict{Symbol,Int}, iter::LineSkippingIterator, 
         if x isa Expr
             h += hash_lsi(gensym_indices, LineSkippingIterator(x.args), hash(x.head, h + hashrex_seed))
         elseif x isa Symbol
-            xs = String(x)
-            if startswith(xs, '#')
-                base, iscounter = gensym_base(xs)
+            if starts_with_hash(x)
+                base, iscounter = gensym_base(String(x))
                 if iscounter
                     # hash the base name and the order of first occurrence;
                     # this matches `isequal_sym`'s counter-insensitive pairing

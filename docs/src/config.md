@@ -83,6 +83,164 @@ your methods and/or data. `__revise_mode__` must be a `Symbol` taking one of the
 If you're using `includet` from the REPL, you can enter `__revise_mode__ = :eval` to set
 it throughout `Main`. `__revise_mode__` can be set independently in each module.
 
+### [Reevaluating dependent statements](@id revise-dependents)
+
+By default, Revise reevaluates only the top-level statements whose text changed. An unchanged
+statement keeps the value it computed from the old code: after editing `struct S`, an unchanged
+`const K = S(1)` still holds an instance of the old `S`, and after editing `A = 1`, an unchanged
+`B = [A]` still holds `[1]`.
+
+Calling `Revise.set_revise_dependents(true)` (Julia 1.13+) makes Revise also reevaluate every
+unchanged top-level statement that reads a global binding the revision changed, or calls code
+that the revision changed, transitively and across all tracked files. A binding counts as
+changed if
+
+- a changed, removed, or reevaluated statement assigns it, also inside a method it calls, as
+  `set(x) = (global A = x)` does,
+- it is a type that the revision redefined, or
+- it is a function with a method changed in the function's module.
+
+Reads include those inside the methods a statement calls: `const C = f()` is reevaluated when
+a global that the body of `f` reads changes. Asking about a global, as
+`isdefined(@__MODULE__, :A)`, `@isdefined(A)`, or `isconst(@__MODULE__, :A)` do, reads it too,
+also in a method that gets the name as an argument, as `has(s) = isconst(@__MODULE__, s)` does
+for `has(:A)`. A statement also reads a global it assigns if it may read the old value first,
+as `A = A + 1` does. `include(mapexpr, path)`
+reads what `mapexpr` reads, and reevaluating it applies the current `mapexpr` to the file
+again. Code counts as changed when Julia would compile it
+anew, e.g. after a change of a method it calls, of a `const` it reads, or of a method added to
+a function of another module such as `Base.show(io::IO, x::T)`.
+
+Revise treats each dependent statement as if it had changed:
+
+- It runs after the statements it depends on. Relative to the statements that mutate a global
+  it reads, it keeps the order in which loading runs them, with the statements of an included
+  file at the place of the `include`, and those of a nested module between those of its parent.
+- Its module's revise mode applies, as listed above. Under `:sigs`, for example, it is not
+  reevaluated.
+- Its methods whose signature changed are deleted after it ran. After a change of `A`,
+  `f(x::A) = …` therefore leaves only the method for the new `A`.
+
+An edited statement runs once more if it reads a binding that a dependent statement assigns,
+because it ran before that statement, or if code it calls changed after it ran, as `f()` does in
+`const B = f()` once a dependent statement redefines a `const` that `f` reads. A statement runs
+at most four times in one revision. A dependent statement that throws runs again at every
+later revision, including the one `Revise.retry()` starts, until it succeeds.
+
+A statement that may mutate a global, such as `push!(a, x)`, makes Revise rebuild `a`. This
+applies to dependent statements and to edited or removed ones. Revise reevaluates the
+statements that assign `a`, and then every statement that reads it. So after `x` changes, `a`
+holds the new `x` instead of both values. Revise follows each call into the methods it reaches
+to find what they mutate: `length(a)` mutates nothing, `push!(a, x)` mutates `a`, and
+`register(:a)`, whose body runs `push!(REG, :a)`, mutates `REG`, so every statement that calls
+`register` runs again after `REG` is rebuilt. After a change of `register`, the globals that
+its old and its new body mutate are both rebuilt.
+
+A value that may share memory with a global counts as that global. `push!(get!(D, k, Int[]), x)`
+rebuilds `D`, and `push!(getglobal(M, :a), x)` rebuilds `a`, also through a method that gets
+the name as an argument or when a global holds the name. After `b = a`, `push!(b, x)` rebuilds
+both `b` and `a`. Once `b = a` becomes `b = c`, it rebuilds `a` as well, which its last run
+mutated, and the same holds when the module or the name that selects the mutated global
+changes. `a = push!(a, x)` rebuilds
+`a`, since it assigns the mutated old value, and so does `a = a + 1`, since it computes the new
+value from the old one. So does a call of `inc() = (global a += 1)`.
+
+To turn this on in every session, set the `revise_dependents` preference in the
+`LocalPreferences.toml` file of your active project:
+
+```toml
+[Revise]
+revise_dependents = true
+```
+
+This is off by default because a selected statement runs again with all its side effects.
+Keep in mind:
+
+- Statements of `Base` and the compiler are never reevaluated as dependents, even after
+  `Revise.track(Base)`, because they define the code the session itself runs on. An edited
+  statement of `Base` still runs, and the statements of your packages that depend on it are
+  reevaluated.
+- A rebuilt global holds only what tracked statements of modules with revise mode `:eval` put
+  into it.
+  - Revise therefore does not rebuild a global whose name occurs in the definition of its
+    module's `__init__` or that this `__init__` may read or mutate, that a statement of a
+    module with another revise mode assigns or mutates, or that no tracked statement assigns,
+    e.g. a global of `Base`. A mutating statement then runs again on the old value:
+    `push!(a, x)` adds a second element.
+  - Changes from untracked code are lost, e.g. entries a function added at run time to a
+    cache, or a `push!(MyPkg.a, x)` typed at the REPL.
+  - A variable or field that refers to the old object, such as `v = MyPkg.a` at the REPL,
+    still refers to the old object.
+- Some rebuilds are unnecessary, because a call counts as mutating whenever it may or may
+  not be mutating:
+  - A call that reaches code Revise cannot follow counts as mutating every argument whose
+    type can hold mutable memory, and its result as sharing memory with every argument. Such
+    code includes calls of `eval` or `include`, of unknown C functions, and of a function that
+    a global holds unless the global is `const`.
+  - A call whose argument types match more than three methods counts as code Revise cannot
+    follow. A global that is not `const` has its declared type, usually `Any`, unless it holds a
+    module: `Alias.x` reads `x` of the module that `Alias` currently holds. A variable local
+    to a top-level `let` block or loop has the types of all values assigned to it.
+  - A statement that Revise cannot analyze, e.g. one that calls a macro that no longer exists,
+    counts as mutating every global it mentions.
+  - A statement whose calls reach more code than a safety limit of 200,000 lowered statements
+    counts as reading every global, so every revision that changes a binding reevaluates it.
+    The largest statements of real packages reach about 40,000.
+  - A statement that reads or asks about a global whose name is not known, e.g. one that
+    loops over `names(M)`, counts as reading every global as well, also when output code
+    reaches such a read.
+- Some dependencies are not detected:
+  - A mutation of a global whose name is computed, as in `push!(getglobal(M, Symbol(:a, i)), x)`.
+    Only a quoted name or one that a global holds is known.
+  - A read or mutation of a global inside code that Revise cannot follow, unless the global is
+    passed as an argument.
+  - A read or mutation of a global by output code of an untracked package, or by a method of
+    a tracked package that output reaches through a printed value or a stream of unknown
+    type. Revise assumes that output functions such as `print` mutate nothing but
+    their stream and the globals that the methods of tracked packages they may reach mutate:
+    output methods such as `show` for the printed value, and the methods for the types of
+    tracked packages that the stream or the printed value holds, such as `getindex` of an
+    array type or `write` of a stream type. It also assumes that logging, locks,
+    `precompile`, and docstrings do not affect a value a statement computes.
+  - A change of code outside tracked files, e.g. a method defined at the REPL. Revise
+    analyzes the statements that call the code again, but does not reevaluate them.
+  - A change of a method of a function of `Base`, such as `show(io::IO, x::T)`, in a statement
+    of a package that requires neither the package defining the method nor one that owns a
+    type in its signature. Such a statement can reach the method only through a value it gets
+    from elsewhere, e.g. from a registry of another package.
+- The first revision analyzes every top-level statement of the revised packages, of the
+  packages that own a function or type named in the signature of a changed method, of the
+  packages that depend on any of them, and of `Main`. This can take several seconds. Later
+  revisions analyze only the statements that changed or that call code that changed. With
+  [`Revise.prepare_ahead`](@ref) (see [Preparing revisions ahead](@ref prepare-ahead)), Revise
+  does this analysis before you edit, so the first revision is usually fast as well. In an
+  interactive session started with an interactive thread (the default on Julia 1.13+), the
+  statements that call no macro of a package are analyzed in the background, shortly after
+  Revise starts tracking a package or file. The others, whose macros may change state that code
+  running at the same time uses, are analyzed while the REPL waits for input, and so are all
+  statements without an interactive thread. The background analysis skips the standard
+  libraries.
+
+## [Preparing revisions ahead](@id prepare-ahead)
+
+Revise can prepare the revisions of the tracked code while the REPL waits for your next
+command: it parses the files and extracts the method signatures they define, which a revision
+otherwise does when it first edits a file, and with `revise_dependents` it also analyzes the
+dependencies of the tracked statements. The first edit of a large file then takes milliseconds
+instead of seconds.
+
+The preparation runs code of the tracked packages, as a revision does, but between your
+commands. A command waits for the step in progress, such as parsing one file. Without a REPL,
+for example in a script, or with `JULIA_REVISE=manual`, nothing is prepared ahead. To turn the
+preparation on, set `Revise.prepare_ahead[] = true`, or the `prepare_ahead` preference to
+`true` via [Preferences.jl](https://github.com/JuliaPackaging/Preferences.jl) by adding the
+following to the `LocalPreferences.toml` file in your active project:
+
+```toml
+[Revise]
+prepare_ahead = true
+```
+
 ## Optional global configuration
 
 Revise can be configured by setting environment variables. These variables have to be
