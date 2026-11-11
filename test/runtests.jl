@@ -8154,6 +8154,41 @@ do_test("revise(mod) on a tracked submodule of Main") && @testset "revise(mod) o
     @test Base.invokelatest(mod.f_revise_mod) == 2
 end
 
+# Skipped under polling: on Julia 1.12 and 1.13, interrupting a task blocked in `poll_file` segfaults.
+do_test("Interrupted watchers") && !Revise.polling_files[] && @testset "Interrupted watchers" begin
+    # issue #1164: an `InterruptException` delivered to a watcher task must not end the watch
+    interrupt(t) = (sleep(mtimedelay); schedule(t, InterruptException(); error=true); sleep(mtimedelay))
+    dir = mktempdir()
+    file = joinpath(dir, "a.jl")
+    write(file, "f() = 1\n")
+    @lock Revise.revise_lock Revise.watched_files[dir] = Revise.WatchList()
+    t = schedule(Task(Revise.TaskThunk(Revise.revise_dir_queued, (dir,))))
+    interrupt(t)
+    @test !istaskdone(t)
+    @test @lock Revise.revise_lock haskey(Revise.watched_files, dir)
+    # The watcher still responds to events: it exits once the directory is unregistered
+    @lock Revise.revise_lock delete!(Revise.watched_files, dir)
+    write(file, "f() = 2\n")
+    @test timedwait(() -> istaskdone(t), 10) === :ok
+    @test !istaskfailed(t)
+
+    pkgdata = Revise.PkgData(Base.PkgId(nothing, "Interrupted1164"), dir)
+    @lock Revise.revise_lock begin
+        wl = Revise.watched_files[dir] = Revise.WatchList()
+        push!(wl, "a.jl" => pkgdata)
+    end
+    t = schedule(Task(Revise.TaskThunk(Revise.revise_file_queued, (pkgdata, file))))
+    interrupt(t)
+    @test !istaskdone(t)
+    @test @lock Revise.revise_lock haskey(Revise.watched_files[dir].trackedfiles, "a.jl")
+    @test @lock Revise.revise_lock !any(((pd, _),) -> pd === pkgdata, Revise.revision_queue)
+    # `pkgdata` does not list the file, so the watcher exits at the next change
+    write(file, "f() = 3\n")
+    @test timedwait(() -> istaskdone(t), 10) === :ok
+    @test !istaskfailed(t)
+    @lock Revise.revise_lock delete!(Revise.watched_files, dir)
+end
+
 do_test("misc - coverage") && !isinteractive() && @testset "misc - coverage" begin
     @test Revise.ReviseEvalException("undef", UndefVarError(:foo)).loc isa String
     @test !Revise.throwto_repl(UndefVarError(:foo))   # this causes an error in interactive
