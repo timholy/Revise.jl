@@ -8187,6 +8187,32 @@ do_test("Interrupted watchers") && !Revise.polling_files[] && @testset "Interrup
     @test timedwait(() -> istaskdone(t), 10) === :ok
     @test !istaskfailed(t)
     @lock Revise.revise_lock delete!(Revise.watched_files, dir)
+
+    mfile = joinpath(dir, "Manifest.toml")
+    write(mfile, "")
+    t = schedule(Task(Revise.TaskThunk(Revise.watch_manifest, (mfile,))))
+    interrupt(t)
+    @test !istaskdone(t)
+    # Other exceptions end the watch
+    schedule(t, ErrorException("stop watching"); error=true)
+    @test timedwait(() -> istaskdone(t), 10) === :ok
+    @test istaskfailed(t) && t.result == ErrorException("stop watching")
+end
+
+do_test("Polled directory") && @testset "Polled directory" begin
+    dir = mktempdir()
+    polling = Revise.polling_files[]
+    Revise.polling_files[] = true
+    try
+        t = @async Revise.wait_changed_dir(dir)
+        sleep(mtimedelay)
+        write(joinpath(dir, "a.jl"), "f() = 1\n")
+        # A poll does not identify which entries changed
+        @test timedwait(() -> istaskdone(t), 30) === :ok
+        @test fetch(t) === nothing
+    finally
+        Revise.polling_files[] = polling
+    end
 end
 
 do_test("misc - coverage") && !isinteractive() && @testset "misc - coverage" begin
