@@ -1569,8 +1569,8 @@ function revise_file_queued(pkgdata::PkgData, filename)
                     wait_changed(file)  # will block here until the file changes
                 end
             catch e
-                # issue #459
-                (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+                absorb_interrupt(e) || throw(e)
+                continue   # the file did not change
             end
             # Save the ctime observed after this change so it is not queued again.
             record_ctime!()

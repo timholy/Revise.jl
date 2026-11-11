@@ -663,13 +663,13 @@ end
 #
 # On polling/non-notifying filesystems we keep the existing directory poll.
 function wait_changed_dir(dirname::AbstractString)
-    if polling_files[] || nonnotifying_path(dirname)
-        wait_changed(dirname)  # unchanged poll behavior
-        return nothing
-    end
     changed = Set{String}()
     complete = true
     try
+        if polling_files[] || nonnotifying_path(dirname)
+            wait_changed(dirname)
+            return nothing
+        end
         name, _ = watch_folder(dirname)              # block for the next buffered event
         isempty(name) ? (complete = false) : push!(changed, name)
         while true                                   # drain a burst delivered in one wakeup
@@ -678,8 +678,8 @@ function wait_changed_dir(dirname::AbstractString)
             isempty(name) ? (complete = false) : push!(changed, name)
         end
     catch e
-        # EOFError: monitor torn down; let caller re-check state. issue #459: Ctrl-C.
-        e isa EOFError || (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+        # EOFError: monitor torn down; let caller re-check state.
+        e isa EOFError || absorb_interrupt(e) || throw(e)
         return nothing
     end
     return complete ? changed : nothing
@@ -893,8 +893,8 @@ function watch_manifest(mfile::String)
         try
             wait_changed(mfile)
         catch e
-            # issue #459
-            (isa(e, InterruptException) && throwto_repl(e)) || throw(e)
+            absorb_interrupt(e) || throw(e)
+            continue   # the manifest did not change
         end
         manifest_file() == mfile || continue   # process revisions only if this is the active manifest
         try

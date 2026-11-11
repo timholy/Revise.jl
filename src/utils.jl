@@ -153,6 +153,24 @@ function throwto_repl(e::Exception)
     return false
 end
 
+"""
+    absorbed = absorb_interrupt(e)
+
+Handle an exception caught by a file-watching task. Returns `true` if `e` is an
+`InterruptException`, in which case the caller should resume watching, and `false`
+otherwise.
+
+An interrupt signal is delivered to whichever task is running or was the last to
+block, so it can land on a watcher that the user never intended to stop (issues
+#459, #1164). If the REPL is evaluating code, the interrupt is forwarded there;
+otherwise it is discarded.
+"""
+function absorb_interrupt(e)
+    isa(e, InterruptException) || return false
+    throwto_repl(e)
+    return true
+end
+
 function printf_maxsize(f::Function, io::IO, args...; maxchars::Integer=500, maxlines::Integer=20)
     # This is dumb but certain to work
     iotmp = IOBuffer()
