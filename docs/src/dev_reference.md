@@ -160,6 +160,7 @@ Revise has a work-around for this problem.
 
 ```@docs
 Revise.throwto_repl
+Revise.absorb_interrupt
 ```
 
 ### Git integration
