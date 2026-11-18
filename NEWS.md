@@ -11,6 +11,21 @@ cleanups, or minor enhancements.
 [Revise 3.13]: https://github.com/timholy/Revise.jl/compare/v3.12.3...v3.13.0
 <!-- links end -->
 
+## Unreleased
+
+- **Reevaluation of dependent statements** (Julia 1.13+, opt-in): with
+  `Revise.set_revise_dependents(true)` (or the `revise_dependents` preference), a revision also
+  reevaluates the unchanged top-level statements that read a changed binding, directly or in
+  the methods they call, e.g. `const K = S(1)` after `struct S` changes. A global that a
+  statement may mutate, as in `push!(a, x)`, is rebuilt from the statements that assign it.
+  See the "Reevaluating dependent statements" section of the documentation.
+
+- **Preparing revisions ahead** (opt-in): with `Revise.prepare_ahead[] = true` (or the
+  `prepare_ahead` preference), Revise parses the tracked files and extracts their method
+  signatures while the REPL waits for input, and with `revise_dependents` also analyzes the
+  tracked statements, so the first revision of a file does not wait for this work. See the
+  "Preparing revisions ahead" section of the documentation.
+
 ## [Revise 3.18]
 
 - **New package extensions load without a restart**: an `[extensions]` entry added

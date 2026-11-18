@@ -15,6 +15,8 @@ makedocs(;
         "internals.md",
         "user_reference.md",
         "dev_reference.md",
+        "dependents_reference.md",
+        "summaries_reference.md",
     ],
 )
 

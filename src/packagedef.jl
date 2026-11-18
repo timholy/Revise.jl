@@ -296,6 +296,8 @@ include("git.jl")
 include("recipes.jl")
 include("logging.jl")
 include("callbacks.jl")
+include("summaries.jl")
+include("dependents.jl")
 
 ### Globals to keep track of state
 
@@ -464,9 +466,11 @@ const NOPACKAGE = PkgId(nothing, "")
 `pkgdatas` is the core information that tracks the relationship between source code
 and julia objects, and allows re-evaluation of code in the proper module scope.
 It is a dictionary indexed by PkgId:
-`pkgdatas[id]` returns a value of type [`Revise.PkgData`](@ref).
+`pkgdatas[id]` returns a value of type [`Revise.PkgData`](@ref). Packages are in the order
+Revise started tracking them, which for packages loaded after Revise is the order in which
+their loading completed.
 """
-const pkgdatas = Dict{PkgId,PkgData}(NOPACKAGE => PkgData(NOPACKAGE))
+const pkgdatas = OrderedDict{PkgId,PkgData}(NOPACKAGE => PkgData(NOPACKAGE, nothing))
 
 # Accessors that take `revise_lock` for the duration of a single `pkgdatas`
 # operation. Use these (rather than touching `pkgdatas` directly) anywhere that
@@ -752,6 +756,13 @@ function delete_missing!(
         reeval_list::IdSet{Union{Method,Type}}, handled_types::IdSet{Type}, world::UInt,
         predictions::TypePredictions = TypePredictions(),
     )
+    with_logger(_debug_logger) do
+        for mod in union(keys(mod_exs_infos_old), keys(mod_exs_infos_new))
+            old = keys(get(mod_exs_infos_old, mod, empty_exs_infos))
+            new = keys(get(mod_exs_infos_new, mod, empty_exs_infos))
+            @debug "Diff" _group="Parsing" time=time() mod newexprs=setdiff(new, old) oldexprs=setdiff(old, new)
+        end
+    end
     for (mod, exs_infos_old) in mod_exs_infos_old
         exs_infos_new = get(mod_exs_infos_new, mod, empty_exs_infos)
         delete_missing!(exs_infos_old, exs_infos_new, reeval_list, handled_types, world, predictions)
@@ -1044,7 +1055,7 @@ function handle_method_deletion!(siginfo::SigInfo, rex::RelocatableExpr,
     mt, sig = siginfo
     ret = Base._methods_by_ftype(sig, mt, -1, world)
     isempty(ret) && return nothing
-    m = ret[end].method  # the last method returned is the least-specific that matches, and thus most likely to be type-equal
+    m = (ret[end]::Core.MethodMatch).method  # the last method returned is the least-specific that matches, and thus most likely to be type-equal
     methsig = m.sig
     if sig <: methsig && methsig <: sig
         locdefs = get(CodeTracking.method_info, MethodInfoKey(siginfo), nothing)
@@ -1170,12 +1181,8 @@ function eval_rex(rex_new::RelocatableExpr, exs_infos_old::ExprsInfos, mod::Modu
             ex = rex_new.ex
             # ex is not present in old
             @debug titlecase(String(mode)) _group="Action" time=time() deltainfo=(mod, ex, mode)
-            # Revised signatures may depend on new namespace statements.
-            exinfos, includes, thunk = eval_with_signatures(mod, ex; mode, eval_namespace=true)  # All signatures defined by `ex`
-            if !isexpr(thunk, :thunk)
-                thunk = ex
-            end
-            replay_on_workers(mod, thunk)
+            exinfos, includes, exinfo = eval_new_stmt(mod, ex; mode)
+            record_observed!(stmt_key(mod, rex_new), exinfo)
         else
             exinfos = exs_infos_old[rex_old]
             # Update location info
@@ -1204,20 +1211,35 @@ function eval_rex(rex_new::RelocatableExpr, exs_infos_old::ExprsInfos, mod::Modu
     end
 end
 
-# These are typically bypassed in favor of expression-by-expression evaluation to
-# allow handling of new `include` statements.
-function eval_new!(exs_infos_new::ExprsInfos, exs_infos_old::ExprsInfos, mod::Module; mode::Symbol=:eval)
-    includes = Vector{Tuple{Module,Function,String}}()
-    for rex in keys(exs_infos_new)
-        exinfos, includes′ = eval_rex(rex, exs_infos_old, mod; mode)
-        if exinfos !== nothing
-            exs_infos_new[rex] = exinfos
-        end
-        if includes′ !== nothing
-            append!(includes, includes′)
-        end
-    end
-    return exs_infos_new, includes
+"""
+    exinfos, includes, exinfo = Revise.eval_new_stmt(mod::Module, ex::Expr; mode::Symbol)
+
+Evaluate the top-level statement `ex` in `mod` under the revise `mode`, and replay it on the workers.
+
+Return the signatures and types `ex` defines, the `(mod, mapexpr, path)` of each file it
+`include`s, which are not evaluated here, and the [`Revise.ExInfo`](@ref) of the run, which
+[`Revise.record_observed!`](@ref) takes.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> module EvalNewStmt end;
+
+julia> exinfos, includes = Revise.eval_new_stmt(EvalNewStmt, :(f(x) = x); mode=:eval); (length(exinfos), length(includes))
+(1, 0)
+
+julia> exinfos, includes = Revise.eval_new_stmt(EvalNewStmt, :(y = 1); mode=:eval); (length(exinfos), EvalNewStmt.y)
+(0, 1)
+
+julia> exinfos, includes = Revise.eval_new_stmt(EvalNewStmt, :(include("child.jl")); mode=:eval); last(only(includes))
+"child.jl"
+```
+"""
+function eval_new_stmt(mod::Module, ex::Expr; mode::Symbol)
+    # Revised signatures may depend on new namespace statements.
+    exinfos, includes, thunk, exinfo = eval_with_signatures(mod, ex; mode, eval_namespace=true)
+    replay_on_workers(mod, isexpr(thunk, :thunk) ? thunk : ex)
+    return exinfos, includes, exinfo
 end
 
 # A module's `__revise_mode__` binding postdates Revise's frozen world, so with
@@ -1231,56 +1253,75 @@ end
 # Avoid re-evaluating assignments accumulated in `Main`.
 default_revise_mode(pkgdata::PkgData) = PkgId(pkgdata).name == "Main" ? :evalmeth : :eval
 
-function eval_new!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos; mode::Symbol=:eval)
+# Evaluate the new statements of a file in source order. `records`, when supplied, receives the
+# `include`s of each statement, which are returned and not evaluated here.
+function eval_new!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos; mode::Symbol=:eval,
+                   records::Union{Nothing,IncludeRecords}=nothing)
     includes = Vector{Tuple{Module,Function,String}}()
-    for (mod, exs_infos_new) in mod_exs_infos_new
+    modes = IdDict{Module,Symbol}()
+    for (mod, rex) in stmts_in_source_order(mod_exs_infos_new)
         # Allow packages to override the supplied mode
-        mode = revise_mode(mod, mode)
-        exs_infos_old = get(mod_exs_infos_old, mod, empty_exs_infos)
-        _, _includes = eval_new!(exs_infos_new, exs_infos_old, mod; mode)
-        append!(includes, _includes)
+        modmode = get!(() -> revise_mode(mod, mode), modes, mod)
+        exinfos, includes′ = eval_rex(rex, get(mod_exs_infos_old, mod, empty_exs_infos), mod; mode=modmode)
+        exinfos === nothing || (mod_exs_infos_new[mod][rex] = exinfos)
+        if includes′ !== nothing
+            append!(includes, includes′)
+            records === nothing || record_includes!(records, mod, rex, includes′)
+        end
     end
     return mod_exs_infos_new, includes
 end
 
-# Eval and insert into CodeTracking data
+# Eval and insert into CodeTracking data. Also return the `ExInfo` of the run.
 function eval_with_signatures(mod::Module, ex::Expr; mode::Symbol=:eval, kwargs...)
     exinfo = ExInfo(ex)
     _, thk = methods_by_execution!(exinfo, mod, ex; mode, kwargs...)
     exinfos = Union{SigInfo,TypeInfo}[]
     append!(exinfos, exinfo.allsigs, exinfo.typeinfos)
-    return exinfos, exinfo.includes, thk
+    return exinfos, exinfo.includes, thk, exinfo
 end
 
 # `includes`, when supplied, collects the `include` statements encountered, which the
-# caller must register (they are not evaluated here).
+# caller must register (they are not evaluated here). `records`, when supplied, receives
+# them per statement.
 function instantiate_sigs!(mod_exs_infos::ModuleExprsInfos; mode::Symbol=:sigs,
                            includes::Union{Nothing,Vector{Tuple{Module,Function,String}}}=nothing,
-                           kwargs...)
+                           records::Union{Nothing,IncludeRecords}=nothing, kwargs...)
     for (mod, exs_infos) in mod_exs_infos
         for rex in keys(exs_infos)
-            is_doc_expr(rex.ex) && continue
-            try
-                exinfos, incs, _ = eval_with_signatures(mod, rex.ex; mode, kwargs...)
-                exs_infos[rex] = exinfos
-                includes === nothing || append!(includes, incs)
-            catch err
-                if (mode !== :sigs || get(kwargs, :always_rethrow, false) || rethrow_errors[] ||
-                    err isa InterruptException || err isa SignatureExtractionError)
-                    rethrow()
-                end
-                loc = if err isa ReviseEvalException && err.loc != "unknown location"
-                    err.loc
-                else
-                    lnn = firstline(rex)
-                    lnn === nothing || lnn.file === nothing || lnn.file === :none ?
-                        "unknown location" : location_string((lnn.file, lnn.line))
-                end
-                throw(SignatureExtractionError(mod, loc, err))
-            end
+            instantiate_sig!(exs_infos, mod, rex; mode, includes, records, kwargs...)
         end
     end
     return mod_exs_infos
+end
+
+# Store the signatures that the statement `rex` of `mod` defines in `exs_infos[rex]`. A docstring
+# is skipped, and an error in `:sigs` mode is thrown as a `SignatureExtractionError`.
+function instantiate_sig!(exs_infos::ExprsInfos, mod::Module, rex::RelocatableExpr; mode::Symbol=:sigs,
+                          includes::Union{Nothing,Vector{Tuple{Module,Function,String}}}=nothing,
+                          records::Union{Nothing,IncludeRecords}=nothing, kwargs...)
+    is_doc_expr(rex.ex) && return exs_infos
+    try
+        exinfos, incs, _, exinfo = eval_with_signatures(mod, rex.ex; mode, kwargs...)
+        exs_infos[rex] = exinfos
+        record_observed!(stmt_key(mod, rex), exinfo)
+        includes === nothing || append!(includes, incs)
+        records === nothing || record_includes!(records, mod, rex, incs)
+    catch err
+        if (mode !== :sigs || get(kwargs, :always_rethrow, false) || rethrow_errors[] ||
+            err isa Union{InterruptException,IdleCancelled,SignatureExtractionError})
+            rethrow()
+        end
+        loc = if err isa ReviseEvalException && err.loc != "unknown location"
+            err.loc
+        else
+            lnn = firstline(rex)
+            lnn === nothing || lnn.file === nothing || lnn.file === :none ?
+                "unknown location" : location_string((lnn.file, lnn.line))
+        end
+        throw(SignatureExtractionError(mod, loc, err))
+    end
+    return exs_infos
 end
 
 # This is intended for testing purposes, but not general use. The key problem is
@@ -1621,7 +1662,79 @@ function parse_for_revision(pkgdata::PkgData, file::AbstractString, idx::Int)
     topmod = first(keys(mod_exs_infos_old))
     fileok = file_exists(String(filep)::String)
     pr = fileok ? parse_and_maybe_eval_source(filep, topmod; mapexpr=fi.mapexpr) : ParseResult(ModuleExprsInfos(topmod), true)
+    pr.success && link_twins!(pr.modexinfos, mod_exs_infos_old)
     return pr, mod_exs_infos_old, fileok
+end
+
+"""
+    Revise.link_twins!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos) -> mod_exs_infos_new
+
+Set the `twin` of each statement of `mod_exs_infos_new` to the equal statement of the same module and file in `mod_exs_infos_old`, if there is one.
+
+Comparing a statement with its twin then needs no walk through the expressions. The file is
+the one the first line number of the statement names.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> f_old, f_new, g_new = (Revise.RelocatableExpr(Expr(:block, LineNumberNode(l), ex)) for (l, ex) in ((1, :(f() = 1)), (5, :(f() = 1)), (6, :(g() = 2))));
+
+julia> old = Revise.ModuleExprsInfos(Main => Revise.ExprsInfos(f_old => nothing));
+
+julia> new = Revise.ModuleExprsInfos(Main => Revise.ExprsInfos(f_new => nothing, g_new => nothing));
+
+julia> Revise.link_twins!(new, old); (@atomic f_new.twin) === f_old, @atomic g_new.twin
+(true, nothing)
+
+julia> f_moved = Revise.RelocatableExpr(Expr(:block, LineNumberNode(1, :moved), :(f() = 1)));
+
+julia> Revise.link_twins!(Revise.ModuleExprsInfos(Main => Revise.ExprsInfos(f_moved => nothing)), old); isnothing(@atomic f_moved.twin)
+true
+```
+"""
+function link_twins!(mod_exs_infos_new::ModuleExprsInfos, mod_exs_infos_old::ModuleExprsInfos)
+    for (mod, exs_infos_new) in mod_exs_infos_new
+        exs_infos_old = get(mod_exs_infos_old, mod, nothing)
+        isnothing(exs_infos_old) && continue
+        for rex in keys(exs_infos_new)
+            rex_old = getkey(exs_infos_old, rex, nothing)
+            # `adopt_twins!` swaps the keys, which needs equal hashes and the file of the dependency cache keys.
+            if !isnothing(rex_old) && rex_old !== rex && hash(rex_old) == hash(rex) &&
+                    stmt_key(mod, rex_old)[1] === stmt_key(mod, rex)[1]
+                @atomic :monotonic rex.twin = rex_old
+            end
+        end
+    end
+    return mod_exs_infos_new
+end
+
+"""
+    Revise.adopt_twins!(mod_exs_infos::ModuleExprsInfos) -> mod_exs_infos
+
+Replace each statement of `mod_exs_infos` that has a `twin` by the twin, which takes over the statement's expression and place in the file.
+
+Statements that did not change thus keep their identity across revisions, and so do the
+entries keyed by them.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> old, new = (Revise.RelocatableExpr(Expr(:block, LineNumberNode(l), :(f() = 1)), l) for l in (1, 3));
+
+julia> @atomic new.twin = old; mexs = Revise.ModuleExprsInfos(Main => Revise.ExprsInfos(new => nothing));
+
+julia> Revise.adopt_twins!(mexs); only(keys(mexs[Main])) === old, old.ex === new.ex, old.seq
+(true, true, 3)
+```
+"""
+function adopt_twins!(mod_exs_infos::ModuleExprsInfos)
+    for exs_infos in values(mod_exs_infos), (rex, exinfos) in exs_infos
+        twin = @atomic :monotonic rex.twin
+        isnothing(twin) && continue
+        twin.ex, twin.seq = rex.ex, rex.seq
+        exs_infos[twin] = exinfos
+    end
+    return mod_exs_infos
 end
 
 # Apply deletions for `(pkgdata, file)` from the results of `parse_for_revision`.
@@ -1668,7 +1781,10 @@ function source_view(pkgdata::PkgData, file::AbstractString, idx::Int,
     return fi.mod_exs_infos
 end
 
-# Inclusions removed by the revision, as `(pkgdata, file, idx, unwatch)` tuples.
+# Inclusions removed by the revision, as `(pkgdata, file, idx, unwatch)` tuples, and the
+# `(path, module)` inclusions that only the include records of deleted statements name.
+# Those are decided by `remove_unincluded!` once the revision evaluated its statements,
+# since a statement that replaces a computed `include` can include the same file again.
 # For files in `parsed`, use the pending parse rather than the stored `FileInfo`.
 #
 # Inclusions are identified by `(path, module)` (see `include_targets`), so a file
@@ -1676,9 +1792,9 @@ end
 # Removal is transitive: files included only by a removed inclusion are also
 # removed.
 function orphaned_includes(pkgdata::PkgData, parsed)
-    orphans = Tuple{PkgData,String,Int,Bool}[]
     current = Dict{Tuple{String,Int},ModuleExprsInfos}()
     candidates = Set{Tuple{String,Module}}()
+    recorded = Set{Tuple{String,Module}}()
     for (pd, file, idx, mod_exs_infos_new, mod_exs_infos_old, fileok) in parsed
         pd === pkgdata || continue
         # A file that is missing from disk keeps its registration pending its return
@@ -1687,16 +1803,34 @@ function orphaned_includes(pkgdata::PkgData, parsed)
         fileok || continue
         isa(mod_exs_infos_new, ModuleExprsInfos) || continue
         current[(file, idx)] = mod_exs_infos_new
-        union!(candidates, setdiff(include_targets(pkgdata, file, mod_exs_infos_old),
-                                   include_targets(pkgdata, file, mod_exs_infos_new)))
+        records = fileinfo(pkgdata, idx).includes
+        dropped = setdiff(include_targets(pkgdata, file, mod_exs_infos_old, records),
+                          include_targets(pkgdata, file, mod_exs_infos_new, records))
+        literal = include_targets(pkgdata, file, mod_exs_infos_old)
+        for target in dropped
+            push!(target in literal ? candidates : recorded, target)
+        end
+        for (mod, exs_infos_old) in mod_exs_infos_old, rex in keys(exs_infos_old)
+            haskey(get(mod_exs_infos_new, mod, empty_exs_infos), rex) || delete!(records, (mod, rex))
+        end
     end
+    return include_orphans(pkgdata, candidates, current), recorded
+end
+
+# The inclusions of `pkgdata` among `candidates` that no `include` keeps, and those only they
+# include, transitively, as `(pkgdata, file, idx, unwatch)` tuples. `current` holds pending
+# parses (see `source_view`). An `include` keeps a file if its statement is in a file that is
+# not removed (see `include_targets`).
+function include_orphans(pkgdata::PkgData, candidates::Set{Tuple{String,Module}},
+                         current::Dict{Tuple{String,Int},ModuleExprsInfos})
+    orphans = Tuple{PkgData,String,Int,Bool}[]
     isempty(candidates) && return orphans
     gone = Set{Tuple{String,Module}}()
     while !isempty(candidates)
         live = Set{Tuple{String,Module}}()
         for (i, file) in enumerate(srcfiles(pkgdata))
             (file, includemodule(pkgdata, i)) ∈ gone && continue
-            union!(live, include_targets(pkgdata, file, source_view(pkgdata, file, i, current)))
+            union!(live, include_targets(pkgdata, file, source_view(pkgdata, file, i, current), fileinfo(pkgdata, i).includes))
         end
         newly = Tuple{String,Module,Int}[]
         for target in candidates
@@ -1710,7 +1844,7 @@ function orphaned_includes(pkgdata::PkgData, parsed)
         candidates = Set{Tuple{String,Module}}()
         for (path, mod, idx) in newly
             push!(gone, (path, mod))
-            union!(candidates, include_targets(pkgdata, path, source_view(pkgdata, path, idx, current)))
+            union!(candidates, include_targets(pkgdata, path, source_view(pkgdata, path, idx, current), fileinfo(pkgdata, idx).includes))
             push!(orphans, (pkgdata, path, idx, false))
         end
     end
@@ -1725,23 +1859,98 @@ function orphaned_includes(pkgdata::PkgData, parsed)
     return orphans
 end
 
-# Return the removed inclusions for every package represented in `parsed`. Detection
-# is static and therefore conservative (see `include_targets`); if scanning a
-# package fails, keep all its files and log the error (or rethrow it under `throw`).
+# Return the removed inclusions for every package represented in `parsed`, and the
+# inclusions to decide after evaluation per package. Detection is static and therefore
+# conservative (see `include_targets`); if scanning a package fails, keep all its files and
+# log the error (or rethrow it under `throw`).
 function orphaned_includes(parsed; throw::Bool=false)
     orphans = Tuple{PkgData,String,Int,Bool}[]
+    recorded = Tuple{PkgData,Set{Tuple{String,Module}}}[]
     seen = PkgData[]
     for (pkgdata, _, _, _, _, _) in parsed
         any(pd -> pd === pkgdata, seen) && continue
         push!(seen, pkgdata)
         try
-            append!(orphans, orphaned_includes(pkgdata, parsed))
+            pkgorphans, pkgrecorded = orphaned_includes(pkgdata, parsed)
+            append!(orphans, pkgorphans)
+            isempty(pkgrecorded) || push!(recorded, (pkgdata, pkgrecorded))
         catch err
             handle_caught(err, catch_backtrace(), "OrphanScanFailed"; throw = throw || isa(err, InterruptException))
             @error "scan for removed `include`s failed for $(PkgId(pkgdata)); keeping its files tracked" exception=(err, catch_backtrace())
         end
     end
-    return orphans
+    return orphans, recorded
+end
+
+"""
+    Revise.remove_unincluded!(removed, revision_errors, pkgdata, candidates, deleted, pkgs; throw=false) -> removed
+
+Remove the `(path, module)` inclusions `candidates` of `pkgdata` that no `include` keeps, and the files only they include.
+
+A revision calls this after it evaluated its statements, since a statement that replaces a
+computed `include` can include the same file again. The methods of the removed files are
+deleted. The inclusions are appended to `removed` as `(pkgdata, path, idx, unwatch)` tuples,
+and stay registered until `Revise.deregister_orphaned_includes!(removed)`. Unless `deleted` is
+`nothing`, their statements are appended to `deleted` and the owners of their methods (see
+[`Revise.add_method_owners!`](@ref)) to `pkgs`. Failures are recorded in `revision_errors`
+and [`Revise.queue_errors`](@ref), or thrown under `throw`.
+
+# Examples
+
+```jldoctest; setup = :(using Revise)
+julia> dir = mktempdir(); src = mkpath(joinpath(dir, "UnInc", "src")); push!(LOAD_PATH, dir);
+
+julia> write(joinpath(src, "UnInc.jl"), "__precompile__(false)\\nmodule UnInc\\ninclude(\\\"a.jl\\\")\\nconst CHILD = \\\"b.jl\\\"\\ninclude(CHILD)\\nend\\n");
+
+julia> write(joinpath(src, "a.jl"), "f() = 1\\n"); write(joinpath(src, "b.jl"), "g() = 1\\n"); using UnInc; pop!(LOAD_PATH);
+
+julia> pd = Revise.pkgdatas[Base.PkgId(UnInc)]; removed = Tuple{Revise.PkgData,String,Int,Bool}[];
+
+julia> deleted = Revise.TrackedStmt[]; pkgs = Set{Base.PkgId}(); candidates = Set([("src/a.jl", UnInc), ("src/b.jl", UnInc)]);
+
+julia> Base.CoreLogging.with_logger(Base.CoreLogging.NullLogger()) do
+           Revise.remove_unincluded!(removed, Tuple{Revise.PkgData,String}[], pd, candidates, deleted, pkgs)
+       end; [basename(r[2]) for r in removed]
+1-element Vector{String}:
+ "b.jl"
+
+julia> length(deleted), [id.name for id in pkgs], isempty(methods(UnInc.g)), isempty(methods(UnInc.f))
+(1, ["UnInc"], true, false)
+```
+"""
+function remove_unincluded!(removed::Vector{Tuple{PkgData,String,Int,Bool}},
+                            revision_errors::Vector{Tuple{PkgData,String}}, pkgdata::PkgData,
+                            candidates::Set{Tuple{String,Module}},
+                            deleted::Union{Nothing,Vector{TrackedStmt}}, pkgs::Set{PkgId}; throw::Bool=false,
+                            worker_ps::AbstractVector=[])
+    orphans = include_orphans(pkgdata, candidates, Dict{Tuple{String,Int},ModuleExprsInfos}())
+    filter!(o -> !any(r -> r[1] === o[1] && r[3] == o[3], removed), orphans)
+    isempty(orphans) && return removed
+    reeval_list = IdSet{Union{Method,Type}}()
+    handled_types = IdSet{Type}()
+    world = Base.get_world_counter()
+    for (_, file, idx, unwatch) in orphans
+        try
+            if !isnothing(deleted)
+                fi = fileinfo(pkgdata, idx)
+                maybe_parse_from_cache!(pkgdata, file, fi)
+                maybe_extract_sigs!(fi)
+                stmts = TrackedStmt[(pkgdata, file, mod, rex) for (mod, exs_infos) in fi.mod_exs_infos for rex in keys(exs_infos)]
+                # Before the deletions, which can retract the bindings the statements read
+                cache_global_deps!([stmt_key(mod, rex) for (_, _, mod, rex) in stmts])
+                foreach(exs_infos -> foreach(e -> add_method_owners!(pkgs, e), values(exs_infos)), values(fi.mod_exs_infos))
+                append!(deleted, stmts)
+            end
+            delete_orphaned_include!(pkgdata, file, idx, unwatch, reeval_list, handled_types, world, TypePredictions())
+            push!(removed, (pkgdata, file, idx, unwatch))
+        catch err
+            handle_caught(err, catch_backtrace(), "DeleteOrphanFailed"; throw = throw || isa(err, InterruptException), file)
+            push!(revision_errors, (pkgdata, file))
+            queue_errors[(pkgdata, file)] = (err, catch_backtrace())
+        end
+    end
+    isempty(reeval_list) || redefine_bindings!(revision_errors, reeval_list, world, worker_ps)
+    return removed
 end
 
 # Delete definitions contributed by one inclusion and clear its stored expressions.
@@ -1805,7 +2014,8 @@ struct ReevalInfo
     ) = new(reeval, mod, exs_infos, rex, pkgdata, file)
 end
 
-function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reeval_list::IdSet{Union{Method,Type}}, world::UInt, worker_ps::AbstractVector)
+function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reeval_list::IdSet{Union{Method,Type}}, world::UInt,
+                            worker_ps::AbstractVector, reevaluated::Vector{TrackedStmt} = TrackedStmt[])
     reeval_infos = ReevalInfo[]
     # Names of the types in `reeval_list`, all of which are bound at `world`. A `TypeInfo`
     # outside this set cannot match; skipping it avoids reading, at `world`, a binding
@@ -1859,9 +2069,12 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
         with_logger(_debug_logger) do
             @debug "ReevalType" _group="Action" time=time() deltainfo=(reeval,mod,rex)
             try
-                newexinfos, _, thunk = eval_with_signatures(mod, rex.ex; mode=:eval)
+                newexinfos, _, thunk, exinfo = eval_with_signatures(mod, rex.ex; mode=:eval)
                 exs_infos[rex] = newexinfos
                 replay_on_workers(mod, isexpr(thunk, :thunk) ? thunk : rex.ex)
+                record_observed!(stmt_key(mod, rex), exinfo)
+                push!(reevaluated, (pkgdata, file, mod, rex))
+                record_run!(file, mod, rex)
             catch err
                 # Re-evaluation failed, likely due to type incompatibility
                 # Clear exs_infos cache for this `rex` so that we will retry evaluation when methods become compatible
@@ -1892,17 +2105,20 @@ function redefine_bindings!(revision_errors::Vector{Tuple{PkgData,String}}, reev
             end
         end
     end
-    evaluated_rexes = Set{Tuple{Module,RelocatableExpr}}()
+    evaluated_rexes = Set{Tuple{String,Module,RelocatableExpr}}()
     for (; reeval, mod, exs_infos, rex, pkgdata, file) in reeval_infos
         reeval isa Method || continue
-        (mod, rex) in evaluated_rexes && continue
-        push!(evaluated_rexes, (mod, rex))
+        (file, mod, rex) in evaluated_rexes && continue
+        push!(evaluated_rexes, (file, mod, rex))
         with_logger(_debug_logger) do
             @debug "ReevalMethod" _group="Action" time=time() deltainfo=(reeval, reeval.module, rex)
             try
-                newexinfos, _, thunk = eval_with_signatures(mod, rex.ex; mode=:eval)
+                newexinfos, _, thunk, exinfo = eval_with_signatures(mod, rex.ex; mode=:eval)
                 exs_infos[rex] = newexinfos
                 replay_on_workers(mod, isexpr(thunk, :thunk) ? thunk : rex.ex)
+                record_observed!(stmt_key(mod, rex), exinfo)
+                push!(reevaluated, (pkgdata, file, mod, rex))
+                record_run!(file, mod, rex)
             catch err
                 # Re-evaluation failed, likely due to type incompatibility
                 # Clear exs_infos cache for this `rex` so that we will retry evaluation when methods become compatible
@@ -1929,14 +2145,15 @@ function sig_function(@nospecialize(sig))
     return F.instance
 end
 
-# Collect the set of method signatures defined by the `SigInfo`s in `exs_infos`.
+# Collect the set of method signatures defined by the `SigInfo`s in `exs_infos`, as 1-tuples,
+# for which `setindex!` does not compile once per signature type.
 function sigset(exs_infos::ExprsInfos)
-    sigs = Set{Any}()
+    sigs = Set{Tuple{Type}}()
     for (_, exinfos) in exs_infos
         exinfos === nothing && continue
         for exinfo in exinfos
             exinfo isa SigInfo || continue
-            push!(sigs, exinfo.sig)
+            push!(sigs, (exinfo.sig,))
         end
     end
     return sigs
@@ -1972,16 +2189,16 @@ function realias_orphaned_bindings!(mod_exs_infos_new::ModuleExprsInfos,
             newsigs = sigset(get(mod_exs_infos_new, mod, empty_exs_infos))
             # (b) functions that gained a method this revision, indexed by name
             added = Dict{Symbol,Any}()
-            for s in newsigs
-                s in oldsigs && continue
+            for (s,) in newsigs
+                (s,) in oldsigs && continue
                 f = sig_function(s)
                 f === nothing && continue
                 added[nameof(f)] = f
             end
             isempty(added) && continue
             # (a) functions that lost a method this revision and are now empty + module-owned
-            for s in oldsigs
-                s in newsigs && continue
+            for (s,) in oldsigs
+                (s,) in newsigs && continue
                 fdel = sig_function(s)
                 fdel === nothing && continue
                 isempty(methods(fdel)) || continue       # still has methods => not orphaned
@@ -2067,10 +2284,10 @@ function revise_file_now(pkgdata::PkgData, file, idx::Int)
     world = Base.get_world_counter()
     mod_exs_infos_new, mod_exs_infos_old = handle_deletions(pkgdata, file, idx, reeval_list, handled_types, world)
     if mod_exs_infos_new != nothing
-        _, includes = eval_new!(mod_exs_infos_new, mod_exs_infos_old)
-        realias_orphaned_bindings!(mod_exs_infos_new, mod_exs_infos_old)   # issue #239
         fi = fileinfo(pkgdata, idx)
-        pkgdata.fileinfos[idx] = FileInfo(mod_exs_infos_new, fi)
+        _, includes = eval_new!(mod_exs_infos_new, mod_exs_infos_old; records=fi.includes)
+        realias_orphaned_bindings!(mod_exs_infos_new, mod_exs_infos_old)   # issue #239
+        pkgdata.fileinfos[idx] = FileInfo(adopt_twins!(mod_exs_infos_new), fi)
         maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true)
     end
     nothing
@@ -2091,7 +2308,10 @@ function _errors(revision_errors)
         item in printed && continue
         push!(printed, item)
         pkgdata, file = item
-        (err, bt) = queue_errors[(pkgdata, file)]
+        # Removing a statement or its file during the revision also removes its error.
+        qe = get(queue_errors, item, nothing)
+        isnothing(qe) && continue
+        (err, bt) = qe
         fullpath = joinpath(basedir(pkgdata), file)
         if (err isa ReviseEvalException || err isa StaleCacheError ||
             (err isa SignatureExtractionError && captured_stacktrace(err) !== nothing))
@@ -2239,13 +2459,14 @@ end
 function RevisionEntry(pkgdata::PkgData, file::AbstractString, idx::Int, mod_exs_infos::ModuleExprsInfos, included::Bool)
     pending = Dict{Module,Vector{RelocatableExpr}}()
     for (mod, exs_infos) in mod_exs_infos
-        pending[mod] = collect(keys(exs_infos))
+        isempty(exs_infos) || (pending[mod] = collect(keys(exs_infos)))
     end
     return RevisionEntry(pkgdata, String(file), idx, mod_exs_infos, included, pending, 0, nothing, nothing)
 end
 
 # The evaluation stage of `_revise`: the files to evaluate, in order, and the
-# state the deletion stage built.
+# state the deletion stage built. `evaluated` collects the statements evaluated
+# because they are new or changed, and those `redefine_bindings!` reevaluates.
 mutable struct RevisionPass
     const worklist::Vector{RevisionEntry}
     const revision_errors::Vector{Tuple{PkgData,String}}
@@ -2254,11 +2475,13 @@ mutable struct RevisionPass
     const world::UInt
     const predictions::TypePredictions
     const throw::Bool
+    const evaluated::Vector{TrackedStmt}
     round::Int
     interrupt::Bool
 end
 RevisionPass(revision_errors, reeval_list, handled_types, world, predictions, throw) =
-    RevisionPass(RevisionEntry[], revision_errors, reeval_list, handled_types, world, predictions, throw, 0, false)
+    RevisionPass(RevisionEntry[], revision_errors, reeval_list, handled_types, world, predictions, throw,
+                 TrackedStmt[], 0, false)
 
 # The files of `pkgdata` in `include` order, as indices into `pkgdata.fileinfos`, found
 # statically from the current sources (`current` holds the pending parses of files in
@@ -2280,7 +2503,7 @@ function include_order!(order::Vector{Int}, visited::Set{Int}, pkgdata::PkgData,
     push!(visited, idx)
     push!(order, idx)
     file = srcfiles(pkgdata)[idx]
-    for (path, mod) in ordered_include_targets(pkgdata, file, source_view(pkgdata, file, idx, current))
+    for (path, mod) in ordered_include_targets(pkgdata, file, source_view(pkgdata, file, idx, current), fileinfo(pkgdata, idx).includes)
         for j in fileindices(pkgdata, path)
             includemodule(pkgdata, j) === mod && include_order!(order, visited, pkgdata, current, j)
         end
@@ -2310,21 +2533,23 @@ function schedule_include!(pass::RevisionPass, pkgdata::PkgData, file::AbstractS
     q = p + 1
     # The scan reads the sources of files outside this pass; if that fails, evaluate
     # at once and log the error (or rethrow it under `throw`).
-    try
-        rank = Dict{Int,Int}()
-        for (r, i) in enumerate(include_order(pkgdata, current))
-            rank[i] = r
+    if any(j -> pass.worklist[j].pkgdata === pkgdata, p+1:length(pass.worklist))
+        try
+            rank = Dict{Int,Int}()
+            for (r, i) in enumerate(include_order(pkgdata, current))
+                rank[i] = r
+            end
+            for j in p+1:length(pass.worklist)
+                e = pass.worklist[j]
+                e.pkgdata === pkgdata || continue
+                rank[e.idx] > rank[idx] && break
+                q = j + 1
+            end
+        catch err
+            handle_caught(err, catch_backtrace(), "IncludeOrderScanFailed"; throw = pass.throw || isa(err, InterruptException))
+            @error "scan for the include order of $(PkgId(pkgdata)) failed; evaluating $file now" exception=(err, catch_backtrace())
+            q = p + 1
         end
-        for j in p+1:length(pass.worklist)
-            e = pass.worklist[j]
-            e.pkgdata === pkgdata || continue
-            rank[e.idx] > rank[idx] && break
-            q = j + 1
-        end
-    catch err
-        handle_caught(err, catch_backtrace(), "IncludeOrderScanFailed"; throw = pass.throw || isa(err, InterruptException))
-        @error "scan for the include order of $(PkgId(pkgdata)) failed; evaluating $file now" exception=(err, catch_backtrace())
-        q = p + 1
     end
     inline = all(j -> isempty(pass.worklist[j].pending), p+1:q-1)
     insert!(pass.worklist, q, entry)
@@ -2332,52 +2557,61 @@ function schedule_include!(pass::RevisionPass, pkgdata::PkgData, file::AbstractS
     return nothing
 end
 
-# Evaluate the pending expressions of one file, in source order within each module,
-# stopping at the first failure in a module (its later expressions may depend on the
-# failed one) but going on to the file's other modules. Repeats while a module
-# succeeds, since modules of one file can depend on one another in either order.
-# Returns whether any expression succeeded. `p` is the entry's position in the
-# worklist, after which the files it newly `include`s are scheduled.
+# Evaluate the pending expressions of one file in source order. After a failure, the later
+# expressions of the same module are skipped (they may depend on the failed one), but those of
+# the file's other modules run. Repeats while an expression succeeds, since modules of one file
+# can depend on one another in either order. Returns whether any expression succeeded. `p` is
+# the entry's position in the worklist, after which the files it newly `include`s are scheduled.
 function evaluate_entry!(pass::RevisionPass, entry::RevisionEntry, p::Int)
     (; pkgdata, file, idx, included, pending) = entry
     mod_exs_infos_new = entry.mod_exs_infos
     defaultmode = default_revise_mode(pkgdata)
     fi = fileinfo(pkgdata, idx)
     entry.round = pass.round
+    order = stmts_in_source_order(mod_exs_infos_new)
     progress = false
     changed = true
     while changed
         changed = false
-        for (mod, exs_infos_new) in mod_exs_infos_new
+        failed = IdSet{Module}()
+        modes = IdDict{Module,Symbol}()
+        for (mod, rex) in order
+            mod in failed && continue
             rexes = get(pending, mod, nothing)
-            rexes === nothing && continue
+            (rexes === nothing || first(rexes) !== rex) && continue
             try
                 # Allow packages to override the supplied mode
-                mode = included ? :eval : revise_mode(mod, defaultmode)
-                mode ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", mode)
-                exs_infos_old = get(fi.mod_exs_infos, mod, empty_exs_infos)
-                while !isempty(rexes)
-                    rex = first(rexes)
-                    exinfos, includes = eval_rex(rex, exs_infos_old, mod; mode)
-                    if exinfos !== nothing
-                        exs_infos_new[rex] = exinfos
-                    end
-                    if includes !== nothing
-                        maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true,
-                            revise=(pd, incrp, i) -> schedule_include!(pass, pd, incrp, i, p))
-                    end
-                    popfirst!(rexes)
-                    progress = true
+                mode = get!(modes, mod) do
+                    m = included ? :eval : revise_mode(mod, defaultmode)
+                    m ∈ (:sigs, :eval, :evalmeth, :evalassign) || error("unsupported mode ", m)
+                    m
                 end
-                delete!(pending, mod)
-                changed = true
+                exs_infos_old = get(fi.mod_exs_infos, mod, empty_exs_infos)
+                exinfos, includes = eval_rex(rex, exs_infos_old, mod; mode)
+                if !haskey(exs_infos_old, rex)
+                    push!(pass.evaluated, (pkgdata, file, mod, rex))
+                    record_run!(file, mod, rex)
+                end
+                if exinfos !== nothing
+                    mod_exs_infos_new[mod][rex] = exinfos
+                end
+                if includes !== nothing
+                    record_includes!(fi.includes, mod, rex, includes)
+                    maybe_add_includes_to_pkgdata!(pkgdata, file, includes; eval_now=true,
+                        revise=(pd, incrp, i) -> schedule_include!(pass, pd, incrp, i, p))
+                end
+                popfirst!(rexes)
+                isempty(rexes) && delete!(pending, mod)
+                progress = changed = true
             catch e
+                push!(failed, mod)
                 # Retried in later rounds; see `evaluate_worklist!`.
                 entry.err, entry.bt = e, catch_backtrace()
                 log_caught(e, entry.bt, "EvalFailed"; mod, file)
                 pass.interrupt |= isa(e, InterruptException)
             end
         end
+        changed &= !isempty(failed)
     end
     return progress
 end
@@ -2411,7 +2645,7 @@ function evaluate_worklist!(pass::RevisionPass)
         mod_exs_infos_new = entry.mod_exs_infos
         fi = fileinfo(pkgdata, idx)
         if isempty(pending) || isa(err, LoweringException)   # fix #877
-            pkgdata.fileinfos[idx] = FileInfo(mod_exs_infos_new, fi)
+            pkgdata.fileinfos[idx] = FileInfo(adopt_twins!(mod_exs_infos_new), fi)
         end
         if isempty(pending)
             realias_orphaned_bindings!(mod_exs_infos_new, fi.mod_exs_infos)  # issue #239
@@ -2435,8 +2669,12 @@ end
 `eval` any changes in the revision queue. See [`Revise.revision_queue`](@ref).
 If `throw` is `true`, throw any errors that occur during revision or callback;
 otherwise these are only logged.
+
+Called while the REPL waits for input, as an editor does before running code, this also
+stops the preparation of revisions (see [`Revise.prepare_ahead`](@ref)) until the next REPL
+command.
 """
-revise(; throw::Bool=false) = frozen(_revise; throw)
+revise(; throw::Bool=false) = (suspend_idle_work(); frozen(_revise; throw))
 
 function _revise(; throw::Bool=false)
     active[] || return nothing
@@ -2531,11 +2769,55 @@ function _revise(; throw::Bool=false)
         end
 
         # Do not evaluate files whose inclusions are being removed.
-        orphans = orphaned_includes(parsed; throw)
+        orphans, recorded_orphans = orphaned_includes(parsed; throw)
         if !isempty(orphans)
             filter!(parsed) do entry
                 pkgdata, file, idx = entry[1], entry[2], entry[3]
                 !any(o -> o[1] === pkgdata && o[2] == file && o[3] == idx, orphans)
+            end
+        end
+
+        deleted = TrackedStmt[]
+        dependent_pkgs = Set{PkgId}()
+        dependents_on = dependents_active()
+        if dependents_on
+            empty!(run_worlds)
+            empty!(former_reads)
+            added = TrackedStmt[]
+            for (pkgdata, file, _, mod_exs_infos_new, mod_exs_infos_old, _) in parsed
+                mod_exs_infos_new isa ModuleExprsInfos || continue
+                for (mod, exs_infos_old) in mod_exs_infos_old
+                    exs_infos_new = get(mod_exs_infos_new, mod, empty_exs_infos)
+                    for rex in keys(exs_infos_old)
+                        haskey(exs_infos_new, rex) || push!(deleted, (pkgdata, file, mod, rex))
+                    end
+                end
+                for (mod, exs_infos_new) in mod_exs_infos_new
+                    exs_infos_old = get(mod_exs_infos_old, mod, empty_exs_infos)
+                    for rex in keys(exs_infos_new)
+                        haskey(exs_infos_old, rex) || push!(added, (pkgdata, file, mod, rex))
+                    end
+                end
+            end
+            # Before the deletions, which can retract the bindings the signatures read, and
+            # before any code changes
+            try
+                for (pkgdata, file, idx, _) in orphans
+                    fi = fileinfo(pkgdata, idx)
+                    try
+                        maybe_parse_from_cache!(pkgdata, file, fi)
+                    catch err
+                        isa(err, StaleCacheError) || rethrow()
+                        continue   # `delete_orphaned_include!` reports it
+                    end
+                    for (mod, exs_infos) in fi.mod_exs_infos, rex in keys(exs_infos)
+                        push!(deleted, (pkgdata, file, mod, rex))
+                    end
+                end
+                dependent_pkgs = prepare_dependents!(added, deleted)
+            catch err
+                handle_caught(err, catch_backtrace(), "PrepareDependentsFailed"; throw)
+                interrupt |= isa(err, InterruptException)
             end
         end
 
@@ -2592,6 +2874,15 @@ function _revise(; throw::Bool=false)
         end
         evaluate_worklist!(pass)
         interrupt |= pass.interrupt
+        for (pkgdata, candidates) in recorded_orphans
+            try
+                remove_unincluded!(deleted_orphans, revision_errors, pkgdata, candidates,
+                                   dependents_on ? deleted : nothing, dependent_pkgs; throw, worker_ps)
+            catch err
+                handle_caught(err, catch_backtrace(), "OrphanScanFailed"; throw)
+                interrupt |= isa(err, InterruptException)
+            end
+        end
 
         # Evaluation above relies on stable `pkgdata.fileinfos` indices.
         isempty(deleted_orphans) || deregister_orphaned_includes!(deleted_orphans)
@@ -2620,7 +2911,17 @@ function _revise(; throw::Bool=false)
             end
         end
         # `reeval_list` also includes surviving duplicate definitions (issue #1105).
-        isempty(reeval_list) || redefine_bindings!(revision_errors, reeval_list, world, worker_ps)
+        isempty(reeval_list) || redefine_bindings!(revision_errors, reeval_list, world, worker_ps, pass.evaluated)
+        if dependents_on
+            try
+                reeval_dependent_statements!(revision_errors, pass.evaluated, deleted, world; throw, pkgs=dependent_pkgs)
+            catch err
+                handle_caught(err, catch_backtrace(), "ReevalDependentsFailed"; throw)
+                interrupt |= isa(err, InterruptException)
+            end
+        end
+        # Files the revision newly included, and statements whose dependencies it replaced
+        request_analysis_ahead()
 
         # Error handling
         if interrupt
@@ -2799,6 +3100,7 @@ function _track(mod::Module, file::AbstractString; mode=:sigs, mapexpr::Function
             init_watching(pkgdata, (String(file)::String,))
             pkgdatas[id] = pkgdata
         end
+        request_analysis_ahead()
     end
     # issue #783: in `:includet` mode, return the value of the last evaluated expression
     return isdefined(pr, :ret) ? pr.ret : nothing
@@ -3201,6 +3503,8 @@ end
 # This allows `revise_first` to be compiled without compiling `revise` itself, and greatly
 # reduces the overhead of using Revise.
 function revise_first(ex)
+    pause_idle_work()
+    idle_suspended[] = false
     # Special-case `exit()` (issue #562)
     if isa(ex, Expr)
         exu = unwrap(ex)
@@ -3232,7 +3536,7 @@ function revise_first(ex)
         end
     end
     # Check for queued revisions or new extensions, and if so call `revise` first before executing the expression
-    return Expr(:toplevel, :($isempty($revision_queue) && !$extensions_stale[] || $(Base.invokelatest)($revise)), ex)
+    return Expr(:toplevel, :($isempty($revision_queue) && !$extensions_stale[] || $(Base.invokelatest)($frozen, $_revise)), ex)
 end
 
 steal_repl_backend(_...) = @warn """
@@ -3299,6 +3603,37 @@ init_worker(p::Int) = init_worker(DistributedWorker(p))
 
 active_repl_backend_available() = isdefined(Base, :active_repl_backend) && Base.active_repl_backend !== nothing
 
+"""
+    add_repl_transform!(backend)
+
+Append `revise_first` to the AST transforms of the REPL backend `backend`.
+
+Access to the fields of a `REPL.REPLBackend` is compiled ahead of time. Any other backend
+type needs a field `ast_transforms`.
+
+```jldoctest; setup = :(using Revise)
+julia> using REPL
+
+julia> backend = REPL.REPLBackend();
+
+julia> Revise.add_repl_transform!(backend); last(backend.ast_transforms) === Revise.revise_first
+true
+
+julia> other = (; ast_transforms = Any[]);
+
+julia> Revise.add_repl_transform!(other); other.ast_transforms == [Revise.revise_first]
+true
+```
+"""
+function add_repl_transform!(@nospecialize(backend))
+    if backend isa REPL.REPLBackend
+        push!(backend.ast_transforms, revise_first)
+    else
+        push!(backend.ast_transforms, revise_first)
+    end
+    return nothing
+end
+
 # Wait for the REPL backend to come up, then register `revise_first` on it.
 # #719: this runs async in case Revise is loaded from startup.jl, before the
 # backend exists. issue #900: keep this a named function (not an anonymous
@@ -3310,7 +3645,7 @@ function wait_for_repl_backend()
         iter += 1
     end
     if active_repl_backend_available()
-        push!(Base.active_repl_backend.ast_transforms, revise_first)
+        add_repl_transform!(Base.active_repl_backend)
     end
     return nothing
 end
@@ -3360,6 +3695,8 @@ function __init__()
         push!(silence_pkgs, pkg)
     end
     __bpart__[] = Base.VERSION >= v"1.12.0-DEV.2047" && Preferences.@load_preference("revise_structs", true)
+    revise_dependents[] = Preferences.@load_preference("revise_dependents", false)
+    prepare_ahead[] = Preferences.@load_preference("prepare_ahead", false)
     polling = get(ENV, "JULIA_REVISE_POLL", "0")
     if polling == "1"
         polling_files[] = watching_files[] = true
@@ -3400,7 +3737,7 @@ function __init__()
         pushfirst!(REPL.repl_ast_transforms, revise_first)
         # #664: once a REPL is started, it no longer interacts with REPL.repl_ast_transforms
         if active_repl_backend_available()
-            push!(Base.active_repl_backend.ast_transforms, revise_first)
+            add_repl_transform!(Base.active_repl_backend)
         else
             # wait for active_repl_backend to exist. Schedule the named function
             # directly (rather than `@async`, which wraps it in an anonymous

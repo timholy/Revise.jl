@@ -14,6 +14,11 @@ A package compiled into a system image is already loaded at startup, so Revise's
 usual package callback never fires and any source edits made since the image was
 built go unnoticed. Calling `Revise.track` on such a package starts watching it and
 applies any pending edits.
+
+Revise records every package loaded after it, but watches only those whose files are
+writable. After making the files of such a package writable, e.g. of a standard library,
+call `Revise.track` on it to start watching it and to apply the edits made since it was
+precompiled.
 """
 track(mod::Module; kwargs...) = frozen(_track, mod; kwargs...)
 
@@ -45,10 +50,19 @@ function inpath(path::AbstractString, dirs::Vector{String})
 end
 
 function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
-    haspkgdata(id) && return nothing  # already tracked
     isbase = modname === :Base
     isstdlib = !isbase && Base.is_stdlib(id)
-    if isbase || isstdlib
+    pkgdata = getpkgdata(id)
+    if pkgdata !== nothing
+        is_watched(pkgdata) && return nothing  # already tracked
+        # Recorded when it was loaded, but its files were read-only then
+        if !has_writable_paths(pkgdata)
+            @warn "Revise cannot watch $modname, its files are not writable"
+            return nothing
+        end
+        init_watching(pkgdata, srcfiles(pkgdata))
+        request_analysis_ahead()
+    elseif isbase || isstdlib
         # Test whether we know where to find the files
         if isbase
             srcdir = fixpath(joinpath(juliadir, "base"))
@@ -111,6 +125,7 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         init_watching(pkgdata, srcfiles(pkgdata))
         # Save the result (unnecessary if already in pkgdatas, but doesn't hurt either)
         @lock revise_lock pkgdatas[id] = pkgdata
+        return nothing
     elseif modname === :Compiler
         compilerdir = joinpath(juliadir, "Compiler", "src")
         compilerdir_pre_112 = joinpath(juliadir, "base", "compiler")
@@ -122,15 +137,13 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         # Core.Compiler's files are not in `juliaf2m`
         track_subdir_from_git!(pkgdata, compilerdir; modified_files=modified_files, default_mod=Core.Compiler)
         # insertion into pkgdatas is done by track_subdir_from_git!
+        return nothing
     else
         # issue #685: a package compiled into a system image (e.g. with
         # PackageCompiler.jl) is already loaded when the session starts, so the
         # `using`/`import` package callback that normally sets up watching never
         # fired, and Julia never checked whether the on-disk source is newer than
-        # the baked-in code. Set up watching now and queue any source file modified
-        # since the package was precompiled. We use the precompile cache file's
-        # mtime as the reference point; for a sysimage package the cache file
-        # remains in the depot after the build.
+        # the baked-in code. Set up watching now.
         origin = get(Base.pkgorigins, id, nothing)
         cachepath = origin === nothing ? nothing : origin.cachepath
         if cachepath === nothing || isempty(cachepath)
@@ -138,13 +151,18 @@ function _track(id::PkgId, modname::Symbol; modified_files=revision_queue)
         end
         pkgdata = watch_package(id)
         pkgdata === nothing && return nothing
-        reftime = mtime(cachepath)
-        @lock revise_lock begin
-            for rpath in srcfiles(pkgdata)
-                fullpath = joinpath(basedir(pkgdata), rpath)
-                if mtime(fullpath) > reftime
-                    push!(modified_files, (pkgdata, rpath))
-                end
+    end
+    # Queue the source files modified since the package was precompiled. For a sysimage
+    # package the precompile cache file remains in the depot after the build.
+    origin = get(Base.pkgorigins, id, nothing)
+    cachepath = isnothing(origin) ? nothing : origin.cachepath
+    (isnothing(cachepath) || isempty(cachepath)) && return nothing
+    reftime = mtime(cachepath)
+    @lock revise_lock begin
+        for rpath in srcfiles(pkgdata)
+            fullpath = joinpath(basedir(pkgdata), rpath)
+            if mtime(fullpath) > reftime
+                push!(modified_files, (pkgdata, rpath))
             end
         end
     end
@@ -238,7 +256,7 @@ function track_subdir_from_git!(pkgdata::PkgData, subdir::AbstractString; commit
             if !parse_and_maybe_eval_source!(fi.mod_exs_infos, src, file, fmod).success
                 @warn "failed to parse Git source text for $file"
             else
-                instantiate_sigs!(fi.mod_exs_infos)
+                instantiate_sigs!(fi.mod_exs_infos; records=fi.includes)
             end
             # Re-tracking a file that is already registered replaces its `FileInfo`;
             # a duplicate entry would revise the file twice per change.

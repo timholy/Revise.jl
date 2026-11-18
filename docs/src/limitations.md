@@ -14,7 +14,7 @@ Note that when a macro changes, you have to revise all of the modules that *use*
 
 #### [Code whose existence depends on data](@id data)
 
-Revise does not track toplevel dependencies on "data." For example, if your source code
+Revise does not track toplevel dependencies on "data" by default. For example, if your source code
 looks like
 
 ```julia
@@ -42,13 +42,14 @@ end
 In this case, changing `true` to `false` will redefine `f`, but only because
 it's part of the same expression and Revise will re-evaluate the expression.
 
-Revise maintainers have no intention of ever "fixing" this limitation, as it would
-require adding enormous bloat to every session for very little actual benefit.
+Revise does not track this by default, as it adds work to every revision for little benefit in
+most sessions. To track it, opt in to [reevaluating dependent statements](@ref revise-dependents),
+which reevaluates statements that read a changed binding, such as this `if` statement.
 
 #### Toplevel binding changes do not propagate
 
 While struct revision is supported, some forms of "binding revision" do not work.
-Specifically, Revise does not track *implicit* dependencies between top-level bindings.
+By default, Revise does not track *implicit* dependencies between top-level bindings.
 
 For example, while *explicit* `struct` revisions work,
 
@@ -70,12 +71,13 @@ end
 The same applies to `const` bindings and other global bindings
 that are referenced in type definitions.
 
-Supporting this would require tracking implicit binding edges across all
-top-level code, which involves significant interpreter enhancements and may
-never happen. See the related case of [code that depends on data](@ref data)
+Tracking these by default would require tracking implicit binding edges across all
+top-level code in every session. See the related case of [code that depends on data](@ref data)
 above.
 
 As a workaround, you can manually call [`revise`](@ref) to force re-evaluation of all definitions in `MyModule`, which will pick up the new bindings.
+Alternatively, opt in to [reevaluating dependent statements](@ref revise-dependents),
+which reevaluates only the statements that read a changed binding.
 
 #### [Code already running in a task (including `Threads.@spawn`)](@id world-age-tasks)
 
@@ -173,14 +175,19 @@ end # module
 and the corresponding edit to the code would be to modify it to `greetcaller(x) = greet("Bar")`
 and `remotecall_fetch(greetcaller, p, 1)`.
 
-#### A removed `include` is recognized only for literal paths
+#### Files that another function `include`s stay tracked
 
-When an `include` statement disappears from a revised file, Revise deletes the
-definitions the included file contributed to that module and stops tracking the
-inclusion; restoring the statement registers the file again. Revise recognizes
-only string-literal paths and literal destination-module names, as in
-`Base.include(Sub, "file.jl")`. Computed paths (for example, from a loop, variable,
-or constant) are not recognized.
+When an `include` statement disappears from a revised file, Revise deletes the definitions of
+each file the statement included and stops tracking that file. Restoring the statement
+registers the file again. The same holds for the files that a statement no longer includes
+after [`Revise.revise_dependents`](@ref) reevaluated it, as `include(CHILD)` after `CHILD`
+changed.
+
+Revise knows which files a statement includes once it has evaluated the statement or extracted
+its signatures. Before that, it reads them from the source, which shows only string-literal
+paths and literal destination modules, as in `Base.include(Sub, "file.jl")`. Neither way sees an
+`include` that another function calls, as in `foreach(include, files)`. The files such a call
+includes stay tracked.
 
 #### Precompilation by another process can discard Revise's baseline
 
